@@ -3,6 +3,7 @@ import DescriptionInput from "./components/DescriptionInput";
 import Results from "./components/Results";
 import { UserStory, Requirement, AcceptanceCriteria } from "./types";
 import openai from "./api";
+import Exporter from "./components/Exporter";
 
 const App: React.FC = () => {
   const [userStories, setUserStories] = useState<UserStory[] | null>();
@@ -138,6 +139,11 @@ const App: React.FC = () => {
             onUserStoriesChange={setUserStories}
             onRequirementsChange={setRequirements}
             onAcceptanceCriteriaChange={setAcceptanceCriteria}
+          />
+          <Exporter
+            userStories={userStories}
+            requirements={requirements}
+            acceptanceCriteria={acceptanceCriteria}
           />
         </>
       ) : null}
