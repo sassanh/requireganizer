@@ -19,6 +19,10 @@
     {
       "id": "f6ca0e7d-1f07-4f12-9800-15efb3e7916d",
       "content": "As a user, I want to be able to export my generated user stories, requirements, and acceptance criteria in PDF, TXT, or JSON format, so that I can save, share, or use them in other tools."
+    },
+    {
+      "id": "0ab3294d-f3e1-4494-b711-edd62a144879",
+      "content": "As a user, I want to view the User Stories, Requirements, and Acceptance Criteria organized in separate tabs so that I can easily navigate and focus on each section. "
     }
   ],
   "requirements": [
@@ -61,6 +65,10 @@
     {
       "id": "7ca9258f-70cb-446e-a3d6-04715719ed7f",
       "content": "Requireganizer shall provide a feature to remove existing items from the user stories, requirements, and acceptance criteria lists."
+    },
+    {
+      "id": "ca7b7fe8-70de-4aae-a3f5-022fe8e93c32",
+      "content": "Requireganizer shall display the User Stories, Requirements, and Acceptance Criteria in separate tabs, allowing users to easily navigate between sections.\n"
     }
   ],
   "acceptanceCriteria": [
@@ -95,6 +103,10 @@
     {
       "id": "973be029-a522-42c7-bc5f-80a827211108",
       "content": "Test that the user can remove existing items from the user stories, requirements, and acceptance criteria lists."
+    },
+    {
+      "id": "72bc0b64-b50d-43e2-aca2-a2c26ad8d299",
+      "content": "Test that the User Stories, Requirements, and Acceptance Criteria are displayed in separate tabs and can be easily navigated by the user.\n"
     }
   ]
 }

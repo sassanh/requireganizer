@@ -19,14 +19,6 @@ const Exporter: React.FunctionComponent<ExporterProps> = ({
   const handleExport = async (format: "pdf" | "txt" | "json") => {
     const filename = `specification.${format}`;
 
-    if (
-      userStories == null ||
-      requirements == null ||
-      acceptanceCriteria == null
-    ) {
-      return;
-    }
-
     if (format === "pdf") {
       const blob = await pdf(
         <PDFDocument

@@ -7,19 +7,21 @@ import Exporter from "./components/Exporter";
 import ImportJson from "./components/ImportJson";
 
 const App: React.FunctionComponent = () => {
-  const [userStories, setUserStories] = useState<UserStory[] | null>();
-  const [requirements, setRequirements] = useState<Requirement[] | null>();
+  const [userStories, setUserStories] = useState<UserStory[]>([]);
+  const [requirements, setRequirements] = useState<Requirement[]>([]);
   const [acceptanceCriteria, setAcceptanceCriteria] = useState<
-    AcceptanceCriteria[] | null
-  >();
+    AcceptanceCriteria[]
+  >([]);
   const [validationErrors, setValidationErrors] = useState("");
   const [isWorking, setIsWorking] = useState(false);
 
   const handleSubmit = async (description: string) => {
     try {
-      setValidationErrors("");
-      setUserStories(null);
       setIsWorking(true);
+      setValidationErrors("");
+      setUserStories([]);
+      setRequirements([]);
+      setAcceptanceCriteria([]);
 
       // Send the software description to ChatGPT to validate it
       const validationResult = await openai.createChatCompletion({
@@ -104,10 +106,15 @@ const App: React.FunctionComponent = () => {
 
       // Set states
       const prepareContent = (content: string | undefined) => {
-        return content
-          ?.split("-----")
-          .slice(1)
-          .map((item) => ({ content: item.trim(), id: crypto.randomUUID() }));
+        return (
+          content
+            ?.split("-----")
+            .slice(1)
+            .map((item) => ({
+              content: item.trim(),
+              id: crypto.randomUUID(),
+            })) || []
+        );
       };
 
       setUserStories(prepareContent(userStories));
@@ -138,27 +145,25 @@ const App: React.FunctionComponent = () => {
         <div className="validation-errors">{validationErrors}</div>
       ) : null}
 
-      {isWorking ? null : <ImportJson onImport={handleImport} />}
-      <DescriptionInput onSubmit={isWorking ? null : handleSubmit} />
-      {userStories != null &&
-      requirements != null &&
-      acceptanceCriteria != null ? (
+      {isWorking ? null : (
         <>
-          <Results
-            userStories={userStories}
-            requirements={requirements}
-            acceptanceCriteria={acceptanceCriteria}
-            onUserStoriesChange={setUserStories}
-            onRequirementsChange={setRequirements}
-            onAcceptanceCriteriaChange={setAcceptanceCriteria}
-          />
+          <ImportJson onImport={handleImport} />
           <Exporter
             userStories={userStories}
             requirements={requirements}
             acceptanceCriteria={acceptanceCriteria}
           />
         </>
-      ) : null}
+      )}
+      <DescriptionInput onSubmit={isWorking ? null : handleSubmit} />
+      <Results
+        userStories={userStories}
+        requirements={requirements}
+        acceptanceCriteria={acceptanceCriteria}
+        onUserStoriesChange={setUserStories}
+        onRequirementsChange={setRequirements}
+        onAcceptanceCriteriaChange={setAcceptanceCriteria}
+      />
     </div>
   );
 };
