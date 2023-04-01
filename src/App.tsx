@@ -4,6 +4,7 @@ import Results from "./components/Results";
 import { UserStory, Requirement, AcceptanceCriteria } from "./types";
 import openai from "./api";
 import Exporter from "./components/Exporter";
+import ImportJson from "./components/ImportJson";
 
 const App: React.FC = () => {
   const [userStories, setUserStories] = useState<UserStory[] | null>();
@@ -120,13 +121,24 @@ const App: React.FC = () => {
     }
   };
 
+  const handleImport = (data: {
+    userStories: UserStory[];
+    requirements: Requirement[];
+    acceptanceCriteria: AcceptanceCriteria[];
+  }) => {
+    setUserStories(data.userStories);
+    setRequirements(data.requirements);
+    setAcceptanceCriteria(data.acceptanceCriteria);
+  };
+
   return (
     <div>
       {/* Render the validation errors */}
-      {validationErrors && (
+      {validationErrors ? (
         <div className="validation-errors">{validationErrors}</div>
-      )}
+      ) : null}
 
+      {isWorking ? null : <ImportJson onImport={handleImport} />}
       <DescriptionInput onSubmit={isWorking ? null : handleSubmit} />
       {userStories != null &&
       requirements != null &&

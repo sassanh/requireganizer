@@ -17,7 +17,7 @@ const Exporter: React.FC<ExporterProps> = ({
   acceptanceCriteria,
 }) => {
   const handleExport = async (format: "pdf" | "txt" | "json") => {
-    const filename = `exported_content.${format}`;
+    const filename = `specification.${format}`;
 
     if (
       userStories == null ||
