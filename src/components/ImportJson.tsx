@@ -1,4 +1,4 @@
-import React, { ChangeEvent } from "react";
+import React, { ChangeEvent, useState } from "react";
 import { AcceptanceCriteria, Requirement, UserStory } from "../types";
 
 interface ImportJsonProps {
@@ -10,7 +10,9 @@ interface ImportJsonProps {
 }
 
 const ImportJson: React.FunctionComponent<ImportJsonProps> = ({ onImport }) => {
-  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+  const [importInputKey, setImportInputKey] = useState<number>(0);
+
+  const handleImport = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -24,6 +26,7 @@ const ImportJson: React.FunctionComponent<ImportJsonProps> = ({ onImport }) => {
       }
     };
     reader.readAsText(file);
+    setImportInputKey(importInputKey + 1);
   };
 
   return (
@@ -33,7 +36,8 @@ const ImportJson: React.FunctionComponent<ImportJsonProps> = ({ onImport }) => {
         type="file"
         id="import-json"
         accept=".json"
-        onChange={handleFileChange}
+        onChange={handleImport}
+        key={importInputKey}
       />
     </div>
   );
