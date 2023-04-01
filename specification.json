@@ -14,7 +14,7 @@
     },
     {
       "id": "5afdd1d9-0a31-4445-bd52-99e36d8b2695",
-      "content": "As a user, I want to be able to edit the generated user stories, requirements, and acceptance criteria to refine and customize the content to better suit my needs."
+      "content": "As a user, I want to be able to add, edit, and remove items in the user stories, requirements, and acceptance criteria lists so that I can further customize and refine the project specifications."
     },
     {
       "id": "f6ca0e7d-1f07-4f12-9800-15efb3e7916d",
@@ -51,8 +51,16 @@
       "content": "Requireganizer shall provide a feature to import a JSON file containing software description, allowing users to reload previously saved data."
     },
     {
+      "id": "b21096d0-5145-4c45-b08c-272ab90914b7",
+      "content": "Requireganizer shall provide a feature to add new items to the user stories, requirements, and acceptance criteria lists."
+    },
+    {
       "id": "4c4ad0ca-7e6f-4bc9-9d3a-3f19de44d66f",
       "content": "Requireganizer shall provide a feature to edit the generated user stories, requirements, and acceptance criteria."
+    },
+    {
+      "id": "7ca9258f-70cb-446e-a3d6-04715719ed7f",
+      "content": "Requireganizer shall provide a feature to remove existing items from the user stories, requirements, and acceptance criteria lists."
     }
   ],
   "acceptanceCriteria": [
@@ -77,8 +85,16 @@
       "content": "It provides a feature to import a JSON file containing software description, enabling users to reload previously saved data and continue working with it."
     },
     {
+      "id": "2bfcde47-48df-455c-96ba-2ebebc9c927a",
+      "content": "Test that the user can add new items to the user stories, requirements, and acceptance criteria lists."
+    },
+    {
       "id": "d8b23010-eb0a-4e47-9b8f-0ca9e94db1f9",
       "content": "Test that the user can edit the generated user stories, requirements, and acceptance criteria to refine and customize the content."
+    },
+    {
+      "id": "973be029-a522-42c7-bc5f-80a827211108",
+      "content": "Test that the user can remove existing items from the user stories, requirements, and acceptance criteria lists."
     }
   ]
 }

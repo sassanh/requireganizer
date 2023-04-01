@@ -3,12 +3,21 @@ import { UserStory, Requirement, AcceptanceCriteria } from "../types";
 
 interface EditableItemProps {
   item: UserStory | Requirement | AcceptanceCriteria;
+  onRemove: (id: string) => void;
   onSave: (id: string, updatedContent: string) => void;
 }
 
-const EditableItem: React.FC<EditableItemProps> = ({ item, onSave }) => {
+const EditableItem: React.FunctionComponent<EditableItemProps> = ({
+  item,
+  onRemove,
+  onSave,
+}) => {
   const [isEditing, setIsEditing] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
+
+  const handleRemove = () => {
+    onRemove(item.id);
+  };
 
   const handleSave = () => {
     if (contentRef.current) {
@@ -32,6 +41,9 @@ const EditableItem: React.FC<EditableItemProps> = ({ item, onSave }) => {
       ) : (
         <button onClick={() => setIsEditing(true)}>Edit</button>
       )}
+      <button id={item.id} onClick={handleRemove}>
+        Remove
+      </button>
     </li>
   );
 };

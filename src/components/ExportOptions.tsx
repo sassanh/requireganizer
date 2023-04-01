@@ -4,7 +4,7 @@ interface ExportOptionsProps {
   onExport: (format: "pdf" | "txt" | "json") => void;
 }
 
-const ExportOptions: React.FC<ExportOptionsProps> = ({ onExport }) => {
+const ExportOptions: React.FunctionComponent<ExportOptionsProps> = ({ onExport }) => {
   return (
     <div>
       <h3>Export Options</h3>

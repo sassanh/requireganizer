@@ -25,7 +25,7 @@ const styles = StyleSheet.create({
   },
 });
 
-const PDFDocument: React.FC<PDFDocumentProps> = ({
+const PDFDocument: React.FunctionComponent<PDFDocumentProps> = ({
   userStories,
   requirements,
   acceptanceCriteria,

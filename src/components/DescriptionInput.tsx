@@ -4,7 +4,7 @@ interface DescriptionInputProps {
   onSubmit: null | ((description: string) => void);
 }
 
-const DescriptionInput: React.FC<DescriptionInputProps> = ({ onSubmit }) => {
+const DescriptionInput: React.FunctionComponent<DescriptionInputProps> = ({ onSubmit }) => {
   const [description, setDescription] = useState("");
 
   const handleSubmit = (e: React.FormEvent) => {

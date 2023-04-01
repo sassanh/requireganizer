@@ -1,1 +1,1 @@
-export const crypto = new Crypto();
+export { v4 as uuid } from "uuid";

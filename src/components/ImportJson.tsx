@@ -9,7 +9,7 @@ interface ImportJsonProps {
   }) => void;
 }
 
-const ImportJson: React.FC<ImportJsonProps> = ({ onImport }) => {
+const ImportJson: React.FunctionComponent<ImportJsonProps> = ({ onImport }) => {
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;

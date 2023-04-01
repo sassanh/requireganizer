@@ -11,7 +11,7 @@ interface ExporterProps {
   acceptanceCriteria: AcceptanceCriteria[];
 }
 
-const Exporter: React.FC<ExporterProps> = ({
+const Exporter: React.FunctionComponent<ExporterProps> = ({
   userStories,
   requirements,
   acceptanceCriteria,

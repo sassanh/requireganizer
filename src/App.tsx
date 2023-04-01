@@ -6,7 +6,7 @@ import openai from "./api";
 import Exporter from "./components/Exporter";
 import ImportJson from "./components/ImportJson";
 
-const App: React.FC = () => {
+const App: React.FunctionComponent = () => {
   const [userStories, setUserStories] = useState<UserStory[] | null>();
   const [requirements, setRequirements] = useState<Requirement[] | null>();
   const [acceptanceCriteria, setAcceptanceCriteria] = useState<
