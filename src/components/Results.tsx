@@ -1,17 +1,20 @@
-import React from "react";
-import Tabs from "@mui/material/Tabs";
-import Tab from "@mui/material/Tab";
-import Box from "@mui/material/Box";
+import React, { Fragment } from "react";
+import { Tab } from "@headlessui/react";
+import { faPlus } from "@fortawesome/free-solid-svg-icons";
 import EditableItem from "./EditableItem";
 import { UserStory, Requirement, AcceptanceCriteria } from "../types";
 import { uuid } from "../utilities";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 
-function TabPanel(props: any) {
-  const { children, value, index } = props;
+function TabTitle({ children, ...props }: React.PropsWithChildren<{}>) {
   return (
-    <div hidden={value !== index}>
-      {value === index && <Box>{children}</Box>}
-    </div>
+    <Tab as={Fragment} {...props}>
+      {({ selected }) => (
+        <button className={"tab" + (selected ? " selected-tab" : "")}>
+          {children}
+        </button>
+      )}
+    </Tab>
   );
 }
 
@@ -92,66 +95,67 @@ const Results: React.FunctionComponent<ResultsProps> = ({
     );
   };
 
-  const [tabValue, setTabValue] = React.useState(0);
-  const handleTabChange = (_: React.ChangeEvent<{}>, newValue: number) => {
-    setTabValue(newValue);
-  };
-
   return (
-    <div>
-      <Tabs value={tabValue} onChange={handleTabChange}>
-        <Tab label="User Stories" />
-        <Tab label="Requirements" />
-        <Tab label="Acceptance Criteria" />
-      </Tabs>
+    <Tab.Group>
+      <Tab.List>
+        <TabTitle>User Stories</TabTitle>
+        <TabTitle>Requirements</TabTitle>
+        <TabTitle>Acceptance Criteria</TabTitle>
+      </Tab.List>
 
-      <TabPanel value={tabValue} index={0}>
-        <div className="section">
-          {userStories.map((userStory) => (
-            <div key={userStory.id} className="item">
-              <EditableItem
-                item={userStory}
-                onRemove={handleRemoveUserStory}
-                onSave={handleSaveUserStory}
-              />
-            </div>
-          ))}
-          <button onClick={handleAddUserStory}>Add User Story</button>
-        </div>
-      </TabPanel>
+      <Tab.Panels>
+        <Tab.Panel>
+          <div className="section">
+            {userStories.map((userStory) => (
+              <div key={userStory.id} className="item">
+                <EditableItem
+                  item={userStory}
+                  onRemove={handleRemoveUserStory}
+                  onSave={handleSaveUserStory}
+                />
+              </div>
+            ))}
+            <button onClick={handleAddUserStory}>
+              <FontAwesomeIcon icon={faPlus} />
+            </button>
+          </div>
+        </Tab.Panel>
 
-      <TabPanel value={tabValue} index={1}>
-        <div className="section">
-          {requirements.map((requirement) => (
-            <div key={requirement.id} className="item">
-              <EditableItem
-                item={requirement}
-                onRemove={handleRemoveRequirement}
-                onSave={handleSaveRequirement}
-              />
-            </div>
-          ))}
-          <button onClick={handleAddRequirement}>Add Requirement</button>
-        </div>
-      </TabPanel>
+        <Tab.Panel>
+          <div className="section">
+            {requirements.map((requirement) => (
+              <div key={requirement.id} className="item">
+                <EditableItem
+                  item={requirement}
+                  onRemove={handleRemoveRequirement}
+                  onSave={handleSaveRequirement}
+                />
+              </div>
+            ))}
+            <button onClick={handleAddRequirement}>
+              <FontAwesomeIcon icon={faPlus} />
+            </button>
+          </div>
+        </Tab.Panel>
 
-      <TabPanel value={tabValue} index={2}>
-        <div className="section">
-          {acceptanceCriteria.map((acceptanceCriteria) => (
-            <div key={acceptanceCriteria.id} className="item">
-              <EditableItem
-                item={acceptanceCriteria}
-                onRemove={handleRemoveAcceptanceCriteria}
-                onSave={handleSaveAcceptanceCriteria}
-              />
-            </div>
-          ))}
-          <button onClick={handleAddAcceptanceCriteria}>
-            Add Acceptance Criteria
-          </button>
-        </div>
-      </TabPanel>
-    </div>
+        <Tab.Panel>
+          <div className="section">
+            {acceptanceCriteria.map((acceptanceCriteria) => (
+              <div key={acceptanceCriteria.id} className="item">
+                <EditableItem
+                  item={acceptanceCriteria}
+                  onRemove={handleRemoveAcceptanceCriteria}
+                  onSave={handleSaveAcceptanceCriteria}
+                />
+              </div>
+            ))}
+            <button onClick={handleAddAcceptanceCriteria}>
+              <FontAwesomeIcon icon={faPlus} />
+            </button>
+          </div>
+        </Tab.Panel>
+      </Tab.Panels>
+    </Tab.Group>
   );
 };
 

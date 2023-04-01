@@ -23,7 +23,7 @@ h2 {
   margin-bottom: 16px;
 }
 
-.button {
+button {
   background-color: #007bff;
   border: none;
   color: white;
@@ -37,7 +37,7 @@ h2 {
   border-radius: 4px;
 }
 
-.button:hover {
+button:hover {
   background-color: #0056b3;
   text-decoration: none;
 }
@@ -54,4 +54,16 @@ h2 {
 
 .item > *:not(:last-child) {
   margin-right: 8px;
+}
+
+.tab {
+  border: none;
+  border-radius: 5;
+  background-color: palegoldenrod;
+  margin: 4px;
+  font-size: 24px;
+}
+
+.selected-tab {
+  background-color: goldenrod;
 }

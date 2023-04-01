@@ -1,3 +1,5 @@
+import { faEdit, faSave, faTrash } from "@fortawesome/free-solid-svg-icons";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import React, { useState, useRef } from "react";
 import { UserStory, Requirement, AcceptanceCriteria } from "../types";
 
@@ -37,12 +39,16 @@ const EditableItem: React.FunctionComponent<EditableItemProps> = ({
         {item.content}
       </div>
       {isEditing ? (
-        <button onClick={handleSave}>Save</button>
+        <button onClick={handleSave}>
+          <FontAwesomeIcon icon={faSave} />
+        </button>
       ) : (
-        <button onClick={() => setIsEditing(true)}>Edit</button>
+        <button onClick={() => setIsEditing(true)}>
+          <FontAwesomeIcon icon={faEdit} />
+        </button>
       )}
       <button id={item.id} onClick={handleRemove}>
-        Remove
+        <FontAwesomeIcon icon={faTrash} />
       </button>
     </li>
   );

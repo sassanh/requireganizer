@@ -153,6 +153,7 @@ const App: React.FunctionComponent = () => {
             requirements={requirements}
             acceptanceCriteria={acceptanceCriteria}
           />
+          <hr />
         </>
       )}
       <DescriptionInput onSubmit={isWorking ? null : handleSubmit} />
