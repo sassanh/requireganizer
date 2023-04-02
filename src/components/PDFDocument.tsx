@@ -1,6 +1,7 @@
 import React from "react";
 import { UserStory, Requirement, AcceptanceCriteria } from "../types";
 import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
+import { observer } from "mobx-react-lite";
 
 interface PDFDocumentProps {
   userStories: UserStory[];
@@ -62,4 +63,4 @@ const PDFDocument: React.FunctionComponent<PDFDocumentProps> = ({
   );
 };
 
-export default PDFDocument;
+export default observer(PDFDocument);

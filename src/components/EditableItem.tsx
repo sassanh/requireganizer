@@ -1,5 +1,6 @@
 import { faEdit, faSave, faTrash } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { observer } from "mobx-react-lite";
 import React, { useState, useRef } from "react";
 import { UserStory, Requirement, AcceptanceCriteria } from "../types";
 
@@ -54,4 +55,4 @@ const EditableItem: React.FunctionComponent<EditableItemProps> = ({
   );
 };
 
-export default EditableItem;
+export default observer(EditableItem);

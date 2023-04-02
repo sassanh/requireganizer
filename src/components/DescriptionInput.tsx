@@ -4,7 +4,9 @@ interface DescriptionInputProps {
   onSubmit: null | ((description: string) => void);
 }
 
-const DescriptionInput: React.FunctionComponent<DescriptionInputProps> = ({ onSubmit }) => {
+const DescriptionInput: React.FunctionComponent<DescriptionInputProps> = ({
+  onSubmit,
+}) => {
   const [description, setDescription] = useState("");
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -19,6 +21,7 @@ const DescriptionInput: React.FunctionComponent<DescriptionInputProps> = ({ onSu
         id="description"
         value={description}
         onChange={(e) => setDescription(e.target.value)}
+        style={{ minWidth: "400px", minHeight: "100px" }}
       />
       <button type="submit" disabled={onSubmit == null}>
         Submit

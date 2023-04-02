@@ -5,6 +5,7 @@ import EditableItem from "./EditableItem";
 import { UserStory, Requirement, AcceptanceCriteria } from "../types";
 import { uuid } from "../utilities";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { observer } from "mobx-react-lite";
 
 function TabTitle({ children, ...props }: React.PropsWithChildren<{}>) {
   return (
@@ -159,4 +160,4 @@ const Results: React.FunctionComponent<ResultsProps> = ({
   );
 };
 
-export default Results;
+export default observer(Results);

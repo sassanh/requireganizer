@@ -1,5 +1,6 @@
 body {
   margin: 0;
+  padding: 16px;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen",
     "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue",
     sans-serif;
@@ -59,11 +60,24 @@ button:hover {
 .tab {
   border: none;
   border-radius: 5;
-  background-color: palegoldenrod;
+  background-color: darkseagreen;
   margin: 4px;
   font-size: 24px;
 }
 
+.tab:hover {
+  background-color: lightseagreen;
+}
+
 .selected-tab {
-  background-color: goldenrod;
+  background-color: lightseagreen;
+}
+
+.selected-tab:hover {
+  background-color: seagreen;
+}
+
+form > * {
+  display: block;
+  margin-top: 16px;
 }
