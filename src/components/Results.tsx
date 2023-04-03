@@ -1,11 +1,10 @@
-import { faCog, faPlus } from "@fortawesome/free-solid-svg-icons";
+import { faCog, faPlus, faRefresh } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { Tab } from "@headlessui/react";
 import { observer } from "mobx-react-lite";
 import React, { Fragment, useContext } from "react";
 import { storeContext } from "store/store";
 
-import DescriptionInput from "./DescriptionInput";
 import EditableItem from "./EditableItem";
 
 function TabTitle({
@@ -30,6 +29,9 @@ function TabTitle({
 const Results: React.FunctionComponent = () => {
   const store = useContext(storeContext);
 
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) =>
+    store.setDescription(e.target.value);
+
   return (
     <Tab.Group>
       <Tab.List>
@@ -42,16 +44,28 @@ const Results: React.FunctionComponent = () => {
 
       <Tab.Panels>
         <Tab.Panel>
-          <DescriptionInput onSubmit={store.generate} />
-          <button className="icon-button">
-            <FontAwesomeIcon icon={faCog} />
-          </button>
-          <pre>{store.description}</pre>
+          <form onSubmit={store.generateFormalDescription}>
+            <label htmlFor="description-input">Software Description:</label>
+            <textarea
+              id="description-input"
+              value={store.description}
+              onChange={handleChange}
+              style={{ minWidth: "400px", minHeight: "100px" }}
+            />
+            <button
+              type="submit"
+              className="icon-button"
+              disabled={store.isGenerating}
+            >
+              <FontAwesomeIcon icon={faCog} />
+            </button>
+          </form>
+          <pre>{store.formalDescription}</pre>
         </Tab.Panel>
 
         <Tab.Panel>
           <button className="icon-button">
-            <FontAwesomeIcon icon={faCog} />
+            <FontAwesomeIcon icon={faRefresh} /> Regenerate User Stories
           </button>
           <ul className="section">
             {store.userStories.map((userStory) => (
@@ -63,7 +77,7 @@ const Results: React.FunctionComponent = () => {
             ))}
           </ul>
           <button className="icon-button" onClick={store.addUserStory}>
-            <FontAwesomeIcon icon={faPlus} />
+            <FontAwesomeIcon icon={faPlus} /> Add User Story
           </button>
         </Tab.Panel>
 
@@ -78,7 +92,7 @@ const Results: React.FunctionComponent = () => {
             ))}
           </ul>
           <button className="icon-button" onClick={store.addRequirement}>
-            <FontAwesomeIcon icon={faPlus} />
+            <FontAwesomeIcon icon={faPlus} /> Add Requirement
           </button>
         </Tab.Panel>
 
@@ -93,7 +107,7 @@ const Results: React.FunctionComponent = () => {
             ))}
           </ul>
           <button className="icon-button" onClick={store.addAcceptanceCriteria}>
-            <FontAwesomeIcon icon={faPlus} />
+            <FontAwesomeIcon icon={faPlus} /> Add Acceptance Criteria
           </button>
         </Tab.Panel>
 
@@ -117,14 +131,14 @@ const Results: React.FunctionComponent = () => {
                     className="icon-button"
                     onClick={testScenario.addTestCase}
                   >
-                    <FontAwesomeIcon icon={faPlus} />
+                    <FontAwesomeIcon icon={faPlus} /> Add Test Case
                   </button>
                 </ul>
               </EditableItem>
             ))}
           </ul>
           <button className="icon-button" onClick={store.addTestScenario}>
-            <FontAwesomeIcon icon={faPlus} />
+            <FontAwesomeIcon icon={faPlus} /> Add Test Scenario
           </button>
         </Tab.Panel>
       </Tab.Panels>

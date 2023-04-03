@@ -41,15 +41,15 @@ const EditableItem = <Type extends StructuralFragment>({
       />
       {isEditing ? (
         <button className="icon-button" onClick={handleSave}>
-          <FontAwesomeIcon icon={faSave} />
+          <FontAwesomeIcon icon={faSave} /> Save
         </button>
       ) : (
         <button className="icon-button" onClick={() => setIsEditing(true)}>
-          <FontAwesomeIcon icon={faEdit} />
+          <FontAwesomeIcon icon={faEdit} /> Edit
         </button>
       )}
       <button className="icon-button" id={item.id} onClick={handleRemove}>
-        <FontAwesomeIcon icon={faTrash} />
+        <FontAwesomeIcon icon={faTrash} /> Delete
       </button>
       {children}
     </li>

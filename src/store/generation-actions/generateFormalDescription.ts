@@ -3,12 +3,13 @@ import { Store } from "store/store";
 
 import openai from "../api";
 
-export const validateDescription = flow(function* (
-  self_: unknown,
-  description: string
-) {
+import { generator } from "./utilities";
+
+const generateFormalDescription = flow(function* (self_: unknown) {
   const self = self_ as Store;
-  self.description = "";
+
+  self.formalDescription = null;
+  const description = self.description;
 
   // Send the software description to ChatGPT to validate it
   const validationResult = yield openai.createChatCompletion({
@@ -36,7 +37,7 @@ export const validateDescription = flow(function* (
 
   if (validationResultContent.startsWith("+++++")) {
     self.resetValidationErrors();
-    self.description = validationResultContent
+    self.formalDescription = validationResultContent
       .replace(/^\+\+\+\+\+/, "")
       .trim();
 
@@ -46,4 +47,6 @@ export const validateDescription = flow(function* (
   self.setValidationErrors(
     validationResultContent.replace(/^-----/, "").trim()
   );
-});
+}) as (self_: unknown) => Promise<void>;
+
+export default generator(generateFormalDescription);

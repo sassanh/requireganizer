@@ -1,14 +1,15 @@
+import { flow } from "mobx-state-tree";
 import { Store } from "store/store";
 
 import openai from "../api";
 
-import { generatePrompt, prepareContent } from "./utilities";
+import { generatePrompt, generator, prepareContent } from "./utilities";
 
-export async function generateUserStories(self_: unknown): Promise<void> {
+const generateUserStories = flow(function* (self_: unknown) {
   const self = self_ as Store;
 
   // Generate user stories
-  const userStoriesResult = await openai.createChatCompletion({
+  const userStoriesResult = yield openai.createChatCompletion({
     model: "gpt-3.5-turbo",
     n: 1,
     temperature: 0,
@@ -31,4 +32,6 @@ export async function generateUserStories(self_: unknown): Promise<void> {
   const userStories = userStoriesResult.data.choices[0].message?.content;
 
   self.setUserStories(prepareContent(userStories));
-}
+}) as (self_: unknown) => Promise<void>;
+
+export default generator(generateUserStories);

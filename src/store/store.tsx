@@ -1,11 +1,11 @@
 import { pdf } from "@react-pdf/renderer";
 import PDFDocument from "components/PDFDocument";
 import { saveAs } from "file-saver";
-import { Instance, SnapshotIn, cast, flow, types } from "mobx-state-tree";
+import { Instance, SnapshotIn, cast, types } from "mobx-state-tree";
 import { createContext, useContext } from "react";
 
-import { generateUserStories } from "./generation-actions/generateUserStories";
-import { validateDescription } from "./generation-actions/validateDescription";
+import generateFormalDescription from "./generation-actions/generateFormalDescription";
+import generateUserStories from "./generation-actions/generateUserStories";
 import {
   AcceptanceCriteria,
   AcceptanceCriteriaModel,
@@ -22,9 +22,10 @@ const Store = types
   .model("Store", {
     isClean: types.optional(types.boolean, true),
     isGenerating: types.optional(types.boolean, false),
-    humanWrittenDescription: types.optional(types.string, ""),
-    description: types.maybeNull(types.string),
+    description: types.optional(types.string, ""),
     validationErrors: types.maybeNull(types.string),
+
+    formalDescription: types.maybeNull(types.string),
     userStories: types.array(UserStoryModel),
     requirements: types.array(RequirementModel),
     acceptanceCriteria: types.array(AcceptanceCriteriaModel),
@@ -36,6 +37,8 @@ const Store = types
       self.isGenerating = false;
       self.description = "";
       self.validationErrors = null;
+
+      self.formalDescription = "";
       self.userStories = cast([]);
       self.requirements = cast([]);
       self.acceptanceCriteria = cast([]);
@@ -43,6 +46,9 @@ const Store = types
     },
     resetValidationErrors() {
       self.validationErrors = null;
+    },
+    setDescription(description: string) {
+      self.description = description;
     },
     setValidationErrors(validationErrors: string) {
       self.validationErrors = validationErrors;
@@ -112,23 +118,7 @@ const Store = types
       self.testScenarios.remove(testScenario);
     },
   }))
-  .actions(withSelf({ validateDescription, generateUserStories }))
-  .actions((self) => {
-    const generate = flow(function* (description: string) {
-      self.isGenerating = true;
-
-      try {
-        yield self.validateDescription(description);
-      } catch (error) {
-        console.error("Error while submitting the description:", error);
-        alert(error);
-      } finally {
-        self.isGenerating = false;
-      }
-    });
-
-    return { generate };
-  })
+  .actions(withSelf({ generateFormalDescription, generateUserStories }))
   .actions((self) => ({
     import({
       userStories,

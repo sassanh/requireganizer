@@ -1,58 +1,45 @@
-import React from "react";
 import { observer } from "mobx-react-lite";
-import Store from "./store";
-import DescriptionInput from "./components/DescriptionInput";
-import Results from "./components/Results";
-import { UserStory, Requirement, AcceptanceCriteria } from "./types";
-import ImportJson from "./components/ImportJson";
-import ExportOptions from "./components/ExportOptions";
+import React, { useMemo } from "react";
 
-const store = Store.create({
-  userStories: [],
-  requirements: [],
-  acceptanceCriteria: [],
-});
+import ExportOptions from "./components/ExportOptions";
+import ImportJson from "./components/ImportJson";
+import Results from "./components/Results";
+import Store, { storeContext } from "./store";
+import {
+  AcceptanceCriteria,
+  Requirement,
+  TestScenario,
+  UserStory,
+} from "./store/models";
 
 const App: React.FunctionComponent = () => {
+  const store = useMemo(() => Store.create(), []);
+
   const handleImport = (data: {
+    formalDescription: string;
     userStories: UserStory[];
     requirements: Requirement[];
     acceptanceCriteria: AcceptanceCriteria[];
+    testScenarios: TestScenario[];
   }) => {
     store.import(data);
   };
 
   return (
-    <div>
-      {store.isClean ? (
+    <storeContext.Provider value={store}>
+      {store.validationErrors ? (
+        <div className="validation-errors">{store.validationErrors}</div>
+      ) : null}
+      <ImportJson onImport={handleImport} />
+      {store.isGenerating ? null : (
         <>
-          {store.validationErrors ? (
-            <div className="validation-errors">{store.validationErrors}</div>
-          ) : null}
-          <ImportJson onImport={handleImport} />
-          <DescriptionInput onSubmit={store.generate} />
-        </>
-      ) : (
-        <>
-          {" "}
-          {store.isGenerating ? null : (
-            <>
-              <ExportOptions onExport={store.export} />;
-              <button onClick={store.reset}>Reset</button>
-              <hr />
-            </>
-          )}
-          <Results
-            userStories={store.userStories}
-            requirements={store.requirements}
-            acceptanceCriteria={store.acceptanceCriteria}
-            onUserStoriesChange={store.setUserStories}
-            onRequirementsChange={store.setRequirements}
-            onAcceptanceCriteriaChange={store.setAcceptanceCriteria}
-          />
+          <ExportOptions onExport={store.export} />
+          <button onClick={store.reset}>Reset</button>
+          <hr />
         </>
       )}
-    </div>
+      <Results />
+    </storeContext.Provider>
   );
 };
 

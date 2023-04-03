@@ -1,11 +1,19 @@
 import React, { ChangeEvent, useState } from "react";
-import { AcceptanceCriteria, Requirement, UserStory } from "store/models";
+
+import {
+  AcceptanceCriteria,
+  Requirement,
+  TestScenario,
+  UserStory,
+} from "../store/models";
 
 interface ImportJsonProps {
   onImport: (data: {
+    formalDescription: string;
     userStories: UserStory[];
     requirements: Requirement[];
     acceptanceCriteria: AcceptanceCriteria[];
+    testScenarios: TestScenario[];
   }) => void;
 }
 

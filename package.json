@@ -17,6 +17,7 @@
     "@types/react": "^18.0.31",
     "@types/react-dom": "^18.0.11",
     "@types/uuid": "^9.0.1",
+    "eslint-plugin-import": "^2.27.5",
     "file-saver": "^2.0.5",
     "mobx": "^6.9.0",
     "mobx-react-lite": "^3.4.3",
@@ -33,13 +34,48 @@
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "eject": "react-scripts eject",
+    "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
+    "lint:fix": "eslint --fix . --ext .js,.jsx,.ts,.tsx"
   },
   "eslintConfig": {
     "extends": [
       "react-app",
-      "react-app/jest"
-    ]
+      "react-app/jest",
+      "plugin:import/recommended",
+      "plugin:import/typescript"
+    ],
+    "plugins": [
+      "import"
+    ],
+    "rules": {
+      "sort-imports": [
+        "error",
+        {
+          "ignoreDeclarationSort": true
+        }
+      ],
+      "import/no-unresolved": "off",
+      "import/order": [
+        "error",
+        {
+          "alphabetize": {
+            "order": "asc",
+            "orderImportKind": "asc",
+            "caseInsensitive": true
+          },
+          "groups": [
+            "builtin",
+            "external",
+            "internal",
+            "parent",
+            "sibling",
+            "index"
+          ],
+          "newlines-between": "always"
+        }
+      ]
+    }
   },
   "browserslist": {
     "production": [
