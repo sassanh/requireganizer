@@ -21,7 +21,6 @@ const DescriptionInput: React.FunctionComponent<DescriptionInputProps> = ({
         id="description"
         value={description}
         onChange={(e) => setDescription(e.target.value)}
-        style={{ minWidth: "400px", minHeight: "100px" }}
       />
       <button type="submit" disabled={onSubmit == null}>
         Submit

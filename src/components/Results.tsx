@@ -1,159 +1,131 @@
-import React, { Fragment } from "react";
-import { Tab } from "@headlessui/react";
-import { faPlus } from "@fortawesome/free-solid-svg-icons";
-import EditableItem from "./EditableItem";
-import { UserStory, Requirement, AcceptanceCriteria } from "../types";
-import { uuid } from "../utilities";
+import { faCog, faPlus } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { Tab } from "@headlessui/react";
 import { observer } from "mobx-react-lite";
+import React, { Fragment, useContext } from "react";
+import { storeContext } from "store/store";
 
-function TabTitle({ children, ...props }: React.PropsWithChildren<{}>) {
+import DescriptionInput from "./DescriptionInput";
+import EditableItem from "./EditableItem";
+
+function TabTitle({
+  children,
+  id,
+  ...props
+}: React.PropsWithChildren<{ id: string }>) {
   return (
     <Tab as={Fragment} {...props}>
       {({ selected }) => (
-        <button className={"tab" + (selected ? " selected-tab" : "")}>
+        <a
+          href={`#${id}`}
+          className={"tab" + (selected ? " selected-tab" : "")}
+        >
           {children}
-        </button>
+        </a>
       )}
     </Tab>
   );
 }
 
-interface ResultsProps {
-  userStories: UserStory[];
-  requirements: Requirement[];
-  acceptanceCriteria: AcceptanceCriteria[];
-  onUserStoriesChange: (userStories: UserStory[]) => void;
-  onRequirementsChange: (requirements: Requirement[]) => void;
-  onAcceptanceCriteriaChange: (
-    acceptanceCriteria: AcceptanceCriteria[]
-  ) => void;
-}
-
-const Results: React.FunctionComponent<ResultsProps> = ({
-  userStories,
-  requirements,
-  acceptanceCriteria,
-  onUserStoriesChange,
-  onRequirementsChange,
-  onAcceptanceCriteriaChange,
-}) => {
-  const handleAddUserStory = () => {
-    onUserStoriesChange([
-      ...userStories,
-      { id: uuid(), content: "New User Story" },
-    ]);
-  };
-  const handleAddRequirement = () => {
-    onRequirementsChange([
-      ...requirements,
-      { id: uuid(), content: "New Requirement" },
-    ]);
-  };
-  const handleAddAcceptanceCriteria = () => {
-    onAcceptanceCriteriaChange([
-      ...acceptanceCriteria,
-      { id: uuid(), content: "New Acceptance Criteria" },
-    ]);
-  };
-
-  const handleSaveUserStory = (id: string, updatedContent: string) => {
-    const updatedUserStories = userStories.map((userStory) =>
-      userStory.id === id
-        ? { ...userStory, content: updatedContent }
-        : userStory
-    );
-    onUserStoriesChange(updatedUserStories);
-  };
-  const handleSaveRequirement = (id: string, updatedContent: string) => {
-    const updatedRequirements = requirements.map((requirement) =>
-      requirement.id === id
-        ? { ...requirement, content: updatedContent }
-        : requirement
-    );
-    onRequirementsChange(updatedRequirements);
-  };
-  const handleSaveAcceptanceCriteria = (id: string, updatedContent: string) => {
-    const updatedAcceptanceCriteria = acceptanceCriteria.map((criteria) =>
-      criteria.id === id ? { ...criteria, content: updatedContent } : criteria
-    );
-    onAcceptanceCriteriaChange(updatedAcceptanceCriteria);
-  };
-
-  const handleRemoveUserStory = (id: string) => {
-    onUserStoriesChange(userStories.filter((userStory) => userStory.id !== id));
-  };
-  const handleRemoveRequirement = (id: string) => {
-    onRequirementsChange(
-      requirements.filter((requirement) => requirement.id !== id)
-    );
-  };
-  const handleRemoveAcceptanceCriteria = (id: string) => {
-    onAcceptanceCriteriaChange(
-      acceptanceCriteria.filter(
-        (acceptanceCriteria) => acceptanceCriteria.id !== id
-      )
-    );
-  };
+const Results: React.FunctionComponent = () => {
+  const store = useContext(storeContext);
 
   return (
     <Tab.Group>
       <Tab.List>
-        <TabTitle>User Stories</TabTitle>
-        <TabTitle>Requirements</TabTitle>
-        <TabTitle>Acceptance Criteria</TabTitle>
+        <TabTitle id="description">Description</TabTitle>
+        <TabTitle id="user-stories">User Stories</TabTitle>
+        <TabTitle id="requirements">Requirements</TabTitle>
+        <TabTitle id="acceptance-criteria">Acceptance Criteria</TabTitle>
+        <TabTitle id="test-scenarios">Test Scenarios</TabTitle>
       </Tab.List>
 
       <Tab.Panels>
         <Tab.Panel>
-          <div className="section">
-            {userStories.map((userStory) => (
-              <div key={userStory.id} className="item">
-                <EditableItem
-                  item={userStory}
-                  onRemove={handleRemoveUserStory}
-                  onSave={handleSaveUserStory}
-                />
-              </div>
-            ))}
-            <button onClick={handleAddUserStory}>
-              <FontAwesomeIcon icon={faPlus} />
-            </button>
-          </div>
+          <DescriptionInput onSubmit={store.generate} />
+          <button className="icon-button">
+            <FontAwesomeIcon icon={faCog} />
+          </button>
+          <pre>{store.description}</pre>
         </Tab.Panel>
 
         <Tab.Panel>
-          <div className="section">
-            {requirements.map((requirement) => (
-              <div key={requirement.id} className="item">
-                <EditableItem
-                  item={requirement}
-                  onRemove={handleRemoveRequirement}
-                  onSave={handleSaveRequirement}
-                />
-              </div>
+          <button className="icon-button">
+            <FontAwesomeIcon icon={faCog} />
+          </button>
+          <ul className="section">
+            {store.userStories.map((userStory) => (
+              <EditableItem
+                key={userStory.id}
+                item={userStory}
+                onRemove={store.removeUserStory}
+              />
             ))}
-            <button onClick={handleAddRequirement}>
-              <FontAwesomeIcon icon={faPlus} />
-            </button>
-          </div>
+          </ul>
+          <button className="icon-button" onClick={store.addUserStory}>
+            <FontAwesomeIcon icon={faPlus} />
+          </button>
         </Tab.Panel>
 
         <Tab.Panel>
-          <div className="section">
-            {acceptanceCriteria.map((acceptanceCriteria) => (
-              <div key={acceptanceCriteria.id} className="item">
-                <EditableItem
-                  item={acceptanceCriteria}
-                  onRemove={handleRemoveAcceptanceCriteria}
-                  onSave={handleSaveAcceptanceCriteria}
-                />
-              </div>
+          <ul className="section">
+            {store.requirements.map((requirement) => (
+              <EditableItem
+                key={requirement.id}
+                item={requirement}
+                onRemove={store.removeRequirement}
+              />
             ))}
-            <button onClick={handleAddAcceptanceCriteria}>
-              <FontAwesomeIcon icon={faPlus} />
-            </button>
-          </div>
+          </ul>
+          <button className="icon-button" onClick={store.addRequirement}>
+            <FontAwesomeIcon icon={faPlus} />
+          </button>
+        </Tab.Panel>
+
+        <Tab.Panel>
+          <ul className="section">
+            {store.acceptanceCriteria.map((acceptanceCriteria) => (
+              <EditableItem
+                key={acceptanceCriteria.id}
+                item={acceptanceCriteria}
+                onRemove={store.removeAcceptanceCriteria}
+              />
+            ))}
+          </ul>
+          <button className="icon-button" onClick={store.addAcceptanceCriteria}>
+            <FontAwesomeIcon icon={faPlus} />
+          </button>
+        </Tab.Panel>
+
+        <Tab.Panel>
+          <ul className="section">
+            {store.testScenarios.map((testScenario) => (
+              <EditableItem
+                key={testScenario.id}
+                item={testScenario}
+                onRemove={store.removeTestScenario}
+              >
+                <ul>
+                  {testScenario.testCases.map((testCase) => (
+                    <EditableItem
+                      key={testCase.id}
+                      item={testCase}
+                      onRemove={testScenario.removeTestCase}
+                    />
+                  ))}
+                  <button
+                    className="icon-button"
+                    onClick={testScenario.addTestCase}
+                  >
+                    <FontAwesomeIcon icon={faPlus} />
+                  </button>
+                </ul>
+              </EditableItem>
+            ))}
+          </ul>
+          <button className="icon-button" onClick={store.addTestScenario}>
+            <FontAwesomeIcon icon={faPlus} />
+          </button>
         </Tab.Panel>
       </Tab.Panels>
     </Tab.Group>

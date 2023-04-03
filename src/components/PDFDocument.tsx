@@ -1,7 +1,7 @@
-import React from "react";
-import { UserStory, Requirement, AcceptanceCriteria } from "../types";
-import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
+import { Document, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
 import { observer } from "mobx-react-lite";
+import React from "react";
+import { AcceptanceCriteria, Requirement, UserStory } from "store/models";
 
 interface PDFDocumentProps {
   userStories: UserStory[];

@@ -1,56 +1,57 @@
 import { faEdit, faSave, faTrash } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { observer } from "mobx-react-lite";
-import React, { useState, useRef } from "react";
-import { UserStory, Requirement, AcceptanceCriteria } from "../types";
+import { useRef, useState } from "react";
+import { StructuralFragment } from "store/models";
 
-interface EditableItemProps {
-  item: UserStory | Requirement | AcceptanceCriteria;
-  onRemove: (id: string) => void;
-  onSave: (id: string, updatedContent: string) => void;
+interface EditableItemProps<Type extends StructuralFragment>
+  extends React.PropsWithChildren {
+  item: Type;
+  onRemove: (item: Type) => void;
 }
 
-const EditableItem: React.FunctionComponent<EditableItemProps> = ({
+const EditableItem = <Type extends StructuralFragment>({
+  children,
   item,
   onRemove,
-  onSave,
-}) => {
+}: EditableItemProps<Type>) => {
   const [isEditing, setIsEditing] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
 
   const handleRemove = () => {
-    onRemove(item.id);
+    onRemove(item);
   };
 
   const handleSave = () => {
     if (contentRef.current) {
-      const updatedContent = contentRef.current.innerText;
-      onSave(item.id, updatedContent);
+      const updatedText = contentRef.current.innerText;
+      item.updateContent(updatedText);
     }
     setIsEditing(false);
   };
 
   return (
-    <li>
+    <li className="item">
       <div
         ref={contentRef}
         contentEditable={isEditing}
-        suppressContentEditableWarning={true}
-      >
-        {item.content}
-      </div>
+        dangerouslySetInnerHTML={{
+          __html: item.content,
+        }}
+      />
       {isEditing ? (
-        <button onClick={handleSave}>
+        <button className="icon-button" onClick={handleSave}>
           <FontAwesomeIcon icon={faSave} />
         </button>
       ) : (
-        <button onClick={() => setIsEditing(true)}>
+        <button className="icon-button" onClick={() => setIsEditing(true)}>
           <FontAwesomeIcon icon={faEdit} />
         </button>
       )}
-      <button id={item.id} onClick={handleRemove}>
+      <button className="icon-button" id={item.id} onClick={handleRemove}>
         <FontAwesomeIcon icon={faTrash} />
       </button>
+      {children}
     </li>
   );
 };

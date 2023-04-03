@@ -1,5 +1,5 @@
 import React, { ChangeEvent, useState } from "react";
-import { AcceptanceCriteria, Requirement, UserStory } from "../types";
+import { AcceptanceCriteria, Requirement, UserStory } from "store/models";
 
 interface ImportJsonProps {
   onImport: (data: {
