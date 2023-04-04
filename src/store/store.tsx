@@ -4,7 +4,8 @@ import { saveAs } from "file-saver";
 import { Instance, SnapshotIn, cast, types } from "mobx-state-tree";
 import { createContext, useContext } from "react";
 
-import generateFormalDescription from "./generation-actions/generateFormalDescription";
+import generateProductOverview from "./generation-actions/generateProductOverview";
+import generateRequirements from "./generation-actions/generateRequirements";
 import generateUserStories from "./generation-actions/generateUserStories";
 import {
   AcceptanceCriteria,
@@ -25,7 +26,7 @@ const Store = types
     description: types.optional(types.string, ""),
     validationErrors: types.maybeNull(types.string),
 
-    formalDescription: types.maybeNull(types.string),
+    productOverview: types.maybeNull(types.string),
     userStories: types.array(UserStoryModel),
     requirements: types.array(RequirementModel),
     acceptanceCriteria: types.array(AcceptanceCriteriaModel),
@@ -38,7 +39,7 @@ const Store = types
       self.description = "";
       self.validationErrors = null;
 
-      self.formalDescription = "";
+      self.productOverview = "";
       self.userStories = cast([]);
       self.requirements = cast([]);
       self.acceptanceCriteria = cast([]);
@@ -118,7 +119,13 @@ const Store = types
       self.testScenarios.remove(testScenario);
     },
   }))
-  .actions(withSelf({ generateFormalDescription, generateUserStories }))
+  .actions(
+    withSelf({
+      generateProductOverview,
+      generateUserStories,
+      generateRequirements,
+    })
+  )
   .actions((self) => ({
     import({
       userStories,

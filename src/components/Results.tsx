@@ -29,8 +29,13 @@ function TabTitle({
 const Results: React.FunctionComponent = () => {
   const store = useContext(storeContext);
 
-  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) =>
+  const handleDescriptionChange = (e: React.ChangeEvent<HTMLTextAreaElement>) =>
     store.setDescription(e.target.value);
+
+  const handleDescriptionSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    store.generateProductOverview();
+  };
 
   return (
     <Tab.Group>
@@ -44,12 +49,12 @@ const Results: React.FunctionComponent = () => {
 
       <Tab.Panels>
         <Tab.Panel>
-          <form onSubmit={store.generateFormalDescription}>
+          <form onSubmit={handleDescriptionSubmit}>
             <label htmlFor="description-input">Software Description:</label>
             <textarea
               id="description-input"
               value={store.description}
-              onChange={handleChange}
+              onChange={handleDescriptionChange}
               style={{ minWidth: "400px", minHeight: "100px" }}
             />
             <button
@@ -60,11 +65,11 @@ const Results: React.FunctionComponent = () => {
               <FontAwesomeIcon icon={faCog} />
             </button>
           </form>
-          <pre>{store.formalDescription}</pre>
+          <pre>{store.productOverview}</pre>
         </Tab.Panel>
 
         <Tab.Panel>
-          <button className="icon-button">
+          <button className="icon-button" onClick={store.generateUserStories}>
             <FontAwesomeIcon icon={faRefresh} /> Regenerate User Stories
           </button>
           <ul className="section">
@@ -82,6 +87,9 @@ const Results: React.FunctionComponent = () => {
         </Tab.Panel>
 
         <Tab.Panel>
+          <button className="icon-button" onClick={store.generateRequirements}>
+            <FontAwesomeIcon icon={faRefresh} /> Regenerate Requirements
+          </button>
           <ul className="section">
             {store.requirements.map((requirement) => (
               <EditableItem

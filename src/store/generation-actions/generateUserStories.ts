@@ -3,7 +3,12 @@ import { Store } from "store/store";
 
 import openai from "../api";
 
-import { generatePrompt, generator, prepareContent } from "./utilities";
+import {
+  generatePrompt,
+  generator,
+  prepareContent,
+  systemPrompt,
+} from "./utilities";
 
 const generateUserStories = flow(function* (self_: unknown) {
   const self = self_ as Store;
@@ -14,7 +19,8 @@ const generateUserStories = flow(function* (self_: unknown) {
     n: 1,
     temperature: 0,
     messages: [
-      { role: "system", content: "You are a helpful assistant." },
+      { role: "system", content: systemPrompt },
+      { role: "user", content: systemPrompt },
       {
         role: "user",
         content: generatePrompt("user stories"),
@@ -26,6 +32,10 @@ const generateUserStories = flow(function* (self_: unknown) {
       {
         role: "user",
         content: `description: ${self.description}`,
+      },
+      {
+        role: "user",
+        content: `product overview: ${self.productOverview}`,
       },
     ],
   });

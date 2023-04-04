@@ -95,3 +95,7 @@ form > * {
   display: block;
   margin-top: 16px;
 }
+
+pre {
+  white-space: break-spaces;
+}

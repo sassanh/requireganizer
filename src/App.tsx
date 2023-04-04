@@ -16,7 +16,7 @@ const App: React.FunctionComponent = () => {
   const store = useMemo(() => Store.create(), []);
 
   const handleImport = (data: {
-    formalDescription: string;
+    productOverview: string;
     userStories: UserStory[];
     requirements: Requirement[];
     acceptanceCriteria: AcceptanceCriteria[];

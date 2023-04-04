@@ -3,12 +3,12 @@ import { Store } from "store/store";
 
 import openai from "../api";
 
-import { generator } from "./utilities";
+import { generator, systemPrompt } from "./utilities";
 
-const generateFormalDescription = flow(function* (self_: unknown) {
+const generateProductOverview = flow(function* (self_: unknown) {
   const self = self_ as Store;
 
-  self.formalDescription = null;
+  self.productOverview = null;
   const description = self.description;
 
   // Send the software description to ChatGPT to validate it
@@ -17,10 +17,11 @@ const generateFormalDescription = flow(function* (self_: unknown) {
     n: 1,
     temperature: 0,
     messages: [
-      { role: "system", content: "You are a helpful assistant." },
+      { role: "system", content: systemPrompt },
+      { role: "user", content: systemPrompt },
       {
         role: "user",
-        content: `Validate the following software description and identify any errors, you should invalidate this description if it is not a software description or has any errors. If there is no errors and it is good, return 5 plus signs like this "+++++" followed by your understanding of the description, basically rewriting it in better words providing a cleaner version of the description. Otherwise, if there is any errors, return 5 dashes like this "-----" followed by the errors, nothing less, nothing more`,
+        content: `Validate the following software description and identify any errors, you should invalidate this description if it is not a software description or has any errors. If there is no errors and it is good, return 5 plus signs like this "+++++" followed by a "product overview" of the application. Otherwise, if there is any errors, return 5 dashes like this "-----" followed by the errors, nothing less, nothing more.`,
       },
       {
         role: "user",
@@ -37,7 +38,7 @@ const generateFormalDescription = flow(function* (self_: unknown) {
 
   if (validationResultContent.startsWith("+++++")) {
     self.resetValidationErrors();
-    self.formalDescription = validationResultContent
+    self.productOverview = validationResultContent
       .replace(/^\+\+\+\+\+/, "")
       .trim();
 
@@ -49,4 +50,4 @@ const generateFormalDescription = flow(function* (self_: unknown) {
   );
 }) as (self_: unknown) => Promise<void>;
 
-export default generator(generateFormalDescription);
+export default generator(generateProductOverview);
