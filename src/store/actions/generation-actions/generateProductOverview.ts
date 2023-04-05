@@ -1,12 +1,14 @@
 import { flow } from "mobx-state-tree";
+import openai from "store/api";
 import { Store } from "store/store";
-
-import openai from "../api";
+import { Iteration } from "store/utilities";
 
 import { generator, systemPrompt } from "./utilities";
 
 const generateProductOverview = flow(function* (self_: unknown) {
   const self = self_ as Store;
+
+  self.resetValidationErrors();
 
   self.productOverview = null;
   const description = self.description;
@@ -21,7 +23,7 @@ const generateProductOverview = flow(function* (self_: unknown) {
       { role: "user", content: systemPrompt },
       {
         role: "user",
-        content: `Validate the following software description and identify any errors, you should invalidate this description if it is not a software description or has any errors. If there is no errors and it is good, return 5 plus signs like this "+++++" followed by a "product overview" of the application. Otherwise, if there is any errors, return 5 dashes like this "-----" followed by the errors, nothing less, nothing more.`,
+        content: `Create a product overview based on the given software description or signal if there are any inconsistencies, missing information, or errors. If the description is not valid or has any issues, start the response with "[ERROR]" and provide a brief explanation of the issue(s) found. If the description is valid, generate a product overview highlighting its primary features, target users, and benefits without including any meta conversation:`,
       },
       {
         role: "user",
@@ -34,20 +36,17 @@ const generateProductOverview = flow(function* (self_: unknown) {
   // Handle the validation errors if there are any
   const validationResultContent =
     validationResult.data.choices[0].message?.content.trim() ??
-    "-----Validation failed!";
+    "[ERROR]Validation failed!";
 
-  if (validationResultContent.startsWith("+++++")) {
-    self.resetValidationErrors();
-    self.productOverview = validationResultContent
-      .replace(/^\+\+\+\+\+/, "")
-      .trim();
-
+  if (validationResultContent.startsWith("[ERROR]")) {
+    self.setValidationErrors(
+      validationResultContent.replace(/^\[ERROR\]/, "").trim()
+    );
     return;
   }
 
-  self.setValidationErrors(
-    validationResultContent.replace(/^-----/, "").trim()
-  );
+  self.productOverview = validationResultContent;
+  self.eventTarget.emit("iterationUpdate", Iteration.productOverview);
 }) as (self_: unknown) => Promise<void>;
 
 export default generator(generateProductOverview);

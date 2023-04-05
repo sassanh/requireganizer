@@ -4,7 +4,7 @@ import React, { useMemo } from "react";
 import ExportOptions from "./components/ExportOptions";
 import ImportJson from "./components/ImportJson";
 import Results from "./components/Results";
-import Store, { storeContext } from "./store";
+import { Store, storeContext } from "./store";
 import {
   AcceptanceCriteria,
   Requirement,
@@ -16,6 +16,7 @@ const App: React.FunctionComponent = () => {
   const store = useMemo(() => Store.create(), []);
 
   const handleImport = (data: {
+    description: string;
     productOverview: string;
     userStories: UserStory[];
     requirements: Requirement[];

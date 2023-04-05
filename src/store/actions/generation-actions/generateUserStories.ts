@@ -1,7 +1,7 @@
 import { flow } from "mobx-state-tree";
+import openai from "store/api";
 import { Store } from "store/store";
-
-import openai from "../api";
+import { Iteration } from "store/utilities";
 
 import {
   generatePrompt,
@@ -42,6 +42,7 @@ const generateUserStories = flow(function* (self_: unknown) {
   const userStories = userStoriesResult.data.choices[0].message?.content;
 
   self.setUserStories(prepareContent(userStories));
+  self.eventTarget.emit("iterationUpdate", Iteration.userStories);
 }) as (self_: unknown) => Promise<void>;
 
 export default generator(generateUserStories);

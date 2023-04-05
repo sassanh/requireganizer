@@ -2,8 +2,9 @@ import { faCog, faPlus, faRefresh } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { Tab } from "@headlessui/react";
 import { observer } from "mobx-react-lite";
-import React, { Fragment, useContext } from "react";
-import { storeContext } from "store/store";
+import React, { Fragment, useContext, useEffect, useState } from "react";
+import Textarea from "react-textarea-autosize";
+import { Iteration, storeContext } from "store";
 
 import EditableItem from "./EditableItem";
 
@@ -26,6 +27,15 @@ function TabTitle({
   );
 }
 
+const TABS = new Map([
+  [Iteration.description, "Description"],
+  [Iteration.productOverview, "Product Overview"],
+  [Iteration.userStories, "User Stories"],
+  [Iteration.requirements, "Requirements"],
+  [Iteration.acceptanceCriteria, "Acceptance Criteria"],
+  [Iteration.testScenarios, "Test Scenarios"],
+]);
+
 const Results: React.FunctionComponent = () => {
   const store = useContext(storeContext);
 
@@ -37,35 +47,74 @@ const Results: React.FunctionComponent = () => {
     store.generateProductOverview();
   };
 
+  const handleProductOverviewChange = (
+    e: React.ChangeEvent<HTMLTextAreaElement>
+  ) => store.setProductOverview(e.target.value);
+
+  const [selectedTab, setSelectedTab] = useState(() =>
+    Object.keys(TABS).indexOf(window.location.hash.replace(/^#/, ""))
+  );
+
+  useEffect(() => {
+    window.location.hash = Object.keys(TABS)[selectedTab];
+  }, [selectedTab]);
+
+  useEffect(() => {
+    function setSelectedTabByName(iteration: Iteration) {
+      console.log(iteration);
+      setSelectedTab(Object.keys(TABS).indexOf(iteration));
+    }
+
+    store.eventTarget.on("iterationUpdate", setSelectedTabByName);
+
+    return () => {
+      store.eventTarget.off("iterationUpdate", setSelectedTabByName);
+    };
+  }, [store.eventTarget]);
+
   return (
-    <Tab.Group>
+    <Tab.Group selectedIndex={selectedTab} onChange={setSelectedTab}>
       <Tab.List>
-        <TabTitle id="description">Description</TabTitle>
-        <TabTitle id="user-stories">User Stories</TabTitle>
-        <TabTitle id="requirements">Requirements</TabTitle>
-        <TabTitle id="acceptance-criteria">Acceptance Criteria</TabTitle>
-        <TabTitle id="test-scenarios">Test Scenarios</TabTitle>
+        {Array.from(TABS.keys()).map((tab: Iteration) => (
+          <TabTitle id={tab} key={tab}>
+            {TABS.get(tab)}
+          </TabTitle>
+        ))}
       </Tab.List>
 
       <Tab.Panels>
         <Tab.Panel>
           <form onSubmit={handleDescriptionSubmit}>
-            <label htmlFor="description-input">Software Description:</label>
-            <textarea
+            <label htmlFor="description-input">
+              <h2>Software Description:</h2>
+            </label>
+            <Textarea
+              className="description"
               id="description-input"
               value={store.description}
               onChange={handleDescriptionChange}
-              style={{ minWidth: "400px", minHeight: "100px" }}
             />
             <button
               type="submit"
               className="icon-button"
               disabled={store.isGenerating}
             >
-              <FontAwesomeIcon icon={faCog} />
+              <FontAwesomeIcon icon={faCog} /> Generate Product Overview
             </button>
           </form>
-          <pre>{store.productOverview}</pre>
+        </Tab.Panel>
+
+        <Tab.Panel>
+          {store.productOverview != null ? (
+            <pre>
+              <h2>Product Overview:</h2>
+              <Textarea
+                className="product-overview"
+                value={store.productOverview}
+                onChange={handleProductOverviewChange}
+              />
+            </pre>
+          ) : null}
         </Tab.Panel>
 
         <Tab.Panel>

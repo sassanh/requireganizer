@@ -1,5 +1,5 @@
 import { IStateTreeNode } from "mobx-state-tree";
-import { OmitFirstParameter, fromEntries } from "utilities";
+import { ArrayElement, OmitFirstParameter, fromEntries } from "utilities";
 
 import { Store } from "./store";
 
@@ -26,4 +26,13 @@ export function withSelf<
       ])
     );
   };
+}
+
+export enum Iteration {
+  description = "description",
+  productOverview = "product-overview",
+  userStories = "user-stories",
+  requirements = "requirements",
+  acceptanceCriteria = "acceptance-criteria",
+  testScenarios = "test-scenarios",
 }

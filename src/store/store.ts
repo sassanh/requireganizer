@@ -1,12 +1,15 @@
-import { pdf } from "@react-pdf/renderer";
-import PDFDocument from "components/PDFDocument";
-import { saveAs } from "file-saver";
+import EventEmitter from "events";
+
 import { Instance, SnapshotIn, cast, types } from "mobx-state-tree";
 import { createContext, useContext } from "react";
 
-import generateProductOverview from "./generation-actions/generateProductOverview";
-import generateRequirements from "./generation-actions/generateRequirements";
-import generateUserStories from "./generation-actions/generateUserStories";
+import {
+  export as export_,
+  generateProductOverview,
+  generateRequirements,
+  generateUserStories,
+  import as import_,
+} from "./actions";
 import {
   AcceptanceCriteria,
   AcceptanceCriteriaModel,
@@ -17,9 +20,30 @@ import {
   UserStory,
   UserStoryModel,
 } from "./models";
-import { withSelf } from "./utilities";
+import { Iteration, withSelf } from "./utilities";
 
-const Store = types
+class StoreEventEmitter extends EventEmitter {
+  emitIterationUpdate(iteration: Iteration): void {
+    this.emit("iterationUpdate", iteration);
+  }
+}
+
+interface StoreEvents {
+  iterationUpdate: (iteration: Iteration) => void;
+}
+
+declare interface StoreEventEmitter {
+  once<U extends keyof StoreEvents>(event: U, listener: StoreEvents[U]): this;
+  on<U extends keyof StoreEvents>(event: U, listener: StoreEvents[U]): this;
+  off<U extends keyof StoreEvents>(event: U, listener: StoreEvents[U]): this;
+
+  emit<U extends keyof StoreEvents>(
+    event: U,
+    ...args: Parameters<StoreEvents[U]>
+  ): boolean;
+}
+
+export const Store = types
   .model("Store", {
     isClean: types.optional(types.boolean, true),
     isGenerating: types.optional(types.boolean, false),
@@ -39,7 +63,7 @@ const Store = types
       self.description = "";
       self.validationErrors = null;
 
-      self.productOverview = "";
+      self.productOverview = null;
       self.userStories = cast([]);
       self.requirements = cast([]);
       self.acceptanceCriteria = cast([]);
@@ -53,6 +77,10 @@ const Store = types
     },
     setValidationErrors(validationErrors: string) {
       self.validationErrors = validationErrors;
+    },
+
+    setProductOverview(productOverview: string) {
+      self.productOverview = productOverview;
     },
     setUserStories(userStories: SnapshotIn<UserStory>[]) {
       self.isClean = false;
@@ -126,63 +154,18 @@ const Store = types
       generateRequirements,
     })
   )
-  .actions((self) => ({
-    import({
-      userStories,
-      requirements,
-      acceptanceCriteria,
-    }: {
-      userStories: UserStory[];
-      requirements: Requirement[];
-      acceptanceCriteria: AcceptanceCriteria[];
-    }) {
-      self.setUserStories(userStories);
-      self.setRequirements(requirements);
-      self.setAcceptanceCriteria(acceptanceCriteria);
-    },
-    async export(format: "pdf" | "txt" | "json") {
-      const filename = `specification.${format}`;
+  .actions(withSelf({ import: import_, export: export_ }))
+  .views(() => {
+    const eventTarget = new StoreEventEmitter();
 
-      if (format === "pdf") {
-        const blob = await pdf(
-          <PDFDocument
-            userStories={self.userStories}
-            requirements={self.requirements}
-            acceptanceCriteria={self.acceptanceCriteria}
-          />
-        ).toBlob();
-        saveAs(blob, filename);
-      } else if (format === "txt" || format === "json") {
-        let content = "";
-
-        if (format === "txt") {
-          content = `
-User Stories:
-${self.userStories.map((story) => story.content).join("\n")}
-
-Requirements:
-${self.requirements.map((req) => req.content).join("\n")}
-
-Acceptance Criteria:
-${self.acceptanceCriteria.map((criteria) => criteria.content).join("\n")}
-      `;
-        } else if (format === "json") {
-          const data = {
-            userStories: self.userStories,
-            requirements: self.requirements,
-            acceptanceCriteria: self.acceptanceCriteria,
-          };
-          content = JSON.stringify(data, null, 2);
-        }
-
-        const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
-        saveAs(blob, filename);
-      }
-    },
-  }));
+    return {
+      get eventTarget() {
+        return eventTarget;
+      },
+    };
+  });
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export type Store = Instance<typeof Store>;
 export const storeContext = createContext<Store>(null!);
 export const useStore = () => useContext(storeContext);
-export default Store;

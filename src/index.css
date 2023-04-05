@@ -38,6 +38,21 @@ h2 {
   border-radius: 4px;
 }
 
+.description,
+.product-overview {
+  min-width: calc(100% - 32px);
+  font-size: 24px;
+  padding: 16px;
+  border: 2px solid gray;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  resize: none;
+}
+
+.product-overview {
+  font-family: monospace;
+}
+
 .tab .icon-button {
   margin: -8px 4px;
 }

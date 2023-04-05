@@ -1,7 +1,6 @@
 import { flow } from "mobx-state-tree";
+import openai from "store/api";
 import { Store } from "store/store";
-
-import openai from "../api";
 
 import {
   generatePrompt,

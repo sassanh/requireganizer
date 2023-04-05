@@ -9,6 +9,7 @@ import {
 
 interface ImportJsonProps {
   onImport: (data: {
+    description: string;
     productOverview: string;
     userStories: UserStory[];
     requirements: Requirement[];

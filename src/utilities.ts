@@ -1,5 +1,6 @@
 export { v4 as uuid } from "uuid";
 
+export type ArrayElement<A> = A extends readonly (infer T)[] ? T : never;
 export type Tail<Type extends any[]> = Type extends [any, ...infer Tail_]
   ? Tail_
   : never;

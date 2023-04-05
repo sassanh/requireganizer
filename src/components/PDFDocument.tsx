@@ -1,12 +1,11 @@
 import { Document, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
 import { observer } from "mobx-react-lite";
+import { SnapshotOut } from "mobx-state-tree";
 import React from "react";
-import { AcceptanceCriteria, Requirement, UserStory } from "store/models";
+import { Store } from "store";
 
 interface PDFDocumentProps {
-  userStories: UserStory[];
-  requirements: Requirement[];
-  acceptanceCriteria: AcceptanceCriteria[];
+  store: SnapshotOut<Store>;
 }
 
 const styles = StyleSheet.create({
@@ -24,38 +23,66 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginBottom: 3,
   },
+  testScenario: {
+    marginBottom: 5,
+  },
+  testCase: {
+    marginBottom: 5,
+    marginLeft: 10,
+  },
 });
 
-const PDFDocument: React.FunctionComponent<PDFDocumentProps> = ({
-  userStories,
-  requirements,
-  acceptanceCriteria,
-}) => {
+const PDFDocument: React.FunctionComponent<PDFDocumentProps> = ({ store }) => {
   return (
     <Document>
       <Page size="A4" style={styles.page}>
         <View style={styles.section}>
+          <Text style={styles.title}>Description</Text>
+          <Text style={styles.item}>{store.description}</Text>
+        </View>
+        <View style={styles.section}>
+          <Text style={styles.title}>Product Overview</Text>
+          <Text style={styles.item}>{store.productOverview}</Text>
+        </View>
+        <View style={styles.section}>
           <Text style={styles.title}>User Stories</Text>
-          {userStories.map((story) => (
+          {store.userStories.map((story, index) => (
             <Text key={story.id} style={styles.item}>
-              {story.content}
+              {index + 1}. {story.content}
             </Text>
           ))}
         </View>
         <View style={styles.section}>
           <Text style={styles.title}>Requirements</Text>
-          {requirements.map((req) => (
+          {store.requirements.map((req, index) => (
             <Text key={req.id} style={styles.item}>
-              {req.content}
+              {index + 1}. {req.content}
             </Text>
           ))}
         </View>
         <View style={styles.section}>
           <Text style={styles.title}>Acceptance Criteria</Text>
-          {acceptanceCriteria.map((criteria) => (
+          {store.acceptanceCriteria.map((criteria, index) => (
             <Text key={criteria.id} style={styles.item}>
-              {criteria.content}
+              {index + 1}. {criteria.content}
             </Text>
+          ))}
+        </View>
+        <View style={styles.section}>
+          <Text style={styles.title}>Test Scenarios</Text>
+          {store.testScenarios.map((testScenario, index) => (
+            <View key={testScenario.id} style={styles.testScenario}>
+              <Text>
+                Test Scenario {index + 1}: {testScenario.content}
+              </Text>
+              {testScenario.testCases.map((testCase, testCaseIndex) => (
+                <View key={testCase.id} style={styles.testCase}>
+                  <Text>
+                    Test Case {testCaseIndex + 1}: {testCase.content}
+                  </Text>
+                </View>
+              ))}
+            </View>
           ))}
         </View>
       </Page>
