@@ -8,6 +8,18 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+@media (prefers-color-scheme: dark) {
+  body {
+    background-color: #222222;
+    color: white;
+  }
+
+  textarea {
+    background-color: #222222;
+    color: white;
+  }
+}
+
 code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, "Courier New",
     monospace;
