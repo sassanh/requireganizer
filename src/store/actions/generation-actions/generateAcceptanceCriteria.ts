@@ -20,11 +20,6 @@ const generateAcceptanceCriteria = flow(function* (self_: unknown) {
     temperature: 0,
     messages: [
       { role: "system", content: systemPrompt },
-      { role: "user", content: systemPrompt },
-      {
-        role: "user",
-        content: generatePrompt("requirements"),
-      },
       {
         role: "user",
         content: `description: ${self.description}`,
@@ -44,6 +39,10 @@ const generateAcceptanceCriteria = flow(function* (self_: unknown) {
         content: `requirements: ${self.requirements
           .map(({ content }) => `- ${content}`)
           .join("\n")}`,
+      },
+      {
+        role: "user",
+        content: generatePrompt("acceptance criteria"),
       },
     ],
   });

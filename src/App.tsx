@@ -1,6 +1,6 @@
 import { ExportOptions, ImportJson } from "components";
 import { observer } from "mobx-react-lite";
-import React, { useMemo } from "react";
+import React from "react";
 import { Results } from "screens";
 
 import { Store, storeContext } from "./store";
@@ -11,8 +11,11 @@ import {
   UserStory,
 } from "./store/models";
 
-const App: React.FunctionComponent = () => {
-  const store = useMemo(() => Store.create(), []);
+const App: React.FunctionComponent<{ store: Store }> = ({ store }) => {
+  // For easier debugging store is saved under window.store variable in development environment
+  if (process.env.NODE_ENV !== "production") {
+    (window as unknown as { store: Store }).store = store;
+  }
 
   const handleImport = (data: {
     description: string;

@@ -8,7 +8,9 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-ul {
+ul,
+ol {
+  margin: 0;
   padding: 0;
 }
 
@@ -55,7 +57,6 @@ h2 {
   text-decoration: none;
   display: inline-block;
   font-size: 16px;
-  margin: 4px 2px;
   cursor: pointer;
   border-radius: 4px;
   white-space: break-spaces;
@@ -86,36 +87,78 @@ h2 {
   border: 2px solid gray;
   padding: 16px;
   border-radius: 8px;
+  counter-reset: item;
 }
 
 .item {
-  display: flex;
+  display: grid;
+  grid-template:
+    "content action" auto
+    "extra extra" auto / 1fr min-content;
+  grid-column-gap: 8px;
   align-items: center;
   margin-bottom: 16px;
   border: 2px solid gray;
   padding: 16px;
   border-radius: 8px;
+  cursor: pointer;
 }
 
-.item > *:not(:last-child) {
-  margin-right: 8px;
+.item:hover .item-content:not(:focus)::before {
+  color: seagreen;
+  opacity: 1;
 }
 
 .item-content {
+  grid-area: content;
+  display: flex;
+}
+
+.item-content textarea {
+  border: none;
+  font-size: inherit;
   flex-grow: 1;
+  max-width: 100%;
+  cursor: inherit;
+  resize: none;
+  padding: 0;
+}
+
+.item-content::before {
+  counter-increment: item;
+  content: counter(item) ".";
+  right: 100%;
+  margin-right: 4px;
+  opacity: 0.3;
+  color: black;
+  transition: opacity 300ms, color 300ms;
+}
+
+.item-content textarea:focus {
+  cursor: text;
 }
 
 .item-action {
-  flex-shrink: 1;
-  flex-basis: min-content;
+  grid-area: action;
+}
+
+.item-extra {
+  grid-area: extra;
+  margin-top: 16px;
 }
 
 .tab-list {
   display: flex;
   flex-direction: row;
   flex-wrap: wrap;
+  gap: 8px;
   width: max-content;
   max-width: 100%;
+}
+
+.tab-list:after {
+  content: " ";
+  flex-grow: 100000;
 }
 
 .tab {
@@ -123,12 +166,13 @@ h2 {
   border: none;
   border-radius: 5px;
   background-color: darkseagreen;
-  margin: 4px;
   font-size: 24px;
   text-decoration: none;
   color: black;
   display: block;
   flex-shrink: 0;
+  flex-grow: 1;
+  text-align: center;
 }
 
 .tab:hover {
@@ -172,6 +216,13 @@ h2 {
   display: flex;
   flex-direction: row-reverse;
   align-items: center;
+}
+
+.borderless {
+  border: none;
+  margin-bottom: 0;
+  padding: 0;
+  border-radius: 0;
 }
 
 form > * {

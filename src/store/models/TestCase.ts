@@ -1,4 +1,5 @@
 import { Instance, types } from "mobx-state-tree";
+import { StructrualFragment } from "store/utilities";
 
 import { StructuralFragmentModel } from "./StructuralFragment";
 
@@ -8,7 +9,10 @@ export const TestCaseModel = types
   .compose(
     StructuralFragmentModel,
     types.model({
-      type: types.optional(types.literal("TestCase"), "TestCase"),
+      type: types.optional(
+        types.literal(StructrualFragment.testCase),
+        StructrualFragment.testCase
+      ),
     })
   )
   .named("TestCase");

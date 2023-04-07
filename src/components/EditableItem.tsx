@@ -2,51 +2,61 @@ import { faTrash } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { observer } from "mobx-react-lite";
 import { useRef } from "react";
+import Textarea from "react-textarea-autosize";
 import { StructuralFragment } from "store/models";
 
 interface EditableItemProps<Type extends StructuralFragment>
-  extends React.PropsWithChildren {
-  item: Type;
-  onRemove: (item: Type) => void;
+  extends React.LiHTMLAttributes<HTMLLIElement> {
+  fragment: Type;
+  onRemove: (fragment: Type) => void;
 }
 
 const EditableItem = <Type extends StructuralFragment>({
   children,
-  item,
+  fragment,
   onRemove,
+  ...props
 }: EditableItemProps<Type>) => {
-  const contentRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLTextAreaElement>(null);
 
   const handleRemove = () => {
-    onRemove(item);
+    onRemove(fragment);
   };
 
-  const handleSave = () => {
-    if (contentRef.current) {
-      const updatedText = contentRef.current.innerText;
-      item.updateContent(updatedText);
+  const handleChange = ({
+    target: { value },
+  }: React.ChangeEvent<HTMLTextAreaElement>) => {
+    fragment.updateContent(value);
+  };
+
+  const handleKeyUp = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === "Escape") {
+      event.currentTarget.blur();
     }
   };
 
+  const focus = () => {
+    contentRef.current?.focus();
+  };
+
   return (
-    <li className="item">
-      <div
-        className="item-content"
-        ref={contentRef}
-        onBlur={handleSave}
-        contentEditable
-        dangerouslySetInnerHTML={{
-          __html: item.content,
-        }}
-      />
+    <li className="item" onClick={focus} {...props}>
+      <span className="item-content">
+        <Textarea
+          ref={contentRef}
+          onChange={handleChange}
+          onKeyUp={handleKeyUp}
+          value={fragment.content}
+        />
+      </span>
       <button
         className="item-action icon-button"
-        id={item.id}
+        id={fragment.id}
         onClick={handleRemove}
       >
         <FontAwesomeIcon icon={faTrash} />
       </button>
-      {children}
+      {children != null ? <div className="item-extra">{children}</div> : null}
     </li>
   );
 };

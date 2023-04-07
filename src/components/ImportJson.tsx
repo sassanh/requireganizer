@@ -1,4 +1,4 @@
-import React, { ChangeEvent, useState } from "react";
+import { useState } from "react";
 
 import {
   AcceptanceCriteria,
@@ -21,7 +21,7 @@ interface ImportJsonProps {
 const ImportJson: React.FunctionComponent<ImportJsonProps> = ({ onImport }) => {
   const [importInputKey, setImportInputKey] = useState<number>(0);
 
-  const handleImport = (event: ChangeEvent<HTMLInputElement>) => {
+  const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 

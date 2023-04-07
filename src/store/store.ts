@@ -8,6 +8,7 @@ import {
   generateAcceptanceCriteria,
   generateProductOverview,
   generateRequirements,
+  generateTestCases,
   generateTestScenarios,
   generateUserStories,
   import as import_,
@@ -86,12 +87,14 @@ export const Store = types
     },
     setUserStories(userStories: SnapshotIn<UserStory>[]) {
       self.isClean = false;
+      self.userStories.clear();
       self.userStories.push(
         ...userStories.map((item) => UserStoryModel.create(item))
       );
     },
     setRequirements(requirements: SnapshotIn<Requirement>[]) {
       self.isClean = false;
+      self.requirements.clear();
       self.requirements.push(
         ...requirements.map((item) => RequirementModel.create(item))
       );
@@ -100,6 +103,7 @@ export const Store = types
       acceptanceCriteria: SnapshotIn<AcceptanceCriteria>[]
     ) {
       self.isClean = false;
+      self.acceptanceCriteria.clear();
       self.acceptanceCriteria.push(
         ...acceptanceCriteria.map((item) =>
           AcceptanceCriteriaModel.create(item)
@@ -108,6 +112,7 @@ export const Store = types
     },
     setTestScenarios(testScenarios: SnapshotIn<TestScenario>[]) {
       self.isClean = false;
+      self.testScenarios.clear();
       self.testScenarios.push(
         ...testScenarios.map((item) => TestScenarioModel.create(item))
       );
@@ -156,6 +161,7 @@ export const Store = types
       generateRequirements,
       generateAcceptanceCriteria,
       generateTestScenarios,
+      generateTestCases,
     })
   )
   .actions(withSelf({ import: import_, export: export_ }))

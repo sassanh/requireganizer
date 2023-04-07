@@ -20,11 +20,6 @@ const generateRequirements = flow(function* (self_: unknown) {
     temperature: 0,
     messages: [
       { role: "system", content: systemPrompt },
-      { role: "user", content: systemPrompt },
-      {
-        role: "user",
-        content: generatePrompt("requirements"),
-      },
       {
         role: "user",
         content: `description: ${self.description}`,
@@ -38,6 +33,10 @@ const generateRequirements = flow(function* (self_: unknown) {
         content: `user stories: ${self.userStories
           .map(({ content }) => `- ${content}`)
           .join("\n")}`,
+      },
+      {
+        role: "user",
+        content: generatePrompt("requirements"),
       },
     ],
   });

@@ -10,10 +10,10 @@ import {
   systemPrompt,
 } from "./utilities";
 
-const generateTestScenarios = flow(function* (self_: unknown) {
+const generateTestCases = flow(function* (self_: unknown) {
   const self = self_ as Store;
 
-  // Generate test scenarios
+  // Generate test cases
   const result = yield ai.createChatCompletion({
     model: "gpt-3.5-turbo",
     n: 1,
@@ -49,7 +49,7 @@ const generateTestScenarios = flow(function* (self_: unknown) {
       },
       {
         role: "user",
-        content: generatePrompt("test scenarios"),
+        content: generatePrompt("test cases"),
       },
       {
         role: "user",
@@ -69,4 +69,4 @@ const generateTestScenarios = flow(function* (self_: unknown) {
   self.eventTarget.emit("iterationUpdate", Iteration.testScenarios);
 }) as (self_: unknown) => Promise<void>;
 
-export default generator(generateTestScenarios);
+export default generator(generateTestCases);

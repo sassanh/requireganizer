@@ -20,15 +20,6 @@ const generateUserStories = flow(function* (self_: unknown) {
     temperature: 0,
     messages: [
       { role: "system", content: systemPrompt },
-      { role: "user", content: systemPrompt },
-      {
-        role: "user",
-        content: generatePrompt("user stories"),
-      },
-      {
-        role: "user",
-        content: 'Each user story should start with "As a"',
-      },
       {
         role: "user",
         content: `description: ${self.description}`,
@@ -36,6 +27,14 @@ const generateUserStories = flow(function* (self_: unknown) {
       {
         role: "user",
         content: `product overview: ${self.productOverview}`,
+      },
+      {
+        role: "user",
+        content: generatePrompt("user stories"),
+      },
+      {
+        role: "user",
+        content: 'Each user story should start with "As a"',
       },
     ],
   });

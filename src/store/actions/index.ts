@@ -3,6 +3,7 @@ export {
   generateAcceptanceCriteria,
   generateProductOverview,
   generateRequirements,
+  generateTestCases,
   generateTestScenarios,
   generateUserStories,
 } from "./generation-actions";
