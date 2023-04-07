@@ -1,7 +1,16 @@
 import { IStateTreeNode } from "mobx-state-tree";
-import { ArrayElement, OmitFirstParameter, fromEntries } from "utilities";
+import { OmitFirstParameter, fromEntries } from "utilities";
 
 import { Store } from "./store";
+
+export enum Iteration {
+  description = "description",
+  productOverview = "product-overview",
+  userStories = "user-stories",
+  requirements = "requirements",
+  acceptanceCriteria = "acceptance-criteria",
+  testScenarios = "test-scenarios",
+}
 
 export function withSelf<
   Signature extends {
@@ -26,13 +35,4 @@ export function withSelf<
       ])
     );
   };
-}
-
-export enum Iteration {
-  description = "description",
-  productOverview = "product-overview",
-  userStories = "user-stories",
-  requirements = "requirements",
-  acceptanceCriteria = "acceptance-criteria",
-  testScenarios = "test-scenarios",
 }

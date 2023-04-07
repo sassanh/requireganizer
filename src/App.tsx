@@ -1,9 +1,8 @@
+import { ExportOptions, ImportJson } from "components";
 import { observer } from "mobx-react-lite";
 import React, { useMemo } from "react";
+import { Results } from "screens";
 
-import ExportOptions from "./components/ExportOptions";
-import ImportJson from "./components/ImportJson";
-import Results from "./components/Results";
 import { Store, storeContext } from "./store";
 import {
   AcceptanceCriteria,

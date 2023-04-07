@@ -1,13 +1,13 @@
 export {
-  StructuralFragmentModel,
-  type StructuralFragment,
-} from "./StructuralFragment";
-
-export { UserStoryModel, type UserStory } from "./UserStory";
-export { RequirementModel, type Requirement } from "./Requirement";
-export {
-  AcceptanceCriteriaModel,
   type AcceptanceCriteria,
+  AcceptanceCriteriaModel,
 } from "./AcceptanceCriteria";
-export { TestCaseModel, type TestCase } from "./TestCase";
-export { TestScenarioModel, type TestScenario } from "./TestScenario";
+
+export { type Requirement, RequirementModel } from "./Requirement";
+export {
+  type StructuralFragment,
+  StructuralFragmentModel,
+} from "./StructuralFragment";
+export { type TestCase, TestCaseModel } from "./TestCase";
+export { type TestScenario, TestScenarioModel } from "./TestScenario";
+export { type UserStory, UserStoryModel } from "./UserStory";

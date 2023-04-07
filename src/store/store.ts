@@ -5,8 +5,10 @@ import { createContext, useContext } from "react";
 
 import {
   export as export_,
+  generateAcceptanceCriteria,
   generateProductOverview,
   generateRequirements,
+  generateTestScenarios,
   generateUserStories,
   import as import_,
 } from "./actions";
@@ -152,6 +154,8 @@ export const Store = types
       generateProductOverview,
       generateUserStories,
       generateRequirements,
+      generateAcceptanceCriteria,
+      generateTestScenarios,
     })
   )
   .actions(withSelf({ import: import_, export: export_ }))

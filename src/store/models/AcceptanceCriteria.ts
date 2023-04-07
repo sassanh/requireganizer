@@ -2,6 +2,8 @@ import { Instance, types } from "mobx-state-tree";
 
 import { StructuralFragmentModel } from "./StructuralFragment";
 
+export type AcceptanceCriteria = Instance<typeof AcceptanceCriteriaModel>;
+
 export const AcceptanceCriteriaModel = types
   .compose(
     StructuralFragmentModel,
@@ -13,5 +15,3 @@ export const AcceptanceCriteriaModel = types
     })
   )
   .named("AcceptanceCriteria");
-
-export type AcceptanceCriteria = Instance<typeof AcceptanceCriteriaModel>;

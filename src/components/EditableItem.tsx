@@ -1,7 +1,7 @@
-import { faEdit, faSave, faTrash } from "@fortawesome/free-solid-svg-icons";
+import { faTrash } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { observer } from "mobx-react-lite";
-import { useRef, useState } from "react";
+import { useRef } from "react";
 import { StructuralFragment } from "store/models";
 
 interface EditableItemProps<Type extends StructuralFragment>
@@ -15,7 +15,6 @@ const EditableItem = <Type extends StructuralFragment>({
   item,
   onRemove,
 }: EditableItemProps<Type>) => {
-  const [isEditing, setIsEditing] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
 
   const handleRemove = () => {
@@ -27,29 +26,25 @@ const EditableItem = <Type extends StructuralFragment>({
       const updatedText = contentRef.current.innerText;
       item.updateContent(updatedText);
     }
-    setIsEditing(false);
   };
 
   return (
     <li className="item">
       <div
+        className="item-content"
         ref={contentRef}
-        contentEditable={isEditing}
+        onBlur={handleSave}
+        contentEditable
         dangerouslySetInnerHTML={{
           __html: item.content,
         }}
       />
-      {isEditing ? (
-        <button className="icon-button" onClick={handleSave}>
-          <FontAwesomeIcon icon={faSave} /> Save
-        </button>
-      ) : (
-        <button className="icon-button" onClick={() => setIsEditing(true)}>
-          <FontAwesomeIcon icon={faEdit} /> Edit
-        </button>
-      )}
-      <button className="icon-button" id={item.id} onClick={handleRemove}>
-        <FontAwesomeIcon icon={faTrash} /> Delete
+      <button
+        className="item-action icon-button"
+        id={item.id}
+        onClick={handleRemove}
+      >
+        <FontAwesomeIcon icon={faTrash} />
       </button>
       {children}
     </li>

@@ -1,5 +1,5 @@
 import { flow } from "mobx-state-tree";
-import openai from "store/api";
+import ai from "store/api";
 import { Store } from "store/store";
 import { Iteration } from "store/utilities";
 
@@ -14,7 +14,7 @@ const generateUserStories = flow(function* (self_: unknown) {
   const self = self_ as Store;
 
   // Generate user stories
-  const userStoriesResult = yield openai.createChatCompletion({
+  const result = yield ai.createChatCompletion({
     model: "gpt-3.5-turbo",
     n: 1,
     temperature: 0,
@@ -27,7 +27,7 @@ const generateUserStories = flow(function* (self_: unknown) {
       },
       {
         role: "user",
-        content: 'Each user story should start with "^^^^^ As a"',
+        content: 'Each user story should start with "As a"',
       },
       {
         role: "user",
@@ -39,7 +39,7 @@ const generateUserStories = flow(function* (self_: unknown) {
       },
     ],
   });
-  const userStories = userStoriesResult.data.choices[0].message?.content;
+  const userStories = result.data.choices[0].message?.content;
 
   self.setUserStories(prepareContent(userStories));
   self.eventTarget.emit("iterationUpdate", Iteration.userStories);

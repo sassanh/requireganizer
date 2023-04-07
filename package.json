@@ -18,6 +18,7 @@
     "@types/react-dom": "^18.0.11",
     "@types/uuid": "^9.0.1",
     "eslint-plugin-import": "^2.27.5",
+    "eslint-plugin-sort-exports": "^0.8.0",
     "file-saver": "^2.0.5",
     "mobx": "^6.9.0",
     "mobx-react-lite": "^3.4.3",
@@ -47,13 +48,20 @@
       "plugin:import/typescript"
     ],
     "plugins": [
-      "import"
+      "import",
+      "sort-exports"
     ],
     "rules": {
       "sort-imports": [
         "error",
         {
           "ignoreDeclarationSort": true
+        }
+      ],
+      "sort-exports/sort-exports": [
+        "error",
+        {
+          "sortDir": "asc"
         }
       ],
       "import/no-unresolved": "off",

@@ -1,6 +1,7 @@
 import { flow } from "mobx-state-tree";
-import openai from "store/api";
-import { Store } from "store/store";
+import { Store } from "store";
+import ai from "store/api";
+import { Iteration } from "store/utilities";
 
 import {
   generatePrompt,
@@ -13,7 +14,7 @@ const generateRequirements = flow(function* (self_: unknown) {
   const self = self_ as Store;
 
   // Generate requirements
-  const userStoriesResult = yield openai.createChatCompletion({
+  const result = yield ai.createChatCompletion({
     model: "gpt-3.5-turbo",
     n: 1,
     temperature: 0,
@@ -22,7 +23,7 @@ const generateRequirements = flow(function* (self_: unknown) {
       { role: "user", content: systemPrompt },
       {
         role: "user",
-        content: generatePrompt("user stories"),
+        content: generatePrompt("requirements"),
       },
       {
         role: "user",
@@ -35,14 +36,15 @@ const generateRequirements = flow(function* (self_: unknown) {
       {
         role: "user",
         content: `user stories: ${self.userStories
-          .map(({ content }) => content)
+          .map(({ content }) => `- ${content}`)
           .join("\n")}`,
       },
     ],
   });
-  const userStories = userStoriesResult.data.choices[0].message?.content;
+  const requirements = result.data.choices[0].message?.content;
 
-  self.setUserStories(prepareContent(userStories));
+  self.setRequirements(prepareContent(requirements));
+  self.eventTarget.emit("iterationUpdate", Iteration.requirements);
 }) as (self_: unknown) => Promise<void>;
 
 export default generator(generateRequirements);

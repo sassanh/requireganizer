@@ -3,6 +3,8 @@ import { Instance, types } from "mobx-state-tree";
 import { StructuralFragmentModel } from "./StructuralFragment";
 import { TestCase, TestCaseModel } from "./TestCase";
 
+export type TestScenario = Instance<typeof TestScenarioModel>;
+
 export const TestScenarioModel = types
   .compose(
     StructuralFragmentModel,
@@ -20,5 +22,3 @@ export const TestScenarioModel = types
     },
   }))
   .named("TestScenario");
-
-export type TestScenario = Instance<typeof TestScenarioModel>;

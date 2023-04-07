@@ -1,6 +1,8 @@
 import { Instance, types } from "mobx-state-tree";
 import { uuid } from "utilities";
 
+export type StructuralFragment = Instance<typeof StructuralFragmentModel>;
+
 export const StructuralFragmentModel = types
   .model({
     id: types.optional(types.identifier, uuid),
@@ -12,5 +14,3 @@ export const StructuralFragmentModel = types
     },
   }))
   .named("StructuralFragment");
-
-export type StructuralFragment = Instance<typeof StructuralFragmentModel>;

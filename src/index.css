@@ -1,11 +1,21 @@
 body {
-  margin: 0;
+  margin: auto;
   padding: 16px;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen",
     "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue",
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+ul {
+  padding: 0;
+}
+
+body,
+#root {
+  width: min-content;
+  max-width: 1024px;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -44,10 +54,11 @@ h2 {
   text-align: center;
   text-decoration: none;
   display: inline-block;
-  font-size: 14px;
+  font-size: 16px;
   margin: 4px 2px;
   cursor: pointer;
   border-radius: 4px;
+  white-space: break-spaces;
 }
 
 .description,
@@ -65,10 +76,6 @@ h2 {
   font-family: monospace;
 }
 
-.tab .icon-button {
-  margin: -8px 4px;
-}
-
 .icon-button:hover {
   background-color: #0056b3;
   text-decoration: none;
@@ -77,7 +84,7 @@ h2 {
 .section {
   margin-bottom: 32px;
   border: 2px solid gray;
-  padding: 16px 16px 0 16px;
+  padding: 16px;
   border-radius: 8px;
 }
 
@@ -94,6 +101,23 @@ h2 {
   margin-right: 8px;
 }
 
+.item-content {
+  flex-grow: 1;
+}
+
+.item-action {
+  flex-shrink: 1;
+  flex-basis: min-content;
+}
+
+.tab-list {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  width: max-content;
+  max-width: 100%;
+}
+
 .tab {
   padding: 16px;
   border: none;
@@ -103,7 +127,8 @@ h2 {
   font-size: 24px;
   text-decoration: none;
   color: black;
-  display: inline-block;
+  display: block;
+  flex-shrink: 0;
 }
 
 .tab:hover {
@@ -116,6 +141,37 @@ h2 {
 
 .selected-tab:hover {
   background-color: lightseagreen;
+}
+
+.tab-header {
+  display: grid;
+  grid-template: "header-previous header-title header-next" auto / 1fr max-content 1fr;
+  margin-top: 8px;
+  margin-bottom: 8px;
+}
+
+.header-previous {
+  grid-area: header-previous;
+  display: flex;
+  align-items: center;
+}
+
+.header-title {
+  grid-area: header-title;
+  display: flex;
+  align-items: center;
+  margin: 0;
+}
+
+.header-title * {
+  margin: 0;
+}
+
+.header-next {
+  grid-area: header-next;
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: center;
 }
 
 form > * {

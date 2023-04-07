@@ -2,6 +2,8 @@ import { Instance, types } from "mobx-state-tree";
 
 import { StructuralFragmentModel } from "./StructuralFragment";
 
+export type TestCase = Instance<typeof TestCaseModel>;
+
 export const TestCaseModel = types
   .compose(
     StructuralFragmentModel,
@@ -10,5 +12,3 @@ export const TestCaseModel = types
     })
   )
   .named("TestCase");
-
-export type TestCase = Instance<typeof TestCaseModel>;
