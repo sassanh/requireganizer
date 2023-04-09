@@ -1,7 +1,11 @@
 import { faCog } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { Tab } from "@headlessui/react";
-import { Header, IterationTabTitle, StructuralFragments } from "components";
+import {
+  IterationTabTitle,
+  SectionHeader,
+  StructuralFragments,
+} from "components";
 import { observer } from "mobx-react-lite";
 import React, { useEffect, useState } from "react";
 import Textarea from "react-textarea-autosize";
@@ -61,7 +65,7 @@ const Results: React.FunctionComponent = () => {
       </Tab.List>
       <Tab.Panels>
         <Tab.Panel>
-          <Header iteration={Iteration.description} />
+          <SectionHeader iteration={Iteration.description} />
           <Textarea
             className="description"
             value={store.description}
@@ -70,12 +74,12 @@ const Results: React.FunctionComponent = () => {
         </Tab.Panel>
 
         <Tab.Panel>
-          <Header iteration={Iteration.productOverview} />
+          <SectionHeader iteration={Iteration.productOverview} />
           <ProductOverview />
         </Tab.Panel>
 
         <Tab.Panel>
-          <Header iteration={Iteration.userStories} />
+          <SectionHeader iteration={Iteration.userStories} />
           <StructuralFragments
             fragments={store.userStories}
             structuralFragment={StructrualFragment.userStory}
@@ -85,7 +89,7 @@ const Results: React.FunctionComponent = () => {
         </Tab.Panel>
 
         <Tab.Panel>
-          <Header iteration={Iteration.requirements} />
+          <SectionHeader iteration={Iteration.requirements} />
           <StructuralFragments
             fragments={store.requirements}
             structuralFragment={StructrualFragment.requirement}
@@ -95,7 +99,7 @@ const Results: React.FunctionComponent = () => {
         </Tab.Panel>
 
         <Tab.Panel>
-          <Header iteration={Iteration.acceptanceCriteria} />
+          <SectionHeader iteration={Iteration.acceptanceCriteria} />
           <StructuralFragments
             fragments={store.acceptanceCriteria}
             structuralFragment={StructrualFragment.acceptanceCriteria}
@@ -105,7 +109,7 @@ const Results: React.FunctionComponent = () => {
         </Tab.Panel>
 
         <Tab.Panel>
-          <Header iteration={Iteration.testScenarios} />
+          <SectionHeader iteration={Iteration.testScenarios} />
           <StructuralFragments
             fragments={store.testScenarios}
             structuralFragment={StructrualFragment.testScenario}
@@ -115,7 +119,7 @@ const Results: React.FunctionComponent = () => {
         </Tab.Panel>
 
         <Tab.Panel>
-          <Header iteration={Iteration.testCases} />
+          <SectionHeader iteration={Iteration.testCases} />
           <div className="section">
             {store.testScenarios.map((testScenario) => (
               <div key={testScenario.id} className="borderless item">

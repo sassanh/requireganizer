@@ -49,20 +49,13 @@
       "plugin:import/typescript"
     ],
     "plugins": [
-      "import",
-      "sort-exports"
+      "import"
     ],
     "rules": {
       "sort-imports": [
         "error",
         {
           "ignoreDeclarationSort": true
-        }
-      ],
-      "sort-exports/sort-exports": [
-        "error",
-        {
-          "sortDir": "asc"
         }
       ],
       "import/no-unresolved": "off",

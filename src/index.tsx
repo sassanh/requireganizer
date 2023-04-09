@@ -3,19 +3,15 @@ import { getSnapshot, setLivelinessChecking } from "mobx-state-tree";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { Store } from "store/index";
-
-import "./index.css";
-
 import App from "./App";
+import "./index.css";
 import reportWebVitals from "./reportWebVitals";
 
 setLivelinessChecking("error");
 configure({
   enforceActions: "always",
   computedRequiresReaction: true,
-  reactionRequiresObservable: true,
   observableRequiresReaction: true,
-  disableErrorBoundaries: process.env.NODE_ENV !== "production",
 });
 
 let store = Store.create();

@@ -13,7 +13,12 @@ import {
   generateUserStories,
   import as import_,
 } from "./actions";
-import { Framework, Iteration, ProgrammingLanguage } from "./constants";
+import {
+  Framework,
+  Iteration,
+  PROGRAMMING_LANGUAGE_BY_FRAMEWORK,
+  ProgrammingLanguage,
+} from "./constants";
 import {
   AcceptanceCriteria,
   AcceptanceCriteriaModel,
@@ -88,8 +93,13 @@ export const Store = types
       self.validationErrors = validationErrors;
     },
 
-    setFramework(framework: Framework) {
+    setFramework(framework: Framework | null) {
       self.framework = framework;
+      if (framework != null)
+        self.programmingLanguage =
+          PROGRAMMING_LANGUAGE_BY_FRAMEWORK[framework].length === 1
+            ? PROGRAMMING_LANGUAGE_BY_FRAMEWORK[framework][0]
+            : null;
     },
     setProgrammingLanguage(programmingLanguage: ProgrammingLanguage) {
       self.programmingLanguage = programmingLanguage;

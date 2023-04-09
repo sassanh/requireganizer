@@ -32,6 +32,67 @@ body,
   }
 }
 
+.product-overview-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.combo {
+  font-size: 24px;
+  position: relative;
+  width: max-content;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.combo-label {
+  flex-shrink: 0;
+}
+
+.combo-query {
+  font-size: inherit;
+  appearance: none;
+  padding: 8px;
+  border: 2px solid gray;
+  border-radius: 8px;
+}
+
+.combo-button {
+  font-size: inherit;
+  position: absolute;
+  right: 0;
+  padding: 12px;
+  background-color: transparent;
+  border: none;
+}
+
+.combo-options {
+  position: absolute;
+  top: calc(100% + 4px);
+  max-height: 240px;
+  width: 100%;
+  box-sizing: border-box;
+  background-color: white;
+  border: 2px solid gray;
+  border-radius: 8px;
+  z-index: 10;
+  overflow: auto;
+}
+
+.combo-option {
+  padding: 8px;
+  color: gray;
+}
+.combo-option[data-headlessui-state~="active"] {
+  background-color: palegoldenrod;
+}
+.combo-option[data-headlessui-state~="selected"] {
+  background-color: goldenrod;
+  color: black;
+}
+
 code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, "Courier New",
     monospace;
@@ -232,4 +293,5 @@ form > * {
 
 pre {
   white-space: break-spaces;
+  margin: 0;
 }
