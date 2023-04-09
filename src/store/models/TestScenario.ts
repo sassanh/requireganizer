@@ -1,5 +1,5 @@
-import { Instance, types } from "mobx-state-tree";
-import { StructrualFragment } from "store/utilities";
+import { Instance, SnapshotIn, cast, types } from "mobx-state-tree";
+import { StructrualFragment } from "store";
 
 import { StructuralFragmentModel } from "./StructuralFragment";
 import { TestCase, TestCaseModel } from "./TestCase";
@@ -18,6 +18,10 @@ export const TestScenarioModel = types
     })
   )
   .actions((self) => ({
+    setTestCases(testCases: SnapshotIn<TestCase>[]) {
+      self.testCases.clear();
+      self.testCases = cast(testCases);
+    },
     addTestCase() {
       self.testCases.push(TestCaseModel.create({ content: "New Test Case" }));
     },

@@ -1,11 +1,8 @@
 import { faPlus } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { observer } from "mobx-react-lite";
+import { STRUCTURAL_FRAGMENT_LABELS, StructrualFragment } from "store";
 import { StructuralFragment } from "store/models";
-import {
-  STRUCTURAL_FRAGMENT_LABELS,
-  StructrualFragment,
-} from "store/utilities";
 
 import EditableItem from "./EditableItem";
 

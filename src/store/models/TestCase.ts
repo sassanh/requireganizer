@@ -1,5 +1,5 @@
 import { Instance, types } from "mobx-state-tree";
-import { StructrualFragment } from "store/utilities";
+import { StructrualFragment } from "store";
 
 import { StructuralFragmentModel } from "./StructuralFragment";
 

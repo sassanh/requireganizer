@@ -1,8 +1,7 @@
 import { Tab } from "@headlessui/react";
-import { observer } from "mobx-react-lite";
 import { Fragment } from "react";
 
-const TabTitle: React.FunctionComponent<
+const IterationTabTitle: React.FunctionComponent<
   React.AnchorHTMLAttributes<HTMLAnchorElement | { id: string }>
 > = ({ children, id, ...props }) => {
   return (
@@ -20,4 +19,4 @@ const TabTitle: React.FunctionComponent<
   );
 };
 
-export default observer(TabTitle);
+export default IterationTabTitle;

@@ -1,14 +1,19 @@
+import { faCog } from "@fortawesome/free-solid-svg-icons";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { Tab } from "@headlessui/react";
 import { Header, IterationTabTitle, StructuralFragments } from "components";
 import { observer } from "mobx-react-lite";
 import React, { useEffect, useState } from "react";
 import Textarea from "react-textarea-autosize";
-import { Iteration, useStore } from "store";
 import {
   ITERATIONS,
   ITERATION_LABELS,
+  Iteration,
   StructrualFragment,
-} from "store/utilities";
+  useStore,
+} from "store";
+
+import ProductOverview from "./ProductOverview";
 
 const Results: React.FunctionComponent = () => {
   const store = useStore();
@@ -16,10 +21,6 @@ const Results: React.FunctionComponent = () => {
   const handleDescriptionChange = (
     event: React.ChangeEvent<HTMLTextAreaElement>
   ) => store.setDescription(event.target.value);
-
-  const handleProductOverviewChange = (
-    e: React.ChangeEvent<HTMLTextAreaElement>
-  ) => store.setProductOverview(e.target.value);
 
   const [selectedTab, setSelectedTab] = useState(() => {
     const index = ITERATIONS.indexOf(
@@ -37,18 +38,17 @@ const Results: React.FunctionComponent = () => {
     }
   }, [selectedTab]);
 
+  const eventTarget = store.eventTarget;
   useEffect(() => {
     function setSelectedTabByName(iteration: Iteration) {
       setSelectedTab(ITERATIONS.indexOf(iteration));
     }
 
-    const eventTarget = store.eventTarget;
-
     eventTarget.on("iterationUpdate", setSelectedTabByName);
     return () => {
       eventTarget.off("iterationUpdate", setSelectedTabByName);
     };
-  }, [store.eventTarget]);
+  }, [eventTarget]);
 
   return (
     <Tab.Group selectedIndex={selectedTab} onChange={setSelectedTab}>
@@ -71,14 +71,7 @@ const Results: React.FunctionComponent = () => {
 
         <Tab.Panel>
           <Header iteration={Iteration.productOverview} />
-
-          <pre>
-            <Textarea
-              className="product-overview"
-              value={store.productOverview || ""}
-              onChange={handleProductOverviewChange}
-            />
-          </pre>
+          <ProductOverview />
         </Tab.Panel>
 
         <Tab.Panel>
@@ -125,8 +118,15 @@ const Results: React.FunctionComponent = () => {
           <Header iteration={Iteration.testCases} />
           <div className="section">
             {store.testScenarios.map((testScenario) => (
-              <div className="borderless item">
+              <div key={testScenario.id} className="borderless item">
                 <div className="item-content">{testScenario.content}</div>
+                <button
+                  className="icon-button"
+                  disabled={store.isGenerating}
+                  onClick={() => store.generateTestCases(testScenario)}
+                >
+                  <FontAwesomeIcon icon={faCog} /> Generate Test Cases
+                </button>
                 <ol className="item-extra">
                   <StructuralFragments
                     fragments={testScenario.testCases}

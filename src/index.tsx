@@ -40,11 +40,11 @@ renderApp();
 reportWebVitals();
 
 if (module.hot) {
-  module.hot.accept(["./App"], (updatedDependencies) => {
+  module.hot.accept(["./App"], () => {
     renderApp();
   });
 
-  module.hot.accept(["./store"], (updatedDependencies) => {
+  module.hot.accept(["./store"], () => {
     const snapshot = getSnapshot(store);
     store = Store.create(snapshot);
     renderApp();

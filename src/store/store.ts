@@ -13,6 +13,7 @@ import {
   generateUserStories,
   import as import_,
 } from "./actions";
+import { Framework, Iteration, ProgrammingLanguage } from "./constants";
 import {
   AcceptanceCriteria,
   AcceptanceCriteriaModel,
@@ -23,7 +24,7 @@ import {
   UserStory,
   UserStoryModel,
 } from "./models";
-import { Iteration, withSelf } from "./utilities";
+import { withSelf } from "./utilities";
 
 class StoreEventEmitter extends EventEmitter {
   emitIterationUpdate(iteration: Iteration): void {
@@ -52,6 +53,11 @@ export const Store = types
     isGenerating: types.optional(types.boolean, false),
     description: types.optional(types.string, ""),
     validationErrors: types.maybeNull(types.string),
+
+    framework: types.maybeNull(types.enumeration(Object.values(Framework))),
+    programmingLanguage: types.maybeNull(
+      types.enumeration(Object.values(ProgrammingLanguage))
+    ),
 
     productOverview: types.maybeNull(types.string),
     userStories: types.array(UserStoryModel),
@@ -82,40 +88,37 @@ export const Store = types
       self.validationErrors = validationErrors;
     },
 
+    setFramework(framework: Framework) {
+      self.framework = framework;
+    },
+    setProgrammingLanguage(programmingLanguage: ProgrammingLanguage) {
+      self.programmingLanguage = programmingLanguage;
+    },
+
     setProductOverview(productOverview: string) {
       self.productOverview = productOverview;
     },
     setUserStories(userStories: SnapshotIn<UserStory>[]) {
       self.isClean = false;
       self.userStories.clear();
-      self.userStories.push(
-        ...userStories.map((item) => UserStoryModel.create(item))
-      );
+      self.userStories = cast(userStories);
     },
     setRequirements(requirements: SnapshotIn<Requirement>[]) {
       self.isClean = false;
       self.requirements.clear();
-      self.requirements.push(
-        ...requirements.map((item) => RequirementModel.create(item))
-      );
+      self.requirements = cast(requirements);
     },
     setAcceptanceCriteria(
       acceptanceCriteria: SnapshotIn<AcceptanceCriteria>[]
     ) {
       self.isClean = false;
       self.acceptanceCriteria.clear();
-      self.acceptanceCriteria.push(
-        ...acceptanceCriteria.map((item) =>
-          AcceptanceCriteriaModel.create(item)
-        )
-      );
+      self.acceptanceCriteria = cast(acceptanceCriteria);
     },
     setTestScenarios(testScenarios: SnapshotIn<TestScenario>[]) {
       self.isClean = false;
       self.testScenarios.clear();
-      self.testScenarios.push(
-        ...testScenarios.map((item) => TestScenarioModel.create(item))
-      );
+      self.testScenarios = cast(testScenarios);
     },
     addUserStory() {
       self.isClean = false;

@@ -2,12 +2,13 @@ import { faCog, faRefresh } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { observer } from "mobx-react-lite";
 import React from "react";
-import { Iteration, useStore } from "store";
 import {
   GENERATOR_ACTION_BY_ITERATION,
   ITERATIONS,
   ITERATION_LABELS,
-} from "store/utilities";
+  Iteration,
+  useStore,
+} from "store";
 
 interface HeaderProps {
   iteration: Iteration;
@@ -36,7 +37,7 @@ const Header: React.FunctionComponent<HeaderProps> = ({
         {currentIterationGeneratorAction != null ? (
           <button
             className="icon-button"
-            onClick={store[currentIterationGeneratorAction]}
+            onClick={() => store[currentIterationGeneratorAction]()}
           >
             <FontAwesomeIcon icon={faRefresh} /> Regenerate{" "}
             {ITERATION_LABELS.get(iteration)}
@@ -48,7 +49,7 @@ const Header: React.FunctionComponent<HeaderProps> = ({
           <button
             className="icon-button"
             disabled={store.isGenerating}
-            onClick={store[nextIterationGeneratorAction]}
+            onClick={() => store[nextIterationGeneratorAction]()}
           >
             <FontAwesomeIcon icon={faCog} /> Generate{" "}
             {ITERATION_LABELS.get(nextIteration)}
