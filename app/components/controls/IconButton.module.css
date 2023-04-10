@@ -1,0 +1,18 @@
+.icon-button {
+  background-color: #007bff;
+  border: none;
+  color: white;
+  padding: 8px 16px;
+  text-align: center;
+  text-decoration: none;
+  display: inline-block;
+  font-size: 16px;
+  cursor: pointer;
+  border-radius: 4px;
+  white-space: break-spaces;
+}
+
+.icon-button:hover {
+  background-color: #0056b3;
+  text-decoration: none;
+}

@@ -2,94 +2,36 @@
   "name": "requireganizer",
   "version": "0.1.0",
   "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
   "dependencies": {
     "@fortawesome/fontawesome-svg-core": "^6.4.0",
+    "@fortawesome/free-brands-svg-icons": "^6.4.0",
     "@fortawesome/free-solid-svg-icons": "^6.4.0",
     "@fortawesome/react-fontawesome": "^0.2.0",
     "@headlessui/react": "^1.7.13",
     "@react-pdf/renderer": "^3.1.9",
-    "@testing-library/jest-dom": "^5.16.5",
-    "@testing-library/react": "^14.0.0",
-    "@testing-library/user-event": "^14.4.3",
     "@types/file-saver": "^2.0.5",
-    "@types/jest": "^29.5.0",
-    "@types/node": "^18.15.11",
-    "@types/react": "^18.0.33",
-    "@types/react-dom": "^18.0.11",
+    "@types/node": "18.15.11",
+    "@types/react": "18.0.33",
+    "@types/react-dom": "18.0.11",
     "@types/uuid": "^9.0.1",
-    "@types/webpack-env": "^1.18.0",
-    "eslint-plugin-import": "^2.27.5",
-    "eslint-plugin-sort-exports": "^0.8.0",
+    "eslint": "8.38.0",
+    "eslint-config-next": "13.3.0",
     "file-saver": "^2.0.5",
-    "mobx": "^6.9.0",
     "mobx-react-lite": "^3.4.3",
     "mobx-state-tree": "^5.1.8",
+    "next": "13.3.0",
     "openai": "^3.2.1",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-scripts": "5.0.1",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
     "react-textarea-autosize": "^8.4.1",
-    "typescript": "^5.0.4",
-    "uuid": "^9.0.0",
-    "web-vitals": "^3.3.1"
-  },
-  "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
-    "test": "react-scripts test",
-    "eject": "react-scripts eject",
-    "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
-    "lint:fix": "eslint --fix . --ext .js,.jsx,.ts,.tsx"
-  },
-  "eslintConfig": {
-    "extends": [
-      "react-app",
-      "react-app/jest",
-      "plugin:import/recommended",
-      "plugin:import/typescript"
-    ],
-    "plugins": [
-      "import"
-    ],
-    "rules": {
-      "sort-imports": [
-        "error",
-        {
-          "ignoreDeclarationSort": true
-        }
-      ],
-      "import/no-unresolved": "off",
-      "import/order": [
-        "error",
-        {
-          "alphabetize": {
-            "order": "asc",
-            "orderImportKind": "asc",
-            "caseInsensitive": true
-          },
-          "groups": [
-            "builtin",
-            "external",
-            "internal",
-            "parent",
-            "sibling",
-            "index"
-          ],
-          "newlines-between": "always"
-        }
-      ]
-    }
-  },
-  "browserslist": {
-    "production": [
-      ">0.2%",
-      "not dead",
-      "not op_mini all"
-    ],
-    "development": [
-      "last 1 chrome version",
-      "last 1 firefox version",
-      "last 1 safari version"
-    ]
+    "style-loader": "^3.3.2",
+    "typescript": "5.0.4",
+    "uuid": "^9.0.0"
   }
 }

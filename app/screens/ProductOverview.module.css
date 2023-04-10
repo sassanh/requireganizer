@@ -1,0 +1,19 @@
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.text-input {
+  min-width: 100%;
+  font-size: 24px;
+  padding: 16px;
+  border: 2px solid gray;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  resize: none;
+}
+
+.product-overview {
+  font-family: monospace;
+}
