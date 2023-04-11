@@ -12,7 +12,12 @@
   white-space: break-spaces;
 }
 
-.icon-button:hover {
+.icon-button:hover:not(:disabled) {
   background-color: #0056b3;
   text-decoration: none;
+}
+
+.icon-button:disabled {
+  color: #dddddd;
+  cursor: not-allowed;
 }

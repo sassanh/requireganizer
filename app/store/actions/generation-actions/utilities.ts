@@ -1,79 +1,67 @@
-import { IStateTreeNode, SnapshotIn } from "mobx-state-tree";
-import { ChatCompletionRequestMessage } from "openai";
+import { SnapshotOrInstance, flow, types } from "mobx-state-tree";
 
-import { StructuralFragment } from "store/models";
-import { Tail } from "utilities";
-
-export const generatePrompt = (
-  subject: string
-): ChatCompletionRequestMessage[] => [
-  {
-    role: "user",
-    content: `Please generate ${subject} for the software as described in the provided material.`,
-  },
-  {
-    role: "user",
-    content:
-      "Don't prefix items with numbers, bullet points or dashes except the 5 hats.",
-  },
-  {
-    role: "user",
-    content: `Do not include any other titles or headings like 'Test Scenarios:' or 'Requirements:', and just provide the ${subject}.`,
-  },
-  {
-    role: "user",
-    content: 'Each item should start with 5 hats like this "^^^^^".',
-  },
-];
+import { FlatStore } from "@/store/store";
 
 export const generator = <
-  Generator extends (
-    store: IStateTreeNode & { isGenerating: boolean },
-    ...args: any[]
-  ) => void | Promise<void>
+  const U extends any[],
+  Requirements extends string & keyof SnapshotOrInstance<FlatStore>,
 >(
-  function_: Generator
+  function_: (
+    store: Omit<FlatStore, Requirements> & {
+      [key in Requirements]: NonNullable<FlatStore[key]>;
+    },
+    ...args: U
+  ) => Generator<Promise<void>, void, void>,
+  { requirements = [] }: { requirements?: Requirements[] } = {
+    requirements: [],
+  }
 ) => {
-  return (
-    store: IStateTreeNode & { isGenerating: boolean },
-    ...args: Tail<Parameters<Generator>>
-  ): void | Promise<void> => {
-    if (store.isGenerating) {
+  return flow(function*(
+    store: FlatStore,
+    ...args: U
+  ): Generator<Promise<void>, void, void> {
+    if (store.isBusy) {
       return;
     }
 
-    try {
-      store.isGenerating = true;
+    function throwEmptyError(requirement: Requirements) {
+      throw new Error(
+        `"store.${requirement}" cannot be empty for "${function_.name}"`
+      );
+    }
 
-      return function_(store, ...args);
+    requirements?.forEach((requirement) => {
+      const value = store[requirement];
+      const a = FlatStore.properties[requirement];
+      console.log(
+        a.name,
+        a.describe(),
+        a.identifierAttribute,
+        a.is(types.array)
+      );
+      if (value instanceof Array) {
+        if (value.length === 0) throwEmptyError(requirement);
+      } else if (value instanceof Set || value instanceof Map) {
+        if (value.size === 0) throwEmptyError(requirement);
+      } else {
+        if (!value) throwEmptyError(requirement);
+      }
+    });
+
+    try {
+      store.businessDepth += 1;
+
+      yield* function_(
+        store as Omit<FlatStore, Requirements> & {
+          [key in Requirements]: NonNullable<FlatStore[key]>;
+        },
+        ...args
+      );
     } catch (error) {
       console.error(`Error while generating (${function_.name}):`, error);
       alert(error);
     } finally {
-      store.isGenerating = false;
+      store.businessDepth -= 1;
     }
-  };
+  });
 };
-
-export const prepareContent = (
-  content: string,
-  separator: string = "^^^^^"
-): SnapshotIn<StructuralFragment>[] =>
-  content
-    .split(separator)
-    .slice(1)
-    .map((item) => ({
-      content: item.trim(),
-    })) || [];
-
-export const systemPrompt = `This is an application that starts with a description of a piece of software, and runs minor iterations on it with the help of you to complete a major iteration of the software development. A major iteration is supposed to consist these minor iterations:
-1. Generate product overview based on the description.
-2. Generate user stories based the product overview.
-3. Generate requirements based on the user stories.
-4. Generate acceptance criteria based on the requirements.
-5. Generate test scenarios based on the acceptance criteria.
-6. Generate test cases based on the test scenarios.
-7. Generate test code based on test scenarios.
-8. Generate code to satisfy tests.
-9. Run retrospective to understand the concerns of the user in the process.
-10. Help the user to update the specification and run the major iteration again.`;

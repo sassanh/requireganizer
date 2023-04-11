@@ -50,7 +50,7 @@ const Header: React.FunctionComponent<HeaderProps> = ({
         {nextIteration && nextIterationGeneratorAction ? (
           <IconButton
             icon={faCog}
-            disabled={store.isGenerating}
+            disabled={store.isBusy}
             onClick={() => store[nextIterationGeneratorAction]()}
           >
             Generate {ITERATION_LABELS.get(nextIteration)}

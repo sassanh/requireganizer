@@ -50,13 +50,7 @@
 }
 .combo-option[data-headlessui-state~="selected"] {
   font-weight: bold;
-}
-.combo-option[data-headlessui-state~="selected"]::before {
-  display: inline-block;
-  text-rendering: auto;
-  -webkit-font-smoothing: antialiased;
-  font: var(--fa-font-solid);
-  content: "\f007";
+  background-color: goldenrod;
 }
 
 @media (prefers-color-scheme: dark) {

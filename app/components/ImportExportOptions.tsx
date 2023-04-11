@@ -17,6 +17,7 @@ import css from "./ImportExportOptions.module.css";
 import { IconButton } from "./controls";
 
 interface ImportExportOptionsProps {
+  disabled?: boolean;
   onExport: (format: "pdf" | "txt" | "json") => void;
   onImport: (data: {
     description: string;
@@ -31,7 +32,7 @@ interface ImportExportOptionsProps {
 
 const ImportExportOptions: React.FunctionComponent<
   ImportExportOptionsProps
-> = ({ onExport, onImport, onReset }) => {
+> = ({ disabled = false, onExport, onImport, onReset }) => {
   const [inputRef, setInputRef] = useState<HTMLInputElement | null>(null);
 
   const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -56,21 +57,37 @@ const ImportExportOptions: React.FunctionComponent<
 
   return (
     <div className={css.container}>
-      <IconButton icon={faFile} onClick={onReset}>
+      <IconButton disabled={disabled} icon={faFile} onClick={onReset}>
         Reset
       </IconButton>
       <div className={css.vl} />
-      <IconButton icon={faJs} onClick={() => inputRef?.click()}>
+      <IconButton
+        disabled={disabled}
+        icon={faJs}
+        onClick={() => inputRef?.click()}
+      >
         Import JSON
       </IconButton>
       <div className={css.vl} />
-      <IconButton icon={faFilePdf} onClick={() => onExport("pdf")}>
+      <IconButton
+        disabled={disabled}
+        icon={faFilePdf}
+        onClick={() => onExport("pdf")}
+      >
         Export as PDF
       </IconButton>
-      <IconButton icon={faFileText} onClick={() => onExport("txt")}>
+      <IconButton
+        disabled={disabled}
+        icon={faFileText}
+        onClick={() => onExport("txt")}
+      >
         Export as TXT
       </IconButton>
-      <IconButton icon={faJs} onClick={() => onExport("json")}>
+      <IconButton
+        disabled={disabled}
+        icon={faJs}
+        onClick={() => onExport("json")}
+      >
         Export as JSON
       </IconButton>
       <input

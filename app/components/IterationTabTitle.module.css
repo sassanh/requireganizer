@@ -12,14 +12,20 @@
   text-align: center;
 }
 
-.tab:hover {
+.tab:hover:not(.disabled-tab) {
   background-color: lightseagreen;
 }
 
-.selected-tab {
+.tab[data-headlessui-state~="selected"] {
   background-color: seagreen;
 }
 
-.selected-tab:hover {
+.tab[data-headlessui-state~="selected"]:hover:not(.disabled-tab) {
   background-color: lightseagreen;
+}
+
+.disabled-tab.tab,
+.disabled-tab.tab[data-headlessui-state~="selected"] {
+  color: #dddddd;
+  cursor: not-allowed;
 }

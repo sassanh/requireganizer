@@ -1,3 +1,5 @@
+"use client";
+
 import EventEmitter from "events";
 
 import { Instance, SnapshotIn, cast, types } from "mobx-state-tree";
@@ -52,10 +54,10 @@ declare interface StoreEventEmitter {
   ): boolean;
 }
 
-export const Store = types
+export const FlatStore = types
   .model("Store", {
     isClean: types.optional(types.boolean, true),
-    isGenerating: types.optional(types.boolean, false),
+    businessDepth: types.optional(types.number, 0),
     description: types.optional(types.string, ""),
     validationErrors: types.maybeNull(types.string),
 
@@ -73,7 +75,7 @@ export const Store = types
   .actions((self) => ({
     reset() {
       self.isClean = true;
-      self.isGenerating = false;
+      self.businessDepth = 0;
       self.description = "";
       self.validationErrors = null;
 
@@ -167,17 +169,11 @@ export const Store = types
       self.testScenarios.remove(testScenario);
     },
   }))
-  .actions(
-    withSelf({
-      generateProductOverview,
-      generateUserStories,
-      generateRequirements,
-      generateAcceptanceCriteria,
-      generateTestScenarios,
-      generateTestCases,
-    })
-  )
-  .actions(withSelf({ import: import_, export: export_ }))
+  .views((self) => ({
+    get isBusy() {
+      return self.businessDepth > 0;
+    },
+  }))
   .views(() => {
     const eventTarget = new StoreEventEmitter();
 
@@ -188,6 +184,18 @@ export const Store = types
     };
   });
 
+export const Store = FlatStore.actions(
+  withSelf({
+    generateProductOverview,
+    generateUserStories,
+    generateRequirements,
+    generateAcceptanceCriteria,
+    generateTestScenarios,
+    generateTestCases,
+  })
+).actions(withSelf({ import: import_, export: export_ }));
+
+export type FlatStore = Instance<typeof FlatStore>;
 export type Store = Instance<typeof Store>;
 export const storeContext = createContext<Store>(null!);
 export const useStore = () => useContext(storeContext);

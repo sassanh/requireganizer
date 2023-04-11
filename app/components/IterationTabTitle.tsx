@@ -4,21 +4,20 @@ import { Fragment } from "react";
 import css from "./IterationTabTitle.module.css";
 
 const IterationTabTitle: React.FunctionComponent<
-  React.AnchorHTMLAttributes<HTMLAnchorElement | { id: string }>
-> = ({ children, id, ...props }) => {
+  React.AnchorHTMLAttributes<HTMLAnchorElement> & { disabled: boolean }
+> = ({ children, id, disabled, ...props }) => {
   return (
     <Tab as={Fragment}>
-      {({ selected }) => (
-        <a
-          href={`#${id}`}
-          className={[css.tab, selected ? css.selectedTab : ""]
-            .filter((className) => className)
-            .join(" ")}
-          {...props}
-        >
-          {children}
-        </a>
-      )}
+      <a
+        onClick={disabled ? (event) => event.preventDefault() : undefined}
+        href={`#${id}`}
+        className={[css.tab, disabled ? css.disabledTab : ""]
+          .filter((className) => className)
+          .join(" ")}
+        {...props}
+      >
+        {children}
+      </a>
     </Tab>
   );
 };

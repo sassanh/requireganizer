@@ -65,7 +65,7 @@ const Results: React.FunctionComponent = () => {
     <Tab.Group selectedIndex={selectedTab} onChange={setSelectedTab}>
       <Tab.List className={css.tabList}>
         {Object.values(Iteration).map((tab: Iteration) => (
-          <IterationTabTitle id={tab} key={tab}>
+          <IterationTabTitle disabled={store.isBusy} id={tab} key={tab}>
             {ITERATION_LABELS.get(tab)}
           </IterationTabTitle>
         ))}
@@ -77,6 +77,7 @@ const Results: React.FunctionComponent = () => {
             className={productOverviewCss.textInput}
             value={store.description}
             onChange={handleDescriptionChange}
+            placeholder="Provide a description of the software you'd like to develop..."
           />
         </Tab.Panel>
 
@@ -138,7 +139,7 @@ const Results: React.FunctionComponent = () => {
                 </div>
                 <IconButton
                   icon={faCog}
-                  disabled={store.isGenerating}
+                  disabled={store.isBusy}
                   onClick={() => store.generateTestCases(testScenario)}
                 >
                   Generate Test Cases

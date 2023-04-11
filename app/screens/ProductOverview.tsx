@@ -18,6 +18,7 @@ const ProductOverview: React.FunctionComponent = () => {
         <Textarea
           className={[css.textInput, css.productOverview].join(" ")}
           value={store.productOverview || ""}
+          placeholder="Summarize the key features and objectives of the software in a comprehensive overview..."
           onChange={handleProductOverviewChange}
         />
       </pre>
