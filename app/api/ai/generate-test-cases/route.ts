@@ -11,7 +11,6 @@ import {
 
 import { ai, generatePrompt, prepareContent, systemPrompt } from "../lib";
 
-export const ENDPOINT = "/api/ai/generate-test-cases";
 export interface GenerateTestCasesRequestBody {
   description: string;
   productOverview: string;

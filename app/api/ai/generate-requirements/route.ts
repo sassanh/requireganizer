@@ -5,7 +5,6 @@ import { Requirement, UserStory } from "@/store/models";
 
 import { ai, generatePrompt, prepareContent, systemPrompt } from "../lib";
 
-export const ENDPOINT = "/api/ai/generate-requirements";
 export interface GenerateRequirementsRequestBody {
   description: string;
   productOverview: string;

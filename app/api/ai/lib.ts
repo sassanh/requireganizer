@@ -1,4 +1,7 @@
+import { SnapshotIn } from "mobx-state-tree";
 import { ChatCompletionRequestMessage, Configuration, OpenAIApi } from "openai";
+
+import { StructuralFragment } from "@/store/models";
 
 const configuration = new Configuration({
   apiKey: process.env.OPENAI_API_KEY,
