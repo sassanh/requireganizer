@@ -5,7 +5,6 @@ import { AcceptanceCriteria, Requirement, UserStory } from "@/store/models";
 
 import { ai, generatePrompt, prepareContent, systemPrompt } from "../lib";
 
-export const ENDPOINT = "/api/ai/generate-acceptance-criteria";
 export interface GenerateAcceptanceCriteriaRequestBody {
   description: string;
   productOverview: string;

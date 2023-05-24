@@ -4,7 +4,6 @@ import { Framework, ProgrammingLanguage } from "store";
 
 import { ai, systemPrompt } from "../lib";
 
-export const ENDPOINT = "/api/ai/generate-product-overview";
 export interface GenerateProductOverviewRequestBody {
   description: string;
 }

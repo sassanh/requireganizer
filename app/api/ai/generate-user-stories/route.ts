@@ -5,7 +5,6 @@ import { UserStory } from "@/store/models";
 
 import { ai, generatePrompt, prepareContent, systemPrompt } from "../lib";
 
-export const ENDPOINT = "/api/ai/generate-user-stories";
 export interface GenerateUserStoriesRequestBody {
   description: string;
   productOverview: string;

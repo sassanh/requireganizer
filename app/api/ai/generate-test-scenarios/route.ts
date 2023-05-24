@@ -10,7 +10,6 @@ import {
 
 import { ai, generatePrompt, prepareContent, systemPrompt } from "../lib";
 
-export const ENDPOINT = "/api/ai/generate-test-scenarios";
 export interface GenerateTestScenariosRequestBody {
   description: string;
   productOverview: string;
