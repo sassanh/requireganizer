@@ -2,7 +2,7 @@
 
 Requireganizer is a software application designed to facilitate an iterative software development process. It automates the generation of necessary documentation and code with the help of ChatGPT, a large language model trained by OpenAI.
 
-<img width="1055" alt="image" src="https://github.com/sassanh/requireganizer/assets/1270688/612bfdec-dd0a-4fe3-95c7-1ae9673fdc82">
+<img width="1055" alt="image" src="https://github.com/sassanh/requireganizer/assets/1270688/89a9873c-7b80-4ab0-a647-c2f246f42401">
 
 ## Status
 
