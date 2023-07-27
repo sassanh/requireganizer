@@ -6,11 +6,12 @@ import { getSnapshot } from "mobx-state-tree";
 import { Inter } from "next/font/google";
 import { useEffect, useMemo, useState } from "react";
 
-import { Combobox, ImportExportOptions } from "components";
+import { Combobox, Toolbar } from "components";
 import { Results } from "screens";
 import {
   Framework,
   PROGRAMMING_LANGUAGE_BY_FRAMEWORK,
+  ProgrammingLanguage,
   Store,
   storeContext,
 } from "store";
@@ -55,6 +56,8 @@ const Home = () => {
   }
 
   const handleImport = (data: {
+    programmingLanguage: ProgrammingLanguage;
+    framework: Framework;
     description: string;
     productOverview: string;
     userStories: UserStory[];
@@ -77,7 +80,7 @@ const Home = () => {
       {store.validationErrors ? (
         <div className="validation-errors">{store.validationErrors}</div>
       ) : null}
-      <ImportExportOptions
+      <Toolbar
         disabled={store.isBusy}
         onImport={handleImport}
         onExport={store.export}

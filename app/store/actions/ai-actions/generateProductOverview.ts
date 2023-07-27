@@ -1,9 +1,9 @@
 import { toGenerator } from "mobx-state-tree";
 
-import { GENERATE_PRODUCT_OVERVIEW_ENDPOINT } from "@/api";
-import { Iteration } from "@/store/constants";
+import { GENERATE_PRODUCT_OVERVIEW_ENDPOINT, RequestBody, ResponseBody } from "api";
+import { Iteration } from "store";
 
-import { generator } from "./utilities";
+import { generator, handleFunctionCall } from "./utilities";
 
 export default generator(
   function* generateProductOverview(self) {
@@ -13,7 +13,9 @@ export default generator(
     self.framework = null;
     self.programmingLanguage = null;
 
-    const requestBody = { description: self.description };
+    const requestBody: RequestBody = {
+      state: self.json(Iteration.productOverview),
+    };
 
     const response: Response = yield* toGenerator(
       fetch(GENERATE_PRODUCT_OVERVIEW_ENDPOINT, {
@@ -22,12 +24,11 @@ export default generator(
       })
     );
 
-    const { productOverview, framework, programmingLanguage } =
-      yield* toGenerator(response.json());
+    const { functionCall } = (yield* toGenerator(
+      response.json()
+    )) as ResponseBody;
 
-    self.setProductOverview(productOverview);
-    self.setFramework(framework);
-    self.setProgrammingLanguage(programmingLanguage);
+    handleFunctionCall(self, functionCall);
 
     self.eventTarget.emit("iterationUpdate", Iteration.productOverview);
   },

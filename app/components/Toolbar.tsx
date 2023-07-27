@@ -6,6 +6,7 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import React, { useState } from "react";
 
+import { Framework, ProgrammingLanguage } from "@/store";
 import {
   AcceptanceCriteria,
   Requirement,
@@ -13,13 +14,15 @@ import {
   UserStory,
 } from "@/store/models";
 
-import css from "./ImportExportOptions.module.css";
+import css from "./Toolbar.module.css";
 import { IconButton } from "./controls";
 
-interface ImportExportOptionsProps {
+interface ToolbarProps {
   disabled?: boolean;
   onExport: (format: "pdf" | "txt" | "json") => void;
   onImport: (data: {
+    programmingLanguage: ProgrammingLanguage;
+    framework: Framework;
     description: string;
     productOverview: string;
     userStories: UserStory[];
@@ -30,9 +33,12 @@ interface ImportExportOptionsProps {
   onReset: () => void;
 }
 
-const ImportExportOptions: React.FunctionComponent<
-  ImportExportOptionsProps
-> = ({ disabled = false, onExport, onImport, onReset }) => {
+const Toolbar: React.FunctionComponent<ToolbarProps> = ({
+  disabled = false,
+  onExport,
+  onImport,
+  onReset,
+}) => {
   const [inputRef, setInputRef] = useState<HTMLInputElement | null>(null);
 
   const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -102,4 +108,4 @@ const ImportExportOptions: React.FunctionComponent<
   );
 };
 
-export default ImportExportOptions;
+export default Toolbar;

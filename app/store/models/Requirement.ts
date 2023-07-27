@@ -1,6 +1,6 @@
 import { Instance, types } from "mobx-state-tree";
 
-import { StructrualFragment } from "store";
+import { StructuralFragment } from "store";
 
 import { StructuralFragmentModel } from "./StructuralFragment";
 
@@ -11,8 +11,8 @@ export const RequirementModel = types
     StructuralFragmentModel,
     types.model({
       type: types.optional(
-        types.literal(StructrualFragment.requirement),
-        StructrualFragment.requirement
+        types.literal(StructuralFragment.requirement),
+        StructuralFragment.requirement
       ),
     })
   )

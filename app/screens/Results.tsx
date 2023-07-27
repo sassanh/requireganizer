@@ -18,7 +18,7 @@ import {
   ITERATIONS,
   ITERATION_LABELS,
   Iteration,
-  StructrualFragment,
+  StructuralFragment,
   useStore,
 } from "store";
 
@@ -90,8 +90,10 @@ const Results: React.FunctionComponent = () => {
           <SectionHeader iteration={Iteration.userStories} />
           <StructuralFragments
             fragments={store.userStories}
-            structuralFragment={StructrualFragment.userStory}
+            isDisabled={store.isBusy}
+            structuralFragment={StructuralFragment.userStory}
             onAddFragment={store.addUserStory}
+            onComment={store.handleComment}
             onRemoveFragment={store.removeUserStory}
           />
         </Tab.Panel>
@@ -100,8 +102,10 @@ const Results: React.FunctionComponent = () => {
           <SectionHeader iteration={Iteration.requirements} />
           <StructuralFragments
             fragments={store.requirements}
-            structuralFragment={StructrualFragment.requirement}
+            isDisabled={store.isBusy}
+            structuralFragment={StructuralFragment.requirement}
             onAddFragment={store.addRequirement}
+            onComment={store.handleComment}
             onRemoveFragment={store.removeRequirement}
           />
         </Tab.Panel>
@@ -110,8 +114,10 @@ const Results: React.FunctionComponent = () => {
           <SectionHeader iteration={Iteration.acceptanceCriteria} />
           <StructuralFragments
             fragments={store.acceptanceCriteria}
-            structuralFragment={StructrualFragment.acceptanceCriteria}
+            isDisabled={store.isBusy}
+            structuralFragment={StructuralFragment.acceptanceCriteria}
             onAddFragment={store.addAcceptanceCriteria}
+            onComment={store.handleComment}
             onRemoveFragment={store.removeAcceptanceCriteria}
           />
         </Tab.Panel>
@@ -120,8 +126,10 @@ const Results: React.FunctionComponent = () => {
           <SectionHeader iteration={Iteration.testScenarios} />
           <StructuralFragments
             fragments={store.testScenarios}
-            structuralFragment={StructrualFragment.testScenario}
+            isDisabled={store.isBusy}
+            structuralFragment={StructuralFragment.testScenario}
             onAddFragment={store.addTestScenario}
+            onComment={store.handleComment}
             onRemoveFragment={store.removeTestScenario}
           />
         </Tab.Panel>
@@ -147,8 +155,10 @@ const Results: React.FunctionComponent = () => {
                 <ol className={editableItemCss.itemExtra}>
                   <StructuralFragments
                     fragments={testScenario.testCases}
-                    structuralFragment={StructrualFragment.testCase}
+                    isDisabled={store.isBusy}
+                    structuralFragment={StructuralFragment.testCase}
                     onAddFragment={testScenario.addTestCase}
+                    onComment={store.handleComment}
                     onRemoveFragment={testScenario.removeTestCase}
                   />
                 </ol>

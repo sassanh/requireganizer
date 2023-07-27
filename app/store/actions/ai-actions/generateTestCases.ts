@@ -3,26 +3,32 @@ import { toGenerator } from "mobx-state-tree";
 import {
   GENERATE_TEST_CASES_ENDPOINT,
   GenerateTestCasesRequestBody,
-  GenerateTestCasesResponseBody,
+  ResponseBody
 } from "@/api";
-import { Iteration } from "@/store/constants";
-import { Store } from "@/store/store";
+import { Iteration } from "store";
 import { TestScenario } from "store/models";
 
-import { generator } from "./utilities";
+import { generator, handleFunctionCall } from "./utilities";
 
 export default generator(
   function* generateTestCases(self, testScenario?: TestScenario) {
-    if (testScenario != null) {
-      testScenario.setTestCases([]);
+    self.resetValidationErrors();
 
+    const testScenarios =
+      testScenario == null ? self.testScenarios : [testScenario];
+
+    for (testScenario of testScenarios) {
       const requestBody: GenerateTestCasesRequestBody = {
-        description: self.description,
-        productOverview: self.productOverview,
-        userStories: self.userStories,
-        requirements: self.requirements,
-        acceptanceCriteria: self.acceptanceCriteria,
-        testScenarios: self.testScenarios,
+        state: JSON.stringify({
+          ...self.data(),
+          testScenarios: self.testScenarios.map((testScenario_) => ({
+            ...testScenario_,
+            testCases:
+              testScenario_ === testScenario
+                ? testScenario_.testCases
+                : "[these test cases are excluded from state as they are not needed for this query]",
+          })),
+        }),
         testScenarioIndex: self.testScenarios.indexOf(testScenario),
       };
 
@@ -32,16 +38,14 @@ export default generator(
           body: JSON.stringify(requestBody),
         })
       );
-      const { testCases } = (yield* toGenerator(
-        response.json()
-      )) as GenerateTestCasesResponseBody;
 
-      testScenario?.setTestCases(testCases);
+      const { functionCall } = (yield* toGenerator(
+        response.json()
+      )) as ResponseBody;
+
+      handleFunctionCall(self, functionCall);
+
       self.eventTarget.emit("iterationUpdate", Iteration.testCases);
-    } else {
-      self.testScenarios.forEach((testScenario) =>
-        (self as Store).generateTestCases(testScenario)
-      );
     }
   },
   {

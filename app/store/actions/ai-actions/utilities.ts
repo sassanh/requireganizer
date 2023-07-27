@@ -1,10 +1,15 @@
-import { SnapshotOrInstance, flow, types } from "mobx-state-tree";
+import { SnapshotOrInstance, flow } from "mobx-state-tree";
+import { ChatCompletionRequestMessageFunctionCall } from "openai";
 
+import {
+  ManipulationFunctionName,
+  manipulationFunctionNames,
+} from "@/api/ai/lib";
 import { FlatStore } from "@/store/store";
 
 export const generator = <
   const U extends any[],
-  Requirements extends string & keyof SnapshotOrInstance<FlatStore>,
+  Requirements extends string & keyof SnapshotOrInstance<FlatStore>
 >(
   function_: (
     store: Omit<FlatStore, Requirements> & {
@@ -32,13 +37,6 @@ export const generator = <
 
     requirements?.forEach((requirement) => {
       const value = store[requirement];
-      const a = FlatStore.properties[requirement];
-      console.log(
-        a.name,
-        a.describe(),
-        a.identifierAttribute,
-        a.is(types.array)
-      );
       if (value instanceof Array) {
         if (value.length === 0) throwEmptyError(requirement);
       } else if (value instanceof Set || value instanceof Map) {
@@ -65,3 +63,21 @@ export const generator = <
     }
   });
 };
+
+export function handleFunctionCall(
+  store: FlatStore,
+  functionCall: ChatCompletionRequestMessageFunctionCall
+) {
+  const name = functionCall.name as ManipulationFunctionName;
+  const { arguments: arguments_ } = functionCall;
+
+  if (!name || !arguments_) {
+    return;
+  }
+
+  if (!manipulationFunctionNames.includes(name)) {
+    return;
+  }
+
+  store[name](JSON.parse(arguments_));
+}

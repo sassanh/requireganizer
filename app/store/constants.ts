@@ -370,8 +370,20 @@ export const ITERATION_LABELS = new Map([
   [Iteration.testScenarios, "Test Scenarios"],
   [Iteration.testCases, "Test Cases"],
 ]);
+export const LAST_ITERATION = Iteration.testCases;
 
-export enum StructrualFragment {
+export function isIterationBefore(
+  iteration1: Iteration,
+  iteration2: Iteration
+) {
+  return ITERATIONS.indexOf(iteration1) < ITERATIONS.indexOf(iteration2);
+}
+
+export function isIterationAfter(iteration1: Iteration, iteration2: Iteration) {
+  return ITERATIONS.indexOf(iteration1) > ITERATIONS.indexOf(iteration2);
+}
+
+export enum StructuralFragment {
   userStory = "user-story",
   requirement = "requirement",
   acceptanceCriteria = "acceptance-criteria",
@@ -380,26 +392,26 @@ export enum StructrualFragment {
 }
 
 export const STRUCTURAL_FRAGMENT_LABELS = new Map([
-  [StructrualFragment.userStory, "User Story"],
-  [StructrualFragment.requirement, "Requirement"],
-  [StructrualFragment.acceptanceCriteria, "Acceptance Criteria"],
-  [StructrualFragment.testScenario, "Test Scenario"],
-  [StructrualFragment.testCase, "Test Case"],
+  [StructuralFragment.userStory, "User Story"],
+  [StructuralFragment.requirement, "Requirement"],
+  [StructuralFragment.acceptanceCriteria, "Acceptance Criteria"],
+  [StructuralFragment.testScenario, "Test Scenario"],
+  [StructuralFragment.testCase, "Test Case"],
 ]);
 
 export const ITERATION_BY_STRUCTURAL_FRAGMENT = new Map([
-  [StructrualFragment.userStory, Iteration.userStories],
-  [StructrualFragment.requirement, Iteration.requirements],
-  [StructrualFragment.acceptanceCriteria, Iteration.acceptanceCriteria],
-  [StructrualFragment.testScenario, Iteration.testScenarios],
-  [StructrualFragment.testCase, Iteration.testCases],
+  [StructuralFragment.userStory, Iteration.userStories],
+  [StructuralFragment.requirement, Iteration.requirements],
+  [StructuralFragment.acceptanceCriteria, Iteration.acceptanceCriteria],
+  [StructuralFragment.testScenario, Iteration.testScenarios],
+  [StructuralFragment.testCase, Iteration.testCases],
 ]);
 export const STRUCTURAL_FRAGMENT_BY_ITERATION = new Map([
-  [Iteration.userStories, StructrualFragment.userStory],
-  [Iteration.requirements, StructrualFragment.requirement],
-  [Iteration.acceptanceCriteria, StructrualFragment.acceptanceCriteria],
-  [Iteration.testScenarios, StructrualFragment.testScenario],
-  [Iteration.testCases, StructrualFragment.testCase],
+  [Iteration.userStories, StructuralFragment.userStory],
+  [Iteration.requirements, StructuralFragment.requirement],
+  [Iteration.acceptanceCriteria, StructuralFragment.acceptanceCriteria],
+  [Iteration.testScenarios, StructuralFragment.testScenario],
+  [Iteration.testCases, StructuralFragment.testCase],
 ]);
 
 export const GENERATOR_ACTION_BY_ITERATION = new Map<
@@ -414,20 +426,20 @@ export const GENERATOR_ACTION_BY_ITERATION = new Map<
   [Iteration.testCases, "generateTestCases"],
 ]);
 export const ADD_ACTION_BY_STRUCTURAL_FRAGMENT = new Map<
-  StructrualFragment,
+  StructuralFragment,
   Extract<keyof Store, `add${string}`>
 >([
-  [StructrualFragment.userStory, "addUserStory"],
-  [StructrualFragment.requirement, "addRequirement"],
-  [StructrualFragment.acceptanceCriteria, "addAcceptanceCriteria"],
-  [StructrualFragment.testScenario, "addTestScenario"],
+  [StructuralFragment.userStory, "addUserStory"],
+  [StructuralFragment.requirement, "addRequirement"],
+  [StructuralFragment.acceptanceCriteria, "addAcceptanceCriteria"],
+  [StructuralFragment.testScenario, "addTestScenario"],
 ]);
 export const REMOVE_ACTION_BY_STRUCTURAL_FRAGMENT = new Map<
-  StructrualFragment,
+  StructuralFragment,
   Extract<keyof Store, `remove${string}`>
 >([
-  [StructrualFragment.userStory, "removeUserStory"],
-  [StructrualFragment.requirement, "removeRequirement"],
-  [StructrualFragment.acceptanceCriteria, "removeAcceptanceCriteria"],
-  [StructrualFragment.testScenario, "removeTestScenario"],
+  [StructuralFragment.userStory, "removeUserStory"],
+  [StructuralFragment.requirement, "removeRequirement"],
+  [StructuralFragment.acceptanceCriteria, "removeAcceptanceCriteria"],
+  [StructuralFragment.testScenario, "removeTestScenario"],
 ]);

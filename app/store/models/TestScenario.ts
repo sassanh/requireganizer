@@ -1,6 +1,6 @@
 import { Instance, SnapshotIn, cast, types } from "mobx-state-tree";
 
-import { StructrualFragment } from "store";
+import { StructuralFragment } from "store";
 
 import { StructuralFragmentModel } from "./StructuralFragment";
 import { TestCase, TestCaseModel } from "./TestCase";
@@ -13,8 +13,8 @@ export const TestScenarioModel = types
     types.model({
       testCases: types.array(TestCaseModel),
       type: types.optional(
-        types.literal(StructrualFragment.testScenario),
-        StructrualFragment.testScenario
+        types.literal(StructuralFragment.testScenario),
+        StructuralFragment.testScenario
       ),
     })
   )

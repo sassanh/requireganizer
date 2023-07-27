@@ -40,6 +40,7 @@ const Header: React.FunctionComponent<HeaderProps> = ({
         {currentIterationGeneratorAction != null ? (
           <IconButton
             icon={faRefresh}
+            disabled={store.isBusy}
             onClick={() => store[currentIterationGeneratorAction]()}
           >
             Regenerate {ITERATION_LABELS.get(iteration)}

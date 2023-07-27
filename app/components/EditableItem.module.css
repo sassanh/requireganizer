@@ -30,6 +30,7 @@
   cursor: inherit;
   resize: none;
   padding: 0;
+  background-color: rgba(0, 0, 0, 0);
 }
 
 .item-content::before {
@@ -48,6 +49,8 @@
 
 .item-action {
   grid-area: action;
+  display: flex;
+  gap: 8px;
 }
 
 .item-extra {

@@ -6,20 +6,25 @@ import {
   AIModelError,
   RequestBody,
   ResponseBody,
-  generatePrompt,
   queryAiModel,
   systemPrompt,
 } from "../lib";
 
+export interface HandleCommentRequestBody extends RequestBody {
+  comment: string;
+  type: StructuralFragment;
+  id: string;
+}
+
 export async function POST(request: Request) {
-  const { state } = (await request.json()) as RequestBody;
+  const { state, comment, type, id } =
+    (await request.json()) as HandleCommentRequestBody;
 
   try {
     const result = await queryAiModel([
       systemPrompt,
       `current state: ${state}`,
-      ...generatePrompt(StructuralFragment.userStory),
-      'Each user story should start with "As a"',
+      `Regarding ${type} with id ${id} consider this comment: """ ${comment} """. To address this comment please run the required function.`,
     ]);
 
     return NextResponse.json<ResponseBody>({

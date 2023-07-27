@@ -3,7 +3,6 @@ const nextConfig = {
   experimental: {
     appDir: true,
   },
-  output: "export",
   webpack: (config) => {
     const rules = config.module.rules
       .find((rule) => typeof rule.oneOf === "object")

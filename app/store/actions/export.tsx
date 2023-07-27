@@ -34,23 +34,15 @@ ${self.acceptanceCriteria.map((criteria) => criteria.content).join("\n")}
 
 Test Scenarios:
 ${self.testScenarios
-  .map(
-    (testScenario) => `${testScenario.content}
+          .map(
+            (testScenario) => `${testScenario.content}
 ${testScenario.testCases.map((testCase) => testCase.content).join("\n")}
 `
-  )
-  .join("\n")}
+          )
+          .join("\n")}
       `;
     } else if (format === "json") {
-      const data = {
-        description: self.description,
-        productOverview: self.productOverview,
-        userStories: self.userStories,
-        requirements: self.requirements,
-        acceptanceCriteria: self.acceptanceCriteria,
-        testScenarios: self.testScenarios,
-      };
-      content = JSON.stringify(data, null, 2);
+      content = JSON.stringify(self.data, null, 2);
     }
 
     const blob = new Blob([content], { type: "text/plain;charset=utf-8" });

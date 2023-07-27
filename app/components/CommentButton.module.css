@@ -1,0 +1,20 @@
+.popup {
+  background-color: lightgray;
+  padding: 16px;
+  transform: translateX(4px);
+  border-radius: 8px;
+  border: 2px solid darkgray;
+
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.input {
+  padding: 4px;
+  font-size: 14px;
+}
+
+.submit-button {
+  place-self: end;
+}

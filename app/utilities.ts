@@ -1,3 +1,4 @@
+import { createContext } from "react";
 import { v4 } from "uuid";
 
 export const uuid = v4;
@@ -17,4 +18,11 @@ export function fromEntries<
   T extends { [K in keyof T]: (...args: any) => any }
 >(entries: Entries<T>): T {
   return Object.fromEntries(entries) as T;
+}
+
+export function assertUnreachable(
+  _: never,
+  message = "Didn't expect to get here"
+): never {
+  throw new Error(message);
 }

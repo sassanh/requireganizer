@@ -1,4 +1,4 @@
-import { Store } from "store";
+import { Framework, ProgrammingLanguage, Store } from "store";
 import {
   AcceptanceCriteria,
   Requirement,
@@ -9,6 +9,8 @@ import {
 const import_ = (
   self_: unknown,
   {
+    programmingLanguage,
+    framework,
     description,
     productOverview,
     userStories,
@@ -16,6 +18,8 @@ const import_ = (
     acceptanceCriteria,
     testScenarios,
   }: {
+    programmingLanguage: ProgrammingLanguage;
+    framework: Framework;
     description: string;
     productOverview: string;
     userStories: UserStory[];
@@ -25,6 +29,8 @@ const import_ = (
   }
 ) => {
   const self = self_ as Store;
+  self.setProgrammingLanguage(programmingLanguage);
+  self.setFramework(framework);
 
   self.setDescription(description);
   self.setProductOverview(productOverview);

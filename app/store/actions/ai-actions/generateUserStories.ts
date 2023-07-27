@@ -1,21 +1,16 @@
 import { toGenerator } from "mobx-state-tree";
 
-import {
-  GENERATE_USER_STORIES_ENDPOINT,
-  GenerateUserStoriesRequestBody,
-  GenerateUserStoriesResponseBody,
-} from "api";
+import { GENERATE_USER_STORIES_ENDPOINT, RequestBody, ResponseBody } from "api";
 import { Iteration } from "store";
 
-import { generator } from "./utilities";
+import { generator, handleFunctionCall } from "./utilities";
 
 export default generator(
   function* generateUserStories(self) {
-    self.setUserStories([]);
+    self.resetValidationErrors();
 
-    const requestBody: GenerateUserStoriesRequestBody = {
-      description: self.description,
-      productOverview: self.productOverview,
+    const requestBody: RequestBody = {
+      state: self.json(Iteration.userStories),
     };
 
     const response: Response = yield* toGenerator(
@@ -24,11 +19,13 @@ export default generator(
         body: JSON.stringify(requestBody),
       })
     );
-    const { userStories } = (yield* toGenerator(
-      response.json()
-    )) as GenerateUserStoriesResponseBody;
 
-    self.setUserStories(userStories);
+    const { functionCall } = (yield* toGenerator(
+      response.json()
+    )) as ResponseBody;
+
+    handleFunctionCall(self, functionCall);
+
     self.eventTarget.emit("iterationUpdate", Iteration.userStories);
   },
   { requirements: ["description", "productOverview"] }

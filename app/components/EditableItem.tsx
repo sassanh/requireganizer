@@ -5,18 +5,23 @@ import Textarea from "react-textarea-autosize";
 
 import { StructuralFragment } from "store/models";
 
+import CommentButton from "./CommentButton";
 import css from "./EditableItem.module.css";
 import { IconButton } from "./controls";
 
 interface EditableItemProps<Type extends StructuralFragment>
   extends React.LiHTMLAttributes<HTMLLIElement> {
+  isDisabled: boolean;
   fragment: Type;
+  onComment: (fragment: Type, comment: string) => void;
   onRemove: (fragment: Type) => void;
 }
 
 const EditableItem = <Type extends StructuralFragment>({
   children,
+  isDisabled,
   fragment,
+  onComment,
   onRemove,
   ...props
 }: EditableItemProps<Type>) => {
@@ -24,6 +29,10 @@ const EditableItem = <Type extends StructuralFragment>({
 
   const handleRemove = () => {
     onRemove(fragment);
+  };
+
+  const handleComment = (comment: string) => {
+    onComment(fragment, comment);
   };
 
   const handleChange = ({
@@ -43,7 +52,12 @@ const EditableItem = <Type extends StructuralFragment>({
   };
 
   return (
-    <li className={css.item} onClick={focus} {...props}>
+    <li
+      className={css.item}
+      onClick={focus}
+      data-fragment={`${fragment.type}:${fragment.id}`}
+      {...props}
+    >
       <span className={css.itemContent}>
         <Textarea
           ref={contentRef}
@@ -52,11 +66,14 @@ const EditableItem = <Type extends StructuralFragment>({
           value={fragment.content}
         />
       </span>
-      <IconButton
-        icon={faTrash}
-        className={css.itemAction}
-        onClick={handleRemove}
-      />
+      <div className={css.itemAction}>
+        <IconButton
+          disabled={isDisabled}
+          icon={faTrash}
+          onClick={handleRemove}
+        />
+        <CommentButton disabled={isDisabled} onSubmit={handleComment} />
+      </div>
       {children != null ? (
         <div className={css.itemExtra}>{children}</div>
       ) : null}
