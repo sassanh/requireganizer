@@ -359,17 +359,21 @@ export enum Iteration {
   acceptanceCriteria = "acceptance-criteria",
   testScenarios = "test-scenarios",
   testCases = "test-cases",
+  testCode = "test-code",
+  mainCode = "main-code",
 }
 export const ITERATIONS = Object.values(Iteration);
-export const ITERATION_LABELS = new Map([
-  [Iteration.description, "Description"],
-  [Iteration.productOverview, "Product Overview"],
-  [Iteration.userStories, "User Stories"],
-  [Iteration.requirements, "Requirements"],
-  [Iteration.acceptanceCriteria, "Acceptance Criteria"],
-  [Iteration.testScenarios, "Test Scenarios"],
-  [Iteration.testCases, "Test Cases"],
-]);
+export const ITERATION_LABELS: { [key in Iteration]: string } = {
+  [Iteration.description]: "Description",
+  [Iteration.productOverview]: "Product Overview",
+  [Iteration.userStories]: "User Stories",
+  [Iteration.requirements]: "Requirements",
+  [Iteration.acceptanceCriteria]: "Acceptance Criteria",
+  [Iteration.testScenarios]: "Test Scenarios",
+  [Iteration.testCases]: "Test Cases",
+  [Iteration.testCode]: "Test Code",
+  [Iteration.mainCode]: "Main Code",
+};
 export const LAST_ITERATION = Iteration.testCases;
 
 export function isIterationBefore(
@@ -389,57 +393,85 @@ export enum StructuralFragment {
   acceptanceCriteria = "acceptance-criteria",
   testScenario = "test-scenario",
   testCase = "test-case",
+  testCode = "test-code",
 }
 
-export const STRUCTURAL_FRAGMENT_LABELS = new Map([
-  [StructuralFragment.userStory, "User Story"],
-  [StructuralFragment.requirement, "Requirement"],
-  [StructuralFragment.acceptanceCriteria, "Acceptance Criteria"],
-  [StructuralFragment.testScenario, "Test Scenario"],
-  [StructuralFragment.testCase, "Test Case"],
-]);
+export const STRUCTURAL_FRAGMENT_LABELS: {
+  [key in StructuralFragment]: string;
+} = {
+  [StructuralFragment.userStory]: "User Story",
+  [StructuralFragment.requirement]: "Requirement",
+  [StructuralFragment.acceptanceCriteria]: "Acceptance Criteria",
+  [StructuralFragment.testScenario]: "Test Scenario",
+  [StructuralFragment.testCase]: "Test Case",
+  [StructuralFragment.testCode]: "Test Code",
+};
 
-export const ITERATION_BY_STRUCTURAL_FRAGMENT = new Map([
-  [StructuralFragment.userStory, Iteration.userStories],
-  [StructuralFragment.requirement, Iteration.requirements],
-  [StructuralFragment.acceptanceCriteria, Iteration.acceptanceCriteria],
-  [StructuralFragment.testScenario, Iteration.testScenarios],
-  [StructuralFragment.testCase, Iteration.testCases],
-]);
-export const STRUCTURAL_FRAGMENT_BY_ITERATION = new Map([
-  [Iteration.userStories, StructuralFragment.userStory],
-  [Iteration.requirements, StructuralFragment.requirement],
-  [Iteration.acceptanceCriteria, StructuralFragment.acceptanceCriteria],
-  [Iteration.testScenarios, StructuralFragment.testScenario],
-  [Iteration.testCases, StructuralFragment.testCase],
-]);
+export const ITERATION_BY_STRUCTURAL_FRAGMENT: {
+  [key in StructuralFragment]: Iteration;
+} = {
+  [StructuralFragment.userStory]: Iteration.userStories,
+  [StructuralFragment.requirement]: Iteration.requirements,
+  [StructuralFragment.acceptanceCriteria]: Iteration.acceptanceCriteria,
+  [StructuralFragment.testScenario]: Iteration.testScenarios,
+  [StructuralFragment.testCase]: Iteration.testCases,
+  [StructuralFragment.testCode]: Iteration.testCode,
+};
+export const STRUCTURAL_FRAGMENT_BY_ITERATION: {
+  [key in Exclude<
+    Iteration,
+    Iteration.description | Iteration.productOverview | Iteration.mainCode
+  >]: StructuralFragment;
+} = {
+  [Iteration.userStories]: StructuralFragment.userStory,
+  [Iteration.requirements]: StructuralFragment.requirement,
+  [Iteration.acceptanceCriteria]: StructuralFragment.acceptanceCriteria,
+  [Iteration.testScenarios]: StructuralFragment.testScenario,
+  [Iteration.testCases]: StructuralFragment.testCase,
+  [Iteration.testCode]: StructuralFragment.testCode,
+};
 
-export const GENERATOR_ACTION_BY_ITERATION = new Map<
-  Iteration,
-  Extract<keyof Store, `generate${string}`>
->([
-  [Iteration.productOverview, "generateProductOverview"],
-  [Iteration.userStories, "generateUserStories"],
-  [Iteration.requirements, "generateRequirements"],
-  [Iteration.acceptanceCriteria, "generateAcceptanceCriteria"],
-  [Iteration.testScenarios, "generateTestScenarios"],
-  [Iteration.testCases, "generateTestCases"],
-]);
-export const ADD_ACTION_BY_STRUCTURAL_FRAGMENT = new Map<
-  StructuralFragment,
-  Extract<keyof Store, `add${string}`>
->([
-  [StructuralFragment.userStory, "addUserStory"],
-  [StructuralFragment.requirement, "addRequirement"],
-  [StructuralFragment.acceptanceCriteria, "addAcceptanceCriteria"],
-  [StructuralFragment.testScenario, "addTestScenario"],
-]);
-export const REMOVE_ACTION_BY_STRUCTURAL_FRAGMENT = new Map<
-  StructuralFragment,
-  Extract<keyof Store, `remove${string}`>
->([
-  [StructuralFragment.userStory, "removeUserStory"],
-  [StructuralFragment.requirement, "removeRequirement"],
-  [StructuralFragment.acceptanceCriteria, "removeAcceptanceCriteria"],
-  [StructuralFragment.testScenario, "removeTestScenario"],
-]);
+export enum EngineerRole {
+  RequirementsEngineer = "requirements-engineer",
+  SoftwareTestEngineer = "software-test-engineer",
+  SoftwareDeveloper = "software-developer",
+}
+
+export const ENGINEER_ROLE_LABELS: {
+  [key in EngineerRole]: string;
+} = {
+  [EngineerRole.RequirementsEngineer]: "Requirements Engineer",
+  [EngineerRole.SoftwareTestEngineer]: "Software Test Engineer",
+  [EngineerRole.SoftwareDeveloper]: "Software Developer",
+};
+
+export const ENGINEER_ROLE_BY_ITERATION: {
+  [key in Iteration]: EngineerRole[];
+} = {
+  [Iteration.description]: [EngineerRole.RequirementsEngineer],
+  [Iteration.productOverview]: [EngineerRole.RequirementsEngineer],
+  [Iteration.userStories]: [EngineerRole.RequirementsEngineer],
+  [Iteration.requirements]: [EngineerRole.RequirementsEngineer],
+  [Iteration.acceptanceCriteria]: [
+    EngineerRole.RequirementsEngineer,
+    EngineerRole.SoftwareTestEngineer,
+  ],
+  [Iteration.testScenarios]: [EngineerRole.SoftwareTestEngineer],
+  [Iteration.testCases]: [EngineerRole.SoftwareTestEngineer],
+  [Iteration.testCode]: [EngineerRole.SoftwareDeveloper],
+  [Iteration.mainCode]: [EngineerRole.SoftwareDeveloper],
+};
+
+export const GENERATOR_ACTION_BY_ITERATION: {
+  [key in Iteration]: Extract<keyof Store, `generate${string}`> | null;
+} = {
+  [Iteration.description]: null,
+  [Iteration.productOverview]: "generateProductOverview",
+  [Iteration.userStories]: "generateUserStories",
+  [Iteration.requirements]: "generateRequirements",
+  [Iteration.acceptanceCriteria]: "generateAcceptanceCriteria",
+  [Iteration.testScenarios]: "generateTestScenarios",
+  [Iteration.testCases]: "generateTestCases",
+  [Iteration.testCode]: null,
+  [Iteration.mainCode]: null,
+};

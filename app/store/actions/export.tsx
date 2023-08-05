@@ -34,12 +34,12 @@ ${self.acceptanceCriteria.map((criteria) => criteria.content).join("\n")}
 
 Test Scenarios:
 ${self.testScenarios
-          .map(
-            (testScenario) => `${testScenario.content}
+  .map(
+    (testScenario) => `${testScenario.content}
 ${testScenario.testCases.map((testCase) => testCase.content).join("\n")}
 `
-          )
-          .join("\n")}
+  )
+  .join("\n")}
       `;
     } else if (format === "json") {
       content = JSON.stringify(self.data, null, 2);

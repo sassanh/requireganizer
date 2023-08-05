@@ -4,9 +4,9 @@ import {
   HANDLE_COMMENT_ENDPOINT,
   HandleCommentRequestBody,
   ResponseBody,
-} from "@/api";
-import { StructuralFragment } from "@/store/models";
-import { ITERATION_BY_STRUCTURAL_FRAGMENT, Iteration } from "store";
+} from "api";
+import { ITERATION_BY_STRUCTURAL_FRAGMENT } from "store";
+import { StructuralFragment } from "store/models";
 
 import { generator, handleFunctionCall } from "./utilities";
 
@@ -14,11 +14,11 @@ export default generator(
   function* handleComment(self, fragment: StructuralFragment, comment: string) {
     self.resetValidationErrors();
 
-    const iteration = ITERATION_BY_STRUCTURAL_FRAGMENT.get(fragment.type);
+    const iteration = ITERATION_BY_STRUCTURAL_FRAGMENT[fragment.type];
 
     const requestBody: HandleCommentRequestBody = {
       state: self.json(iteration),
-      type: fragment.type,
+      structuralFragment: fragment.type,
       id: fragment.id,
       comment,
     };
@@ -35,8 +35,6 @@ export default generator(
     )) as ResponseBody;
 
     handleFunctionCall(self, functionCall);
-
-    self.eventTarget.emit("iterationUpdate", Iteration.acceptanceCriteria);
   },
   {
     requirements: [],

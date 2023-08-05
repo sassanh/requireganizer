@@ -4,8 +4,8 @@ import { ChatCompletionRequestMessageFunctionCall } from "openai";
 import {
   ManipulationFunctionName,
   manipulationFunctionNames,
-} from "@/api/ai/lib";
-import { FlatStore } from "@/store/store";
+} from "api/ai/lib";
+import { FlatStore } from "store/store";
 
 export const generator = <
   const U extends any[],
@@ -57,7 +57,6 @@ export const generator = <
       );
     } catch (error) {
       console.error(`Error while generating (${function_.name}):`, error);
-      alert(error);
     } finally {
       store.businessDepth -= 1;
     }

@@ -28,14 +28,14 @@ const Header: React.FunctionComponent<HeaderProps> = ({
       ? ITERATIONS[iterationIndex + 1]
       : null;
   const currentIterationGeneratorAction =
-    GENERATOR_ACTION_BY_ITERATION.get(iteration);
+    GENERATOR_ACTION_BY_ITERATION[iteration];
   const nextIterationGeneratorAction = nextIteration
-    ? GENERATOR_ACTION_BY_ITERATION.get(nextIteration)
+    ? GENERATOR_ACTION_BY_ITERATION[nextIteration]
     : null;
 
   return (
     <div className={css.sectionHeader}>
-      <h1 className={css.headerTitle}>{ITERATION_LABELS.get(iteration)}</h1>
+      <h1 className={css.headerTitle}>{ITERATION_LABELS[iteration]}</h1>
       <div className={css.headerPrevious}>
         {currentIterationGeneratorAction != null ? (
           <IconButton
@@ -43,7 +43,7 @@ const Header: React.FunctionComponent<HeaderProps> = ({
             disabled={store.isBusy}
             onClick={() => store[currentIterationGeneratorAction]()}
           >
-            Regenerate {ITERATION_LABELS.get(iteration)}
+            Regenerate {ITERATION_LABELS[iteration]}
           </IconButton>
         ) : null}
       </div>
@@ -54,7 +54,7 @@ const Header: React.FunctionComponent<HeaderProps> = ({
             disabled={store.isBusy}
             onClick={() => store[nextIterationGeneratorAction]()}
           >
-            Generate {ITERATION_LABELS.get(nextIteration)}
+            Generate {ITERATION_LABELS[nextIteration]}
           </IconButton>
         ) : null}
       </div>

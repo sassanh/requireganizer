@@ -1,11 +1,11 @@
 import { toGenerator } from "mobx-state-tree";
 
 import {
-  GENERATE_TEST_CASES_ENDPOINT,
-  GenerateTestCasesRequestBody,
-  ResponseBody
-} from "@/api";
-import { Iteration } from "store";
+  GENERATE_STRUCTURAL_FRAGMENT_ENDPOINT,
+  GenerateStructuralFragmentRequestBody,
+  ResponseBody,
+} from "api";
+import { Iteration, StructuralFragment } from "store";
 import { TestScenario } from "store/models";
 
 import { generator, handleFunctionCall } from "./utilities";
@@ -18,7 +18,7 @@ export default generator(
       testScenario == null ? self.testScenarios : [testScenario];
 
     for (testScenario of testScenarios) {
-      const requestBody: GenerateTestCasesRequestBody = {
+      const requestBody: GenerateStructuralFragmentRequestBody = {
         state: JSON.stringify({
           ...self.data(),
           testScenarios: self.testScenarios.map((testScenario_) => ({
@@ -29,11 +29,12 @@ export default generator(
                 : "[these test cases are excluded from state as they are not needed for this query]",
           })),
         }),
-        testScenarioIndex: self.testScenarios.indexOf(testScenario),
+        parentId: testScenario.id,
+        structuralFragment: StructuralFragment.testCase,
       };
 
       const response: Response = yield* toGenerator(
-        fetch(GENERATE_TEST_CASES_ENDPOINT, {
+        fetch(GENERATE_STRUCTURAL_FRAGMENT_ENDPOINT, {
           method: "POST",
           body: JSON.stringify(requestBody),
         })

@@ -39,6 +39,7 @@ const Home = () => {
 
   useEffect(() => {
     if (isStoreReloadNeeded) {
+      alert(123);
       console.log("Reloading store...");
       const snapshot = getSnapshot(store);
       setStore(Store.create(snapshot));

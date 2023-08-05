@@ -5,7 +5,7 @@ import EventEmitter from "events";
 import { IMSTArray, Instance, SnapshotIn, cast, types } from "mobx-state-tree";
 import { createContext, useContext } from "react";
 
-import { EntityType } from "@/api/ai/lib";
+import { EntityType } from "api/ai/lib";
 
 import {
   export as export_,
@@ -74,9 +74,7 @@ export const FlatStore = types
     ),
 
     productOverview: types.maybeNull(types.string),
-    userStories: types.optional(types.array(UserStoryModel), [
-      UserStoryModel.create({ content: "test" }),
-    ]),
+    userStories: types.array(UserStoryModel),
     requirements: types.array(RequirementModel),
     acceptanceCriteria: types.array(AcceptanceCriteriaModel),
     testScenarios: types.array(TestScenarioModel),
@@ -262,10 +260,10 @@ export const FlatStore = types
           : {}),
         ...(!isIterationBefore(iteration, Iteration.productOverview)
           ? {
-            programmingLanguage: self.programmingLanguage,
-            framework: self.framework,
-            productOverview: self.productOverview,
-          }
+              programmingLanguage: self.programmingLanguage,
+              framework: self.framework,
+              productOverview: self.productOverview,
+            }
           : {}),
         ...(!isIterationBefore(iteration, Iteration.userStories)
           ? { userStories: self.userStories }

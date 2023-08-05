@@ -42,7 +42,7 @@ const StructuralFragments = <Type extends StructuralFragment>({
         ))}
       </ol>
       <IconButton disabled={isDisabled} icon={faPlus} onClick={onAddFragment}>
-        Add {STRUCTURAL_FRAGMENT_LABELS.get(structuralFragment)}
+        Add {STRUCTURAL_FRAGMENT_LABELS[structuralFragment]}
       </IconButton>
     </div>
   );

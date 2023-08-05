@@ -6,13 +6,13 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import React, { useState } from "react";
 
-import { Framework, ProgrammingLanguage } from "@/store";
+import { Framework, ProgrammingLanguage } from "store";
 import {
   AcceptanceCriteria,
   Requirement,
   TestScenario,
   UserStory,
-} from "@/store/models";
+} from "store/models";
 
 import css from "./Toolbar.module.css";
 import { IconButton } from "./controls";

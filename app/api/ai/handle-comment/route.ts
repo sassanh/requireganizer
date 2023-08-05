@@ -1,30 +1,38 @@
 import { NextResponse } from "next/server";
 
-import { StructuralFragment } from "@/store";
+import {
+  ENGINEER_ROLE_BY_ITERATION,
+  ITERATION_BY_STRUCTURAL_FRAGMENT,
+  StructuralFragment,
+} from "store";
 
 import {
   AIModelError,
   RequestBody,
   ResponseBody,
+  generateSystemPrompt,
   queryAiModel,
-  systemPrompt,
 } from "../lib";
 
 export interface HandleCommentRequestBody extends RequestBody {
   comment: string;
-  type: StructuralFragment;
+  structuralFragment: StructuralFragment;
   id: string;
 }
 
 export async function POST(request: Request) {
-  const { state, comment, type, id } =
+  const { state, comment, structuralFragment, id } =
     (await request.json()) as HandleCommentRequestBody;
 
   try {
     const result = await queryAiModel([
-      systemPrompt,
-      `current state: ${state}`,
-      `Regarding ${type} with id ${id} consider this comment: """ ${comment} """. To address this comment please run the required function.`,
+      generateSystemPrompt(
+        ENGINEER_ROLE_BY_ITERATION[
+          ITERATION_BY_STRUCTURAL_FRAGMENT[structuralFragment]
+        ]
+      ),
+      `current state:] ${state}`,
+      `Regarding ${structuralFragment} with id ${id} consider this comment: """${comment}""".`,
     ]);
 
     return NextResponse.json<ResponseBody>({
@@ -34,5 +42,6 @@ export async function POST(request: Request) {
     if (error instanceof AIModelError) {
       return NextResponse.json({ message: error.message }, { status: 502 });
     }
+    console.error(error);
   }
 }

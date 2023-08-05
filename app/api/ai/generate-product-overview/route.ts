@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 
+import { ENGINEER_ROLE_BY_ITERATION, Iteration } from "store";
+
 import {
   AIModelError,
   RequestBody,
   ResponseBody,
+  generateSystemPrompt,
   queryAiModel,
-  systemPrompt,
 } from "../lib";
 
 export async function POST(request: Request) {
@@ -13,7 +15,9 @@ export async function POST(request: Request) {
 
   try {
     const result = await queryAiModel([
-      systemPrompt,
+      generateSystemPrompt(
+        ENGINEER_ROLE_BY_ITERATION[Iteration.productOverview]
+      ),
       `current state: ${state}`,
       "If the description is valid and enough, generate a product overview for the software, highlighting its primary features, target users, and benefits. It is important to avoid guessing the intention of the description and stick with its explicit message. Call the error function if the description is not valid or is not enough.",
       "If the description is alright, you should also set the framework and the programming language.",

@@ -1,4 +1,4 @@
-import { assertUnreachable } from "@/utilities";
+import { assertUnreachable } from "utilities";
 
 import { isRect } from "./rect-type";
 import {

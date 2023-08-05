@@ -66,7 +66,7 @@ const Results: React.FunctionComponent = () => {
       <Tab.List className={css.tabList}>
         {Object.values(Iteration).map((tab: Iteration) => (
           <IterationTabTitle disabled={store.isBusy} id={tab} key={tab}>
-            {ITERATION_LABELS.get(tab)}
+            {ITERATION_LABELS[tab]}
           </IterationTabTitle>
         ))}
       </Tab.List>

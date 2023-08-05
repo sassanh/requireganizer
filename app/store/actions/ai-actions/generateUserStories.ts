@@ -1,7 +1,11 @@
 import { toGenerator } from "mobx-state-tree";
 
-import { GENERATE_USER_STORIES_ENDPOINT, RequestBody, ResponseBody } from "api";
-import { Iteration } from "store";
+import {
+  GENERATE_STRUCTURAL_FRAGMENT_ENDPOINT,
+  GenerateStructuralFragmentRequestBody,
+  ResponseBody,
+} from "api";
+import { Iteration, StructuralFragment } from "store";
 
 import { generator, handleFunctionCall } from "./utilities";
 
@@ -9,12 +13,13 @@ export default generator(
   function* generateUserStories(self) {
     self.resetValidationErrors();
 
-    const requestBody: RequestBody = {
+    const requestBody: GenerateStructuralFragmentRequestBody = {
       state: self.json(Iteration.userStories),
+      structuralFragment: StructuralFragment.userStory,
     };
 
     const response: Response = yield* toGenerator(
-      fetch(GENERATE_USER_STORIES_ENDPOINT, {
+      fetch(GENERATE_STRUCTURAL_FRAGMENT_ENDPOINT, {
         method: "POST",
         body: JSON.stringify(requestBody),
       })
