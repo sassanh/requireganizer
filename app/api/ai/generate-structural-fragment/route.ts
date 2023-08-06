@@ -15,6 +15,8 @@ import {
   queryAiModel,
 } from "../lib";
 
+export const runtime = "edge";
+
 export interface GenerateStructuralFragmentRequestBody extends RequestBody {
   structuralFragment: StructuralFragment;
   parentId?: string;

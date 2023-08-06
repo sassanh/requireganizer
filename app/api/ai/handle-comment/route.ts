@@ -14,6 +14,8 @@ import {
   queryAiModel,
 } from "../lib";
 
+export const runtime = "edge";
+
 export interface HandleCommentRequestBody extends RequestBody {
   comment: string;
   structuralFragment: StructuralFragment;

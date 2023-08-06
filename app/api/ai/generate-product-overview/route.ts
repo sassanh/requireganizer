@@ -10,6 +10,8 @@ import {
   queryAiModel,
 } from "../lib";
 
+export const runtime = "edge";
+
 export async function POST(request: Request) {
   const { state } = (await request.json()) as RequestBody;
 

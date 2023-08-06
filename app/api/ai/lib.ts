@@ -1,3 +1,4 @@
+import fetchAdapter from "@vespaiach/axios-fetch-adapter";
 import { ChatCompletionFunctions, Configuration, OpenAIApi } from "openai";
 
 import {
@@ -23,6 +24,9 @@ export interface ResponseBody {
 
 const configuration = new Configuration({
   apiKey: process.env.OPENAI_API_KEY,
+  baseOptions: {
+    adapter: fetchAdapter,
+  },
 });
 
 export const ai = new OpenAIApi(configuration);

@@ -224,17 +224,17 @@ export const FlatStore = types
 
       if (list_ != null) {
         const list = list_;
-        if (sort.length > 0) {
+        if (sort != null && sort.length > 0) {
           list.sort((a, b) => sort.indexOf(a.id) - sort.indexOf(b.id));
         }
-        modifications.forEach(({ content, id }) => {
+        modifications?.forEach(({ content, id }) => {
           const item = list.find(({ id: id_ }) => id === id_);
           item?.updateContent(content);
         });
-        insertions.forEach(({ content, index }) =>
+        insertions?.forEach(({ content, index }) =>
           list.splice(index ?? list.length, 0, Model.create({ content }))
         );
-        removals.forEach((id) => {
+        removals?.forEach((id) => {
           const item = list.find(({ id: id_ }) => id === id_);
           if (item != null) list.remove(item);
         });
