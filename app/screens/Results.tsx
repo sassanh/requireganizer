@@ -30,7 +30,7 @@ const Results: React.FunctionComponent = () => {
   const path = usePathname();
 
   const handleDescriptionChange = (
-    event: React.ChangeEvent<HTMLTextAreaElement>
+    event: React.ChangeEvent<HTMLTextAreaElement>,
   ) => store.setDescription(event.target.value);
 
   const [selectedTab, setSelectedTab] = useState(() => {
@@ -87,18 +87,6 @@ const Results: React.FunctionComponent = () => {
         </Tab.Panel>
 
         <Tab.Panel>
-          <SectionHeader iteration={Iteration.userStories} />
-          <StructuralFragments
-            fragments={store.userStories}
-            isDisabled={store.isBusy}
-            structuralFragment={StructuralFragment.userStory}
-            onAddFragment={store.addUserStory}
-            onComment={store.handleComment}
-            onRemoveFragment={store.removeUserStory}
-          />
-        </Tab.Panel>
-
-        <Tab.Panel>
           <SectionHeader iteration={Iteration.requirements} />
           <StructuralFragments
             fragments={store.requirements}
@@ -107,6 +95,18 @@ const Results: React.FunctionComponent = () => {
             onAddFragment={store.addRequirement}
             onComment={store.handleComment}
             onRemoveFragment={store.removeRequirement}
+          />
+        </Tab.Panel>
+
+        <Tab.Panel>
+          <SectionHeader iteration={Iteration.userStories} />
+          <StructuralFragments
+            fragments={store.userStories}
+            isDisabled={store.isBusy}
+            structuralFragment={StructuralFragment.userStory}
+            onAddFragment={store.addUserStory}
+            onComment={store.handleComment}
+            onRemoveFragment={store.removeUserStory}
           />
         </Tab.Panel>
 

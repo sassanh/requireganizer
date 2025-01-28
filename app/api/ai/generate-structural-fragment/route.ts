@@ -8,12 +8,11 @@ import {
 
 import {
   AIModelError,
-  RequestBody,
-  ResponseBody,
   generateStructuralFragmentPrompt,
   generateSystemPrompt,
   queryAiModel,
 } from "../lib";
+import { RequestBody, ResponseBody } from "../types";
 
 export const runtime = "edge";
 
@@ -31,15 +30,15 @@ export async function POST(request: Request) {
       generateSystemPrompt(
         ENGINEER_ROLE_BY_ITERATION[
           ITERATION_BY_STRUCTURAL_FRAGMENT[structuralFragment]
-        ]
+        ],
       ),
       `current state: ${state}`,
       ...generateStructuralFragmentPrompt(structuralFragment),
       ...{
+        [StructuralFragment.requirement]: [],
         [StructuralFragment.userStory]: [
           'Each user story should start with "As a"',
         ],
-        [StructuralFragment.requirement]: [],
         [StructuralFragment.acceptanceCriteria]: [],
         [StructuralFragment.testScenario]: [
           // TODO: Other types of tests previously done by human are now possible using AI models.

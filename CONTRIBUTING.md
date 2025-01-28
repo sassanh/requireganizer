@@ -50,7 +50,7 @@ Please follow these steps for sending us your contribution:
 
 ### Styleguide
 
-`npm run lint` should pass without any errors.
+`pnpm run lint` should pass without any errors.
 
 ## Thank You
 

@@ -1,15 +1,15 @@
 import { SnapshotOrInstance, flow } from "mobx-state-tree";
-import { ChatCompletionRequestMessageFunctionCall } from "openai";
 
 import {
+  FunctionCall,
   ManipulationFunctionName,
   manipulationFunctionNames,
-} from "api/ai/lib";
+} from "api/ai/types";
 import { FlatStore } from "store/store";
 
 export const generator = <
   const U extends any[],
-  Requirements extends string & keyof SnapshotOrInstance<FlatStore>
+  Requirements extends string & keyof SnapshotOrInstance<FlatStore>,
 >(
   function_: (
     store: Omit<FlatStore, Requirements> & {
@@ -19,9 +19,9 @@ export const generator = <
   ) => Generator<Promise<void>, void, void>,
   { requirements = [] }: { requirements?: Requirements[] } = {
     requirements: [],
-  }
+  },
 ) => {
-  return flow(function*(
+  return flow(function* (
     store: FlatStore,
     ...args: U
   ): Generator<Promise<void>, void, void> {
@@ -31,7 +31,7 @@ export const generator = <
 
     function throwEmptyError(requirement: Requirements) {
       throw new Error(
-        `"store.${requirement}" cannot be empty for "${function_.name}"`
+        `"store.${requirement}" cannot be empty for "${function_.name}"`,
       );
     }
 
@@ -53,7 +53,7 @@ export const generator = <
         store as Omit<FlatStore, Requirements> & {
           [key in Requirements]: NonNullable<FlatStore[key]>;
         },
-        ...args
+        ...args,
       );
     } catch (error) {
       console.error(`Error while generating (${function_.name}):`, error);
@@ -65,7 +65,7 @@ export const generator = <
 
 export function handleFunctionCall(
   store: FlatStore,
-  functionCall: ChatCompletionRequestMessageFunctionCall
+  functionCall: FunctionCall,
 ) {
   const name = functionCall.name as ManipulationFunctionName;
   const { arguments: arguments_ } = functionCall;

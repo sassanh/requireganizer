@@ -354,8 +354,8 @@ export const PROGRAMMING_LANGUAGE_BY_FRAMEWORK: {
 export enum Iteration {
   description = "description",
   productOverview = "product-overview",
-  userStories = "user-stories",
   requirements = "requirements",
+  userStories = "user-stories",
   acceptanceCriteria = "acceptance-criteria",
   testScenarios = "test-scenarios",
   testCases = "test-cases",
@@ -366,8 +366,8 @@ export const ITERATIONS = Object.values(Iteration);
 export const ITERATION_LABELS: { [key in Iteration]: string } = {
   [Iteration.description]: "Description",
   [Iteration.productOverview]: "Product Overview",
-  [Iteration.userStories]: "User Stories",
   [Iteration.requirements]: "Requirements",
+  [Iteration.userStories]: "User Stories",
   [Iteration.acceptanceCriteria]: "Acceptance Criteria",
   [Iteration.testScenarios]: "Test Scenarios",
   [Iteration.testCases]: "Test Cases",
@@ -378,7 +378,7 @@ export const LAST_ITERATION = Iteration.testCases;
 
 export function isIterationBefore(
   iteration1: Iteration,
-  iteration2: Iteration
+  iteration2: Iteration,
 ) {
   return ITERATIONS.indexOf(iteration1) < ITERATIONS.indexOf(iteration2);
 }
@@ -388,8 +388,8 @@ export function isIterationAfter(iteration1: Iteration, iteration2: Iteration) {
 }
 
 export enum StructuralFragment {
-  userStory = "user-story",
   requirement = "requirement",
+  userStory = "user-story",
   acceptanceCriteria = "acceptance-criteria",
   testScenario = "test-scenario",
   testCase = "test-case",
@@ -399,8 +399,8 @@ export enum StructuralFragment {
 export const STRUCTURAL_FRAGMENT_LABELS: {
   [key in StructuralFragment]: string;
 } = {
-  [StructuralFragment.userStory]: "User Story",
   [StructuralFragment.requirement]: "Requirement",
+  [StructuralFragment.userStory]: "User Story",
   [StructuralFragment.acceptanceCriteria]: "Acceptance Criteria",
   [StructuralFragment.testScenario]: "Test Scenario",
   [StructuralFragment.testCase]: "Test Case",
@@ -410,8 +410,8 @@ export const STRUCTURAL_FRAGMENT_LABELS: {
 export const ITERATION_BY_STRUCTURAL_FRAGMENT: {
   [key in StructuralFragment]: Iteration;
 } = {
-  [StructuralFragment.userStory]: Iteration.userStories,
   [StructuralFragment.requirement]: Iteration.requirements,
+  [StructuralFragment.userStory]: Iteration.userStories,
   [StructuralFragment.acceptanceCriteria]: Iteration.acceptanceCriteria,
   [StructuralFragment.testScenario]: Iteration.testScenarios,
   [StructuralFragment.testCase]: Iteration.testCases,
@@ -423,8 +423,8 @@ export const STRUCTURAL_FRAGMENT_BY_ITERATION: {
     Iteration.description | Iteration.productOverview | Iteration.mainCode
   >]: StructuralFragment;
 } = {
-  [Iteration.userStories]: StructuralFragment.userStory,
   [Iteration.requirements]: StructuralFragment.requirement,
+  [Iteration.userStories]: StructuralFragment.userStory,
   [Iteration.acceptanceCriteria]: StructuralFragment.acceptanceCriteria,
   [Iteration.testScenarios]: StructuralFragment.testScenario,
   [Iteration.testCases]: StructuralFragment.testCase,
@@ -450,8 +450,8 @@ export const ENGINEER_ROLE_BY_ITERATION: {
 } = {
   [Iteration.description]: [EngineerRole.RequirementsEngineer],
   [Iteration.productOverview]: [EngineerRole.RequirementsEngineer],
-  [Iteration.userStories]: [EngineerRole.RequirementsEngineer],
   [Iteration.requirements]: [EngineerRole.RequirementsEngineer],
+  [Iteration.userStories]: [EngineerRole.RequirementsEngineer],
   [Iteration.acceptanceCriteria]: [
     EngineerRole.RequirementsEngineer,
     EngineerRole.SoftwareTestEngineer,
@@ -467,8 +467,8 @@ export const GENERATOR_ACTION_BY_ITERATION: {
 } = {
   [Iteration.description]: null,
   [Iteration.productOverview]: "generateProductOverview",
-  [Iteration.userStories]: "generateUserStories",
   [Iteration.requirements]: "generateRequirements",
+  [Iteration.userStories]: "generateUserStories",
   [Iteration.acceptanceCriteria]: "generateAcceptanceCriteria",
   [Iteration.testScenarios]: "generateTestScenarios",
   [Iteration.testCases]: "generateTestCases",

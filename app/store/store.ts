@@ -5,7 +5,7 @@ import EventEmitter from "events";
 import { IMSTArray, Instance, SnapshotIn, cast, types } from "mobx-state-tree";
 import { createContext, useContext } from "react";
 
-import { EntityType } from "api/ai/lib";
+import { EntityType } from "api/ai/types";
 
 import {
   export as export_,
@@ -70,7 +70,7 @@ export const FlatStore = types
 
     framework: types.maybeNull(types.enumeration(Object.values(Framework))),
     programmingLanguage: types.maybeNull(
-      types.enumeration(Object.values(ProgrammingLanguage))
+      types.enumeration(Object.values(ProgrammingLanguage)),
     ),
 
     productOverview: types.maybeNull(types.string),
@@ -128,7 +128,7 @@ export const FlatStore = types
       self.requirements = cast(requirements);
     },
     setAcceptanceCriteria(
-      acceptanceCriteria: SnapshotIn<AcceptanceCriteria>[]
+      acceptanceCriteria: SnapshotIn<AcceptanceCriteria>[],
     ) {
       self.isClean = false;
       self.acceptanceCriteria.clear();
@@ -142,25 +142,25 @@ export const FlatStore = types
     addUserStory() {
       self.isClean = false;
       self.userStories.push(
-        UserStoryModel.create({ content: "New User Story" })
+        UserStoryModel.create({ content: "New User Story" }),
       );
     },
     addRequirement() {
       self.isClean = false;
       self.requirements.push(
-        RequirementModel.create({ content: "New Requirement" })
+        RequirementModel.create({ content: "New Requirement" }),
       );
     },
     addAcceptanceCriteria() {
       self.isClean = false;
       self.acceptanceCriteria.push(
-        AcceptanceCriteriaModel.create({ content: "New Acceptance Criteria" })
+        AcceptanceCriteriaModel.create({ content: "New Acceptance Criteria" }),
       );
     },
     addTestScenario() {
       self.isClean = false;
       self.testScenarios.push(
-        TestScenarioModel.create({ content: "New Test Scenario" })
+        TestScenarioModel.create({ content: "New Test Scenario" }),
       );
     },
     removeUserStory(userStory: UserStory) {
@@ -232,7 +232,7 @@ export const FlatStore = types
           item?.updateContent(content);
         });
         insertions?.forEach(({ content, index }) =>
-          list.splice(index ?? list.length, 0, Model.create({ content }))
+          list.splice(index ?? list.length, 0, Model.create({ content })),
         );
         removals?.forEach((id) => {
           const item = list.find(({ id: id_ }) => id === id_);
@@ -250,7 +250,7 @@ export const FlatStore = types
     },
     get testCases() {
       return self.testScenarios.flatMap(
-        (testScenario) => testScenario.testCases
+        (testScenario) => testScenario.testCases,
       );
     },
     data(iteration: Iteration = LAST_ITERATION) {
@@ -265,11 +265,11 @@ export const FlatStore = types
               productOverview: self.productOverview,
             }
           : {}),
-        ...(!isIterationBefore(iteration, Iteration.userStories)
-          ? { userStories: self.userStories }
-          : {}),
         ...(!isIterationBefore(iteration, Iteration.requirements)
           ? { requirements: self.requirements }
+          : {}),
+        ...(!isIterationBefore(iteration, Iteration.userStories)
+          ? { userStories: self.userStories }
           : {}),
         ...(!isIterationBefore(iteration, Iteration.acceptanceCriteria)
           ? { acceptanceCriteria: self.acceptanceCriteria }
@@ -281,7 +281,7 @@ export const FlatStore = types
     },
   }))
   .views((self) => ({
-    json(iteration: Iteration = LAST_ITERATION) {
+    json(iteration: Iteration) {
       return JSON.stringify(self.data(iteration));
     },
   }))
@@ -304,7 +304,7 @@ export const Store = FlatStore.actions(
     generateAcceptanceCriteria,
     generateTestScenarios,
     generateTestCases,
-  })
+  }),
 ).actions(withSelf({ import: import_, export: export_ }));
 
 export type FlatStore = Instance<typeof FlatStore>;

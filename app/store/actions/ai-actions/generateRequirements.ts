@@ -22,16 +22,16 @@ export default generator(
       fetch(GENERATE_STRUCTURAL_FRAGMENT_ENDPOINT, {
         method: "POST",
         body: JSON.stringify(requestBody),
-      })
+      }),
     );
 
     const { functionCall } = (yield* toGenerator(
-      response.json()
+      response.json(),
     )) as ResponseBody;
 
     handleFunctionCall(self, functionCall);
 
     self.eventTarget.emit("iterationUpdate", Iteration.requirements);
   },
-  { requirements: ["description", "productOverview", "userStories"] }
+  { requirements: ["description", "productOverview"] },
 );

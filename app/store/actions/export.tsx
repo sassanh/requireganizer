@@ -37,12 +37,12 @@ ${self.testScenarios
   .map(
     (testScenario) => `${testScenario.content}
 ${testScenario.testCases.map((testCase) => testCase.content).join("\n")}
-`
+`,
   )
   .join("\n")}
       `;
     } else if (format === "json") {
-      content = JSON.stringify(self.data, null, 2);
+      content = JSON.stringify(self.data(), null, 2);
     }
 
     const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
