@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
-
+"use server";
+import "server-only";
 import {
   ENGINEER_ROLE_BY_ITERATION,
   ITERATION_BY_STRUCTURAL_FRAGMENT,
@@ -8,42 +8,40 @@ import {
 
 import {
   AIModelError,
-  RequestBody,
-  ResponseBody,
   generateSystemPrompt,
   queryAiModel,
-} from "../lib";
+} from "actions/lib/openai";
+import { ActionParameters, ActionReturnValue } from "lib/types";
 
-export const runtime = "edge";
-
-export interface HandleCommentRequestBody extends RequestBody {
+export interface HandleCommentParameters extends ActionParameters {
   comment: string;
   structuralFragment: StructuralFragment;
   id: string;
 }
 
-export async function POST(request: Request) {
-  const { state, comment, structuralFragment, id } =
-    (await request.json()) as HandleCommentRequestBody;
-
+export async function handleComment({
+  state,
+  comment,
+  structuralFragment,
+  id,
+}: HandleCommentParameters): Promise<ActionReturnValue> {
   try {
     const result = await queryAiModel([
       generateSystemPrompt(
         ENGINEER_ROLE_BY_ITERATION[
           ITERATION_BY_STRUCTURAL_FRAGMENT[structuralFragment]
-        ]
+        ],
       ),
       `current state:] ${state}`,
       `Regarding ${structuralFragment} with id ${id} consider this comment: """${comment}""".`,
     ]);
 
-    return NextResponse.json<ResponseBody>({
-      functionCall: result,
-    });
+    return { functionCall: result };
   } catch (error) {
     if (error instanceof AIModelError) {
-      return NextResponse.json({ message: error.message }, { status: 502 });
+      throw error;
     }
     console.error(error);
+    throw new Error("Unexpected error while handling comment");
   }
 }

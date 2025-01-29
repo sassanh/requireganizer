@@ -14,9 +14,9 @@ export const TestScenarioModel = types
       testCases: types.array(TestCaseModel),
       type: types.optional(
         types.literal(StructuralFragment.testScenario),
-        StructuralFragment.testScenario
+        StructuralFragment.testScenario,
       ),
-    })
+    }),
   )
   .actions((self) => ({
     setTestCases(testCases: SnapshotIn<TestCase>[]) {
@@ -26,7 +26,7 @@ export const TestScenarioModel = types
     addTestCase() {
       self.testCases.push(TestCaseModel.create({ content: "New Test Case" }));
     },
-    removeTestCase(testCase: TestCase) {
+    removeTestCase({ fragment: testCase }: { fragment: TestCase }) {
       self.testCases.remove(testCase);
     },
   }))

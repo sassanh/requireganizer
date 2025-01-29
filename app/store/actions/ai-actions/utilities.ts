@@ -1,13 +1,11 @@
 import { SnapshotOrInstance, flow } from "mobx-state-tree";
 
-import {
-  FunctionCall,
-  ManipulationFunctionName,
-  manipulationFunctionNames,
-} from "api/ai/types";
+import { FunctionCall } from "lib/types";
 import { FlatStore } from "store/store";
+import { ManipulationFunction } from "lib/types";
+import { isEnumMember } from "utilities";
 
-export const generator = <
+export function generator<
   const U extends any[],
   Requirements extends string & keyof SnapshotOrInstance<FlatStore>,
 >(
@@ -16,15 +14,15 @@ export const generator = <
       [key in Requirements]: NonNullable<FlatStore[key]>;
     },
     ...args: U
-  ) => Generator<Promise<void>, void, void>,
+  ) => Generator<Promise<any>, void, any>,
   { requirements = [] }: { requirements?: Requirements[] } = {
     requirements: [],
   },
-) => {
+) {
   return flow(function* (
     store: FlatStore,
     ...args: U
-  ): Generator<Promise<void>, void, void> {
+  ): Generator<Promise<any>, void, any> {
     if (store.isBusy) {
       return;
     }
@@ -47,7 +45,7 @@ export const generator = <
     });
 
     try {
-      store.businessDepth += 1;
+      store.businessCounter += 1;
 
       yield* function_(
         store as Omit<FlatStore, Requirements> & {
@@ -58,25 +56,31 @@ export const generator = <
     } catch (error) {
       console.error(`Error while generating (${function_.name}):`, error);
     } finally {
-      store.businessDepth -= 1;
+      store.businessCounter -= 1;
     }
   });
-};
+}
 
 export function handleFunctionCall(
   store: FlatStore,
   functionCall: FunctionCall,
 ) {
-  const name = functionCall.name as ManipulationFunctionName;
-  const { arguments: arguments_ } = functionCall;
+  const name = functionCall.name;
+  const parameters = functionCall.arguments;
 
-  if (!name || !arguments_) {
+  console.log(name, parameters);
+
+  if (!name || !parameters) {
     return;
   }
 
-  if (!manipulationFunctionNames.includes(name)) {
+  console.log(isEnumMember(name, ManipulationFunction));
+
+  if (!isEnumMember(name, ManipulationFunction)) {
     return;
   }
 
-  store[name](JSON.parse(arguments_));
+  console.log(123);
+
+  store[name](JSON.parse(parameters));
 }

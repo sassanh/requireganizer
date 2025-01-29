@@ -14,7 +14,7 @@ import {
 
 export function placementToPosition(
   target: HTMLElement | SVGElement | Rect | null,
-  placement: Placement
+  placement: Placement,
 ): Anchors {
   switch (placement) {
     case Placement.TopLeft:
@@ -144,16 +144,16 @@ export function placementToPosition(
 
 export function directionToEdge(
   direction: Direction,
-  edge: Edge.Start | Edge.End
+  edge: Edge.Start | Edge.End,
 ): "left" | "top" | "right" | "bottom";
 export function directionToEdge(
   direction: Direction,
-  edge: Edge
+  edge: Edge,
 ): "left" | "horizontalCenter" | "right" | "top" | "verticalCenter" | "bottom";
 
 export function directionToEdge(
   direction: Direction,
-  edge: Edge
+  edge: Edge,
 ): "left" | "horizontalCenter" | "right" | "top" | "verticalCenter" | "bottom" {
   switch (edge) {
     case Edge.Start:
@@ -194,7 +194,7 @@ export function calculateRelativePosition({
           directionToEdge(direction, Edge.Start)
         ] +
           value.element.getBoundingClientRect()[
-          directionToEdge(direction, Edge.End)
+            directionToEdge(direction, Edge.End)
           ]) /
         2
       );
@@ -243,7 +243,7 @@ export function calculateRelativePosition({
 
 export function calculateDimensions(
   dimension: HTMLElement | SVGElement | Rect | number | undefined | null,
-  name: "width" | "height"
+  name: "width" | "height",
 ): number | undefined {
   if (dimension === undefined) {
     return undefined;
@@ -268,13 +268,13 @@ export function calculateDimensions(
 export function calculatePosition(
   configuration: RectProps,
   margin: number,
-  popupRef: React.RefObject<HTMLDivElement>,
+  popupRef: React.RefObject<HTMLDivElement | null>,
   windowDimensions: { innerWidth: number; innerHeight: number },
   frame: DOMRect,
   width?: number,
   height?: number,
   horizontalAlternatives?: RectProps[],
-  verticalAlternatives?: RectProps[]
+  verticalAlternatives?: RectProps[],
 ): Omit<CompleteRect, "horizontalCenter" | "verticalCenter"> {
   if (!popupRef.current) {
     return { bottom: 0, left: 0, right: 0, top: 0 };
@@ -370,7 +370,7 @@ export function calculatePosition(
       width,
       height,
       horizontalAlternatives.slice(1),
-      verticalAlternatives
+      verticalAlternatives,
     );
   }
 
@@ -388,7 +388,7 @@ export function calculatePosition(
       width,
       height,
       horizontalAlternatives,
-      verticalAlternatives.slice(1)
+      verticalAlternatives.slice(1),
     );
   }
 

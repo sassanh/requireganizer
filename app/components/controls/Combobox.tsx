@@ -1,6 +1,13 @@
 import { faChevronDown } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { Combobox as HeadlessCombobox } from "@headlessui/react";
+import {
+  Combobox as HeadlessCombobox,
+  Label,
+  ComboboxOptions,
+  ComboboxButton,
+  ComboboxInput,
+  ComboboxOption,
+} from "@headlessui/react";
 import { useEffect, useState } from "react";
 
 import css from "./Combobox.module.css";
@@ -44,27 +51,18 @@ const Combobox = <T extends any>({
       value={value}
       onChange={onChange}
     >
-      <HeadlessCombobox.Label className={css.comboLabel}>
-        {label}:
-      </HeadlessCombobox.Label>
-      <HeadlessCombobox.Input
-        onChange={handleQueryChange}
-        className={css.comboQuery}
-      />
-      <HeadlessCombobox.Button className={css.comboButton}>
+      <Label className={css.comboLabel}>{label}:</Label>
+      <ComboboxInput onChange={handleQueryChange} className={css.comboQuery} />
+      <ComboboxButton className={css.comboButton}>
         <FontAwesomeIcon icon={faChevronDown} />
-      </HeadlessCombobox.Button>
-      <HeadlessCombobox.Options className={css.comboOptions}>
+      </ComboboxButton>
+      <ComboboxOptions className={css.comboOptions}>
         {filteredItems.map((item) => (
-          <HeadlessCombobox.Option
-            key={item}
-            value={item}
-            className={css.comboOption}
-          >
+          <ComboboxOption key={item} value={item} className={css.comboOption}>
             {item}
-          </HeadlessCombobox.Option>
+          </ComboboxOption>
         ))}
-      </HeadlessCombobox.Options>
+      </ComboboxOptions>
     </HeadlessCombobox>
   );
 };

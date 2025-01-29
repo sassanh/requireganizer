@@ -26,18 +26,18 @@ const import_ = (
     requirements: Requirement[];
     acceptanceCriteria: AcceptanceCriteria[];
     testScenarios: TestScenario[];
-  }
+  },
 ) => {
   const self = self_ as Store;
-  self.setProgrammingLanguage(programmingLanguage);
-  self.setFramework(framework);
+  self.setProgrammingLanguage({ programmingLanguage });
+  self.setFramework({ framework });
 
-  self.setDescription(description);
-  self.setProductOverview(productOverview);
-  self.setUserStories(userStories);
-  self.setRequirements(requirements);
-  self.setAcceptanceCriteria(acceptanceCriteria);
-  self.setTestScenarios(testScenarios);
+  self.setDescription({ description });
+  self.setProductOverview({ productOverview });
+  self.setUserStories({ userStories });
+  self.setRequirements({ requirements });
+  self.setAcceptanceCriteria({ acceptanceCriteria });
+  self.setTestScenarios({ testScenarios });
 };
 
 export default import_;

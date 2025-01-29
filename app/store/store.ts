@@ -5,8 +5,6 @@ import EventEmitter from "events";
 import { IMSTArray, Instance, SnapshotIn, cast, types } from "mobx-state-tree";
 import { createContext, useContext } from "react";
 
-import { EntityType } from "api/ai/types";
-
 import {
   export as export_,
   generateAcceptanceCriteria,
@@ -39,6 +37,7 @@ import {
   UserStoryModel,
 } from "./models";
 import { withSelf } from "./utilities";
+import { EntityType } from "lib/types";
 
 class StoreEventEmitter extends EventEmitter {
   emitIterationUpdate(iteration: Iteration): void {
@@ -64,7 +63,7 @@ declare interface StoreEventEmitter {
 export const FlatStore = types
   .model("Store", {
     isClean: types.optional(types.boolean, true),
-    businessDepth: types.optional(types.number, 0),
+    businessCounter: types.optional(types.number, 0),
     description: types.optional(types.string, ""),
     validationErrors: types.maybeNull(types.string),
 
@@ -82,7 +81,7 @@ export const FlatStore = types
   .actions((self) => ({
     reset() {
       self.isClean = true;
-      self.businessDepth = 0;
+      self.businessCounter = 0;
       self.description = "";
       self.validationErrors = null;
 
@@ -95,14 +94,14 @@ export const FlatStore = types
     resetValidationErrors() {
       self.validationErrors = null;
     },
-    setDescription(description: string) {
+    setDescription({ description }: { description: string }) {
       self.description = description;
     },
-    setValidationErrors(validationErrors: string) {
+    setValidationErrors({ validationErrors }: { validationErrors: string }) {
       self.validationErrors = validationErrors;
     },
 
-    setFramework(framework: Framework | null) {
+    setFramework({ framework }: { framework: Framework | null }) {
       self.framework = framework;
       if (framework != null)
         self.programmingLanguage =
@@ -110,31 +109,45 @@ export const FlatStore = types
             ? PROGRAMMING_LANGUAGE_BY_FRAMEWORK[framework][0]
             : null;
     },
-    setProgrammingLanguage(programmingLanguage: ProgrammingLanguage) {
+    setProgrammingLanguage({
+      programmingLanguage,
+    }: {
+      programmingLanguage: ProgrammingLanguage;
+    }) {
       self.programmingLanguage = programmingLanguage;
     },
 
-    setProductOverview(productOverview: string) {
+    setProductOverview({ productOverview }: { productOverview: string }) {
       self.productOverview = productOverview;
     },
-    setUserStories(userStories: SnapshotIn<UserStory>[]) {
+    setUserStories({ userStories }: { userStories: SnapshotIn<UserStory>[] }) {
       self.isClean = false;
       self.userStories.clear();
       self.userStories = cast(userStories);
     },
-    setRequirements(requirements: SnapshotIn<Requirement>[]) {
+    setRequirements({
+      requirements,
+    }: {
+      requirements: SnapshotIn<Requirement>[];
+    }) {
       self.isClean = false;
       self.requirements.clear();
       self.requirements = cast(requirements);
     },
-    setAcceptanceCriteria(
-      acceptanceCriteria: SnapshotIn<AcceptanceCriteria>[],
-    ) {
+    setAcceptanceCriteria({
+      acceptanceCriteria,
+    }: {
+      acceptanceCriteria: SnapshotIn<AcceptanceCriteria>[];
+    }) {
       self.isClean = false;
       self.acceptanceCriteria.clear();
       self.acceptanceCriteria = cast(acceptanceCriteria);
     },
-    setTestScenarios(testScenarios: SnapshotIn<TestScenario>[]) {
+    setTestScenarios({
+      testScenarios,
+    }: {
+      testScenarios: SnapshotIn<TestScenario>[];
+    }) {
       self.isClean = false;
       self.testScenarios.clear();
       self.testScenarios = cast(testScenarios);
@@ -163,16 +176,20 @@ export const FlatStore = types
         TestScenarioModel.create({ content: "New Test Scenario" }),
       );
     },
-    removeUserStory(userStory: UserStory) {
+    removeUserStory({ fragment: userStory }: { fragment: UserStory }) {
       self.userStories.remove(userStory);
     },
-    removeRequirement(requirement: Requirement) {
+    removeRequirement({ fragment: requirement }: { fragment: Requirement }) {
       self.requirements.remove(requirement);
     },
-    removeAcceptanceCriteria(acceptanceCriteria: AcceptanceCriteria) {
+    removeAcceptanceCriteria({
+      fragment: acceptanceCriteria,
+    }: {
+      fragment: AcceptanceCriteria;
+    }) {
       self.acceptanceCriteria.remove(acceptanceCriteria);
     },
-    removeTestScenario(testScenario: TestScenario) {
+    removeTestScenario({ fragment: testScenario }: { fragment: TestScenario }) {
       self.testScenarios.remove(testScenario);
     },
   }))
@@ -186,9 +203,9 @@ export const FlatStore = types
       framework: Framework;
       programmingLanguage: ProgrammingLanguage;
     }) {
-      self.setProductOverview(productOverview);
-      self.setFramework(framework);
-      self.setProgrammingLanguage(programmingLanguage);
+      self.setProductOverview({ productOverview });
+      self.setFramework({ framework });
+      self.setProgrammingLanguage({ programmingLanguage });
     },
     updateList({
       entityType,
@@ -246,7 +263,7 @@ export const FlatStore = types
   }))
   .views((self) => ({
     get isBusy() {
-      return self.businessDepth > 0;
+      return self.businessCounter > 0;
     },
     get testCases() {
       return self.testScenarios.flatMap(
@@ -306,6 +323,8 @@ export const Store = FlatStore.actions(
     generateTestCases,
   }),
 ).actions(withSelf({ import: import_, export: export_ }));
+
+Store.create().generateProductOverview;
 
 export type FlatStore = Instance<typeof FlatStore>;
 export type Store = Instance<typeof Store>;

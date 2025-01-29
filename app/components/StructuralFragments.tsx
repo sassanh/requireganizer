@@ -16,8 +16,8 @@ interface StructuralFragmentsProps<Type extends StructuralFragment> {
   isDisabled: boolean;
   structuralFragment: StructuralFragmentName;
   onAddFragment: () => void;
-  onComment: (fragment: Type, comment: string) => void;
-  onRemoveFragment: (fragment: Type) => void;
+  onComment: (parameters: { fragment: Type; comment: string }) => void;
+  onRemoveFragment: (parameters: { fragment: Type }) => void;
 }
 
 const StructuralFragments = <Type extends StructuralFragment>({

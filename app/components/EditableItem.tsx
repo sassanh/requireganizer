@@ -13,8 +13,8 @@ interface EditableItemProps<Type extends StructuralFragment>
   extends React.LiHTMLAttributes<HTMLLIElement> {
   isDisabled: boolean;
   fragment: Type;
-  onComment: (fragment: Type, comment: string) => void;
-  onRemove: (fragment: Type) => void;
+  onComment: (paremeters: { fragment: Type; comment: string }) => void;
+  onRemove: (paremeters: { fragment: Type }) => void;
 }
 
 const EditableItem = <Type extends StructuralFragment>({
@@ -28,11 +28,11 @@ const EditableItem = <Type extends StructuralFragment>({
   const contentRef = useRef<HTMLTextAreaElement>(null);
 
   const handleRemove = () => {
-    onRemove(fragment);
+    onRemove({ fragment });
   };
 
   const handleComment = (comment: string) => {
-    onComment(fragment, comment);
+    onComment({ fragment, comment });
   };
 
   const handleChange = ({

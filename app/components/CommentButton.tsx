@@ -31,13 +31,13 @@ const CommentButton = ({
         setIsOpen(false);
       }
     },
-    [popupRef]
+    [popupRef],
   );
 
   const handleCommentChange = useCallback(
     ({ target: { value } }: ChangeEvent<HTMLTextAreaElement>) =>
       setComment(value),
-    []
+    [],
   );
 
   const handleSubmit = useCallback(() => {

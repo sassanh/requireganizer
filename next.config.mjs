@@ -1,8 +1,5 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  experimental: {
-    appDir: true,
-  },
   webpack: (config) => {
     const rules = config.module.rules
       .find((rule) => typeof rule.oneOf === "object")
@@ -30,4 +27,4 @@ const nextConfig = {
   },
 };
 
-module.exports = nextConfig;
+export default nextConfig;

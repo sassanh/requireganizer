@@ -1,7 +1,7 @@
-export { default as handleComment } from "./handleComment";
-export { default as generateAcceptanceCriteria } from "./generateAcceptanceCriteria";
-export { default as generateProductOverview } from "./generateProductOverview";
-export { default as generateRequirements } from "./generateRequirements";
-export { default as generateTestCases } from "./generateTestCases";
-export { default as generateTestScenarios } from "./generateTestScenarios";
-export { default as generateUserStories } from "./generateUserStories";
+export { default as handleComment } from "./handle-comment";
+export { default as generateAcceptanceCriteria } from "./generate-acceptance-criteria";
+export { default as generateProductOverview } from "./generate-product-overview";
+export { default as generateRequirements } from "./generate-requirements";
+export { default as generateTestCases } from "./generate-test-cases";
+export { default as generateTestScenarios } from "./generate-test-scenarios";
+export { default as generateUserStories } from "./generate-user-stories";

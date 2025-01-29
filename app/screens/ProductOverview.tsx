@@ -9,8 +9,8 @@ const ProductOverview: React.FunctionComponent = () => {
   const store = useStore();
 
   const handleProductOverviewChange = (
-    event: React.ChangeEvent<HTMLTextAreaElement>
-  ) => store.setProductOverview(event.target.value);
+    event: React.ChangeEvent<HTMLTextAreaElement>,
+  ) => store.setProductOverview({ productOverview: event.target.value });
 
   return (
     <div className={css.section}>

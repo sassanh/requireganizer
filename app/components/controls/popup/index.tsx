@@ -14,7 +14,7 @@ import { RectProps, calculateDimensions, calculatePosition } from "./utilities";
 export const UsePortalForPopupContext = createContext<boolean>(false);
 
 export type Props = RectProps & {
-  content: React.ReactElement;
+  content: React.ReactElement<React.HTMLProps<HTMLElement>>;
   disableDrag?: boolean;
   frameElement?: HTMLElement | null;
   horizontalAlternatives?: RectProps[];
@@ -76,11 +76,11 @@ export default function usePopup({
       popupRef,
       { innerHeight: window.innerHeight, innerWidth: window.innerWidth },
       frameElement?.getBoundingClientRect() ||
-      document.documentElement.getBoundingClientRect(),
+        document.documentElement.getBoundingClientRect(),
       width,
       height,
       horizontalAlternatives,
-      verticalAlternatives
+      verticalAlternatives,
     );
 
     setRect((oldRect: RectProps): RectProps => {
@@ -88,7 +88,7 @@ export default function usePopup({
         (["left", "top", "width", "height"] as (keyof typeof newRect)[]).some(
           (property) =>
             !Number.isNaN(newRect[property]) &&
-            newRect[property] !== oldRect[property]
+            newRect[property] !== oldRect[property],
         )
       ) {
         return {
@@ -151,17 +151,14 @@ export default function usePopup({
       event.stopPropagation();
       event.preventDefault();
     },
-    []
+    [],
   );
 
-  const externalRef:
-    | React.RefObject<HTMLElement>
-    | React.RefCallback<HTMLElement> = (content as any).ref;
+  const externalRef: React.Ref<HTMLElement> | undefined = content.props.ref;
 
   const refCallback = useCallback(
     (element: HTMLDivElement | null) => {
-      (popupRef as React.MutableRefObject<HTMLDivElement | null>).current =
-        element;
+      (popupRef as React.RefObject<HTMLDivElement | null>).current = element;
 
       if (resizeObserver.current) {
         resizeObserver.current.disconnect();
@@ -176,13 +173,12 @@ export default function usePopup({
           /* istanbul ignore next */
           externalRef(popupRef.current);
         } else {
-          (
-            externalRef as React.MutableRefObject<HTMLDivElement | null>
-          ).current = popupRef.current;
+          (externalRef as React.RefObject<HTMLDivElement | null>).current =
+            popupRef.current;
         }
       }
     },
-    [externalRef]
+    [externalRef],
   );
 
   const style = {
@@ -199,19 +195,15 @@ export default function usePopup({
     return { popup: undefined };
   }
 
-  const popup = createElement(
-    content.type,
-    {
-      ...(content.key && { key: content.key }),
-      draggable: disableDrag,
-      ref: refCallback,
-      ...(disableDrag && { onDragStart: handleDragStart }),
-      "data-testid": testid,
-      ...content.props,
-      style: { ...style, ...content.props.style },
-    },
-    ...React.Children.toArray(content.props.children)
-  );
+  const popup = createElement(content.type, {
+    ...(content.key && { key: content.key }),
+    ref: refCallback,
+    ...(disableDrag && { onDragStart: handleDragStart }),
+    "data-testid": testid,
+    ...content.props,
+    draggable: disableDrag,
+    style: { ...style, ...content.props.style },
+  });
 
   if (usePortal) {
     return {

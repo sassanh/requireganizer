@@ -1,7 +1,8 @@
-import { observer } from "mobx-react-lite";
+"use server";
+import "server-only";
 
 const Header: React.FunctionComponent = () => {
   return <div className="header"></div>;
 };
 
-export default observer(Header);
+export default Header;

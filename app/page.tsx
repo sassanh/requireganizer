@@ -3,7 +3,6 @@ import { config } from "@fortawesome/fontawesome-svg-core";
 import "@fortawesome/fontawesome-svg-core/styles.css"; // Import the CSS
 import { observer } from "mobx-react-lite";
 import { getSnapshot } from "mobx-state-tree";
-import { Inter } from "next/font/google";
 import { useEffect, useMemo, useState } from "react";
 
 import { Combobox, Toolbar } from "components";
@@ -24,11 +23,6 @@ import {
 
 config.autoAddCss = false;
 
-const inter = Inter({ subsets: ["latin"] });
-
-// TODO:
-console.log(inter);
-
 let isStoreReloadNeeded = true;
 
 const Home = () => {
@@ -39,7 +33,6 @@ const Home = () => {
 
   useEffect(() => {
     if (isStoreReloadNeeded) {
-      alert(123);
       console.log("Reloading store...");
       const snapshot = getSnapshot(store);
       setStore(Store.create(snapshot));
@@ -73,7 +66,7 @@ const Home = () => {
   const programmingLanguages = useMemo(
     () =>
       store.framework ? PROGRAMMING_LANGUAGE_BY_FRAMEWORK[store.framework] : [],
-    [store.framework]
+    [store.framework],
   );
 
   return (
@@ -100,13 +93,15 @@ const Home = () => {
           items={frameworks}
           label="Framework"
           value={store.framework}
-          onChange={store.setFramework}
+          onChange={(framework) => store.setFramework({ framework })}
         />
         <Combobox
           items={programmingLanguages}
           label="Programming Language"
           value={store.programmingLanguage}
-          onChange={store.setProgrammingLanguage}
+          onChange={(programmingLanguage) =>
+            store.setProgrammingLanguage({ programmingLanguage })
+          }
         />
       </div>
       <hr />

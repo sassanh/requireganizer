@@ -1,30 +1,28 @@
-import { NextResponse } from "next/server";
-
+"use server";
+import "server-only";
 import {
   ENGINEER_ROLE_BY_ITERATION,
   ITERATION_BY_STRUCTURAL_FRAGMENT,
   StructuralFragment,
 } from "store";
-
 import {
   AIModelError,
   generateStructuralFragmentPrompt,
   generateSystemPrompt,
   queryAiModel,
-} from "../lib";
-import { RequestBody, ResponseBody } from "../types";
+} from "actions/lib/openai";
+import { ActionParameters, ActionReturnValue } from "lib/types";
 
-export const runtime = "edge";
-
-export interface GenerateStructuralFragmentRequestBody extends RequestBody {
+interface GenerateStructuralFragmentParameters extends ActionParameters {
   structuralFragment: StructuralFragment;
   parentId?: string;
 }
 
-export async function POST(request: Request) {
-  const { state, structuralFragment, parentId } =
-    (await request.json()) as GenerateStructuralFragmentRequestBody;
-
+export async function generateStructuralFragment({
+  state,
+  structuralFragment,
+  parentId,
+}: GenerateStructuralFragmentParameters): Promise<ActionReturnValue> {
   try {
     const result = await queryAiModel([
       generateSystemPrompt(
@@ -83,12 +81,14 @@ These are good because they cover general use cases, edge cases and different co
       }[structuralFragment],
     ]);
 
-    return NextResponse.json<ResponseBody>({
+    return {
       functionCall: result,
-    });
+    };
   } catch (error) {
     if (error instanceof AIModelError) {
-      return NextResponse.json({ message: error.message }, { status: 502 });
+      throw error;
     }
+    console.error(error);
+    throw new Error("Unexpected error while handling comment");
   }
 }

@@ -1,5 +1,5 @@
 import { faCog } from "@fortawesome/free-solid-svg-icons";
-import { Tab } from "@headlessui/react";
+import { TabGroup, TabList, TabPanel, TabPanels } from "@headlessui/react";
 import { observer } from "mobx-react-lite";
 import { usePathname } from "next/navigation";
 import React, { useEffect, useState } from "react";
@@ -31,7 +31,7 @@ const Results: React.FunctionComponent = () => {
 
   const handleDescriptionChange = (
     event: React.ChangeEvent<HTMLTextAreaElement>,
-  ) => store.setDescription(event.target.value);
+  ) => store.setDescription({ description: event.target.value });
 
   const [selectedTab, setSelectedTab] = useState(() => {
     // TODO: Hash is pending nextjs support
@@ -62,16 +62,16 @@ const Results: React.FunctionComponent = () => {
   }, [eventTarget]);
 
   return (
-    <Tab.Group selectedIndex={selectedTab} onChange={setSelectedTab}>
-      <Tab.List className={css.tabList}>
+    <TabGroup selectedIndex={selectedTab} onChange={setSelectedTab}>
+      <TabList className={css.tabList}>
         {Object.values(Iteration).map((tab: Iteration) => (
           <IterationTabTitle disabled={store.isBusy} id={tab} key={tab}>
             {ITERATION_LABELS[tab]}
           </IterationTabTitle>
         ))}
-      </Tab.List>
-      <Tab.Panels>
-        <Tab.Panel>
+      </TabList>
+      <TabPanels>
+        <TabPanel>
           <SectionHeader iteration={Iteration.description} />
           <Textarea
             className={productOverviewCss.textInput}
@@ -79,14 +79,14 @@ const Results: React.FunctionComponent = () => {
             onChange={handleDescriptionChange}
             placeholder="Provide a description of the software you'd like to develop..."
           />
-        </Tab.Panel>
+        </TabPanel>
 
-        <Tab.Panel>
+        <TabPanel>
           <SectionHeader iteration={Iteration.productOverview} />
           <ProductOverview />
-        </Tab.Panel>
+        </TabPanel>
 
-        <Tab.Panel>
+        <TabPanel>
           <SectionHeader iteration={Iteration.requirements} />
           <StructuralFragments
             fragments={store.requirements}
@@ -96,9 +96,9 @@ const Results: React.FunctionComponent = () => {
             onComment={store.handleComment}
             onRemoveFragment={store.removeRequirement}
           />
-        </Tab.Panel>
+        </TabPanel>
 
-        <Tab.Panel>
+        <TabPanel>
           <SectionHeader iteration={Iteration.userStories} />
           <StructuralFragments
             fragments={store.userStories}
@@ -108,9 +108,21 @@ const Results: React.FunctionComponent = () => {
             onComment={store.handleComment}
             onRemoveFragment={store.removeUserStory}
           />
-        </Tab.Panel>
+        </TabPanel>
 
-        <Tab.Panel>
+        <TabPanel>
+          <SectionHeader iteration={Iteration.userStories} />
+          <StructuralFragments
+            fragments={store.userStories}
+            isDisabled={store.isBusy}
+            structuralFragment={StructuralFragment.userStory}
+            onAddFragment={store.addUserStory}
+            onComment={store.handleComment}
+            onRemoveFragment={store.removeUserStory}
+          />
+        </TabPanel>
+
+        <TabPanel>
           <SectionHeader iteration={Iteration.acceptanceCriteria} />
           <StructuralFragments
             fragments={store.acceptanceCriteria}
@@ -120,9 +132,9 @@ const Results: React.FunctionComponent = () => {
             onComment={store.handleComment}
             onRemoveFragment={store.removeAcceptanceCriteria}
           />
-        </Tab.Panel>
+        </TabPanel>
 
-        <Tab.Panel>
+        <TabPanel>
           <SectionHeader iteration={Iteration.testScenarios} />
           <StructuralFragments
             fragments={store.testScenarios}
@@ -132,9 +144,9 @@ const Results: React.FunctionComponent = () => {
             onComment={store.handleComment}
             onRemoveFragment={store.removeTestScenario}
           />
-        </Tab.Panel>
+        </TabPanel>
 
-        <Tab.Panel>
+        <TabPanel>
           <SectionHeader iteration={Iteration.testCases} />
           <div className={structuralFragmentsCss.section}>
             {store.testScenarios.map((testScenario) => (
@@ -165,9 +177,9 @@ const Results: React.FunctionComponent = () => {
               </div>
             ))}
           </div>
-        </Tab.Panel>
-      </Tab.Panels>
-    </Tab.Group>
+        </TabPanel>
+      </TabPanels>
+    </TabGroup>
   );
 };
 
