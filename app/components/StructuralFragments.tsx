@@ -1,20 +1,17 @@
 import { faPlus } from "@fortawesome/free-solid-svg-icons";
 import { observer } from "mobx-react-lite";
 
-import {
-  STRUCTURAL_FRAGMENT_LABELS,
-  StructuralFragment as StructuralFragmentName,
-} from "store";
+import { STRUCTURAL_FRAGMENT_LABELS } from "store";
 import { StructuralFragment } from "store/models";
 
+import { IconButton } from "./controls";
 import EditableItem from "./EditableItem";
 import css from "./StructuralFragments.module.css";
-import { IconButton } from "./controls";
 
 interface StructuralFragmentsProps<Type extends StructuralFragment> {
   fragments: Type[];
   isDisabled: boolean;
-  structuralFragment: StructuralFragmentName;
+  structuralFragment: Type["type"];
   onAddFragment: () => void;
   onComment: (parameters: { fragment: Type; comment: string }) => void;
   onRemoveFragment: (parameters: { fragment: Type }) => void;

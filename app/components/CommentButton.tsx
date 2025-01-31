@@ -21,7 +21,7 @@ const CommentButton = ({
   const [isOpen, setIsOpen] = useState(false);
   const [comment, setComment] = useState("");
 
-  const [popupRef, setPopupRef] = useState<HTMLDivElement | null>(null);
+  const [popupRef, setPopupRef] = useState<HTMLFormElement | null>(null);
   const [buttonRef, setButtonRef] = useState<HTMLButtonElement | null>(null);
 
   const handleCommentOpen = useCallback(() => setIsOpen(true), []);
@@ -41,13 +41,17 @@ const CommentButton = ({
   );
 
   const handleSubmit = useCallback(() => {
-    console.log(comment);
     onSubmit(comment);
   }, [onSubmit, comment]);
 
   const { popup } = usePopup({
     content: (
-      <div className={css.popup} ref={setPopupRef} onBlur={handleBlur}>
+      <form
+        className={css.popup}
+        ref={setPopupRef}
+        onBlur={handleBlur}
+        onSubmit={handleSubmit}
+      >
         <Textarea
           className={css.input}
           minRows={2}
@@ -59,9 +63,10 @@ const CommentButton = ({
           className={css.submitButton}
           tabIndex={0}
           icon={faSquarePlus}
+          type="submit"
           onClick={handleSubmit}
         />
-      </div>
+      </form>
     ),
     target: target || buttonRef,
     placement: Placement.RightTop,

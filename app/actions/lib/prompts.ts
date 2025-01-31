@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 
+import { FunctionCall, ManipulationFunction } from "lib/types";
 import {
   ENGINEER_ROLE_LABELS,
   EngineerRole,
@@ -7,7 +8,6 @@ import {
   ProgrammingLanguage,
   StructuralFragment,
 } from "store";
-import { EntityType, FunctionCall, ManipulationFunction } from "lib/types";
 import { isEnumMember } from "utilities";
 
 const client = new OpenAI({
@@ -20,32 +20,54 @@ export const generateStructuralFragmentPrompt = (
   `Please generate or modify existing ${subject} based on materials generated in prior steps.`,
 ];
 
-export const generateSystemPrompt = (
-  roles: EngineerRole[],
-) => `You are the AI engine inside Requireganizer playing the role of ${roles
+export const generateSystemPrompt = (roles: EngineerRole[]) => `
+You are the AI engine inside Requireganizer, acting as ${roles
   .map((role) => `a ${ENGINEER_ROLE_LABELS[role]}`)
-  .join(
-    " and ",
-  )}. Requireganizer is an application that starts by asking its user a description of a piece of software they are willing to develop. It then generates product overview based on this description and chooses the framework and the programming language for it.
-Requireganizer then runs minor iterations with the help of you to complete a major iteration of the software development. A major iteration is supposed to consist these minor iterations:
-start of major iteration -> user stories -> requirements -> acceptance criteria -> test scenarios -> test cases -> test code -> software code -> run retrospective -> help user update the specification -> end of major iteration
+  .join(" and a ")}.
 
-Requireganizer holds its state in this data structure:
+Requireganizer is a software factory that begins by gathering a user-provided software description. It then generates a product overview, selects the appropriate framework and programming language, and iterates through the development cycle in structured phases:
+
+Start of major iteration  
+1. User stories  
+2. Requirements  
+3. Acceptance criteria  
+4. Test scenarios  
+5. Test cases  
+6. Test code  
+7. Software code  
+8. Retrospective  
+9. Specification update  
+End of major iteration  
+
+### State Structure:
+Requireganizer maintains the following state and communicates it in each prompt with you:
+\`\`\`json
 {
-  programmingLanguage: "PROGRAMMING_LANGUAGE_NAME",
-  framework: "FRAMEWORK_NAME",
-  description: "DESCRIPTION_STRING",
-  productOverview: "PRODUCT_OVERVIEW_STRING",
-  userStories: {id: "ITEM_UUID", content: "TEXT_CONTENT"}[],
-  requirements: {id: "ITEM_UUID", content: "TEXT_CONTENT"}[],
-  acceptanceCriteria: {id: "ITEM_UUID", content: "TEXT_CONTENT"}[],
-  testScenarios: {id: "ITEM_UUID", content: "TEXT_CONTENT", testCases: {id: "ITEM_UUID", content: "TEXT_CONTENT"}[]}[],
+  "description": "DESCRIPTION_STRING",
+  "productOverview": {
+    "name": "SOFTWARE_NAME",
+    "purpose": "SOFTWARE_PURPOSE",
+    "primaryFeatures": {"id": "ITEM_UUID", "content": "TEXT_CONTENT"}[],
+    "targetUsers": {"id": "ITEM_UUID", "content": "TEXT_CONTENT"}[],
+    "programmingLanguage": "PROGRAMMING_LANGUAGE_NAME",
+    "framework": "FRAMEWORK_NAME",
+  },
+  "userStories": {"id": "ITEM_UUID", "content": "TEXT_CONTENT"}[],
+  "requirements": {"id": "ITEM_UUID", "content": "TEXT_CONTENT"}[],
+  "acceptanceCriteria": {"id": "ITEM_UUID", "content": "TEXT_CONTENT"}[],
+  "testScenarios": {"id": "ITEM_UUID", "content": "TEXT_CONTENT", "testCases": {"id": "ITEM_UUID", "content": "TEXT_CONTENT"}[]}[]
 }
+\`\`\`
 
-At each prompt you are provided with the description of your current task + a version of the current state of Requireganizer including only the parts required to fulfil the task.
+### Execution:
+For each task, you receive:
+- A task description  
+- The relevant subset of the current Requireganizer state  
 
-You should only use the functions you have been provided with to fulfill your task.
-You can always call the error function if something is not right and you can't fulfill your task correctly.`;
+### Rules:
+- Before starting any task, **critically assess** the provided prompt. If it lacks clarity, is incomplete, or can be improved, call the \`communicate\` function to address the issue with the user.
+- Use **only** the provided functions to execute tasks—do not assume or invent missing details.  
+- If a task cannot be completed due to missing, conflicting, or incorrect information, immediately call the \`communicate\` function to report the issue.`;
 
 export const manipulationFunctions = [
   {
@@ -53,13 +75,34 @@ export const manipulationFunctions = [
     function: {
       name: "initialize",
       description:
-        "Sets the product overview, framework and programming language",
+        "Sets the product overview, including name, purpose, primary features, target users, programming language, and framework",
       parameters: {
         type: "object",
         properties: {
-          productOverview: {
+          name: {
             type: "string",
-            description: "The generated product overview",
+            description: "The software’s name",
+          },
+          purpose: {
+            type: "string",
+            description:
+              "A clear and concise statement of what the software does",
+          },
+          primaryFeatures: {
+            type: "array",
+            items: {
+              type: "string",
+            },
+            description:
+              "A list of key functionalities derived directly from the description, one line per feature",
+          },
+          targetUsers: {
+            type: "array",
+            items: {
+              type: "string",
+            },
+            description:
+              "Who will use this software. If not mentioned, pass an empty array",
           },
           framework: {
             type: "string",
@@ -72,6 +115,14 @@ export const manipulationFunctions = [
             description: "The chosen programming language",
           },
         },
+        required: [
+          "name",
+          "purpose",
+          "primaryFeatures",
+          "targetUsers",
+          "framework",
+          "programmingLanguage",
+        ],
       },
     },
   },
@@ -86,7 +137,7 @@ if an old entity has the same purpose as a new entity but its content should be 
         properties: {
           entityType: {
             type: "string",
-            enum: Object.values(EntityType),
+            enum: Object.values(StructuralFragment),
             description: "The entity type of the list to be updated.",
           },
           parentId: {
@@ -163,15 +214,21 @@ if an old entity has the same purpose as a new entity but its content should be 
   {
     type: "function",
     function: {
-      name: "error",
+      name: "communicate",
       description:
-        "Used when the task cannot be fulfilled properly due to an error/inconsistency/etc in the provided prompt or Requireganizer state",
+        "Used when something should be communicated with the user or the task cannot be fulfilled properly due to an error/inconsistency/missing-information/etc",
       parameters: {
         type: "object",
         properties: {
           description: {
             type: "string",
-            description: "The description of the error",
+            description:
+              "A description of the issue that needs to be communicated",
+          },
+          context: {
+            type: "string",
+            description:
+              "The context in which the issue occurred, for example the entity type or the task that was being performed",
           },
         },
       },
@@ -192,15 +249,17 @@ export const queryAiModel = async (
   ],
 ): Promise<FunctionCall> => {
   try {
-    console.log("Request:", query);
+    console.warn("Request:", query);
     const result = await client.chat.completions.create({
-      model: "gpt-4o-2024-11-20",
+      model: "gpt-4o",
       n: 1,
-      temperature: 0,
       messages: query.map((item) => ({ content: item, role: "user" })),
       tools,
     });
-    console.log("Response:", result.choices[0].message);
+    console.warn(
+      "Response:",
+      JSON.stringify(result.choices[0].message, null, 2),
+    );
 
     const functionCall = result.choices[0].message.tool_calls?.[0].function;
 

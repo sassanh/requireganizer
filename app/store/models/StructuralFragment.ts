@@ -4,6 +4,13 @@ import { uuid } from "utilities";
 
 import { StructuralFragment as StructuralFragmentName } from "../constants";
 
+export type Reference = Instance<typeof ReferenceModel>;
+
+export const ReferenceModel = types.model({
+  id: types.identifier,
+  type: types.enumeration(Object.values(StructuralFragmentName)),
+});
+
 export type StructuralFragment = Instance<typeof StructuralFragmentModel>;
 
 export const StructuralFragmentModel = types
@@ -13,8 +20,9 @@ export const StructuralFragmentModel = types
     type: types.optional(
       types.enumeration(Object.values(StructuralFragmentName)),
       // Theoretically this value should never be used as `StructuralFragmentModel` is just an abstract type
-      StructuralFragmentName.userStory
+      StructuralFragmentName.UserStory,
     ),
+    references: types.array(ReferenceModel),
   })
   .actions((self) => ({
     updateContent(newContent: string) {

@@ -3,3 +3,6 @@ name = "requireganizer"
 pages_build_output_dir = ".vercel/output/static"
 compatibility_date = '2024-12-06'
 compatibility_flags = ["nodejs_compat"]
+
+[vars]
+NODE_VERSION = '18.18.0'

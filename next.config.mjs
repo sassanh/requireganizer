@@ -1,6 +1,8 @@
+import * as fs from "fs";
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  webpack: (config) => {
+  webpack: (config, { dev }) => {
     const rules = config.module.rules
       .find((rule) => typeof rule.oneOf === "object")
       .oneOf.filter((rule) => Array.isArray(rule.use));
@@ -22,6 +24,15 @@ const nextConfig = {
         }
       });
     });
+
+    if (dev) {
+      config.devServer = {
+        https: {
+          key: fs.readFileSync("./local/local.requireganizer.com.key"),
+          cert: fs.readFileSync("./local/local.requireganizer.com.crt"),
+        },
+      };
+    }
 
     return config;
   },

@@ -13,8 +13,8 @@ export const TestScenarioModel = types
     types.model({
       testCases: types.array(TestCaseModel),
       type: types.optional(
-        types.literal(StructuralFragment.testScenario),
-        StructuralFragment.testScenario,
+        types.literal(StructuralFragment.TestScenario),
+        StructuralFragment.TestScenario,
       ),
     }),
   )

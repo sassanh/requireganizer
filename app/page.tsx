@@ -3,23 +3,18 @@ import { config } from "@fortawesome/fontawesome-svg-core";
 import "@fortawesome/fontawesome-svg-core/styles.css"; // Import the CSS
 import { observer } from "mobx-react-lite";
 import { getSnapshot } from "mobx-state-tree";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
-import { Combobox, Toolbar } from "components";
+import { Toolbar } from "components";
 import { Results } from "screens";
-import {
-  Framework,
-  PROGRAMMING_LANGUAGE_BY_FRAMEWORK,
-  ProgrammingLanguage,
-  Store,
-  storeContext,
-} from "store";
+import { Framework, ProgrammingLanguage, Store, storeContext } from "store";
 import {
   AcceptanceCriteria,
   Requirement,
   TestScenario,
   UserStory,
 } from "store/models";
+import { ProductOverview } from "store/models/ProductOverview";
 
 config.autoAddCss = false;
 
@@ -28,16 +23,16 @@ let isStoreReloadNeeded = true;
 const Home = () => {
   const [store, setStore] = useState(() => {
     isStoreReloadNeeded = false;
-    return Store.create();
+    return Store.create({ productOverview: {} });
   });
 
   useEffect(() => {
     if (isStoreReloadNeeded) {
-      console.log("Reloading store...");
+      console.warn("Reloading store...");
       const snapshot = getSnapshot(store);
       setStore(Store.create(snapshot));
       isStoreReloadNeeded = false;
-      console.log("...reloading store done!");
+      console.warn("...reloading store done!");
     }
   }, [store]);
 
@@ -53,7 +48,7 @@ const Home = () => {
     programmingLanguage: ProgrammingLanguage;
     framework: Framework;
     description: string;
-    productOverview: string;
+    productOverview: ProductOverview;
     userStories: UserStory[];
     requirements: Requirement[];
     acceptanceCriteria: AcceptanceCriteria[];
@@ -61,14 +56,6 @@ const Home = () => {
   }) => {
     store.import(data);
   };
-
-  const frameworks = useMemo(() => Object.values(Framework), []);
-  const programmingLanguages = useMemo(
-    () =>
-      store.framework ? PROGRAMMING_LANGUAGE_BY_FRAMEWORK[store.framework] : [],
-    [store.framework],
-  );
-
   return (
     <storeContext.Provider value={store}>
       {store.validationErrors ? (
@@ -80,30 +67,6 @@ const Home = () => {
         onExport={store.export}
         onReset={store.reset}
       />
-      <hr />
-
-      <div
-        style={{
-          display: "flex",
-          gap: "8px",
-          justifyContent: "space-between",
-        }}
-      >
-        <Combobox
-          items={frameworks}
-          label="Framework"
-          value={store.framework}
-          onChange={(framework) => store.setFramework({ framework })}
-        />
-        <Combobox
-          items={programmingLanguages}
-          label="Programming Language"
-          value={store.programmingLanguage}
-          onChange={(programmingLanguage) =>
-            store.setProgrammingLanguage({ programmingLanguage })
-          }
-        />
-      </div>
       <hr />
       <Results />
     </storeContext.Provider>

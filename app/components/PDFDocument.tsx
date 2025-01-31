@@ -41,10 +41,45 @@ const PDFDocument: React.FunctionComponent<PDFDocumentProps> = ({ store }) => {
           <Text style={styles.title}>Description</Text>
           <Text style={styles.item}>{store.description}</Text>
         </View>
+
         <View style={styles.section}>
-          <Text style={styles.title}>Product Overview</Text>
-          <Text style={styles.item}>{store.productOverview}</Text>
+          <Text style={styles.title}>Name</Text>
+          <Text style={styles.item}>{store.productOverview.name}</Text>
         </View>
+
+        <View style={styles.section}>
+          <Text style={styles.title}>Purpose</Text>
+          <Text style={styles.item}>{store.productOverview.purpose}</Text>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.title}>Primary Features</Text>
+          {store.productOverview.primaryFeatures.map(
+            (primaryFeature, index) => (
+              <Text key={index} style={styles.item}>
+                - {primaryFeature.content}
+              </Text>
+            ),
+          )}
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.title}>Target Users</Text>
+          {store.productOverview.targetUsers.map((targetUser, index) => (
+            <Text key={index} style={styles.item}>
+              - {targetUser.content}
+            </Text>
+          ))}
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.title}>Programming Language and Framework</Text>
+          <Text style={styles.item}>
+            {store.productOverview.programmingLanguage} -{" "}
+            {store.productOverview.framework}
+          </Text>
+        </View>
+
         <View style={styles.section}>
           <Text style={styles.title}>User Stories</Text>
           {store.userStories.map((story, index) => (

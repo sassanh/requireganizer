@@ -1,8 +1,9 @@
 import { toGenerator } from "mobx-state-tree";
+
+import { generateStructuralFragment } from "actions/ai/generate-structural-fragment";
 import { Iteration, StructuralFragment } from "store";
 
 import { generator, handleFunctionCall } from "./utilities";
-import { generateStructuralFragment } from "actions/ai/generate-structural-fragment";
 
 export default generator(
   function* generateAcceptanceCriteria(self) {
@@ -11,7 +12,7 @@ export default generator(
     const { functionCall } = yield* toGenerator(
       generateStructuralFragment({
         state: self.json(Iteration.acceptanceCriteria),
-        structuralFragment: StructuralFragment.acceptanceCriteria,
+        structuralFragment: StructuralFragment.AcceptanceCriteria,
       }),
     );
 

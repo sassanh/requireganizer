@@ -6,8 +6,8 @@ import Textarea from "react-textarea-autosize";
 import { StructuralFragment } from "store/models";
 
 import CommentButton from "./CommentButton";
-import css from "./EditableItem.module.css";
 import { IconButton } from "./controls";
+import css from "./EditableItem.module.css";
 
 interface EditableItemProps<Type extends StructuralFragment>
   extends React.LiHTMLAttributes<HTMLLIElement> {

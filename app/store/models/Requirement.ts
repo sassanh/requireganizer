@@ -11,9 +11,9 @@ export const RequirementModel = types
     StructuralFragmentModel,
     types.model({
       type: types.optional(
-        types.literal(StructuralFragment.requirement),
-        StructuralFragment.requirement
+        types.literal(StructuralFragment.Requirement),
+        StructuralFragment.Requirement,
       ),
-    })
+    }),
   )
   .named("Requirement");

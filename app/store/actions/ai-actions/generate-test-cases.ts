@@ -1,10 +1,10 @@
 import { toGenerator } from "mobx-state-tree";
 
+import { generateStructuralFragment } from "actions/ai/generate-structural-fragment";
 import { Iteration, StructuralFragment } from "store";
 import { TestScenario } from "store/models";
 
 import { generator, handleFunctionCall } from "./utilities";
-import { generateStructuralFragment } from "actions/ai/generate-structural-fragment";
 
 export default generator(
   function* generateTestCases(self, testScenario?: TestScenario) {
@@ -27,7 +27,7 @@ export default generator(
             })),
           }),
           parentId: testScenario.id,
-          structuralFragment: StructuralFragment.testCase,
+          structuralFragment: StructuralFragment.TestCase,
         }),
       );
 

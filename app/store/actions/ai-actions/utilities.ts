@@ -1,8 +1,7 @@
 import { SnapshotOrInstance, flow } from "mobx-state-tree";
 
-import { FunctionCall } from "lib/types";
+import { FunctionCall, ManipulationFunction } from "lib/types";
 import { FlatStore } from "store/store";
-import { ManipulationFunction } from "lib/types";
 import { isEnumMember } from "utilities";
 
 export function generator<
@@ -68,19 +67,13 @@ export function handleFunctionCall(
   const name = functionCall.name;
   const parameters = functionCall.arguments;
 
-  console.log(name, parameters);
-
   if (!name || !parameters) {
     return;
   }
 
-  console.log(isEnumMember(name, ManipulationFunction));
-
   if (!isEnumMember(name, ManipulationFunction)) {
     return;
   }
-
-  console.log(123);
 
   store[name](JSON.parse(parameters));
 }

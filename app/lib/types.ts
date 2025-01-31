@@ -1,7 +1,7 @@
 export enum ManipulationFunction {
   Initialize = "initialize",
   UpdateList = "updateList",
-  Error = "error",
+  Communicate = "communicate",
 }
 
 export interface FunctionCall {
@@ -15,12 +15,4 @@ export interface ActionParameters {
 
 export interface ActionReturnValue {
   functionCall: FunctionCall;
-}
-
-export enum EntityType {
-  UserStory = "user_story",
-  Requirement = "requirement",
-  AcceptanceCriteria = "acceptance_criteria",
-  TestScenario = "test_scenario",
-  TestCase = "test_case",
 }

@@ -1,17 +1,17 @@
 "use server";
 import "server-only";
-import {
-  ENGINEER_ROLE_BY_ITERATION,
-  ITERATION_BY_STRUCTURAL_FRAGMENT,
-  StructuralFragment,
-} from "store";
 
 import {
   AIModelError,
   generateSystemPrompt,
   queryAiModel,
-} from "actions/lib/openai";
+} from "actions/lib/prompts";
 import { ActionParameters, ActionReturnValue } from "lib/types";
+import {
+  ENGINEER_ROLE_BY_ITERATION,
+  ITERATION_BY_STRUCTURAL_FRAGMENT,
+  StructuralFragment,
+} from "store";
 
 export interface HandleCommentParameters extends ActionParameters {
   comment: string;

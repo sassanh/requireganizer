@@ -91,7 +91,7 @@ const Results: React.FunctionComponent = () => {
           <StructuralFragments
             fragments={store.requirements}
             isDisabled={store.isBusy}
-            structuralFragment={StructuralFragment.requirement}
+            structuralFragment={StructuralFragment.Requirement}
             onAddFragment={store.addRequirement}
             onComment={store.handleComment}
             onRemoveFragment={store.removeRequirement}
@@ -103,19 +103,7 @@ const Results: React.FunctionComponent = () => {
           <StructuralFragments
             fragments={store.userStories}
             isDisabled={store.isBusy}
-            structuralFragment={StructuralFragment.userStory}
-            onAddFragment={store.addUserStory}
-            onComment={store.handleComment}
-            onRemoveFragment={store.removeUserStory}
-          />
-        </TabPanel>
-
-        <TabPanel>
-          <SectionHeader iteration={Iteration.userStories} />
-          <StructuralFragments
-            fragments={store.userStories}
-            isDisabled={store.isBusy}
-            structuralFragment={StructuralFragment.userStory}
+            structuralFragment={StructuralFragment.UserStory}
             onAddFragment={store.addUserStory}
             onComment={store.handleComment}
             onRemoveFragment={store.removeUserStory}
@@ -127,7 +115,7 @@ const Results: React.FunctionComponent = () => {
           <StructuralFragments
             fragments={store.acceptanceCriteria}
             isDisabled={store.isBusy}
-            structuralFragment={StructuralFragment.acceptanceCriteria}
+            structuralFragment={StructuralFragment.AcceptanceCriteria}
             onAddFragment={store.addAcceptanceCriteria}
             onComment={store.handleComment}
             onRemoveFragment={store.removeAcceptanceCriteria}
@@ -139,7 +127,7 @@ const Results: React.FunctionComponent = () => {
           <StructuralFragments
             fragments={store.testScenarios}
             isDisabled={store.isBusy}
-            structuralFragment={StructuralFragment.testScenario}
+            structuralFragment={StructuralFragment.TestScenario}
             onAddFragment={store.addTestScenario}
             onComment={store.handleComment}
             onRemoveFragment={store.removeTestScenario}
@@ -168,7 +156,7 @@ const Results: React.FunctionComponent = () => {
                   <StructuralFragments
                     fragments={testScenario.testCases}
                     isDisabled={store.isBusy}
-                    structuralFragment={StructuralFragment.testCase}
+                    structuralFragment={StructuralFragment.TestCase}
                     onAddFragment={testScenario.addTestCase}
                     onComment={store.handleComment}
                     onRemoveFragment={testScenario.removeTestCase}

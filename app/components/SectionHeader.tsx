@@ -10,8 +10,8 @@ import {
   useStore,
 } from "store";
 
-import css from "./SectionHeader.module.css";
 import { IconButton } from "./controls";
+import css from "./SectionHeader.module.css";
 
 interface HeaderProps {
   iteration: Iteration;

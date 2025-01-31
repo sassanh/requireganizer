@@ -11,9 +11,9 @@ export const UserStoryModel = types
     StructuralFragmentModel,
     types.model({
       type: types.optional(
-        types.literal(StructuralFragment.userStory),
-        StructuralFragment.userStory
+        types.literal(StructuralFragment.UserStory),
+        StructuralFragment.UserStory,
       ),
-    })
+    }),
   )
   .named("UserStory");

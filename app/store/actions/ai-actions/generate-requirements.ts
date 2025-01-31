@@ -1,9 +1,9 @@
 import { toGenerator } from "mobx-state-tree";
 
+import { generateStructuralFragment } from "actions/ai/generate-structural-fragment";
 import { Iteration, StructuralFragment } from "store";
 
 import { generator, handleFunctionCall } from "./utilities";
-import { generateStructuralFragment } from "actions/ai/generate-structural-fragment";
 
 export default generator(
   function* generateRequirements(self) {
@@ -12,7 +12,7 @@ export default generator(
     const { functionCall } = yield* toGenerator(
       generateStructuralFragment({
         state: self.json(Iteration.requirements),
-        structuralFragment: StructuralFragment.requirement,
+        structuralFragment: StructuralFragment.Requirement,
       }),
     );
 

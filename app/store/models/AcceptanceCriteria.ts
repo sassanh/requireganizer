@@ -11,9 +11,9 @@ export const AcceptanceCriteriaModel = types
     StructuralFragmentModel,
     types.model({
       type: types.optional(
-        types.literal(StructuralFragment.acceptanceCriteria),
-        StructuralFragment.acceptanceCriteria
+        types.literal(StructuralFragment.AcceptanceCriteria),
+        StructuralFragment.AcceptanceCriteria,
       ),
-    })
+    }),
   )
   .named("AcceptanceCriteria");

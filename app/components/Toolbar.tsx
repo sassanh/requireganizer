@@ -13,9 +13,10 @@ import {
   TestScenario,
   UserStory,
 } from "store/models";
+import { ProductOverview } from "store/models/ProductOverview";
 
-import css from "./Toolbar.module.css";
 import { IconButton } from "./controls";
+import css from "./Toolbar.module.css";
 
 interface ToolbarProps {
   disabled?: boolean;
@@ -24,7 +25,7 @@ interface ToolbarProps {
     programmingLanguage: ProgrammingLanguage;
     framework: Framework;
     description: string;
-    productOverview: string;
+    productOverview: ProductOverview;
     userStories: UserStory[];
     requirements: Requirement[];
     acceptanceCriteria: AcceptanceCriteria[];

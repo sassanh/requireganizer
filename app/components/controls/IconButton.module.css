@@ -9,7 +9,6 @@
   font-size: 16px;
   cursor: pointer;
   border-radius: 4px;
-  white-space: break-spaces;
 }
 
 .icon-button:hover:not(:disabled) {

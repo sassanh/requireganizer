@@ -11,9 +11,9 @@ export const TestCaseModel = types
     StructuralFragmentModel,
     types.model({
       type: types.optional(
-        types.literal(StructuralFragment.testCase),
-        StructuralFragment.testCase
+        types.literal(StructuralFragment.TestCase),
+        StructuralFragment.TestCase,
       ),
-    })
+    }),
   )
   .named("TestCase");

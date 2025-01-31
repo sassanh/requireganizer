@@ -388,34 +388,40 @@ export function isIterationAfter(iteration1: Iteration, iteration2: Iteration) {
 }
 
 export enum StructuralFragment {
-  requirement = "requirement",
-  userStory = "user-story",
-  acceptanceCriteria = "acceptance-criteria",
-  testScenario = "test-scenario",
-  testCase = "test-case",
-  testCode = "test-code",
+  PrimaryFeature = "primary_feature",
+  TargetUser = "target_user",
+  Requirement = "requirement",
+  UserStory = "user_story",
+  AcceptanceCriteria = "acceptance_criteria",
+  TestScenario = "test_scenario",
+  TestCase = "test_case",
+  TestCode = "test_code",
 }
 
 export const STRUCTURAL_FRAGMENT_LABELS: {
   [key in StructuralFragment]: string;
 } = {
-  [StructuralFragment.requirement]: "Requirement",
-  [StructuralFragment.userStory]: "User Story",
-  [StructuralFragment.acceptanceCriteria]: "Acceptance Criteria",
-  [StructuralFragment.testScenario]: "Test Scenario",
-  [StructuralFragment.testCase]: "Test Case",
-  [StructuralFragment.testCode]: "Test Code",
+  [StructuralFragment.PrimaryFeature]: "Primary Feature",
+  [StructuralFragment.TargetUser]: "Target User",
+  [StructuralFragment.Requirement]: "Requirement",
+  [StructuralFragment.UserStory]: "User Story",
+  [StructuralFragment.AcceptanceCriteria]: "Acceptance Criteria",
+  [StructuralFragment.TestScenario]: "Test Scenario",
+  [StructuralFragment.TestCase]: "Test Case",
+  [StructuralFragment.TestCode]: "Test Code",
 };
 
 export const ITERATION_BY_STRUCTURAL_FRAGMENT: {
   [key in StructuralFragment]: Iteration;
 } = {
-  [StructuralFragment.requirement]: Iteration.requirements,
-  [StructuralFragment.userStory]: Iteration.userStories,
-  [StructuralFragment.acceptanceCriteria]: Iteration.acceptanceCriteria,
-  [StructuralFragment.testScenario]: Iteration.testScenarios,
-  [StructuralFragment.testCase]: Iteration.testCases,
-  [StructuralFragment.testCode]: Iteration.testCode,
+  [StructuralFragment.PrimaryFeature]: Iteration.productOverview,
+  [StructuralFragment.TargetUser]: Iteration.productOverview,
+  [StructuralFragment.Requirement]: Iteration.requirements,
+  [StructuralFragment.UserStory]: Iteration.userStories,
+  [StructuralFragment.AcceptanceCriteria]: Iteration.acceptanceCriteria,
+  [StructuralFragment.TestScenario]: Iteration.testScenarios,
+  [StructuralFragment.TestCase]: Iteration.testCases,
+  [StructuralFragment.TestCode]: Iteration.testCode,
 };
 export const STRUCTURAL_FRAGMENT_BY_ITERATION: {
   [key in Exclude<
@@ -423,12 +429,12 @@ export const STRUCTURAL_FRAGMENT_BY_ITERATION: {
     Iteration.description | Iteration.productOverview | Iteration.mainCode
   >]: StructuralFragment;
 } = {
-  [Iteration.requirements]: StructuralFragment.requirement,
-  [Iteration.userStories]: StructuralFragment.userStory,
-  [Iteration.acceptanceCriteria]: StructuralFragment.acceptanceCriteria,
-  [Iteration.testScenarios]: StructuralFragment.testScenario,
-  [Iteration.testCases]: StructuralFragment.testCase,
-  [Iteration.testCode]: StructuralFragment.testCode,
+  [Iteration.requirements]: StructuralFragment.Requirement,
+  [Iteration.userStories]: StructuralFragment.UserStory,
+  [Iteration.acceptanceCriteria]: StructuralFragment.AcceptanceCriteria,
+  [Iteration.testScenarios]: StructuralFragment.TestScenario,
+  [Iteration.testCases]: StructuralFragment.TestCase,
+  [Iteration.testCode]: StructuralFragment.TestCode,
 };
 
 export enum EngineerRole {

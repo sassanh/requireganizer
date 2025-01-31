@@ -22,6 +22,7 @@ import {
   LAST_ITERATION,
   PROGRAMMING_LANGUAGE_BY_FRAMEWORK,
   ProgrammingLanguage,
+  StructuralFragment,
   isIterationBefore,
 } from "./constants";
 import {
@@ -36,8 +37,15 @@ import {
   UserStory,
   UserStoryModel,
 } from "./models";
+import {
+  PrimaryFeature,
+  PrimaryFeatureModel,
+  ProductOverview,
+  ProductOverviewModel,
+  TargetUser,
+  TargetUserModel,
+} from "./models/ProductOverview";
 import { withSelf } from "./utilities";
-import { EntityType } from "lib/types";
 
 class StoreEventEmitter extends EventEmitter {
   emitIterationUpdate(iteration: Iteration): void {
@@ -67,16 +75,12 @@ export const FlatStore = types
     description: types.optional(types.string, ""),
     validationErrors: types.maybeNull(types.string),
 
-    framework: types.maybeNull(types.enumeration(Object.values(Framework))),
-    programmingLanguage: types.maybeNull(
-      types.enumeration(Object.values(ProgrammingLanguage)),
-    ),
-
-    productOverview: types.maybeNull(types.string),
+    productOverview: ProductOverviewModel,
     userStories: types.array(UserStoryModel),
     requirements: types.array(RequirementModel),
     acceptanceCriteria: types.array(AcceptanceCriteriaModel),
     testScenarios: types.array(TestScenarioModel),
+    systemMessage: types.maybeNull(types.string),
   })
   .actions((self) => ({
     reset() {
@@ -85,7 +89,14 @@ export const FlatStore = types
       self.description = "";
       self.validationErrors = null;
 
-      self.productOverview = null;
+      self.productOverview = ProductOverviewModel.create({
+        name: null,
+        purpose: null,
+        primaryFeatures: [],
+        targetUsers: [],
+        programmingLanguage: null,
+        framework: null,
+      });
       self.userStories = cast([]);
       self.requirements = cast([]);
       self.acceptanceCriteria = cast([]);
@@ -100,11 +111,26 @@ export const FlatStore = types
     setValidationErrors({ validationErrors }: { validationErrors: string }) {
       self.validationErrors = validationErrors;
     },
-
+    setName({ name }: { name: string }) {
+      self.productOverview.name = name;
+    },
+    setPurpose({ purpose }: { purpose: string }) {
+      self.productOverview.purpose = purpose;
+    },
+    setPrimaryFeatures({
+      primaryFeatures,
+    }: {
+      primaryFeatures: SnapshotIn<PrimaryFeature[]>;
+    }) {
+      self.productOverview.primaryFeatures = cast(primaryFeatures);
+    },
+    setTargetUsers({ targetUsers }: { targetUsers: SnapshotIn<TargetUser[]> }) {
+      self.productOverview.targetUsers = cast(targetUsers);
+    },
     setFramework({ framework }: { framework: Framework | null }) {
-      self.framework = framework;
+      self.productOverview.framework = framework;
       if (framework != null)
-        self.programmingLanguage =
+        self.productOverview.programmingLanguage =
           PROGRAMMING_LANGUAGE_BY_FRAMEWORK[framework].length === 1
             ? PROGRAMMING_LANGUAGE_BY_FRAMEWORK[framework][0]
             : null;
@@ -114,11 +140,28 @@ export const FlatStore = types
     }: {
       programmingLanguage: ProgrammingLanguage;
     }) {
-      self.programmingLanguage = programmingLanguage;
+      self.productOverview.programmingLanguage = programmingLanguage;
     },
-
-    setProductOverview({ productOverview }: { productOverview: string }) {
-      self.productOverview = productOverview;
+    initialize(info: {
+      name: string;
+      purpose: string;
+      primaryFeatures: string[];
+      targetUsers: string[];
+      programmingLanguage: ProgrammingLanguage;
+      framework: Framework;
+    }) {
+      self.productOverview = ProductOverviewModel.create({
+        ...info,
+        primaryFeatures: info.primaryFeatures.map((content) =>
+          PrimaryFeatureModel.create({ content }),
+        ),
+        targetUsers: info.targetUsers.map((content) =>
+          TargetUserModel.create({ content }),
+        ),
+      });
+    },
+    setProductOverview(productOverview: ProductOverview) {
+      self.productOverview = cast(productOverview);
     },
     setUserStories({ userStories }: { userStories: SnapshotIn<UserStory>[] }) {
       self.isClean = false;
@@ -194,19 +237,6 @@ export const FlatStore = types
     },
   }))
   .actions((self) => ({
-    initialize({
-      productOverview,
-      framework,
-      programmingLanguage,
-    }: {
-      productOverview: string;
-      framework: Framework;
-      programmingLanguage: ProgrammingLanguage;
-    }) {
-      self.setProductOverview({ productOverview });
-      self.setFramework({ framework });
-      self.setProgrammingLanguage({ programmingLanguage });
-    },
     updateList({
       entityType,
       parentId,
@@ -215,28 +245,41 @@ export const FlatStore = types
       sort,
       modifications,
     }: {
-      entityType: EntityType;
+      entityType: StructuralFragment;
       parentId: string;
       insertions: { content: string; index?: number }[];
       removals: string[];
       sort: string[];
       modifications: { content: string; id: string }[];
     }) {
-      var Model = {
-        [EntityType.UserStory]: UserStoryModel,
-        [EntityType.Requirement]: RequirementModel,
-        [EntityType.AcceptanceCriteria]: AcceptanceCriteriaModel,
-        [EntityType.TestScenario]: TestScenarioModel,
-        [EntityType.TestCase]: TestCaseModel,
+      var Model_ = {
+        [StructuralFragment.PrimaryFeature]: PrimaryFeatureModel,
+        [StructuralFragment.TargetUser]: TargetUserModel,
+        [StructuralFragment.Requirement]: RequirementModel,
+        [StructuralFragment.UserStory]: UserStoryModel,
+        [StructuralFragment.AcceptanceCriteria]: AcceptanceCriteriaModel,
+        [StructuralFragment.TestScenario]: TestScenarioModel,
+        [StructuralFragment.TestCase]: TestCaseModel,
+        [StructuralFragment.TestCode]: null,
       }[entityType];
 
+      if (Model_ == null) {
+        console.error("Not implemented yet, model:", entityType);
+        return;
+      }
+      const Model = Model_;
+
       var list_: IMSTArray<typeof StructuralFragmentModel> | undefined = {
-        [EntityType.UserStory]: () => self.userStories,
-        [EntityType.Requirement]: () => self.requirements,
-        [EntityType.AcceptanceCriteria]: () => self.acceptanceCriteria,
-        [EntityType.TestScenario]: () => self.testScenarios,
-        [EntityType.TestCase]: (parentId_: string) =>
+        [StructuralFragment.PrimaryFeature]: () =>
+          self.productOverview.primaryFeatures,
+        [StructuralFragment.TargetUser]: () => self.productOverview.targetUsers,
+        [StructuralFragment.Requirement]: () => self.requirements,
+        [StructuralFragment.UserStory]: () => self.userStories,
+        [StructuralFragment.AcceptanceCriteria]: () => self.acceptanceCriteria,
+        [StructuralFragment.TestScenario]: () => self.testScenarios,
+        [StructuralFragment.TestCase]: (parentId_: string) =>
           self.testScenarios.find(({ id }) => id === parentId_)?.testCases,
+        [StructuralFragment.TestCode]: () => undefined,
       }[entityType](parentId);
 
       if (list_ != null) {
@@ -257,8 +300,11 @@ export const FlatStore = types
         });
       }
     },
-    error({ description }: { description: string }) {
-      console.error(description);
+    communicate({ description }: { description: string }) {
+      self.systemMessage = description;
+    },
+    clearMessage() {
+      self.systemMessage = null;
     },
   }))
   .views((self) => ({
@@ -277,8 +323,6 @@ export const FlatStore = types
           : {}),
         ...(!isIterationBefore(iteration, Iteration.productOverview)
           ? {
-              programmingLanguage: self.programmingLanguage,
-              framework: self.framework,
               productOverview: self.productOverview,
             }
           : {}),
@@ -323,8 +367,6 @@ export const Store = FlatStore.actions(
     generateTestCases,
   }),
 ).actions(withSelf({ import: import_, export: export_ }));
-
-Store.create().generateProductOverview;
 
 export type FlatStore = Instance<typeof FlatStore>;
 export type Store = Instance<typeof Store>;

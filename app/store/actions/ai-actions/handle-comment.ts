@@ -1,10 +1,10 @@
 import { toGenerator } from "mobx-state-tree";
 
+import { handleComment } from "actions/ai/handle-comment";
 import { ITERATION_BY_STRUCTURAL_FRAGMENT } from "store";
 import { StructuralFragment } from "store/models";
 
 import { generator, handleFunctionCall } from "./utilities";
-import { handleComment } from "actions/ai/handle-comment";
 
 export default generator(
   function* (
