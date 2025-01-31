@@ -1,12 +1,12 @@
-import { faPlus } from "@fortawesome/free-solid-svg-icons";
+import { Add } from "@mui/icons-material";
+import { Button, Divider, Paper, Stack } from "@mui/material";
 import { observer } from "mobx-react-lite";
+import { Fragment } from "react";
 
-import { STRUCTURAL_FRAGMENT_LABELS } from "store";
+import { STRUCTURAL_FRAGMENT_LABEL } from "store";
 import { StructuralFragment } from "store/models";
 
-import { IconButton } from "./controls";
 import EditableItem from "./EditableItem";
-import css from "./StructuralFragments.module.css";
 
 interface StructuralFragmentsProps<Type extends StructuralFragment> {
   fragments: Type[];
@@ -26,22 +26,25 @@ const StructuralFragments = <Type extends StructuralFragment>({
   onRemoveFragment,
 }: StructuralFragmentsProps<Type>): React.ReactElement => {
   return (
-    <div className={css.section}>
-      <ol>
-        {fragments.map((fragment) => (
+    <Stack component={Paper} p={1} gap={1} variant="outlined">
+      {fragments.map((fragment, index) => (
+        <Fragment key={fragment.id}>
           <EditableItem<Type>
             key={fragment.id}
+            list={fragments}
             fragment={fragment}
+            index={index}
             isDisabled={isDisabled}
             onComment={onComment}
             onRemove={onRemoveFragment}
           />
-        ))}
-      </ol>
-      <IconButton disabled={isDisabled} icon={faPlus} onClick={onAddFragment}>
-        Add {STRUCTURAL_FRAGMENT_LABELS[structuralFragment]}
-      </IconButton>
-    </div>
+          <Divider />
+        </Fragment>
+      ))}
+      <Button disabled={isDisabled} endIcon={<Add />} onClick={onAddFragment}>
+        Add {STRUCTURAL_FRAGMENT_LABEL[structuralFragment]}
+      </Button>
+    </Stack>
   );
 };
 

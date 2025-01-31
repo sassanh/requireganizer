@@ -1,9 +1,10 @@
-import { faJs } from "@fortawesome/free-brands-svg-icons";
 import {
-  faFile,
-  faFilePdf,
-  faFileText,
-} from "@fortawesome/free-solid-svg-icons";
+  DataObject,
+  InsertDriveFileOutlined,
+  MenuBook,
+  PictureAsPdf,
+} from "@mui/icons-material";
+import { Button, Divider, Stack } from "@mui/material";
 import React, { useState } from "react";
 
 import { Framework, ProgrammingLanguage } from "store";
@@ -14,9 +15,6 @@ import {
   UserStory,
 } from "store/models";
 import { ProductOverview } from "store/models/ProductOverview";
-
-import { IconButton } from "./controls";
-import css from "./Toolbar.module.css";
 
 interface ToolbarProps {
   disabled?: boolean;
@@ -63,40 +61,49 @@ const Toolbar: React.FunctionComponent<ToolbarProps> = ({
   };
 
   return (
-    <div className={css.container}>
-      <IconButton disabled={disabled} icon={faFile} onClick={onReset}>
-        Reset
-      </IconButton>
-      <div className={css.vl} />
-      <IconButton
+    <Stack direction="row" gap={1}>
+      <Button
         disabled={disabled}
-        icon={faJs}
+        variant="outlined"
+        endIcon={<InsertDriveFileOutlined />}
+        onClick={onReset}
+      >
+        Reset
+      </Button>
+      <Divider orientation="vertical" flexItem />
+      <Button
+        disabled={disabled}
+        variant="outlined"
+        endIcon={<DataObject />}
         onClick={() => inputRef?.click()}
       >
         Import JSON
-      </IconButton>
-      <div className={css.vl} />
-      <IconButton
+      </Button>
+      <Divider orientation="vertical" flexItem />
+      <Button
         disabled={disabled}
-        icon={faFilePdf}
+        variant="outlined"
+        endIcon={<PictureAsPdf />}
         onClick={() => onExport("pdf")}
       >
         Export as PDF
-      </IconButton>
-      <IconButton
+      </Button>
+      <Button
         disabled={disabled}
-        icon={faFileText}
+        variant="outlined"
+        endIcon={<MenuBook />}
         onClick={() => onExport("txt")}
       >
         Export as TXT
-      </IconButton>
-      <IconButton
+      </Button>
+      <Button
         disabled={disabled}
-        icon={faJs}
+        variant="outlined"
+        endIcon={<DataObject />}
         onClick={() => onExport("json")}
       >
         Export as JSON
-      </IconButton>
+      </Button>
       <input
         hidden
         ref={setInputRef}
@@ -105,7 +112,7 @@ const Toolbar: React.FunctionComponent<ToolbarProps> = ({
         accept=".json"
         onChange={handleImport}
       />
-    </div>
+    </Stack>
   );
 };
 

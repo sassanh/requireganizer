@@ -8,8 +8,8 @@ import {
 } from "actions/lib/prompts";
 import { ActionParameters, ActionReturnValue } from "lib/types";
 import {
-  ENGINEER_ROLE_BY_ITERATION,
-  ITERATION_BY_STRUCTURAL_FRAGMENT,
+  ENGINEER_ROLE_BY_STEP,
+  STEP_BY_STRUCTURAL_FRAGMENT,
   StructuralFragment,
 } from "store";
 
@@ -26,9 +26,7 @@ export async function generateStructuralFragment({
   try {
     const result = await queryAiModel([
       generateSystemPrompt(
-        ENGINEER_ROLE_BY_ITERATION[
-          ITERATION_BY_STRUCTURAL_FRAGMENT[structuralFragment]
-        ],
+        ENGINEER_ROLE_BY_STEP[STEP_BY_STRUCTURAL_FRAGMENT[structuralFragment]],
       ),
       `current state: ${state}`,
       ...generateStructuralFragmentPrompt(structuralFragment),
@@ -36,13 +34,13 @@ export async function generateStructuralFragment({
         [StructuralFragment.PrimaryFeature]: [],
         [StructuralFragment.TargetUser]: [],
         [StructuralFragment.Requirement]: [
-          `Generate **formal software requirements** based on the user stories and product overview. Follow these strict rules:
+          `Generate **formal software requirements** based on the product overview. Follow these strict rules:
 
 ## **Mandatory Requirements Structure**
 Each requirement must follow this format:
-- **ID:** A unique identifier (e.g., REQ-001).
-- **Description:** A precise, unambiguous statement of what the software must do.
+- **Content:** A precise, unambiguous statement of what the software must do.
 - **Priority:** (High, Medium, Low) based on user value and dependencies.
+- **References:** Relevant structural fragments (if any). Rarely it can be anything other than primary features and target users.
 - **Dependencies:** Other requirements that must be met first (if any).
 
 ## **Strict Requirements for Quality**
@@ -63,11 +61,14 @@ Each requirement must follow this format:
 **Strictly adhere to these guidelines. If the provided input does not allow generating valid requirements, call the \`communicate\` function.**`,
         ],
         [StructuralFragment.UserStory]: [
-          `Generate user stories following these strict rules:
+          `Generate user stories based on requirements following these strict rules:
 
 ## **Mandatory User Story Format**
 Each story must follow this format exactly:
-**As a [specific user role], I want [clear, testable goal], so that [objective benefit].**
+- **Content:** As a [specific user role], I want [clear, testable goal], so that [objective benefit].
+- **Priority:** (High, Medium, Low) based on user value and dependencies.
+- **References:** Relevant structural fragments (if any). Rarely it can be anything other than requirements.
+- **Dependencies:** Other stories that must be met first (if any).
 
 ## **Strict Requirements**
 - **No Subjective Language:** Avoid vague terms like "user-friendly," "intuitive," or "without confusion." Instead, describe concrete functionalities or behaviors.
@@ -85,18 +86,17 @@ Each story must follow this format exactly:
 **Strictly adhere to these guidelines. If the description does not allow generating valid user stories, call the \`communicate\` function.**`,
         ],
         [StructuralFragment.AcceptanceCriteria]: [
-          `Generate **clear and testable acceptance criteria** based on the requirements. Follow these strict rules:
+          `Generate **clear and testable acceptance criteria** based on the user stories. Follow these strict rules:
 
 ## **Mandatory Acceptance Criteria Structure**
 Each acceptance criterion must follow this format:
-- **ID:** A unique identifier (e.g., AC-001).
-- **Requirement Reference:** The ID of the requirement it validates.
-- **Criteria:** A precise, measurable condition that determines if the requirement is met.
+- **Content:** A precise, measurable condition that determines if the user story is implemented correctly.
+- **References:** Relevant structural fragments (if any). rarely it can be anything other than user stories.
 
 ## **Strict Rules for Valid Acceptance Criteria**
 - **Must Be Binary (Pass/Fail):** The criterion must be clearly testable, with an unambiguous pass/fail outcome.
 - **Avoid Subjective Language:** Terms like "easy to use," "intuitive," or "efficient" are not allowed.
-- **Ensure Coverage:** Each requirement must have at least one associated acceptance criterion.
+- **Ensure Coverage:** Each user story must have at least one associated acceptance criterion.
 - **No Implementation Details:** Acceptance criteria must focus on verifying the outcome, not how the system achieves it.
 
 ## **Examples of Bad Acceptance Criteria (DO NOT FOLLOW)**
@@ -115,9 +115,9 @@ Each acceptance criterion must follow this format:
 
 ## **Mandatory Test Scenario Structure**
 Each test scenario must follow this format:
-- **ID:** A unique identifier (e.g., TS-001).
-- **Acceptance Criteria Reference:** The ID of the acceptance criterion it verifies.
-- **Scenario Name:** A brief, descriptive title of the scenario.
+- **Content:** A brief, descriptive title of the scenario.
+- **References:** List of acceptance criteria it verifies.
+- **Dependencies:** Other requirements that must be met first (if any).
 
 ## **Strict Rules for Valid Test Scenarios**
 - **Keep It High-Level:** Do not include step-by-step instructions or expected results.
@@ -139,43 +139,46 @@ Each test scenario must follow this format:
         [StructuralFragment.TestCase]: [
           `Generate **detailed and structured test cases** for the test scenario with ID **${parentId}**. Follow these strict rules:
 
-  ## **Mandatory Test Case Structure**
-  Each test case must follow this format:
+## **Mandatory Test Case Structure**
+Each test case must follow this format:
+- **Content:** Containing:
   - **Title:** A concise, descriptive name for the test case.
   - **Steps:** A clear, sequential list of actions required to execute the test.
   - **Expected Result:** A precise statement of what should happen when the test is executed.
+- **Parent:** The test scenario ID to which this case belongs.
+- **References:** Relevant structural fragments (if any).
 
-  ## **Strict Rules for Valid Test Cases**
-  - **Each Test Case Must Be Concise & Focused** – It should cover exactly **one** aspect of the test scenario.
-  - **No Redundancy:** Avoid repeating test cases that cover the same conditions.
-  - **Edge Cases & Input Variations:** Ensure test cases explore boundaries, but do **not** introduce scenarios that contradict the test scenario.
-  - **No Cross-Scenario Coverage:** Do **not** include cases that belong to other test scenarios.
-  - **Maintain Logical Input Variations:** While testing different input combinations, do **not** introduce unrealistic or irrelevant inputs.
+## **Strict Rules for Valid Test Cases**
+- **Each Test Case Must Be Concise & Focused** – It should cover exactly **one** aspect of the test scenario.
+- **No Redundancy:** Avoid repeating test cases that cover the same conditions.
+- **Edge Cases & Input Variations:** Ensure test cases explore boundaries, but do **not** introduce scenarios that contradict the test scenario.
+- **No Cross-Scenario Coverage:** Do **not** include cases that belong to other test scenarios.
+- **Maintain Logical Input Variations:** While testing different input combinations, do **not** introduce unrealistic or irrelevant inputs.
 
-  ## **Examples of Bad Test Cases (DO NOT FOLLOW)**
-  ❌ **Addition of two numbers**  
-     Steps: 1. Open calculator. 2. Add numbers. 3. Verify the result.  
-     🚨 *Issue:* Too vague, lacks specific input values and expected results.  
+## **Examples of Bad Test Cases (DO NOT FOLLOW)**
+❌ **Addition of two numbers**  
+   Steps: 1. Open calculator. 2. Add numbers. 3. Verify the result.  
+   🚨 *Issue:* Too vague, lacks specific input values and expected results.  
 
-  ❌ **Test all arithmetic operations at once**  
-     Steps: 1. Add two numbers. 2. Subtract numbers. 3. Multiply numbers. 4. Divide numbers.  
-     🚨 *Issue:* Covers multiple scenarios instead of focusing on one.
+❌ **Test all arithmetic operations at once**  
+   Steps: 1. Add two numbers. 2. Subtract numbers. 3. Multiply numbers. 4. Divide numbers.  
+   🚨 *Issue:* Covers multiple scenarios instead of focusing on one.
 
-  ## **Examples of Good Test Cases**
-  ✅ **Addition of two small positive integers**  
-     **Steps:**  
-     1. Input the first small positive integer into the calculator.  
-     2. Click on the "+" button.  
-     3. Input the second small positive integer into the calculator.  
-     4. Click on the "=" button.  
-     5. Verify that the result displayed on the calculator is the sum of the two input integers.  
+## **Examples of Good Test Cases**
+✅ **Addition of two small positive integers**  
+   **Steps:**  
+   1. Input the first small positive integer into the calculator.  
+   2. Click on the "+" button.  
+   3. Input the second small positive integer into the calculator.  
+   4. Click on the "=" button.  
+   5. Verify that the result displayed on the calculator is the sum of the two input integers.  
 
-  ✅ **Addition of two large positive integers**  
-  ✅ **Addition of a positive integer and a positive decimal number**  
-  ✅ **Addition of the largest possible positive integers**  
-  ✅ **Addition of a positive integer and the smallest possible positive decimal**  
+✅ **Addition of two large positive integers**  
+✅ **Addition of a positive integer and a positive decimal number**  
+✅ **Addition of the largest possible positive integers**  
+✅ **Addition of a positive integer and the smallest possible positive decimal**  
 
-  **Strictly adhere to these guidelines. If the provided test scenario does not allow generating valid test cases, call the \`communicate\` function.**`,
+**Strictly adhere to these guidelines. If the provided test scenario does not allow generating valid test cases, call the \`communicate\` function.**`,
         ],
         [StructuralFragment.TestCode]: [],
       }[structuralFragment],

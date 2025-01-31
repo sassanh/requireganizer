@@ -1,7 +1,7 @@
 import { toGenerator } from "mobx-state-tree";
 
 import { generateStructuralFragment } from "actions/ai/generate-structural-fragment";
-import { Iteration, StructuralFragment } from "store";
+import { Step, StructuralFragment } from "store";
 
 import { generator, handleFunctionCall } from "./utilities";
 
@@ -11,14 +11,14 @@ export default generator(
 
     const { functionCall } = yield* toGenerator(
       generateStructuralFragment({
-        state: self.json(Iteration.requirements),
+        state: self.json(Step.Requirements),
         structuralFragment: StructuralFragment.Requirement,
       }),
     );
 
     handleFunctionCall(self, functionCall);
 
-    self.eventTarget.emit("iterationUpdate", Iteration.requirements);
+    self.eventTarget.emit("stepUpdate", Step.Requirements);
   },
   { requirements: ["description", "productOverview"] },
 );

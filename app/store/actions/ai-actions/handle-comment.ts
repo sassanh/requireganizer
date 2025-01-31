@@ -1,7 +1,7 @@
 import { toGenerator } from "mobx-state-tree";
 
 import { handleComment } from "actions/ai/handle-comment";
-import { ITERATION_BY_STRUCTURAL_FRAGMENT } from "store";
+import { STEP_BY_STRUCTURAL_FRAGMENT } from "store";
 import { StructuralFragment } from "store/models";
 
 import { generator, handleFunctionCall } from "./utilities";
@@ -13,11 +13,11 @@ export default generator(
   ) {
     self.resetValidationErrors();
 
-    const iteration = ITERATION_BY_STRUCTURAL_FRAGMENT[fragment.type];
+    const step = STEP_BY_STRUCTURAL_FRAGMENT[fragment.type];
 
     const { functionCall } = yield* toGenerator(
       handleComment({
-        state: self.json(iteration),
+        state: self.json(step),
         structuralFragment: fragment.type,
         id: fragment.id,
         comment,

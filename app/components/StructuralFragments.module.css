@@ -1,7 +1,0 @@
-.section {
-  margin-bottom: 32px;
-  border: 2px solid gray;
-  padding: 16px;
-  border-radius: 8px;
-  counter-reset: item;
-}

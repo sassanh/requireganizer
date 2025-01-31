@@ -351,40 +351,37 @@ export const PROGRAMMING_LANGUAGE_BY_FRAMEWORK: {
   [Framework.RacketGUI]: [ProgrammingLanguage.Racket],
 };
 
-export enum Iteration {
-  description = "description",
-  productOverview = "product-overview",
-  requirements = "requirements",
-  userStories = "user-stories",
-  acceptanceCriteria = "acceptance-criteria",
-  testScenarios = "test-scenarios",
-  testCases = "test-cases",
-  testCode = "test-code",
-  mainCode = "main-code",
+export enum Step {
+  Description = "description",
+  ProductOverview = "product-overview",
+  Requirements = "requirements",
+  UserStories = "user-stories",
+  AcceptanceCriteria = "acceptance-criteria",
+  TestScenarios = "test-scenarios",
+  TestCases = "test-cases",
+  TestCode = "test-code",
+  MainCode = "main-code",
 }
-export const ITERATIONS = Object.values(Iteration);
-export const ITERATION_LABELS: { [key in Iteration]: string } = {
-  [Iteration.description]: "Description",
-  [Iteration.productOverview]: "Product Overview",
-  [Iteration.requirements]: "Requirements",
-  [Iteration.userStories]: "User Stories",
-  [Iteration.acceptanceCriteria]: "Acceptance Criteria",
-  [Iteration.testScenarios]: "Test Scenarios",
-  [Iteration.testCases]: "Test Cases",
-  [Iteration.testCode]: "Test Code",
-  [Iteration.mainCode]: "Main Code",
+export const STEPS = Object.values(Step);
+export const STEP_LABELS: { [key in Step]: string } = {
+  [Step.Description]: "Description",
+  [Step.ProductOverview]: "Product Overview",
+  [Step.Requirements]: "Requirements",
+  [Step.UserStories]: "User Stories",
+  [Step.AcceptanceCriteria]: "Acceptance Criteria",
+  [Step.TestScenarios]: "Test Scenarios",
+  [Step.TestCases]: "Test Cases",
+  [Step.TestCode]: "Test Code",
+  [Step.MainCode]: "Main Code",
 };
-export const LAST_ITERATION = Iteration.testCases;
+export const LAST_STEP = Step.TestCases;
 
-export function isIterationBefore(
-  iteration1: Iteration,
-  iteration2: Iteration,
-) {
-  return ITERATIONS.indexOf(iteration1) < ITERATIONS.indexOf(iteration2);
+export function isBefore(step1: Step, step2: Step) {
+  return STEPS.indexOf(step1) < STEPS.indexOf(step2);
 }
 
-export function isIterationAfter(iteration1: Iteration, iteration2: Iteration) {
-  return ITERATIONS.indexOf(iteration1) > ITERATIONS.indexOf(iteration2);
+export function isAfter(step1: Step, step2: Step) {
+  return STEPS.indexOf(step1) > STEPS.indexOf(step2);
 }
 
 export enum StructuralFragment {
@@ -398,7 +395,7 @@ export enum StructuralFragment {
   TestCode = "test_code",
 }
 
-export const STRUCTURAL_FRAGMENT_LABELS: {
+export const STRUCTURAL_FRAGMENT_LABEL: {
   [key in StructuralFragment]: string;
 } = {
   [StructuralFragment.PrimaryFeature]: "Primary Feature",
@@ -411,30 +408,33 @@ export const STRUCTURAL_FRAGMENT_LABELS: {
   [StructuralFragment.TestCode]: "Test Code",
 };
 
-export const ITERATION_BY_STRUCTURAL_FRAGMENT: {
-  [key in StructuralFragment]: Iteration;
+export const STEP_BY_STRUCTURAL_FRAGMENT: {
+  [key in StructuralFragment]: Step;
 } = {
-  [StructuralFragment.PrimaryFeature]: Iteration.productOverview,
-  [StructuralFragment.TargetUser]: Iteration.productOverview,
-  [StructuralFragment.Requirement]: Iteration.requirements,
-  [StructuralFragment.UserStory]: Iteration.userStories,
-  [StructuralFragment.AcceptanceCriteria]: Iteration.acceptanceCriteria,
-  [StructuralFragment.TestScenario]: Iteration.testScenarios,
-  [StructuralFragment.TestCase]: Iteration.testCases,
-  [StructuralFragment.TestCode]: Iteration.testCode,
+  [StructuralFragment.PrimaryFeature]: Step.ProductOverview,
+  [StructuralFragment.TargetUser]: Step.ProductOverview,
+  [StructuralFragment.Requirement]: Step.Requirements,
+  [StructuralFragment.UserStory]: Step.UserStories,
+  [StructuralFragment.AcceptanceCriteria]: Step.AcceptanceCriteria,
+  [StructuralFragment.TestScenario]: Step.TestScenarios,
+  [StructuralFragment.TestCase]: Step.TestCases,
+  [StructuralFragment.TestCode]: Step.TestCode,
 };
-export const STRUCTURAL_FRAGMENT_BY_ITERATION: {
-  [key in Exclude<
-    Iteration,
-    Iteration.description | Iteration.productOverview | Iteration.mainCode
-  >]: StructuralFragment;
+export const STRUCTURAL_FRAGMENT_BY_STEP: {
+  [key in Exclude<Step, Step.Description | Step.MainCode>]:
+    | StructuralFragment
+    | StructuralFragment[];
 } = {
-  [Iteration.requirements]: StructuralFragment.Requirement,
-  [Iteration.userStories]: StructuralFragment.UserStory,
-  [Iteration.acceptanceCriteria]: StructuralFragment.AcceptanceCriteria,
-  [Iteration.testScenarios]: StructuralFragment.TestScenario,
-  [Iteration.testCases]: StructuralFragment.TestCase,
-  [Iteration.testCode]: StructuralFragment.TestCode,
+  [Step.ProductOverview]: [
+    StructuralFragment.PrimaryFeature,
+    StructuralFragment.TargetUser,
+  ],
+  [Step.Requirements]: StructuralFragment.Requirement,
+  [Step.UserStories]: StructuralFragment.UserStory,
+  [Step.AcceptanceCriteria]: StructuralFragment.AcceptanceCriteria,
+  [Step.TestScenarios]: StructuralFragment.TestScenario,
+  [Step.TestCases]: StructuralFragment.TestCase,
+  [Step.TestCode]: StructuralFragment.TestCode,
 };
 
 export enum EngineerRole {
@@ -451,33 +451,50 @@ export const ENGINEER_ROLE_LABELS: {
   [EngineerRole.SoftwareDeveloper]: "Software Developer",
 };
 
-export const ENGINEER_ROLE_BY_ITERATION: {
-  [key in Iteration]: EngineerRole[];
+export const ENGINEER_ROLE_BY_STEP: {
+  [key in Step]: EngineerRole[];
 } = {
-  [Iteration.description]: [EngineerRole.RequirementsEngineer],
-  [Iteration.productOverview]: [EngineerRole.RequirementsEngineer],
-  [Iteration.requirements]: [EngineerRole.RequirementsEngineer],
-  [Iteration.userStories]: [EngineerRole.RequirementsEngineer],
-  [Iteration.acceptanceCriteria]: [
+  [Step.Description]: [EngineerRole.RequirementsEngineer],
+  [Step.ProductOverview]: [EngineerRole.RequirementsEngineer],
+  [Step.Requirements]: [EngineerRole.RequirementsEngineer],
+  [Step.UserStories]: [EngineerRole.RequirementsEngineer],
+  [Step.AcceptanceCriteria]: [
     EngineerRole.RequirementsEngineer,
     EngineerRole.SoftwareTestEngineer,
   ],
-  [Iteration.testScenarios]: [EngineerRole.SoftwareTestEngineer],
-  [Iteration.testCases]: [EngineerRole.SoftwareTestEngineer],
-  [Iteration.testCode]: [EngineerRole.SoftwareDeveloper],
-  [Iteration.mainCode]: [EngineerRole.SoftwareDeveloper],
+  [Step.TestScenarios]: [EngineerRole.SoftwareTestEngineer],
+  [Step.TestCases]: [EngineerRole.SoftwareTestEngineer],
+  [Step.TestCode]: [EngineerRole.SoftwareDeveloper],
+  [Step.MainCode]: [EngineerRole.SoftwareDeveloper],
 };
 
-export const GENERATOR_ACTION_BY_ITERATION: {
-  [key in Iteration]: Extract<keyof Store, `generate${string}`> | null;
+export const GENERATOR_ACTION_BY_STEP: {
+  [key in Step]: Extract<keyof Store, `generate${string}`> | null;
 } = {
-  [Iteration.description]: null,
-  [Iteration.productOverview]: "generateProductOverview",
-  [Iteration.requirements]: "generateRequirements",
-  [Iteration.userStories]: "generateUserStories",
-  [Iteration.acceptanceCriteria]: "generateAcceptanceCriteria",
-  [Iteration.testScenarios]: "generateTestScenarios",
-  [Iteration.testCases]: "generateTestCases",
-  [Iteration.testCode]: null,
-  [Iteration.mainCode]: null,
+  [Step.Description]: null,
+  [Step.ProductOverview]: "generateProductOverview",
+  [Step.Requirements]: "generateRequirements",
+  [Step.UserStories]: "generateUserStories",
+  [Step.AcceptanceCriteria]: "generateAcceptanceCriteria",
+  [Step.TestScenarios]: "generateTestScenarios",
+  [Step.TestCases]: "generateTestCases",
+  [Step.TestCode]: null,
+  [Step.MainCode]: null,
 };
+
+export const FRAGMENT_CODES: { [key in StructuralFragment]: string } = {
+  [StructuralFragment.PrimaryFeature]: "FEA",
+  [StructuralFragment.TargetUser]: "USR",
+  [StructuralFragment.Requirement]: "REQ",
+  [StructuralFragment.UserStory]: "US",
+  [StructuralFragment.AcceptanceCriteria]: "AC",
+  [StructuralFragment.TestScenario]: "TSC",
+  [StructuralFragment.TestCase]: "TCS",
+  [StructuralFragment.TestCode]: "TCD",
+};
+
+export enum Priority {
+  Low = "low",
+  Medium = "medium",
+  High = "high",
+}

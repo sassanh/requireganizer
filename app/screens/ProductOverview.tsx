@@ -1,17 +1,16 @@
-import { Field, Label } from "@headlessui/react";
+import { Divider, MenuItem, Select, Stack, TextField } from "@mui/material";
 import { observer } from "mobx-react-lite";
 import { useMemo } from "react";
-import Textarea from "react-textarea-autosize";
 
-import { Combobox, StructuralFragments } from "components";
+import { StructuralFragments } from "components";
 import {
   Framework,
   PROGRAMMING_LANGUAGE_BY_FRAMEWORK,
+  ProgrammingLanguage,
   StructuralFragment,
   useStore,
 } from "store";
-
-import css from "./ProductOverview.module.css";
+import { isEnumMember } from "utilities";
 
 const ProductOverview: React.FunctionComponent = () => {
   const store = useStore();
@@ -19,59 +18,61 @@ const ProductOverview: React.FunctionComponent = () => {
   const frameworks = useMemo(() => Object.values(Framework), []);
   const programmingLanguages = useMemo(
     () =>
-      store.productOverview?.framework
+      store.productOverview.framework
         ? PROGRAMMING_LANGUAGE_BY_FRAMEWORK[store.productOverview.framework]
         : [],
-    [store.productOverview?.framework],
+    [store.productOverview.framework],
   );
 
   return (
-    <div className={css.section}>
-      <Field>
-        <Label>Name</Label>
-        <input
-          className={css.textInput}
-          value={store.productOverview?.name || ""}
-          onChange={(event) => store.setName({ name: event.target.value })}
-        />
-      </Field>
-      <Field>
-        <Label>Purpose</Label>
-        <pre>
-          <Textarea
-            className={[css.textInput, css.productOverview].join(" ")}
-            value={store.productOverview.purpose || ""}
-            placeholder="Summarize the key features and objectives of the software in a comprehensive overview..."
-            onChange={(event) =>
-              store.setPurpose({ purpose: event.target.value })
-            }
-          />
-        </pre>
-      </Field>
-      <hr />
-      <div
-        style={{
-          display: "flex",
-          gap: "8px",
-          justifyContent: "space-between",
-        }}
-      >
-        <Combobox
-          items={frameworks}
+    <Stack gap={2}>
+      <TextField
+        fullWidth
+        label="Name"
+        value={store.productOverview.name || ""}
+        onChange={(event) => store.setName({ name: event.target.value })}
+      />
+      <TextField
+        value={store.productOverview.purpose || ""}
+        fullWidth
+        multiline
+        placeholder="Summarize the key features and objectives of the software in a comprehensive overview..."
+        onChange={(event) => store.setPurpose({ purpose: event.target.value })}
+      />
+      <Divider />
+      <Stack direction="row" gap={2}>
+        <Select
+          fullWidth
           label="Framework"
-          value={store.productOverview?.framework}
-          onChange={(framework) => store.setFramework({ framework })}
-        />
-        <Combobox
-          items={programmingLanguages}
+          value={store.productOverview.framework || ""}
+          onChange={({ target: { value } }) => {
+            if (!isEnumMember(value, Framework)) return;
+            store.setFramework({ framework: value });
+          }}
+        >
+          {frameworks.map((framework) => (
+            <MenuItem key={framework} value={framework}>
+              {framework}
+            </MenuItem>
+          ))}
+        </Select>
+        <Select
+          fullWidth
           label="Programming Language"
-          value={store.productOverview.programmingLanguage}
-          onChange={(programmingLanguage) =>
-            store.setProgrammingLanguage({ programmingLanguage })
-          }
-        />
-      </div>
-      <hr />
+          value={store.productOverview.programmingLanguage || ""}
+          onChange={({ target: { value } }) => {
+            if (!isEnumMember(value, ProgrammingLanguage)) return;
+            store.setProgrammingLanguage({ programmingLanguage: value });
+          }}
+        >
+          {programmingLanguages.map((programmingLanguage) => (
+            <MenuItem key={programmingLanguage} value={programmingLanguage}>
+              {programmingLanguage}
+            </MenuItem>
+          ))}
+        </Select>
+      </Stack>
+      <Divider />
       <StructuralFragments
         fragments={store.productOverview.primaryFeatures}
         isDisabled={store.isBusy}
@@ -88,7 +89,7 @@ const ProductOverview: React.FunctionComponent = () => {
         onComment={store.handleComment}
         onRemoveFragment={store.productOverview.removeTargetUser}
       />
-    </div>
+    </Stack>
   );
 };
 

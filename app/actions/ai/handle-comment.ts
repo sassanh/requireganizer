@@ -8,8 +8,8 @@ import {
 } from "actions/lib/prompts";
 import { ActionParameters, ActionReturnValue } from "lib/types";
 import {
-  ENGINEER_ROLE_BY_ITERATION,
-  ITERATION_BY_STRUCTURAL_FRAGMENT,
+  ENGINEER_ROLE_BY_STEP,
+  STEP_BY_STRUCTURAL_FRAGMENT,
   StructuralFragment,
 } from "store";
 
@@ -28,9 +28,7 @@ export async function handleComment({
   try {
     const result = await queryAiModel([
       generateSystemPrompt(
-        ENGINEER_ROLE_BY_ITERATION[
-          ITERATION_BY_STRUCTURAL_FRAGMENT[structuralFragment]
-        ],
+        ENGINEER_ROLE_BY_STEP[STEP_BY_STRUCTURAL_FRAGMENT[structuralFragment]],
       ),
       `current state:] ${state}`,
       `Regarding ${structuralFragment} with id ${id} consider this comment: """${comment}""".`,

@@ -1,2 +1,2 @@
 export { default as ProductOverview } from "./ProductOverview";
-export { default as Results } from "./Results";
+export { default as Factory } from "./Factory";

@@ -18,18 +18,21 @@ import {
 } from "./actions";
 import {
   Framework,
-  Iteration,
-  LAST_ITERATION,
+  Step,
+  LAST_STEP,
   PROGRAMMING_LANGUAGE_BY_FRAMEWORK,
   ProgrammingLanguage,
-  StructuralFragment,
-  isIterationBefore,
+  StructuralFragment as StructuralFragmentName,
+  isBefore,
+  Priority,
+  STEP_BY_STRUCTURAL_FRAGMENT,
 } from "./constants";
 import {
   AcceptanceCriteria,
   AcceptanceCriteriaModel,
   Requirement,
   RequirementModel,
+  StructuralFragment,
   StructuralFragmentModel,
   TestCaseModel,
   TestScenario,
@@ -48,13 +51,13 @@ import {
 import { withSelf } from "./utilities";
 
 class StoreEventEmitter extends EventEmitter {
-  emitIterationUpdate(iteration: Iteration): void {
-    this.emit("iterationUpdate", iteration);
+  emitStepUpdate(step: Step): void {
+    this.emit("stepUpdate", step);
   }
 }
 
 interface StoreEvents {
-  iterationUpdate: (iteration: Iteration) => void;
+  stepUpdate: (step: Step) => void;
 }
 
 declare interface StoreEventEmitter {
@@ -245,22 +248,34 @@ export const FlatStore = types
       sort,
       modifications,
     }: {
-      entityType: StructuralFragment;
+      entityType: StructuralFragmentName;
       parentId: string;
-      insertions: { content: string; index?: number }[];
+      insertions: {
+        content: string;
+        priority: Priority;
+        references: { id: string; type: StructuralFragmentName }[];
+        dependencies: string[];
+        index?: number;
+      }[];
       removals: string[];
       sort: string[];
-      modifications: { content: string; id: string }[];
+      modifications: {
+        content: string;
+        priority: Priority;
+        references: { id: string; type: StructuralFragmentName }[];
+        dependencies: string[];
+        id: string;
+      }[];
     }) {
       var Model_ = {
-        [StructuralFragment.PrimaryFeature]: PrimaryFeatureModel,
-        [StructuralFragment.TargetUser]: TargetUserModel,
-        [StructuralFragment.Requirement]: RequirementModel,
-        [StructuralFragment.UserStory]: UserStoryModel,
-        [StructuralFragment.AcceptanceCriteria]: AcceptanceCriteriaModel,
-        [StructuralFragment.TestScenario]: TestScenarioModel,
-        [StructuralFragment.TestCase]: TestCaseModel,
-        [StructuralFragment.TestCode]: null,
+        [StructuralFragmentName.PrimaryFeature]: PrimaryFeatureModel,
+        [StructuralFragmentName.TargetUser]: TargetUserModel,
+        [StructuralFragmentName.Requirement]: RequirementModel,
+        [StructuralFragmentName.UserStory]: UserStoryModel,
+        [StructuralFragmentName.AcceptanceCriteria]: AcceptanceCriteriaModel,
+        [StructuralFragmentName.TestScenario]: TestScenarioModel,
+        [StructuralFragmentName.TestCase]: TestCaseModel,
+        [StructuralFragmentName.TestCode]: null,
       }[entityType];
 
       if (Model_ == null) {
@@ -270,16 +285,18 @@ export const FlatStore = types
       const Model = Model_;
 
       var list_: IMSTArray<typeof StructuralFragmentModel> | undefined = {
-        [StructuralFragment.PrimaryFeature]: () =>
+        [StructuralFragmentName.PrimaryFeature]: () =>
           self.productOverview.primaryFeatures,
-        [StructuralFragment.TargetUser]: () => self.productOverview.targetUsers,
-        [StructuralFragment.Requirement]: () => self.requirements,
-        [StructuralFragment.UserStory]: () => self.userStories,
-        [StructuralFragment.AcceptanceCriteria]: () => self.acceptanceCriteria,
-        [StructuralFragment.TestScenario]: () => self.testScenarios,
-        [StructuralFragment.TestCase]: (parentId_: string) =>
+        [StructuralFragmentName.TargetUser]: () =>
+          self.productOverview.targetUsers,
+        [StructuralFragmentName.Requirement]: () => self.requirements,
+        [StructuralFragmentName.UserStory]: () => self.userStories,
+        [StructuralFragmentName.AcceptanceCriteria]: () =>
+          self.acceptanceCriteria,
+        [StructuralFragmentName.TestScenario]: () => self.testScenarios,
+        [StructuralFragmentName.TestCase]: (parentId_: string) =>
           self.testScenarios.find(({ id }) => id === parentId_)?.testCases,
-        [StructuralFragment.TestCode]: () => undefined,
+        [StructuralFragmentName.TestCode]: () => undefined,
       }[entityType](parentId);
 
       if (list_ != null) {
@@ -287,12 +304,12 @@ export const FlatStore = types
         if (sort != null && sort.length > 0) {
           list.sort((a, b) => sort.indexOf(a.id) - sort.indexOf(b.id));
         }
-        modifications?.forEach(({ content, id }) => {
+        modifications?.forEach(({ id, ...data }) => {
           const item = list.find(({ id: id_ }) => id === id_);
-          item?.updateContent(content);
+          item?.setData(data);
         });
-        insertions?.forEach(({ content, index }) =>
-          list.splice(index ?? list.length, 0, Model.create({ content })),
+        insertions?.forEach(({ index, ...data }) =>
+          list.splice(index ?? list.length, 0, Model.create(data)),
         );
         removals?.forEach((id) => {
           const item = list.find(({ id: id_ }) => id === id_);
@@ -316,34 +333,62 @@ export const FlatStore = types
         (testScenario) => testScenario.testCases,
       );
     },
-    data(iteration: Iteration = LAST_ITERATION) {
+    data(step: Step = LAST_STEP) {
       return {
-        ...(!isIterationBefore(iteration, Iteration.description)
+        ...(!isBefore(step, Step.Description)
           ? { description: self.description }
           : {}),
-        ...(!isIterationBefore(iteration, Iteration.productOverview)
+        ...(!isBefore(step, Step.ProductOverview)
           ? {
               productOverview: self.productOverview,
             }
           : {}),
-        ...(!isIterationBefore(iteration, Iteration.requirements)
+        ...(!isBefore(step, Step.Requirements)
           ? { requirements: self.requirements }
           : {}),
-        ...(!isIterationBefore(iteration, Iteration.userStories)
+        ...(!isBefore(step, Step.UserStories)
           ? { userStories: self.userStories }
           : {}),
-        ...(!isIterationBefore(iteration, Iteration.acceptanceCriteria)
+        ...(!isBefore(step, Step.AcceptanceCriteria)
           ? { acceptanceCriteria: self.acceptanceCriteria }
           : {}),
-        ...(!isIterationBefore(iteration, Iteration.testScenarios)
+        ...(!isBefore(step, Step.TestScenarios)
           ? { testScenarios: self.testScenarios }
           : {}),
       };
     },
+    structuralFragmentsCache() {
+      function extract(list: StructuralFragment[]) {
+        return Object.fromEntries(
+          list.map((fragment) => [fragment.id, fragment]),
+        );
+      }
+      return {
+        ...extract(self.productOverview.primaryFeatures),
+        ...extract(self.productOverview.targetUsers),
+        ...extract(self.requirements),
+        ...extract(self.userStories),
+        ...extract(self.acceptanceCriteria),
+        ...extract(self.testScenarios),
+        ...(Object.assign(
+          {},
+          ...self.testScenarios.map((testScenario) =>
+            extract(testScenario.testCases),
+          ),
+        ) as Record<string, StructuralFragment>),
+      };
+    },
+    getCode(id: string) {
+      return this.structuralFragmentsCache()[id].getCode();
+    },
+    getPath(id: string) {
+      const fragment = this.structuralFragmentsCache()[id];
+      return `?step=${STEP_BY_STRUCTURAL_FRAGMENT[fragment.type]}#${fragment.getCode()}`;
+    },
   }))
   .views((self) => ({
-    json(iteration: Iteration) {
-      return JSON.stringify(self.data(iteration));
+    json(step: Step) {
+      return JSON.stringify(self.data(step));
     },
   }))
   .views(() => {

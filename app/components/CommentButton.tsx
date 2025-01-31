@@ -1,11 +1,7 @@
-import { faComment, faSquarePlus } from "@fortawesome/free-solid-svg-icons";
+import { Comment, Send } from "@mui/icons-material";
+import { IconButton, Paper, Popover, TextField } from "@mui/material";
 import { observer } from "mobx-react-lite";
 import { ChangeEvent, useCallback, useState } from "react";
-import Textarea from "react-textarea-autosize";
-
-import css from "./CommentButton.module.css";
-import { IconButton, usePopup } from "./controls";
-import { Placement } from "./controls/popup/utilities";
 
 interface CommentButtonProps {
   disabled?: boolean;
@@ -40,48 +36,52 @@ const CommentButton = ({
     [],
   );
 
-  const handleSubmit = useCallback(() => {
-    onSubmit(comment);
-  }, [onSubmit, comment]);
-
-  const { popup } = usePopup({
-    content: (
-      <form
-        className={css.popup}
-        ref={setPopupRef}
-        onBlur={handleBlur}
-        onSubmit={handleSubmit}
-      >
-        <Textarea
-          className={css.input}
-          minRows={2}
-          value={comment}
-          ref={(element) => element?.focus()}
-          onChange={handleCommentChange}
-        />
-        <IconButton
-          className={css.submitButton}
-          tabIndex={0}
-          icon={faSquarePlus}
-          type="submit"
-          onClick={handleSubmit}
-        />
-      </form>
-    ),
-    target: target || buttonRef,
-    placement: Placement.RightTop,
-    isVisible: isOpen,
-  });
+  const handleSubmit = useCallback(
+    (event: React.FormEvent) => {
+      event.preventDefault();
+      onSubmit(comment);
+    },
+    [onSubmit, comment],
+  );
 
   return (
     <>
       <IconButton
         ref={setButtonRef}
         disabled={disabled}
-        icon={faComment}
         onClick={handleCommentOpen}
-      />
-      {popup}
+      >
+        <Comment />
+      </IconButton>
+      <Popover
+        open={isOpen}
+        onClose={() => setIsOpen(false)}
+        anchorOrigin={{
+          vertical: "top",
+          horizontal: "right",
+        }}
+        anchorEl={target || buttonRef}
+      >
+        <Paper
+          component="form"
+          sx={{ p: 1 }}
+          ref={setPopupRef}
+          onBlur={handleBlur}
+          onSubmit={handleSubmit}
+        >
+          <TextField
+            fullWidth
+            minRows={2}
+            multiline
+            value={comment}
+            ref={(element) => element?.focus()}
+            onChange={handleCommentChange}
+          />
+          <IconButton tabIndex={0} type="submit" onClick={handleSubmit}>
+            <Send />
+          </IconButton>
+        </Paper>
+      </Popover>
     </>
   );
 };

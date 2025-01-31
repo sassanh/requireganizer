@@ -5,6 +5,7 @@ import {
   ENGINEER_ROLE_LABELS,
   EngineerRole,
   Framework,
+  Priority,
   ProgrammingLanguage,
   StructuralFragment,
 } from "store";
@@ -25,9 +26,9 @@ You are the AI engine inside Requireganizer, acting as ${roles
   .map((role) => `a ${ENGINEER_ROLE_LABELS[role]}`)
   .join(" and a ")}.
 
-Requireganizer is a software factory that begins by gathering a user-provided software description. It then generates a product overview, selects the appropriate framework and programming language, and iterates through the development cycle in structured phases:
+Requireganizer is a software factory that begins by gathering a user-provided software description. It then generates a product overview, selects the appropriate framework and programming language, and iterates through the development cycle in structured steps:
 
-Start of major iteration  
+Start of iteration  
 1. User stories  
 2. Requirements  
 3. Acceptance criteria  
@@ -37,7 +38,7 @@ Start of major iteration
 7. Software code  
 8. Retrospective  
 9. Specification update  
-End of major iteration  
+End of iteration  
 
 ### State Structure:
 Requireganizer maintains the following state and communicates it in each prompt with you:
@@ -68,6 +69,51 @@ For each task, you receive:
 - Before starting any task, **critically assess** the provided prompt. If it lacks clarity, is incomplete, or can be improved, call the \`communicate\` function to address the issue with the user.
 - Use **only** the provided functions to execute tasks—do not assume or invent missing details.  
 - If a task cannot be completed due to missing, conflicting, or incorrect information, immediately call the \`communicate\` function to report the issue.`;
+
+const structuralFragmentObject = {
+  type: "object",
+  properties: {
+    content: {
+      type: "string",
+      description: "The text content of the entity",
+    },
+    priority: {
+      type: "string",
+      enum: Object.values(Priority),
+      description: "Priority of the entity",
+    },
+    references: {
+      type: "array",
+      description:
+        "List of references to other entities. Can be empty in case no reference is required.",
+      items: {
+        type: "object",
+        properties: {
+          id: {
+            type: "string",
+            description: "uuid of the referenced entity",
+          },
+          type: {
+            type: "string",
+            enum: Object.values(StructuralFragment),
+            description: "The type of the referenced entity",
+          },
+        },
+        required: ["id", "type"],
+      },
+    },
+    dependencies: {
+      type: "array",
+      description:
+        "List of uuids of entities that this entity depends on. Can be empty in case no dependency is required.",
+      items: {
+        type: "string",
+        description: "uuid of the dependent entity",
+      },
+    },
+  },
+  required: ["content", "priority", "references", "dependencies"],
+};
 
 export const manipulationFunctions = [
   {
@@ -131,7 +177,7 @@ export const manipulationFunctions = [
     function: {
       name: "updateList",
       description: `Update items in a list of entities, for example list of user stories, requirements, acceptance criteria, etc by manipulating the list with "modification", "sort", insertion" and "removal" operations. Sort and modifications are applied first on existing items, and then insertions and removals are applied.
-if an old entity has the same purpose as a new entity but its content should be different, it is preferred to modify it instead of removing it and adding it again. For example if an old entity is "we need 2 buttons" and it should be changed to "we need 3 buttons", modification is preferred over removal and re-insertion so that the uuid of the item is preserved. But if the new item has a different purpose, even if its string distance with the old content is small, remove and insert is preferred to assign a new uuid.`,
+if an old entity has the same purpose as a new entity but its content should be different, it is preferred to modify it instead of removing it and adding it again. For example if an old entity is "we need 2 buttons" and it should be changed to "we need 3 buttons", modification is preferred over removal and re-insertion so that the uuid of the item is preserved. But if the new item has a different purpose, even if its string distance with the old content is small, remove and insert is preferred to assign a new uuid to break references intentionally.`,
       parameters: {
         type: "object",
         properties: {
@@ -143,7 +189,7 @@ if an old entity has the same purpose as a new entity but its content should be 
           parentId: {
             type: "string",
             description:
-              "(optional) The id of the parent element, for example a test case belongs to a test scenario.",
+              "(optional) The uuid of the parent element, for example a test case belongs to a test scenario.",
           },
           modifications: {
             type: "array",
@@ -152,16 +198,14 @@ if an old entity has the same purpose as a new entity but its content should be 
             items: {
               type: "object",
               properties: {
-                content: {
-                  type: "string",
-                  description: "The new text content of the entity",
-                },
+                ...structuralFragmentObject.properties,
                 id: {
                   type: "string",
                   description:
                     "The uuid of the entity to be modified. not to be confused with the index of the entity.",
                 },
               },
+              required: [...structuralFragmentObject.required, "id"],
             },
           },
           sort: {
@@ -180,15 +224,13 @@ if an old entity has the same purpose as a new entity but its content should be 
             items: {
               type: "object",
               properties: {
-                content: {
-                  type: "string",
-                  description: "The text content of the entity",
-                },
+                ...structuralFragmentObject.properties,
                 index: {
                   type: "number",
                   description: "Index, in which the item will be placed",
                 },
               },
+              required: [...structuralFragmentObject.required, "index"],
             },
           },
           removals: {
@@ -231,6 +273,7 @@ if an old entity has the same purpose as a new entity but its content should be 
               "The context in which the issue occurred, for example the entity type or the task that was being performed",
           },
         },
+        required: ["description", "context"],
       },
     },
   },

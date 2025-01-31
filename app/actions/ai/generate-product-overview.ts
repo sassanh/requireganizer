@@ -7,16 +7,14 @@ import {
   queryAiModel,
 } from "actions/lib/prompts";
 import { ActionParameters, ActionReturnValue } from "lib/types";
-import { ENGINEER_ROLE_BY_ITERATION, Iteration } from "store";
+import { ENGINEER_ROLE_BY_STEP, Step } from "store";
 
 export async function generateProductOverview({
   state,
 }: ActionParameters): Promise<ActionReturnValue> {
   try {
     const result = await queryAiModel([
-      generateSystemPrompt(
-        ENGINEER_ROLE_BY_ITERATION[Iteration.productOverview],
-      ),
+      generateSystemPrompt(ENGINEER_ROLE_BY_STEP[Step.ProductOverview]),
       `current state: ${state}`,
       `Analyze the provided description and determine if it is valid and sufficient to generate a structured product overview. Follow these rules strictly:
   

@@ -14,7 +14,7 @@ Requireganizer is a software application designed to facilitate an iterative sof
 
 - **Automated Code Generation:** Using the generated test scenarios, the application creates test code and generates the code required to satisfy those tests.
 
-- **Retrospective Analysis:** Assists in running retrospectives to understand user concerns and facilitate updates in the specification for the next major iteration.
+- **Retrospective Analysis:** Assists in running retrospectives to understand user concerns and facilitate updates in the specification for the next iteration.
 
 - **Consistency Check:** Throughout each iteration, Requireganizer utilizes ChatGPT to identify and highlight any inconsistencies in the generated material for user attention and potential correction.
 
@@ -42,7 +42,7 @@ pnpm run dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the application running.
 
-To use the application, provide a detailed description of the desired software. The application guides users through multiple minor iterations, resulting in a major iteration of the software development process. Each major iteration includes the generation of a formal description, user stories, requirements, acceptance criteria, test scenarios and cases, test code, and application code.
+To use the application, provide a detailed description of the desired software. The application guides users through multiple steps, resulting in a iteration of the software development process. Each iteration includes the generation/modification of a requirements, user stories, acceptance criteria, test scenarios, test cases, test code, and application code.
 
 ## Contribution
 

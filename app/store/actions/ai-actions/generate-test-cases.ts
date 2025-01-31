@@ -1,7 +1,7 @@
 import { toGenerator } from "mobx-state-tree";
 
 import { generateStructuralFragment } from "actions/ai/generate-structural-fragment";
-import { Iteration, StructuralFragment } from "store";
+import { Step, StructuralFragment } from "store";
 import { TestScenario } from "store/models";
 
 import { generator, handleFunctionCall } from "./utilities";
@@ -33,7 +33,7 @@ export default generator(
 
       handleFunctionCall(self, functionCall);
 
-      self.eventTarget.emit("iterationUpdate", Iteration.testCases);
+      self.eventTarget.emit("stepUpdate", Step.TestCases);
     }
   },
   {

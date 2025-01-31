@@ -1,13 +1,11 @@
 "use client";
-import { config } from "@fortawesome/fontawesome-svg-core";
-import "@fortawesome/fontawesome-svg-core/styles.css"; // Import the CSS
+import { Divider } from "@mui/material";
 import { observer } from "mobx-react-lite";
-import { getSnapshot } from "mobx-state-tree";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect } from "react";
 
 import { Toolbar } from "components";
-import { Results } from "screens";
-import { Framework, ProgrammingLanguage, Store, storeContext } from "store";
+import { Factory } from "screens";
+import { Framework, ProgrammingLanguage, Store, useStore } from "store";
 import {
   AcceptanceCriteria,
   Requirement,
@@ -16,25 +14,8 @@ import {
 } from "store/models";
 import { ProductOverview } from "store/models/ProductOverview";
 
-config.autoAddCss = false;
-
-let isStoreReloadNeeded = true;
-
-const Home = () => {
-  const [store, setStore] = useState(() => {
-    isStoreReloadNeeded = false;
-    return Store.create({ productOverview: {} });
-  });
-
-  useEffect(() => {
-    if (isStoreReloadNeeded) {
-      console.warn("Reloading store...");
-      const snapshot = getSnapshot(store);
-      setStore(Store.create(snapshot));
-      isStoreReloadNeeded = false;
-      console.warn("...reloading store done!");
-    }
-  }, [store]);
+function Home() {
+  const store = useStore();
 
   // For easier debugging store is saved under window.store variable in development environment
   if (process.env.NODE_ENV !== "production") {
@@ -57,7 +38,7 @@ const Home = () => {
     store.import(data);
   };
   return (
-    <storeContext.Provider value={store}>
+    <>
       {store.validationErrors ? (
         <div className="validation-errors">{store.validationErrors}</div>
       ) : null}
@@ -67,10 +48,12 @@ const Home = () => {
         onExport={store.export}
         onReset={store.reset}
       />
-      <hr />
-      <Results />
-    </storeContext.Provider>
+      <Divider sx={{ my: 2 }} />
+      <Suspense fallback={null}>
+        <Factory />
+      </Suspense>
+    </>
   );
-};
+}
 
 export default observer(Home);
