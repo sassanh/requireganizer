@@ -14,5 +14,5 @@ export interface ActionParameters {
 }
 
 export interface ActionReturnValue {
-  functionCall: FunctionCall;
+  functionCalls: FunctionCall[];
 }

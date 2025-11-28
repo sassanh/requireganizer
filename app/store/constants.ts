@@ -494,7 +494,13 @@ export const FRAGMENT_CODES: { [key in StructuralFragment]: string } = {
 };
 
 export enum Priority {
-  Low = "low",
-  Medium = "medium",
-  High = "high",
+  P2 = "p2",
+  P1 = "p1",
+  P0 = "p0",
+}
+
+export enum Status {
+  Pending = "pending",
+  Completed = "completed",
+  Outdated = "outdated",
 }

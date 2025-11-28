@@ -60,20 +60,18 @@ export function generator<
   });
 }
 
-export function handleFunctionCall(
+export function handleFunctionCalls(
   store: FlatStore,
-  functionCall: FunctionCall,
+  functionCalls: FunctionCall[],
 ) {
-  const name = functionCall.name;
-  const parameters = functionCall.arguments;
+  for (const functionCall of functionCalls) {
+    const name = functionCall.name;
+    const parameters = functionCall.arguments;
 
-  if (!name || !parameters) {
-    return;
+    if (!parameters) {
+      continue;
+    }
+
+    store[name](JSON.parse(parameters));
   }
-
-  if (!isEnumMember(name, ManipulationFunction)) {
-    return;
-  }
-
-  store[name](JSON.parse(parameters));
 }

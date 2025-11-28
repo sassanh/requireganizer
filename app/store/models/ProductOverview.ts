@@ -82,4 +82,26 @@ export const ProductOverviewModel = types
     removeTargetUser({ fragment: targetUser }: { fragment: TargetUser }) {
       self.targetUsers.remove(targetUser);
     },
+  }))
+  .views((self) => ({
+    get isEmpty() {
+      return (
+        self.name === null &&
+        self.purpose === null &&
+        self.primaryFeatures.length === 0 &&
+        self.targetUsers.length === 0 &&
+        self.framework === null &&
+        self.programmingLanguage === null
+      );
+    },
+    get isComplete() {
+      return (
+        self.name !== null &&
+        self.purpose !== null &&
+        self.primaryFeatures.length > 0 &&
+        self.targetUsers.length > 0 &&
+        self.framework !== null &&
+        self.programmingLanguage !== null
+      );
+    },
   }));

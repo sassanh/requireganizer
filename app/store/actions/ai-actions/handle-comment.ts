@@ -4,7 +4,7 @@ import { handleComment } from "actions/ai/handle-comment";
 import { STEP_BY_STRUCTURAL_FRAGMENT } from "store";
 import { StructuralFragment } from "store/models";
 
-import { generator, handleFunctionCall } from "./utilities";
+import { generator, handleFunctionCalls } from "./utilities";
 
 export default generator(
   function* (
@@ -15,7 +15,7 @@ export default generator(
 
     const step = STEP_BY_STRUCTURAL_FRAGMENT[fragment.type];
 
-    const { functionCall } = yield* toGenerator(
+    const { functionCalls } = yield* toGenerator(
       handleComment({
         state: self.json(step),
         structuralFragment: fragment.type,
@@ -24,7 +24,7 @@ export default generator(
       }),
     );
 
-    handleFunctionCall(self, functionCall);
+    handleFunctionCalls(self, functionCalls);
   },
   {
     requirements: [],

@@ -34,7 +34,7 @@ export async function handleComment({
       `Regarding ${structuralFragment} with id ${id} consider this comment: """${comment}""".`,
     ]);
 
-    return { functionCall: result };
+    return { functionCalls: result };
   } catch (error) {
     if (error instanceof AIModelError) {
       throw error;

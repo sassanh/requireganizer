@@ -1,7 +1,7 @@
-import { ArrowRight, Build, Refresh } from "@mui/icons-material";
-import { Button, Stack, Typography } from "@mui/material";
+import { ArrowRight, Build, Info, Refresh } from "@mui/icons-material";
+import { Alert, AlertTitle, Button, Stack, Typography } from "@mui/material";
 import { observer } from "mobx-react-lite";
-import React from "react";
+import React, { useEffect } from "react";
 
 import {
   GENERATOR_ACTION_BY_STEP,
@@ -29,14 +29,38 @@ const Header: React.FunctionComponent<HeaderProps> = ({
     ? GENERATOR_ACTION_BY_STEP[nextStep]
     : null;
 
+  useEffect(() => {
+    if (!nextStepGeneratorAction) return;
+    const osModifierKey = window.navigator.userAgent.includes("Mac")
+      ? "metaKey"
+      : "ctrlKey";
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Enter" && event[osModifierKey]) {
+        event.preventDefault();
+        store[nextStepGeneratorAction]();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [store, nextStepGeneratorAction]);
+
   return (
     <Stack gap={2} mb={2}>
+      {store.systemMessage && (
+        <Alert>
+          <AlertTitle>Needs Action!</AlertTitle>
+          <div>{store.systemMessage}</div>
+        </Alert>
+      )}
       <Stack direction="row" justifyContent="space-between">
         <div className={css.headerPrevious}>
           {currentStepGeneratorAction != null ? (
             <Button
               disabled={store.isBusy}
               variant="outlined"
+              size="large"
               startIcon={<Refresh />}
               onClick={() => store[currentStepGeneratorAction]()}
             >
@@ -49,8 +73,8 @@ const Header: React.FunctionComponent<HeaderProps> = ({
             <Button
               disabled={store.isBusy}
               variant="contained"
+              size="large"
               autoCapitalize="off"
-              startIcon={<Build />}
               endIcon={<ArrowRight />}
               onClick={() => store[nextStepGeneratorAction]()}
             >

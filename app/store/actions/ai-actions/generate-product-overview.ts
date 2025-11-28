@@ -3,7 +3,7 @@ import { cast, toGenerator } from "mobx-state-tree";
 import { generateProductOverview } from "actions/ai/generate-product-overview";
 import { Step } from "store";
 
-import { generator, handleFunctionCall } from "./utilities";
+import { generator, handleFunctionCalls } from "./utilities";
 
 export default generator(
   function* (self) {
@@ -16,14 +16,13 @@ export default generator(
     self.productOverview.framework = null;
     self.productOverview.programmingLanguage = null;
 
-    const { functionCall } = yield* toGenerator(
+    const { functionCalls } = yield* toGenerator(
       generateProductOverview({
         state: self.json(Step.ProductOverview),
       }),
     );
 
-    handleFunctionCall(self, functionCall);
-
+    handleFunctionCalls(self, functionCalls);
     self.eventTarget.emit("stepUpdate", Step.ProductOverview);
   },
   { requirements: ["description"] },

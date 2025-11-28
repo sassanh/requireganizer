@@ -31,7 +31,7 @@ export async function generateProductOverview({
 Ensure that the generated product overview follows a formalized structure, making it ready for further processing by the software factory.`,
     ]);
 
-    return { functionCall: result };
+    return { functionCalls: result };
   } catch (error) {
     if (error instanceof AIModelError) {
       throw error;

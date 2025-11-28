@@ -4,7 +4,7 @@ import { generateStructuralFragment } from "actions/ai/generate-structural-fragm
 import { Step, StructuralFragment } from "store";
 import { TestScenario } from "store/models";
 
-import { generator, handleFunctionCall } from "./utilities";
+import { generator, handleFunctionCalls } from "./utilities";
 
 export default generator(
   function* generateTestCases(self, testScenario?: TestScenario) {
@@ -14,7 +14,7 @@ export default generator(
       testScenario == null ? self.testScenarios : [testScenario];
 
     for (testScenario of testScenarios) {
-      const { functionCall } = yield* toGenerator(
+      const { functionCalls } = yield* toGenerator(
         generateStructuralFragment({
           state: JSON.stringify({
             ...self.data(),
@@ -31,10 +31,9 @@ export default generator(
         }),
       );
 
-      handleFunctionCall(self, functionCall);
-
-      self.eventTarget.emit("stepUpdate", Step.TestCases);
+      handleFunctionCalls(self, functionCalls);
     }
+    self.eventTarget.emit("stepUpdate", Step.TestCases);
   },
   {
     requirements: [

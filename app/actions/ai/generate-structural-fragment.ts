@@ -39,7 +39,7 @@ export async function generateStructuralFragment({
 ## **Mandatory Requirements Structure**
 Each requirement must follow this format:
 - **Content:** A precise, unambiguous statement of what the software must do.
-- **Priority:** (High, Medium, Low) based on user value and dependencies.
+- **Priority:** (p2, p1, p0) based on user value and dependencies.
 - **References:** Relevant structural fragments (if any). Rarely it can be anything other than primary features and target users.
 - **Dependencies:** Other requirements that must be met first (if any).
 
@@ -55,7 +55,7 @@ Each requirement must follow this format:
 ❌ "The system should handle large amounts of data efficiently." **Prioritize Clarity and Precision:** Use explicit, measurable language.
 
 ## **Examples of Good Requirements**
-✅ **REQ-001** - The system must allow users to reset their password via email verification. (Priority: High)  
+✅ **REQ-001** - The system must allow users to reset their password via email verification. (Priority: P2)  
 ✅ **REQ-002** - The system must generate a CSV report of sales data within 5 seconds for a dataset of up to 100,000 entries. (Priority: Medium)  
 
 **Strictly adhere to these guidelines. If the provided input does not allow generating valid requirements, call the \`communicate\` function.**`,
@@ -66,7 +66,7 @@ Each requirement must follow this format:
 ## **Mandatory User Story Format**
 Each story must follow this format exactly:
 - **Content:** As a [specific user role], I want [clear, testable goal], so that [objective benefit].
-- **Priority:** (High, Medium, Low) based on user value and dependencies.
+- **Priority:** (p2, p1, p0) based on user value and dependencies.
 - **References:** Relevant structural fragments (if any). Rarely it can be anything other than requirements.
 - **Dependencies:** Other stories that must be met first (if any).
 
@@ -185,7 +185,7 @@ Each test case must follow this format:
     ]);
 
     return {
-      functionCall: result,
+      functionCalls: result,
     };
   } catch (error) {
     if (error instanceof AIModelError) {

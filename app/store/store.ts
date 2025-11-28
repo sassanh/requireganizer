@@ -26,6 +26,7 @@ import {
   isBefore,
   Priority,
   STEP_BY_STRUCTURAL_FRAGMENT,
+  Status,
 } from "./constants";
 import {
   AcceptanceCriteria,
@@ -85,6 +86,15 @@ export const FlatStore = types
     testScenarios: types.array(TestScenarioModel),
     systemMessage: types.maybeNull(types.string),
   })
+  .views(() => {
+    const eventTarget = new StoreEventEmitter();
+
+    return {
+      get eventTarget() {
+        return eventTarget;
+      },
+    };
+  })
   .actions((self) => ({
     reset() {
       self.isClean = true;
@@ -105,14 +115,15 @@ export const FlatStore = types
       self.acceptanceCriteria = cast([]);
       self.testScenarios = cast([]);
     },
-    resetValidationErrors() {
-      self.validationErrors = null;
-    },
     setDescription({ description }: { description: string }) {
       self.description = description;
     },
     setValidationErrors({ validationErrors }: { validationErrors: string }) {
       self.validationErrors = validationErrors;
+    },
+    resetValidationErrors() {
+      self.validationErrors = null;
+      self.systemMessage = null;
     },
     setName({ name }: { name: string }) {
       self.productOverview.name = name;
@@ -162,6 +173,7 @@ export const FlatStore = types
           TargetUserModel.create({ content }),
         ),
       });
+      self.eventTarget.emit("stepUpdate", Step.ProductOverview);
     },
     setProductOverview(productOverview: ProductOverview) {
       self.productOverview = cast(productOverview);
@@ -240,6 +252,9 @@ export const FlatStore = types
     },
   }))
   .actions((self) => ({
+    resetIsBusy() {
+      self.businessCounter = 0;
+    },
     updateList({
       entityType,
       parentId,
@@ -385,21 +400,48 @@ export const FlatStore = types
       const fragment = this.structuralFragmentsCache()[id];
       return `?step=${STEP_BY_STRUCTURAL_FRAGMENT[fragment.type]}#${fragment.getCode()}`;
     },
+    getStepStatus(step: Step) {
+      switch (step) {
+        case Step.Description:
+          return self.description.trim().length > 0
+            ? Status.Completed
+            : Status.Pending;
+        case Step.ProductOverview:
+          return self.productOverview.isComplete
+            ? Status.Completed
+            : Status.Pending;
+        case Step.Requirements:
+          return self.requirements.length > 0
+            ? Status.Completed
+            : Status.Pending;
+        case Step.UserStories:
+          return self.userStories.length > 0
+            ? Status.Completed
+            : Status.Pending;
+        case Step.AcceptanceCriteria:
+          return self.acceptanceCriteria.length > 0
+            ? Status.Completed
+            : Status.Pending;
+        case Step.TestScenarios:
+          return self.testScenarios.length > 0
+            ? Status.Completed
+            : Status.Pending;
+        case Step.TestCases:
+          return self.testScenarios.flatMap(
+            (testScenario) => testScenario.testCases,
+          ).length > 0
+            ? Status.Completed
+            : Status.Pending;
+        default:
+          return Status.Pending;
+      }
+    },
   }))
   .views((self) => ({
     json(step: Step) {
       return JSON.stringify(self.data(step));
     },
-  }))
-  .views(() => {
-    const eventTarget = new StoreEventEmitter();
-
-    return {
-      get eventTarget() {
-        return eventTarget;
-      },
-    };
-  });
+  }));
 
 export const Store = FlatStore.actions(
   withSelf({

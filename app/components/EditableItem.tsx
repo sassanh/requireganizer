@@ -104,7 +104,7 @@ const EditableItem = <Type extends StructuralFragment>({
           href={`#${fragment.getCode()}`}
           underline="hover"
           variant="body1"
-          sx={{
+          sx={(theme) => ({
             position: "relative",
             zIndex: 1,
             fontWeight: 800,
@@ -114,12 +114,12 @@ const EditableItem = <Type extends StructuralFragment>({
             flexShrink: 0,
             flexGrow: 0,
             color: {
-              [Priority.Low]: "#4caf50",
-              [Priority.Medium]: "#ff9800",
-              [Priority.High]: "#f44336",
+              [Priority.P2]: theme.palette.warning.main,
+              [Priority.P1]: theme.palette.warning.dark,
+              [Priority.P0]: theme.palette.error.main,
               "": "inherit",
             }[fragment.priority ?? ""],
-          }}
+          })}
         >
           {fragment.getCode()}.
         </Typography>
@@ -128,6 +128,7 @@ const EditableItem = <Type extends StructuralFragment>({
           fullWidth
           onChange={handleChange}
           value={fragment.content}
+          disabled={isDisabled}
           sx={{
             "&:not(:focus-within) fieldset": { border: "none" },
           }}
@@ -146,7 +147,7 @@ const EditableItem = <Type extends StructuralFragment>({
         </Stack>
       </Stack>
       {fragment.dependencies.length > 0 && (
-        <Typography variant="caption" pb={1}>
+        <Typography variant="caption" py={1}>
           Dependencies:{" "}
           {fragment.dependencies.map((id, index) => (
             <Fragment key={id}>
@@ -164,7 +165,7 @@ const EditableItem = <Type extends StructuralFragment>({
         </Typography>
       )}
       {fragment.references.length > 0 && (
-        <Typography variant="caption" pb={1}>
+        <Typography variant="caption" py={1}>
           References:{" "}
           {fragment.references.map((reference, index) => (
             <Fragment key={reference.id}>
