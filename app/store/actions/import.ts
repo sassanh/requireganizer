@@ -6,6 +6,7 @@ import {
   UserStory,
 } from "store/models";
 import { ProductOverview } from "store/models/ProductOverview";
+import { extractTestCaseCode } from "utilities/testParser";
 
 const import_ = (
   self_: unknown,
@@ -16,6 +17,8 @@ const import_ = (
     requirements,
     acceptanceCriteria,
     testScenarios,
+    projectConfig,
+    scaffoldFiles,
   }: {
     description: string;
     productOverview: ProductOverview;
@@ -23,6 +26,8 @@ const import_ = (
     requirements: Requirement[];
     acceptanceCriteria: AcceptanceCriteria[];
     testScenarios: TestScenario[];
+    projectConfig?: Record<string, unknown>;
+    scaffoldFiles?: { path: string; content: string }[];
   },
 ) => {
   const self = self_ as Store;
@@ -33,6 +38,30 @@ const import_ = (
   self.setRequirements({ requirements });
   self.setAcceptanceCriteria({ acceptanceCriteria });
   self.setTestScenarios({ testScenarios });
+  if (projectConfig) {
+    self.setProjectConfig(JSON.stringify(projectConfig, null, 2));
+    if (scaffoldFiles && scaffoldFiles.length > 0) {
+      self.projectConfigLocked = true;
+    }
+  }
+  if (scaffoldFiles && scaffoldFiles.length > 0) {
+    self.setScaffoldFiles(scaffoldFiles);
+
+    // Legacy Migration: Auto-hydrate missing lastGeneratedAt hooks for old test cases
+    const files = Array.from(self.scaffoldFiles);
+    const lang = productOverview?.programmingLanguage || "typescript";
+
+    self.testScenarios.forEach((scenario) => {
+      scenario.testCases.forEach((testCase) => {
+        if (!testCase.lastGeneratedAt) {
+          const code = extractTestCaseCode(files, scenario.id, testCase.id, lang);
+          if (code) {
+            testCase.setLastGeneratedAt(testCase.lastModifiedAt || Date.now());
+          }
+        }
+      });
+    });
+  }
 };
 
 export default import_;

@@ -140,13 +140,13 @@ Each test scenario must follow this format:
           `Generate **detailed and structured test cases** for the test scenario with ID **${parentId}**. Follow these strict rules:
 
 ## **Mandatory Test Case Structure**
-Each test case must follow this format:
-- **Content:** Containing:
-  - **Title:** A concise, descriptive name for the test case.
-  - **Steps:** A clear, sequential list of actions required to execute the test.
-  - **Expected Result:** A precise statement of what should happen when the test is executed.
+Each test case must follow this exact output format:
+- **title:** A concise, descriptive name for the test case as a simple string.
+- **steps:** A clear, sequential list of actions required to execute the test as a simple string without markdown formatting.
+- **expectedResult:** A precise statement of what should happen when the test is executed as a simple string.
 - **Parent:** The test scenario ID to which this case belongs.
 - **References:** Relevant structural fragments (if any).
+- **content:** Leave empty or omit completely.
 
 ## **Strict Rules for Valid Test Cases**
 - **Each Test Case Must Be Concise & Focused** – It should cover exactly **one** aspect of the test scenario.

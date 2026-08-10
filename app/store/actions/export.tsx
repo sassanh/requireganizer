@@ -3,6 +3,7 @@ import { saveAs } from "file-saver";
 
 import PDFDocument from "components/PDFDocument";
 import { Store } from "store";
+import { extractTestCaseCode } from "utilities/testParser";
 
 const export_ = async (self_: unknown, format: "pdf" | "txt" | "json") => {
   const self = self_ as Store;
@@ -34,12 +35,22 @@ ${self.acceptanceCriteria.map((criteria) => criteria.content).join("\n")}
 
 Test Scenarios:
 ${self.testScenarios
-  .map(
-    (testScenario) => `${testScenario.content}
-${testScenario.testCases.map((testCase) => testCase.content).join("\n")}
+          .map(
+            (testScenario) => `${testScenario.content}
+${testScenario.testCases.map((testCase) => {
+              const codeBlock = extractTestCaseCode(
+                Array.from(self.scaffoldFiles),
+                testScenario.id,
+                testCase.id,
+                self.productOverview.programmingLanguage || "typescript"
+              );
+
+              const codeOutput = codeBlock ? `\n\n  Code:\n${codeBlock.split('\n').map(l => `    ${l}`).join('\n')}` : "";
+              return `  Test Case: ${testCase.title}\n  Steps:\n${testCase.steps.split('\n').map(l => `    ${l}`).join('\n')}\n  Expected Result: ${testCase.expectedResult}${codeOutput}`;
+            }).join("\n\n")}
 `,
-  )
-  .join("\n")}
+          )
+          .join("\n")}
       `;
     } else if (format === "json") {
       content = JSON.stringify(self.data(), null, 2);

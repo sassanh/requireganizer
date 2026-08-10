@@ -36,3 +36,7 @@ next-env.d.ts
 
 # local stuff
 /local
+
+# cloudflare / opennext
+.open-next/
+.wrangler/

@@ -4,6 +4,7 @@ import { SnapshotOut } from "mobx-state-tree";
 import React from "react";
 
 import { Store } from "store";
+import { extractTestCaseCode } from "utilities/testParser";
 
 interface PDFDocumentProps {
   store: SnapshotOut<Store>;
@@ -111,13 +112,35 @@ const PDFDocument: React.FunctionComponent<PDFDocumentProps> = ({ store }) => {
               <Text>
                 Test Scenario {index + 1}: {testScenario.content}
               </Text>
-              {testScenario.testCases.map((testCase, testCaseIndex) => (
-                <View key={testCase.id} style={styles.testCase}>
-                  <Text>
-                    Test Case {testCaseIndex + 1}: {testCase.content}
-                  </Text>
-                </View>
-              ))}
+              {testScenario.testCases.map((testCase, testCaseIndex) => {
+                const testCaseCode = extractTestCaseCode(
+                  Array.from(store.scaffoldFiles),
+                  testScenario.id,
+                  testCase.id,
+                  store.productOverview.programmingLanguage || "typescript"
+                );
+
+                return (
+                  <View key={testCase.id} style={styles.testCase}>
+                    <Text>
+                      Test Case {testCaseIndex + 1}: {testCase.title}
+                    </Text>
+                    <Text style={{ fontSize: 12, marginLeft: 10, marginTop: 2 }}>
+                      Steps: {testCase.steps}
+                    </Text>
+                    <Text style={{ fontSize: 12, marginLeft: 10, marginTop: 2, fontStyle: 'italic' }}>
+                      Expected: {testCase.expectedResult}
+                    </Text>
+                    {testCaseCode && (
+                      <View style={{ marginTop: 5, padding: 5, backgroundColor: '#f5f5f5' }}>
+                        <Text style={{ fontSize: 10, fontFamily: 'Courier' }}>
+                          {testCaseCode}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                );
+              })}
             </View>
           ))}
         </View>

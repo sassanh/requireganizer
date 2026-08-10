@@ -5,8 +5,6 @@ import { fileURLToPath } from "node:url";
 import { FlatCompat } from "@eslint/eslintrc";
 import js from "@eslint/js";
 import etc from "eslint-plugin-etc";
-import _import from "eslint-plugin-import";
-import nextOnPages from "eslint-plugin-next-on-pages";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -19,21 +17,15 @@ const compat = new FlatCompat({
 /** @type {import("eslint").Linter.Config} */
 const config = [
   {
-    ignores: ["**/.wrangler/**"],
+    ignores: ["**/.wrangler/**", "**/.open-next/**"],
   },
-  ...compat.extends(
-    "next/core-web-vitals",
-    "plugin:eslint-plugin-next-on-pages/recommended",
-  ),
+  ...compat.extends("next/core-web-vitals"),
   {
     plugins: {
-      "next-on-pages": nextOnPages,
       etc,
     },
 
     rules: {
-      // "etc/no-commented-out-code": "error",
-
       "no-console": [
         "error",
         {

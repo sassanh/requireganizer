@@ -1,7 +1,5 @@
 "use client";
 
-import EventEmitter from "events";
-
 import { IMSTArray, Instance, SnapshotIn, cast, types } from "mobx-state-tree";
 import { createContext, useContext } from "react";
 
@@ -9,13 +7,18 @@ import {
   export as export_,
   generateAcceptanceCriteria,
   generateProductOverview,
+  generateProjectConfig,
   generateRequirements,
+  generateScaffold,
   generateTestCases,
+  generateTestCode,
   generateTestScenarios,
   generateUserStories,
   handleComment,
   import as import_,
+  exportCode,
 } from "./actions";
+import { extractTestCaseCode } from "utilities/testParser";
 import {
   Framework,
   Step,
@@ -51,26 +54,38 @@ import {
 } from "./models/ProductOverview";
 import { withSelf } from "./utilities";
 
-class StoreEventEmitter extends EventEmitter {
+class StoreEventEmitter {
+  private target = new EventTarget();
+
   emitStepUpdate(step: Step): void {
     this.emit("stepUpdate", step);
   }
+
+  emit(event: string, ...args: unknown[]): void {
+    this.target.dispatchEvent(
+      new CustomEvent(event, { detail: args }),
+    );
+  }
+
+  on(event: string, listener: (...args: any[]) => void): void {
+    const handler = (e: Event) =>
+      listener(...(e as CustomEvent).detail);
+    (listener as any).__handler = handler;
+    this.target.addEventListener(event, handler);
+  }
+
+  off(event: string, listener: (...args: any[]) => void): void {
+    const handler = (listener as any).__handler;
+    if (handler) {
+      this.target.removeEventListener(event, handler);
+    }
+  }
 }
 
-interface StoreEvents {
-  stepUpdate: (step: Step) => void;
-}
-
-declare interface StoreEventEmitter {
-  once<U extends keyof StoreEvents>(event: U, listener: StoreEvents[U]): this;
-  on<U extends keyof StoreEvents>(event: U, listener: StoreEvents[U]): this;
-  off<U extends keyof StoreEvents>(event: U, listener: StoreEvents[U]): this;
-
-  emit<U extends keyof StoreEvents>(
-    event: U,
-    ...args: Parameters<StoreEvents[U]>
-  ): boolean;
-}
+export const ScaffoldFileModel = types.model({
+  path: types.string,
+  content: types.string,
+});
 
 export const FlatStore = types
   .model("Store", {
@@ -85,14 +100,21 @@ export const FlatStore = types
     acceptanceCriteria: types.array(AcceptanceCriteriaModel),
     testScenarios: types.array(TestScenarioModel),
     systemMessage: types.maybeNull(types.string),
+    projectConfig: types.maybeNull(types.string),
+    projectConfigLocked: types.optional(types.boolean, false),
+    isProjectConfigDialogOpen: types.optional(types.boolean, false),
+    scaffoldFiles: types.array(ScaffoldFileModel),
   })
-  .views(() => {
+  .views((self) => {
     const eventTarget = new StoreEventEmitter();
 
     return {
       get eventTarget() {
         return eventTarget;
       },
+      get hasGeneratedScaffold() {
+        return self.scaffoldFiles.length > 0;
+      }
     };
   })
   .actions((self) => ({
@@ -114,6 +136,10 @@ export const FlatStore = types
       self.requirements = cast([]);
       self.acceptanceCriteria = cast([]);
       self.testScenarios = cast([]);
+      self.projectConfig = null;
+      self.projectConfigLocked = false;
+      self.isProjectConfigDialogOpen = false;
+      self.scaffoldFiles = cast([]);
     },
     setDescription({ description }: { description: string }) {
       self.description = description;
@@ -124,6 +150,29 @@ export const FlatStore = types
     resetValidationErrors() {
       self.validationErrors = null;
       self.systemMessage = null;
+    },
+    setProjectConfig(config: string) {
+      self.projectConfig = config;
+    },
+    setProjectConfigDialogOpen(isOpen: boolean) {
+      self.isProjectConfigDialogOpen = isOpen;
+    },
+    setScaffoldFiles(files: { path: string; content: string }[]) {
+      self.scaffoldFiles = cast(files);
+    },
+    setScaffoldFile(path: string, content: string) {
+      const existing = self.scaffoldFiles.find((f) => f.path === path);
+      if (existing) {
+        existing.content = content;
+      } else {
+        self.scaffoldFiles.push({ path, content });
+      }
+    },
+    removeScaffoldFile(path: string) {
+      const index = self.scaffoldFiles.findIndex((f) => f.path === path);
+      if (index > -1) {
+        self.scaffoldFiles.splice(index, 1);
+      }
     },
     setName({ name }: { name: string }) {
       self.productOverview.name = name;
@@ -266,7 +315,10 @@ export const FlatStore = types
       entityType: StructuralFragmentName;
       parentId: string;
       insertions: {
-        content: string;
+        content?: string;
+        title?: string;
+        steps?: string;
+        expectedResult?: string;
         priority: Priority;
         references: { id: string; type: StructuralFragmentName }[];
         dependencies: string[];
@@ -275,7 +327,10 @@ export const FlatStore = types
       removals: string[];
       sort: string[];
       modifications: {
-        content: string;
+        content?: string;
+        title?: string;
+        steps?: string;
+        expectedResult?: string;
         priority: Priority;
         references: { id: string; type: StructuralFragmentName }[];
         dependencies: string[];
@@ -321,10 +376,11 @@ export const FlatStore = types
         }
         modifications?.forEach(({ id, ...data }) => {
           const item = list.find(({ id: id_ }) => id === id_);
-          item?.setData(data);
+          item?.setData(data as any);
         });
         insertions?.forEach(({ index, ...data }) =>
-          list.splice(index ?? list.length, 0, Model.create(data)),
+          // @ts-expect-error -- MST Model.create() union type too complex for TS
+          list.splice(index ?? list.length, 0, Model.create({ ...data, content: data.content ?? "" })),
         );
         removals?.forEach((id) => {
           const item = list.find(({ id: id_ }) => id === id_);
@@ -355,8 +411,8 @@ export const FlatStore = types
           : {}),
         ...(!isBefore(step, Step.ProductOverview)
           ? {
-              productOverview: self.productOverview,
-            }
+            productOverview: self.productOverview,
+          }
           : {}),
         ...(!isBefore(step, Step.Requirements)
           ? { requirements: self.requirements }
@@ -369,6 +425,12 @@ export const FlatStore = types
           : {}),
         ...(!isBefore(step, Step.TestScenarios)
           ? { testScenarios: self.testScenarios }
+          : {}),
+        ...(self.projectConfig != null
+          ? { projectConfig: JSON.parse(self.projectConfig.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "")) }
+          : {}),
+        ...(self.scaffoldFiles.length > 0
+          ? { scaffoldFiles: self.scaffoldFiles }
           : {}),
       };
     },
@@ -441,6 +503,26 @@ export const FlatStore = types
     json(step: Step) {
       return JSON.stringify(self.data(step));
     },
+  }))
+  .actions((self) => ({
+    afterCreate() {
+      // Legacy Migration: Auto-hydrate missing lastGeneratedAt hooks for old test cases
+      if (self.scaffoldFiles.length > 0) {
+        const files = Array.from(self.scaffoldFiles);
+        const lang = self.productOverview?.programmingLanguage || "typescript";
+
+        self.testScenarios.forEach((scenario) => {
+          scenario.testCases.forEach((testCase) => {
+            if (!testCase.lastGeneratedAt) {
+              const code = extractTestCaseCode(files, scenario.id, testCase.id, lang);
+              if (code) {
+                testCase.setLastGeneratedAt(testCase.lastModifiedAt || Date.now());
+              }
+            }
+          });
+        });
+      }
+    }
   }));
 
 export const Store = FlatStore.actions(
@@ -452,8 +534,11 @@ export const Store = FlatStore.actions(
     generateAcceptanceCriteria,
     generateTestScenarios,
     generateTestCases,
+    generateTestCode,
+    generateProjectConfig,
+    generateScaffold,
   }),
-).actions(withSelf({ import: import_, export: export_ }));
+).actions(withSelf({ import: import_, export: export_, exportCode }));
 
 export type FlatStore = Instance<typeof FlatStore>;
 export type Store = Instance<typeof Store>;

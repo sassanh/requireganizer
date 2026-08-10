@@ -360,7 +360,7 @@ export enum Step {
   TestScenarios = "test-scenarios",
   TestCases = "test-cases",
   TestCode = "test-code",
-  MainCode = "main-code",
+  Code = "code",
 }
 export const STEPS = Object.values(Step);
 export const STEP_LABELS: { [key in Step]: string } = {
@@ -372,7 +372,7 @@ export const STEP_LABELS: { [key in Step]: string } = {
   [Step.TestScenarios]: "Test Scenarios",
   [Step.TestCases]: "Test Cases",
   [Step.TestCode]: "Test Code",
-  [Step.MainCode]: "Main Code",
+  [Step.Code]: "Code",
 };
 export const LAST_STEP = Step.TestCases;
 
@@ -421,9 +421,9 @@ export const STEP_BY_STRUCTURAL_FRAGMENT: {
   [StructuralFragment.TestCode]: Step.TestCode,
 };
 export const STRUCTURAL_FRAGMENT_BY_STEP: {
-  [key in Exclude<Step, Step.Description | Step.MainCode>]:
-    | StructuralFragment
-    | StructuralFragment[];
+  [key in Exclude<Step, Step.Description | Step.Code>]:
+  | StructuralFragment
+  | StructuralFragment[];
 } = {
   [Step.ProductOverview]: [
     StructuralFragment.PrimaryFeature,
@@ -465,7 +465,7 @@ export const ENGINEER_ROLE_BY_STEP: {
   [Step.TestScenarios]: [EngineerRole.SoftwareTestEngineer],
   [Step.TestCases]: [EngineerRole.SoftwareTestEngineer],
   [Step.TestCode]: [EngineerRole.SoftwareDeveloper],
-  [Step.MainCode]: [EngineerRole.SoftwareDeveloper],
+  [Step.Code]: [EngineerRole.SoftwareDeveloper],
 };
 
 export const GENERATOR_ACTION_BY_STEP: {
@@ -479,7 +479,7 @@ export const GENERATOR_ACTION_BY_STEP: {
   [Step.TestScenarios]: "generateTestScenarios",
   [Step.TestCases]: "generateTestCases",
   [Step.TestCode]: null,
-  [Step.MainCode]: null,
+  [Step.Code]: null,
 };
 
 export const FRAGMENT_CODES: { [key in StructuralFragment]: string } = {
