@@ -21,8 +21,8 @@ interface EditableItemProps<Type extends StructuralFragment>
   list: Type[];
   fragment: Type;
   index: number;
-  onComment: (paremeters: { fragment: Type; comment: string }) => void;
-  onRemove: (paremeters: { fragment: Type }) => void;
+  onComment: (parameters: { fragment: Type; comment: string }) => void;
+  onRemove: (parameters: { fragment: Type }) => void;
 }
 
 const EditableItem = <Type extends StructuralFragment>({
@@ -140,7 +140,7 @@ const EditableItem = <Type extends StructuralFragment>({
           }}
         />
         <Stack direction="row">
-          <IconButton disabled={isDisabled} onClick={handleRemove}>
+          <IconButton aria-label="Remove" disabled={isDisabled} onClick={handleRemove}>
             <Delete />
           </IconButton>
           <CommentButton disabled={isDisabled} onSubmit={handleComment} />

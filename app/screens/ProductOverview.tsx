@@ -49,6 +49,7 @@ const ProductOverview: React.FunctionComponent = () => {
           fullWidth
           label="Framework"
           value={store.productOverview.framework || ""}
+          slotProps={{ input: { "aria-label": "Framework" } }}
           onChange={({ target: { value } }) => {
             if (!isEnumMember(value, Framework)) return;
             store.setFramework({ framework: value });
@@ -64,6 +65,7 @@ const ProductOverview: React.FunctionComponent = () => {
           fullWidth
           label="Programming Language"
           value={store.productOverview.programmingLanguage || ""}
+          slotProps={{ input: { "aria-label": "Programming Language" } }}
           onChange={({ target: { value } }) => {
             if (!isEnumMember(value, ProgrammingLanguage)) return;
             store.setProgrammingLanguage({ programmingLanguage: value });

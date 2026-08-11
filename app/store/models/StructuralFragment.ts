@@ -49,17 +49,18 @@ const HalfStructuralFragmentModel = types
       references,
       dependencies,
     }: {
-      content: string;
-      priority: Priority;
-      references: Reference[];
-      dependencies: string[];
+      content?: string;
+      priority?: Priority;
+      references?: Reference[];
+      dependencies?: string[];
     }) {
-      self.content = content;
-      self.priority = priority;
-      self.references = cast(
-        references.map((reference) => ReferenceModel.create(reference)),
-      );
-      self.dependencies = cast(dependencies);
+      if (content !== undefined) self.content = content;
+      if (priority !== undefined) self.priority = priority;
+      if (references !== undefined)
+        self.references = cast(
+          references.map((reference) => ReferenceModel.create(reference)),
+        );
+      if (dependencies !== undefined) self.dependencies = cast(dependencies);
     },
   }));
 

@@ -67,6 +67,7 @@ const ProjectConfigDialog: React.FunctionComponent = observer(() => {
       <DialogTitle>
         Project Configuration
         <IconButton
+          aria-label="Close"
           onClick={() => store.setProjectConfigDialogOpen(false)}
           sx={{ position: "absolute", right: 8, top: 8 }}
         >

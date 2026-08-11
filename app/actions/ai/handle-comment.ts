@@ -30,7 +30,7 @@ export async function handleComment({
       generateSystemPrompt(
         ENGINEER_ROLE_BY_STEP[STEP_BY_STRUCTURAL_FRAGMENT[structuralFragment]],
       ),
-      `current state:] ${state}`,
+      `current state: ${state}`,
       `Regarding ${structuralFragment} with id ${id} consider this comment: """${comment}""".`,
     ]);
 

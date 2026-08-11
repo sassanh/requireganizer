@@ -212,6 +212,7 @@ const ProjectSelector: React.FunctionComponent<ProjectSelectorProps> = ({
                             <IconButton
                                 size="small"
                                 color="error"
+                                aria-label={`Delete ${project.name}`}
                                 onClick={() => handleDelete(project.id)}
                                 sx={{ ml: "auto" }}
                             >

@@ -21,8 +21,8 @@ interface EditableTestCaseItemProps extends StackProps {
     list: TestCase[];
     fragment: TestCase;
     index: number;
-    onComment: (paremeters: { fragment: TestCase; comment: string }) => void;
-    onRemove: (paremeters: { fragment: TestCase }) => void;
+    onComment: (parameters: { fragment: TestCase; comment: string }) => void;
+    onRemove: (parameters: { fragment: TestCase }) => void;
 }
 
 const EditableTestCaseItem = ({
@@ -201,7 +201,7 @@ const EditableTestCaseItem = ({
 
 
                 <Stack direction="row">
-                    <IconButton disabled={isDisabled} onClick={handleRemove}>
+                    <IconButton aria-label="Remove" disabled={isDisabled} onClick={handleRemove}>
                         <Delete />
                     </IconButton>
                     <CommentButton disabled={isDisabled} onSubmit={handleComment} />

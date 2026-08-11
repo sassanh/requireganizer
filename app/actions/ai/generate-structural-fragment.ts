@@ -192,6 +192,6 @@ Each test case must follow this exact output format:
       throw error;
     }
     console.error(error);
-    throw new Error("Unexpected error while handling comment");
+    throw new Error("Unexpected error while generating structural fragment");
   }
 }

@@ -47,6 +47,7 @@ const CommentButton = ({
   return (
     <>
       <IconButton
+        aria-label="Comment"
         ref={setButtonRef}
         disabled={disabled}
         onClick={handleCommentOpen}
@@ -77,9 +78,9 @@ const CommentButton = ({
             ref={(element) => element?.focus()}
             onChange={handleCommentChange}
           />
-<IconButton type="submit">
-          <Send />
-        </IconButton>
+          <IconButton aria-label="Send comment" type="submit">
+            <Send />
+          </IconButton>
         </Paper>
       </Popover>
     </>

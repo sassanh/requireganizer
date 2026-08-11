@@ -40,12 +40,11 @@ function Home() {
   }, [projectId, activeProject, selectProject, router]);
 
   // For easier debugging store is saved under window.store variable in development environment
-  if (process.env.NODE_ENV !== "production") {
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    useEffect(() => {
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "production") {
       (window as unknown as { store: Store }).store = store;
-    }, [store]);
-  }
+    }
+  }, [store]);
 
   if (!activeProject || activeProject.id !== projectId) {
     return null; // Return null while loading to avoid flashing the selector or empty state

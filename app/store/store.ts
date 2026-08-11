@@ -58,10 +58,6 @@ import { withSelf } from "./utilities";
 class StoreEventEmitter {
   private target = new EventTarget();
 
-  emitStepUpdate(step: Step): void {
-    this.emit("stepUpdate", step);
-  }
-
   emit(event: string, ...args: unknown[]): void {
     this.target.dispatchEvent(
       new CustomEvent(event, { detail: args }),
@@ -338,7 +334,7 @@ export const FlatStore = types
         id: string;
       }[];
     }) {
-      var Model_ = {
+      const Model = {
         [StructuralFragmentName.PrimaryFeature]: PrimaryFeatureModel,
         [StructuralFragmentName.TargetUser]: TargetUserModel,
         [StructuralFragmentName.Requirement]: RequirementModel,
@@ -349,13 +345,12 @@ export const FlatStore = types
         [StructuralFragmentName.TestCode]: null,
       }[entityType];
 
-      if (Model_ == null) {
+      if (Model == null) {
         console.error("Not implemented yet, model:", entityType);
         return;
       }
-      const Model = Model_;
 
-      var list_: IMSTArray<typeof StructuralFragmentModel> | undefined = {
+      const list: IMSTArray<typeof StructuralFragmentModel> | undefined = {
         [StructuralFragmentName.PrimaryFeature]: () =>
           self.productOverview.primaryFeatures,
         [StructuralFragmentName.TargetUser]: () =>
@@ -365,13 +360,12 @@ export const FlatStore = types
         [StructuralFragmentName.AcceptanceCriteria]: () =>
           self.acceptanceCriteria,
         [StructuralFragmentName.TestScenario]: () => self.testScenarios,
-        [StructuralFragmentName.TestCase]: (parentId_: string) =>
-          self.testScenarios.find(({ id }) => id === parentId_)?.testCases,
+        [StructuralFragmentName.TestCase]: (parentId: string) =>
+          self.testScenarios.find(({ id }) => id === parentId)?.testCases,
         [StructuralFragmentName.TestCode]: () => undefined,
       }[entityType](parentId);
 
-      if (list_ != null) {
-        const list = list_;
+      if (list != null) {
         if (sort != null && sort.length > 0) {
           list.sort((a, b) => sort.indexOf(a.id) - sort.indexOf(b.id));
         }
