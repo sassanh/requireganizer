@@ -50,7 +50,13 @@ Please follow these steps for sending us your contribution:
 
 ### Styleguide
 
-`pnpm run lint` should pass without any errors.
+Install dependencies with `pnpm install`, then run the complete quality gate:
+
+```bash
+pnpm run check
+```
+
+The command must pass without errors. It includes linting, strict type checking, unit tests, the production application build, and the production documentation build. Add or update tests for behavior changes and keep refactors behavior-preserving unless the pull request explicitly documents a bug fix. Harness changes must follow the [prompt-contract checklist](docs/architecture/prompt-contracts.md#adding-an-operation).
 
 ## Thank You
 

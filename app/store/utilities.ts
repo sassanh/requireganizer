@@ -1,26 +1,27 @@
 import { IStateTreeNode } from "mobx-state-tree";
 
-import { OmitFirstParameter, fromEntries } from "utilities";
+type BoundAction<Action> = Action extends (
+  self: infer _Self,
+  ...parameters: infer Parameters
+) => infer Result
+  ? (...parameters: Parameters) => Result
+  : never;
 
-export function withSelf<
-  Signature extends {
-    [Key in string]: (self: any, ...parameters: any) => any;
-  },
->(
-  object: Signature,
-): (self: IStateTreeNode) => {
-  [Key in keyof Signature]: OmitFirstParameter<Signature[Key]>;
-} {
-  return (
-    self: IStateTreeNode,
-  ): {
-    [Key in keyof Signature]: OmitFirstParameter<Signature[Key]>;
-  } => {
-    return fromEntries(
-      Object.keys(object).map((key) => [
-        key,
-        (parameters: any) => object[key](self, parameters),
-      ]),
-    );
+type BoundActions<Actions> = {
+  [Key in keyof Actions]: BoundAction<Actions[Key]>;
+};
+
+export function withSelf<Actions extends object>(actions: Actions) {
+  return (self: IStateTreeNode): BoundActions<Actions> => {
+    const entries = Object.entries(actions).map(([name, value]) => {
+      const action = value as (
+        self: IStateTreeNode,
+        ...parameters: unknown[]
+      ) => unknown;
+
+      return [name, (...parameters: unknown[]) => action(self, ...parameters)];
+    });
+
+    return Object.fromEntries(entries) as BoundActions<Actions>;
   };
 }

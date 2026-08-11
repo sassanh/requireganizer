@@ -1,5 +1,3 @@
-import { Store } from "./store";
-
 export enum Environment {
   WebApplication = "web_application_frameworks",
   MobileApplication = "mobile_application_frameworks",
@@ -55,6 +53,7 @@ export enum Framework {
   Fable = "Fable",
   Flask = "Flask",
   Flutter = "Flutter",
+  Gin = "Gin",
   Framework7 = "Framework7",
   GTK = "GTK",
   GatsbyJS = "GatsbyJS",
@@ -125,6 +124,7 @@ export const FRAMEWORKS_BY_PROGRAMMING_LANGUAGE = {
     Framework.ReactNative,
     Framework.Framework7,
     Framework.QuasarFramework,
+    Framework.NestJS,
   ],
   [ProgrammingLanguage.TypeScript]: [
     Framework.Angular,
@@ -142,6 +142,7 @@ export const FRAMEWORKS_BY_PROGRAMMING_LANGUAGE = {
     Framework.ReactNative,
     Framework.Framework7,
     Framework.QuasarFramework,
+    Framework.NestJS,
   ],
   [ProgrammingLanguage.Python]: [
     Framework.Django,
@@ -207,7 +208,7 @@ export const FRAMEWORKS_BY_PROGRAMMING_LANGUAGE = {
     Framework.GTK,
     Framework.wxWidgets,
   ],
-  [ProgrammingLanguage.Go]: [Framework.NestJS],
+  [ProgrammingLanguage.Go]: [Framework.Gin],
   [ProgrammingLanguage.Elixir]: [Framework.Phoenix],
   [ProgrammingLanguage.Julia]: [Framework.MXNet],
   [ProgrammingLanguage.R]: [Framework.TensorFlow],
@@ -338,12 +339,16 @@ export const PROGRAMMING_LANGUAGE_BY_FRAMEWORK: {
   ],
   [Framework.wxWidgets]: [ProgrammingLanguage.C, ProgrammingLanguage.CPlusPlus],
   [Framework.SFML]: [ProgrammingLanguage.CPlusPlus],
-  [Framework.NestJS]: [ProgrammingLanguage.Go],
+  [Framework.NestJS]: [
+    ProgrammingLanguage.JavaScript,
+    ProgrammingLanguage.TypeScript,
+  ],
   [Framework.Phoenix]: [ProgrammingLanguage.Elixir],
   [Framework.Love2D]: [ProgrammingLanguage.Lua],
   [Framework.HaxeFlixel]: [ProgrammingLanguage.Haxe],
   [Framework.Godot]: [ProgrammingLanguage.GDScript],
   [Framework.Flutter]: [ProgrammingLanguage.Dart],
+  [Framework.Gin]: [ProgrammingLanguage.Go],
   [Framework.Fable]: [ProgrammingLanguage.FSharp],
   [Framework.Bash]: [ProgrammingLanguage.Shell],
   [Framework.Zsh]: [ProgrammingLanguage.Shell],
@@ -354,8 +359,8 @@ export const PROGRAMMING_LANGUAGE_BY_FRAMEWORK: {
 export enum Step {
   Description = "description",
   ProductOverview = "product-overview",
-  Requirements = "requirements",
   UserStories = "user-stories",
+  Requirements = "requirements",
   AcceptanceCriteria = "acceptance-criteria",
   TestScenarios = "test-scenarios",
   TestCases = "test-cases",
@@ -366,8 +371,8 @@ export const STEPS = Object.values(Step);
 export const STEP_LABELS: { [key in Step]: string } = {
   [Step.Description]: "Description",
   [Step.ProductOverview]: "Product Overview",
-  [Step.Requirements]: "Requirements",
   [Step.UserStories]: "User Stories",
+  [Step.Requirements]: "Requirements",
   [Step.AcceptanceCriteria]: "Acceptance Criteria",
   [Step.TestScenarios]: "Test Scenarios",
   [Step.TestCases]: "Test Cases",
@@ -456,8 +461,8 @@ export const ENGINEER_ROLE_BY_STEP: {
 } = {
   [Step.Description]: [EngineerRole.RequirementsEngineer],
   [Step.ProductOverview]: [EngineerRole.RequirementsEngineer],
-  [Step.Requirements]: [EngineerRole.RequirementsEngineer],
   [Step.UserStories]: [EngineerRole.RequirementsEngineer],
+  [Step.Requirements]: [EngineerRole.RequirementsEngineer],
   [Step.AcceptanceCriteria]: [
     EngineerRole.RequirementsEngineer,
     EngineerRole.SoftwareTestEngineer,
@@ -468,13 +473,22 @@ export const ENGINEER_ROLE_BY_STEP: {
   [Step.Code]: [EngineerRole.SoftwareDeveloper],
 };
 
-export const GENERATOR_ACTION_BY_STEP: {
-  [key in Step]: Extract<keyof Store, `generate${string}`> | null;
-} = {
+export type GeneratorActionName =
+  | "generateProductOverview"
+  | "generateUserStories"
+  | "generateRequirements"
+  | "generateAcceptanceCriteria"
+  | "generateTestScenarios"
+  | "generateTestCases";
+
+export const GENERATOR_ACTION_BY_STEP: Record<
+  Step,
+  GeneratorActionName | null
+> = {
   [Step.Description]: null,
   [Step.ProductOverview]: "generateProductOverview",
-  [Step.Requirements]: "generateRequirements",
   [Step.UserStories]: "generateUserStories",
+  [Step.Requirements]: "generateRequirements",
   [Step.AcceptanceCriteria]: "generateAcceptanceCriteria",
   [Step.TestScenarios]: "generateTestScenarios",
   [Step.TestCases]: "generateTestCases",

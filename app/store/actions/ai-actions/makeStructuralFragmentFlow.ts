@@ -4,7 +4,11 @@ import { generateStructuralFragment } from "actions/ai/generate-structural-fragm
 import { Step, StructuralFragment } from "store";
 import { FlatStore } from "store/store";
 
-import { generator, handleFunctionCalls } from "./utilities";
+import {
+  applyArtifactListProposal,
+  consumeHarnessResult,
+  generator,
+} from "./utilities";
 
 export function makeStructuralFragmentFlow<
   Requirements extends string & keyof SnapshotOrInstance<FlatStore>,
@@ -12,26 +16,32 @@ export function makeStructuralFragmentFlow<
   step,
   structuralFragment,
   requirements,
+  requiredSteps,
 }: {
   step: Step;
   structuralFragment: StructuralFragment;
   requirements: Requirements[];
+  requiredSteps: readonly Step[];
 }) {
-  return generator<[], Requirements>(
+  return generator(
     function* generateStructuralFragmentFlow(self) {
       const store = self as FlatStore;
-      store.resetValidationErrors();
-
-      const { functionCalls } = yield* toGenerator(
+      const result = yield* toGenerator(
         generateStructuralFragment({
           state: store.json(step),
           structuralFragment,
         }),
       );
 
-      handleFunctionCalls(store, functionCalls);
+      const proposal = consumeHarnessResult(store, result);
+      if (proposal == null) return;
+      applyArtifactListProposal(store, proposal);
       store.eventTarget.emit("stepUpdate", step);
     },
-    { requirements },
+    {
+      operation: `generate ${structuralFragment.replaceAll("_", " ")} items`,
+      requirements,
+      requiredSteps,
+    },
   );
 }

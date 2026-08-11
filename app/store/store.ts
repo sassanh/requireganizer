@@ -1,8 +1,30 @@
 "use client";
 
-import { IMSTArray, Instance, SnapshotIn, cast, types } from "mobx-state-tree";
+import {
+  IMSTArray,
+  Instance,
+  SnapshotIn,
+  cast,
+  getSnapshot,
+  types,
+} from "mobx-state-tree";
 import { createContext, useContext } from "react";
 
+import {
+  ArtifactListProposal,
+  FragmentRevisionProposal,
+} from "ai-harness/contracts";
+import {
+  materializeArtifactItems,
+  PersistedArtifactItem,
+} from "ai-harness/reconciliation";
+import { parseJsoncObject } from "lib/json";
+import {
+  assertSafeVirtualPath,
+  isSafeVirtualPath,
+  parseScaffoldFiles,
+} from "lib/scaffold";
+import { uuid } from "utilities";
 import { hydrateMissingLastGeneratedAt } from "utilities/testParser";
 
 import {
@@ -39,6 +61,7 @@ import {
   RequirementModel,
   StructuralFragment,
   StructuralFragmentModel,
+  TestCase,
   TestCaseModel,
   TestScenario,
   TestScenarioModel,
@@ -55,32 +78,121 @@ import {
 } from "./models/ProductOverview";
 import { withSelf } from "./utilities";
 
+function createFragment(
+  entityType: StructuralFragmentName,
+  data: PersistedArtifactItem,
+): StructuralFragment {
+  const snapshot = { ...data, content: data.content ?? "" };
+
+  switch (entityType) {
+    case StructuralFragmentName.PrimaryFeature:
+      return PrimaryFeatureModel.create(snapshot);
+    case StructuralFragmentName.TargetUser:
+      return TargetUserModel.create(snapshot);
+    case StructuralFragmentName.Requirement:
+      return RequirementModel.create(snapshot);
+    case StructuralFragmentName.UserStory:
+      return UserStoryModel.create(snapshot);
+    case StructuralFragmentName.AcceptanceCriteria:
+      return AcceptanceCriteriaModel.create(snapshot);
+    case StructuralFragmentName.TestScenario:
+      return TestScenarioModel.create(snapshot);
+    case StructuralFragmentName.TestCase:
+      return TestCaseModel.create(snapshot);
+    case StructuralFragmentName.TestCode:
+      throw new Error("Test code is managed as scaffold files, not fragments.");
+  }
+}
+
+interface WorkflowInputSource {
+  description: string;
+  productOverview: unknown;
+  userStories: readonly unknown[];
+  requirements: readonly unknown[];
+  acceptanceCriteria: readonly unknown[];
+  testScenarios: readonly {
+    id: string;
+    type: StructuralFragmentName;
+    content: string;
+    priority: Priority | null;
+    references: readonly unknown[];
+    dependencies: readonly string[];
+  }[];
+}
+
+function buildWorkflowInput(
+  source: WorkflowInputSource,
+  step: Step,
+): Record<string, unknown> {
+  const base = { description: source.description };
+  if (step === Step.ProductOverview) return base;
+
+  const withOverview = { ...base, productOverview: source.productOverview };
+  if (step === Step.UserStories) return withOverview;
+
+  const withStories = { ...withOverview, userStories: source.userStories };
+  if (step === Step.Requirements) return withStories;
+
+  const withRequirements = {
+    ...withStories,
+    requirements: source.requirements,
+  };
+  if (step === Step.AcceptanceCriteria) return withRequirements;
+
+  const withCriteria = {
+    ...withRequirements,
+    acceptanceCriteria: source.acceptanceCriteria,
+  };
+  if (step === Step.TestScenarios) return withCriteria;
+
+  if (step === Step.TestCases) {
+    return {
+      ...withCriteria,
+      testScenarios: source.testScenarios.map((scenario) => ({
+        id: scenario.id,
+        type: scenario.type,
+        content: scenario.content,
+        priority: scenario.priority,
+        references: scenario.references,
+        dependencies: scenario.dependencies,
+      })),
+    };
+  }
+
+  return withCriteria;
+}
+
+function buildProjectConfigurationInput(
+  source: WorkflowInputSource,
+): Record<string, unknown> {
+  return {
+    ...buildWorkflowInput(source, Step.TestCases),
+    testScenarios: source.testScenarios,
+  };
+}
+
 class StoreEventEmitter {
-  private target = new EventTarget();
+  private readonly stepUpdateListeners = new Set<(step: Step) => void>();
 
-  emit(event: string, ...args: unknown[]): void {
-    this.target.dispatchEvent(
-      new CustomEvent(event, { detail: args }),
-    );
+  emit(_event: "stepUpdate", step: Step): void {
+    this.stepUpdateListeners.forEach((listener) => listener(step));
   }
 
-  on(event: string, listener: (...args: any[]) => void): void {
-    const handler = (e: Event) =>
-      listener(...(e as CustomEvent).detail);
-    (listener as any).__handler = handler;
-    this.target.addEventListener(event, handler);
+  on(_event: "stepUpdate", listener: (step: Step) => void): void {
+    this.stepUpdateListeners.add(listener);
   }
 
-  off(event: string, listener: (...args: any[]) => void): void {
-    const handler = (listener as any).__handler;
-    if (handler) {
-      this.target.removeEventListener(event, handler);
-    }
+  off(_event: "stepUpdate", listener: (step: Step) => void): void {
+    this.stepUpdateListeners.delete(listener);
   }
 }
 
 export const ScaffoldFileModel = types.model({
-  path: types.string,
+  path: types.refinement(
+    "SafeVirtualFilePath",
+    types.string,
+    isSafeVirtualPath,
+  ),
   content: types.string,
 });
 
@@ -99,9 +211,14 @@ export const FlatStore = types
     systemMessage: types.maybeNull(types.string),
     projectConfig: types.maybeNull(types.string),
     projectConfigLocked: types.optional(types.boolean, false),
+    projectConfigInputFingerprint: types.maybeNull(types.string),
     isProjectConfigDialogOpen: types.optional(types.boolean, false),
     scaffoldFiles: types.array(ScaffoldFileModel),
+    stageInputFingerprints: types.map(types.string),
   })
+  .volatile(() => ({
+    validationErrorDetails: null as string | null,
+  }))
   .views((self) => {
     const eventTarget = new StoreEventEmitter();
 
@@ -120,6 +237,7 @@ export const FlatStore = types
       self.businessCounter = 0;
       self.description = "";
       self.validationErrors = null;
+      self.validationErrorDetails = null;
 
       self.productOverview = ProductOverviewModel.create({
         name: null,
@@ -135,34 +253,63 @@ export const FlatStore = types
       self.testScenarios = cast([]);
       self.projectConfig = null;
       self.projectConfigLocked = false;
+      self.projectConfigInputFingerprint = null;
       self.isProjectConfigDialogOpen = false;
       self.scaffoldFiles = cast([]);
+      self.stageInputFingerprints.clear();
     },
     setDescription({ description }: { description: string }) {
       self.description = description;
     },
     setValidationErrors({ validationErrors }: { validationErrors: string }) {
       self.validationErrors = validationErrors;
+      self.validationErrorDetails = null;
+    },
+    setValidationError({
+      message,
+      details,
+    }: {
+      message: string;
+      details?: string;
+    }) {
+      self.validationErrors = message;
+      self.validationErrorDetails = details ?? null;
     },
     resetValidationErrors() {
       self.validationErrors = null;
+      self.validationErrorDetails = null;
       self.systemMessage = null;
     },
     setProjectConfig(config: string) {
       self.projectConfig = config;
     },
+    setProjectConfigLocked(locked: boolean) {
+      self.projectConfigLocked = locked;
+    },
+    markProjectConfigCurrent() {
+      self.projectConfigInputFingerprint = JSON.stringify(
+        buildProjectConfigurationInput(self),
+      );
+    },
+    markStageGenerated(step: Step) {
+      self.stageInputFingerprints.set(
+        step,
+        JSON.stringify(buildWorkflowInput(self, step)),
+      );
+    },
     setProjectConfigDialogOpen(isOpen: boolean) {
       self.isProjectConfigDialogOpen = isOpen;
     },
     setScaffoldFiles(files: { path: string; content: string }[]) {
-      self.scaffoldFiles = cast(files);
+      self.scaffoldFiles = cast(parseScaffoldFiles(files));
     },
     setScaffoldFile(path: string, content: string) {
-      const existing = self.scaffoldFiles.find((f) => f.path === path);
+      const safePath = assertSafeVirtualPath(path);
+      const existing = self.scaffoldFiles.find((file) => file.path === safePath);
       if (existing) {
         existing.content = content;
       } else {
-        self.scaffoldFiles.push({ path, content });
+        self.scaffoldFiles.push({ path: safePath, content });
       }
     },
     removeScaffoldFile(path: string) {
@@ -301,55 +448,11 @@ export const FlatStore = types
     resetIsBusy() {
       self.businessCounter = 0;
     },
-    updateList({
+    replaceArtifactList({
       entityType,
-      parentId,
-      insertions,
-      removals,
-      sort,
-      modifications,
-    }: {
-      entityType: StructuralFragmentName;
-      parentId: string;
-      insertions: {
-        content?: string;
-        title?: string;
-        steps?: string;
-        expectedResult?: string;
-        priority: Priority;
-        references: { id: string; type: StructuralFragmentName }[];
-        dependencies: string[];
-        index?: number;
-      }[];
-      removals: string[];
-      sort: string[];
-      modifications: {
-        content?: string;
-        title?: string;
-        steps?: string;
-        expectedResult?: string;
-        priority: Priority;
-        references: { id: string; type: StructuralFragmentName }[];
-        dependencies: string[];
-        id: string;
-      }[];
-    }) {
-      const Model = {
-        [StructuralFragmentName.PrimaryFeature]: PrimaryFeatureModel,
-        [StructuralFragmentName.TargetUser]: TargetUserModel,
-        [StructuralFragmentName.Requirement]: RequirementModel,
-        [StructuralFragmentName.UserStory]: UserStoryModel,
-        [StructuralFragmentName.AcceptanceCriteria]: AcceptanceCriteriaModel,
-        [StructuralFragmentName.TestScenario]: TestScenarioModel,
-        [StructuralFragmentName.TestCase]: TestCaseModel,
-        [StructuralFragmentName.TestCode]: null,
-      }[entityType];
-
-      if (Model == null) {
-        console.error("Not implemented yet, model:", entityType);
-        return;
-      }
-
+      parentId = "",
+      items,
+    }: ArtifactListProposal) {
       const list: IMSTArray<typeof StructuralFragmentModel> | undefined = {
         [StructuralFragmentName.PrimaryFeature]: () =>
           self.productOverview.primaryFeatures,
@@ -365,23 +468,54 @@ export const FlatStore = types
         [StructuralFragmentName.TestCode]: () => undefined,
       }[entityType](parentId);
 
-      if (list != null) {
-        if (sort != null && sort.length > 0) {
-          list.sort((a, b) => sort.indexOf(a.id) - sort.indexOf(b.id));
-        }
-        modifications?.forEach(({ id, ...data }) => {
-          const item = list.find(({ id: id_ }) => id === id_);
-          item?.setData(data as any);
-        });
-        insertions?.forEach(({ index, ...data }) =>
-          // @ts-expect-error -- MST Model.create() union type too complex for TS
-          list.splice(index ?? list.length, 0, Model.create({ ...data, content: data.content ?? "" })),
+      if (list == null) {
+        throw new Error(
+          `Cannot find the ${entityType} list${parentId ? ` for parent ${parentId}` : ""}.`,
         );
-        removals?.forEach((id) => {
-          const item = list.find(({ id: id_ }) => id === id_);
-          if (item != null) list.remove(item);
-        });
       }
+      const existingById = new Map(list.map((item) => [item.id, item]));
+      const snapshots = materializeArtifactItems(items, uuid).map((item) => {
+        const existing = existingById.get(item.id);
+        if (existing == null) {
+          return getSnapshot(createFragment(entityType, item));
+        }
+
+        const { id: _id, ...update } = item;
+        if (entityType === StructuralFragmentName.TestCase) {
+          (existing as TestCase).setData(update);
+        } else {
+          existing.setData(update);
+        }
+        return getSnapshot(existing);
+      });
+      list.clear();
+      list.push(...snapshots);
+    },
+    reviseFragment({ entityType, id, patch }: FragmentRevisionProposal) {
+      if (entityType === StructuralFragmentName.TestCase) {
+        let testCase: TestCase | undefined;
+        self.testScenarios.forEach((scenario) => {
+          testCase ??= scenario.testCases.find((candidate) => candidate.id === id);
+        });
+        if (testCase == null) {
+          throw new Error(`Cannot revise missing test case ${id}.`);
+        }
+        testCase.setData(patch);
+        return;
+      }
+      const fragments: StructuralFragment[] = [
+        ...self.productOverview.primaryFeatures,
+        ...self.productOverview.targetUsers,
+        ...self.userStories,
+        ...self.requirements,
+        ...self.acceptanceCriteria,
+        ...self.testScenarios,
+      ];
+      const fragment = fragments.find((candidate) => candidate.id === id);
+      if (fragment == null || fragment.type !== entityType) {
+        throw new Error(`Cannot revise missing ${entityType} fragment ${id}.`);
+      }
+      fragment.setData(patch);
     },
     communicate({ description }: { description: string }) {
       self.systemMessage = description;
@@ -399,7 +533,7 @@ export const FlatStore = types
         (testScenario) => testScenario.testCases,
       );
     },
-    data(step: Step = LAST_STEP) {
+    data(step: Step = LAST_STEP, includeBuildArtifacts = false) {
       return {
         ...(!isBefore(step, Step.Description)
           ? { description: self.description }
@@ -409,11 +543,11 @@ export const FlatStore = types
             productOverview: self.productOverview,
           }
           : {}),
-        ...(!isBefore(step, Step.Requirements)
-          ? { requirements: self.requirements }
-          : {}),
         ...(!isBefore(step, Step.UserStories)
           ? { userStories: self.userStories }
+          : {}),
+        ...(!isBefore(step, Step.Requirements)
+          ? { requirements: self.requirements }
           : {}),
         ...(!isBefore(step, Step.AcceptanceCriteria)
           ? { acceptanceCriteria: self.acceptanceCriteria }
@@ -421,11 +555,25 @@ export const FlatStore = types
         ...(!isBefore(step, Step.TestScenarios)
           ? { testScenarios: self.testScenarios }
           : {}),
-        ...(self.projectConfig != null
-          ? { projectConfig: JSON.parse(self.projectConfig.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "")) }
+        ...(includeBuildArtifacts && self.projectConfig != null
+          ? {
+            projectConfig: parseJsoncObject(
+              self.projectConfig,
+              "Project configuration",
+            ),
+          }
           : {}),
-        ...(self.scaffoldFiles.length > 0
+        ...(includeBuildArtifacts && self.scaffoldFiles.length > 0
           ? { scaffoldFiles: self.scaffoldFiles }
+          : {}),
+        ...(includeBuildArtifacts
+          ? {
+            stageInputFingerprints: Object.fromEntries(
+              self.stageInputFingerprints.entries(),
+            ),
+            projectConfigInputFingerprint:
+              self.projectConfigInputFingerprint,
+          }
           : {}),
       };
     },
@@ -435,6 +583,11 @@ export const FlatStore = types
           list.map((fragment) => [fragment.id, fragment]),
         );
       }
+      const testCases: StructuralFragment[] = [];
+      self.testScenarios.forEach((testScenario) => {
+        testScenario.testCases.forEach((testCase) => testCases.push(testCase));
+      });
+
       return {
         ...extract(self.productOverview.primaryFeatures),
         ...extract(self.productOverview.targetUsers),
@@ -442,11 +595,7 @@ export const FlatStore = types
         ...extract(self.userStories),
         ...extract(self.acceptanceCriteria),
         ...extract(self.testScenarios),
-        ...extract(
-          self.testScenarios.flatMap(
-            (testScenario) => testScenario.testCases,
-          ) as StructuralFragment[],
-        ),
+        ...extract(testCases),
       };
     },
     getCode(id: string) {
@@ -457,46 +606,87 @@ export const FlatStore = types
       if (!fragment) return undefined;
       return `?step=${STEP_BY_STRUCTURAL_FRAGMENT[fragment.type]}#${fragment.getCode()}`;
     },
-    getStepStatus(step: Step) {
-      switch (step) {
-        case Step.Description:
-          return self.description.trim().length > 0
-            ? Status.Completed
-            : Status.Pending;
-        case Step.ProductOverview:
-          return self.productOverview.isComplete
-            ? Status.Completed
-            : Status.Pending;
-        case Step.Requirements:
-          return self.requirements.length > 0
-            ? Status.Completed
-            : Status.Pending;
-        case Step.UserStories:
-          return self.userStories.length > 0
-            ? Status.Completed
-            : Status.Pending;
-        case Step.AcceptanceCriteria:
-          return self.acceptanceCriteria.length > 0
-            ? Status.Completed
-            : Status.Pending;
-        case Step.TestScenarios:
-          return self.testScenarios.length > 0
-            ? Status.Completed
-            : Status.Pending;
-        case Step.TestCases:
-          return self.testScenarios.flatMap(
-            (testScenario) => testScenario.testCases,
-          ).length > 0
-            ? Status.Completed
-            : Status.Pending;
-        case Step.Code:
-        case Step.TestCode:
-          return self.hasGeneratedScaffold
-            ? Status.Completed
-            : Status.Pending;
-        default:
-          return Status.Pending;
-      }
+    getStepStatus(step: Step): Status {
+      const generatedInput = self.stageInputFingerprints.get(step);
+      const isOutdated =
+        generatedInput != null &&
+        generatedInput !== JSON.stringify(buildWorkflowInput(self, step));
+      const isGeneratedProjectOutdated =
+        self.projectConfigInputFingerprint != null &&
+        self.projectConfigInputFingerprint !==
+          JSON.stringify(buildProjectConfigurationInput(self));
+      const completedOrPending = (() => {
+        switch (step) {
+          case Step.Description:
+            return self.description.trim().length > 0
+              ? Status.Completed
+              : Status.Pending;
+          case Step.ProductOverview:
+            return self.productOverview.isComplete
+              ? Status.Completed
+              : Status.Pending;
+          case Step.Requirements:
+            return self.requirements.length > 0
+              ? Status.Completed
+              : Status.Pending;
+          case Step.UserStories:
+            return self.userStories.length > 0
+              ? Status.Completed
+              : Status.Pending;
+          case Step.AcceptanceCriteria:
+            return self.acceptanceCriteria.length > 0
+              ? Status.Completed
+              : Status.Pending;
+          case Step.TestScenarios:
+            return self.testScenarios.length > 0
+              ? Status.Completed
+              : Status.Pending;
+          case Step.TestCases:
+            return self.testScenarios.length > 0 &&
+              self.testScenarios.every(
+                (testScenario) => testScenario.testCases.length > 0,
+              )
+              ? Status.Completed
+              : Status.Pending;
+          case Step.TestCode: {
+            const testCases = self.testScenarios.flatMap(
+              (testScenario) => testScenario.testCases,
+            );
+            if (
+              testCases.length === 0 ||
+              testCases.some(({ lastGeneratedAt }) => lastGeneratedAt == null)
+            ) {
+              return Status.Pending;
+            }
+            return isGeneratedProjectOutdated ||
+              testCases.some(
+                ({ lastGeneratedAt, lastModifiedAt }) =>
+                  lastGeneratedAt != null &&
+                  (lastModifiedAt ?? 0) > lastGeneratedAt,
+              )
+              ? Status.Outdated
+              : Status.Completed;
+          }
+          case Step.Code:
+            return self.hasGeneratedScaffold
+              ? isGeneratedProjectOutdated
+                ? Status.Outdated
+                : Status.Completed
+              : Status.Pending;
+          default:
+            return Status.Pending;
+        }
+      })();
+      return completedOrPending === Status.Completed && isOutdated
+        ? Status.Outdated
+        : completedOrPending;
+    },
+    get isProjectConfigOutdated(): boolean {
+      return (
+        self.projectConfigInputFingerprint != null &&
+        self.projectConfigInputFingerprint !==
+          JSON.stringify(buildProjectConfigurationInput(self))
+      );
     },
   }))
   .views((self) => ({
@@ -506,7 +696,7 @@ export const FlatStore = types
   }))
   .actions((self) => ({
     afterCreate() {
-      // Legacy Migration: Auto-hydrate missing lastGeneratedAt hooks for old test cases
+      // Recover generation timestamps from matching annotated test files.
       if (self.scaffoldFiles.length > 0) {
         hydrateMissingLastGeneratedAt(
           self.testScenarios,

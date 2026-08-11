@@ -2,11 +2,21 @@
   "name": "requireganizer",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@11.21.0",
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "node scripts/run-tests.mjs",
+    "check": "pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run build && pnpm run docs:build",
     "cf:build": "npx @opennextjs/cloudflare build",
     "cf:deploy": "wrangler deploy"
   },
@@ -50,6 +60,7 @@
     "eslint-plugin-import": "^2.32.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "typescript": "5.9.3",
+    "vitepress": "1.6.4",
     "wrangler": "^4.120.1"
   }
 }

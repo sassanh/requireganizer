@@ -1,8 +1,41 @@
 import { Instance, types } from "mobx-state-tree";
 
-import { StructuralFragment } from "store";
+import { StructuralFragment } from "store/constants";
 
-import { StructuralFragmentModel } from "./StructuralFragment";
+import {
+  StructuralFragmentModel,
+  StructuralFragmentUpdate,
+} from "./StructuralFragment";
+
+interface TestCaseUpdate extends StructuralFragmentUpdate {
+  title?: string;
+  steps?: string;
+  expectedResult?: string;
+}
+
+function referencesEqual(
+  next: NonNullable<TestCaseUpdate["references"]>,
+  current: ReadonlyArray<{ id: string; type: StructuralFragment }>,
+): boolean {
+  return (
+    next.length === current.length &&
+    next.every(
+      (reference, index) =>
+        reference.id === current[index].id &&
+        reference.type === current[index].type,
+    )
+  );
+}
+
+function dependenciesEqual(
+  next: NonNullable<TestCaseUpdate["dependencies"]>,
+  current: ReadonlyArray<string>,
+): boolean {
+  return (
+    next.length === current.length &&
+    next.every((dependency, index) => dependency === current[index])
+  );
+}
 
 export type TestCase = Instance<typeof TestCaseModel>;
 
@@ -49,24 +82,48 @@ export const TestCaseModel = types
     setLastGeneratedAt(timestamp: number) {
       self.lastGeneratedAt = timestamp;
     },
-    setData(data: any) {
-      if (data.title !== undefined) self.title = data.title;
-      if (data.steps !== undefined) self.steps = data.steps;
-      if (data.expectedResult !== undefined) self.expectedResult = data.expectedResult;
+    setData(data: TestCaseUpdate) {
+      let changed = false;
 
-      if (data.priority !== undefined) self.setPriority(data.priority);
-      if (data.references !== undefined) self.setReferences(data.references);
-      if (data.dependencies !== undefined) self.setDependencies(data.dependencies);
-      if (data.content !== undefined) self.setContent(data.content);
-
-      if (
-        data.priority !== undefined ||
-        data.references !== undefined ||
-        data.dependencies !== undefined ||
-        data.content !== undefined
-      ) {
-        self.touch();
+      if (data.title !== undefined && data.title !== self.title) {
+        self.title = data.title;
+        changed = true;
       }
+      if (data.steps !== undefined && data.steps !== self.steps) {
+        self.steps = data.steps;
+        changed = true;
+      }
+      if (
+        data.expectedResult !== undefined &&
+        data.expectedResult !== self.expectedResult
+      ) {
+        self.expectedResult = data.expectedResult;
+        changed = true;
+      }
+      if (data.priority !== undefined && data.priority !== self.priority) {
+        self.setPriority(data.priority);
+        changed = true;
+      }
+      if (
+        data.references !== undefined &&
+        !referencesEqual(data.references, self.references)
+      ) {
+        self.setReferences(data.references);
+        changed = true;
+      }
+      if (
+        data.dependencies !== undefined &&
+        !dependenciesEqual(data.dependencies, self.dependencies)
+      ) {
+        self.setDependencies(data.dependencies);
+        changed = true;
+      }
+      if (data.content !== undefined && data.content !== self.content) {
+        self.setContent(data.content);
+        changed = true;
+      }
+
+      if (changed) self.touch();
     }
   }))
   .named("TestCase");

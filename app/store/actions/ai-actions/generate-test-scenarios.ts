@@ -12,4 +12,5 @@ export default makeStructuralFragmentFlow({
     "requirements",
     "acceptanceCriteria",
   ],
+  requiredSteps: [Step.AcceptanceCriteria],
 });

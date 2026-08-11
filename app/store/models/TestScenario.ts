@@ -1,6 +1,6 @@
 import { Instance, SnapshotIn, cast, types } from "mobx-state-tree";
 
-import { StructuralFragment } from "store";
+import { StructuralFragment } from "store/constants";
 
 import { StructuralFragmentModel } from "./StructuralFragment";
 import { TestCase, TestCaseModel } from "./TestCase";

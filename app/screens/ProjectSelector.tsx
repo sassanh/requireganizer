@@ -1,294 +1,309 @@
 import {
-    Add,
-    Delete,
-    FolderOpen,
-    Upload,
+  Add,
+  Delete,
+  FolderOpen,
+  Upload,
 } from "@mui/icons-material";
 import {
-    Button,
-    Card,
-    CardActions,
-    CardContent,
-    Dialog,
-    DialogActions,
-    DialogContent,
-    DialogTitle,
-    IconButton,
-    Stack,
-    TextField,
-    Typography,
+  Alert,
+  Button,
+  Card,
+  CardActions,
+  CardContent,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  IconButton,
+  Stack,
+  TextField,
+  Typography,
 } from "@mui/material";
 import { getSnapshot } from "mobx-state-tree";
 import Link from "next/link";
-import React, { useRef, useState } from "react";
+import { ChangeEvent, useEffect, useRef, useState } from "react";
 
+import { parseJson } from "lib/json";
+import {
+  deleteProjectData,
+  getProjectsIndex,
+  ProjectMeta,
+  saveProjectBundle,
+  saveProjectsIndex,
+} from "lib/projectStorage";
 import { Store } from "store";
 
-const PROJECTS_INDEX_KEY = "requireganizer:projects";
-
-export interface ProjectMeta {
-    id: string; // UUID
-    name: string;
-    description: string;
-    updatedAt: string;
-}
-
-export function getProjectsIndex(): ProjectMeta[] {
-    if (typeof window === "undefined") return [];
-    try {
-        const raw = localStorage.getItem(PROJECTS_INDEX_KEY);
-        return raw ? JSON.parse(raw) : [];
-    } catch {
-        return [];
-    }
-}
-
-export function saveProjectsIndex(projects: ProjectMeta[]) {
-    localStorage.setItem(PROJECTS_INDEX_KEY, JSON.stringify(projects));
-}
-
-export function getProjectStorageKey(id: string) {
-    return `requireganizer:project:${id}`;
-}
-
-export function loadProjectData(id: string): Record<string, unknown> | null {
-    try {
-        const raw = localStorage.getItem(getProjectStorageKey(id));
-        return raw ? JSON.parse(raw) : null;
-    } catch {
-        return null;
-    }
-}
-
-export function saveProjectData(id: string, data: unknown) {
-    localStorage.setItem(getProjectStorageKey(id), JSON.stringify(data));
-}
-
-export function deleteProjectData(id: string) {
-    localStorage.removeItem(getProjectStorageKey(id));
-    const projects = getProjectsIndex().filter((p) => p.id !== id);
-    saveProjectsIndex(projects);
-}
-
 interface ProjectSelectorProps {
-    onSelect: (id: string, name: string) => void;
+  onSelect: (id: string, name: string) => void;
 }
 
-const ProjectSelector: React.FunctionComponent<ProjectSelectorProps> = ({
-    onSelect,
-}) => {
-    const [projects, setProjects] = useState<ProjectMeta[]>(getProjectsIndex);
-    const [dialogOpen, setDialogOpen] = useState(false);
-    const [newName, setNewName] = useState("");
-    const importInputRef = useRef<HTMLInputElement>(null);
+function hasProjectName(projects: ProjectMeta[], name: string): boolean {
+  return projects.some(
+    (project) => project.name.localeCompare(name, undefined, { sensitivity: "base" }) === 0,
+  );
+}
 
-    const handleCreate = () => {
-        const name = newName.trim();
-        if (!name) return;
+export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
+  const [projects, setProjects] = useState<ProjectMeta[] | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [projectToDelete, setProjectToDelete] = useState<ProjectMeta | null>(
+    null,
+  );
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const projectList = projects ?? [];
 
-        const existing = projects.find((p) => p.name === name);
-        if (existing) return;
+  useEffect(() => {
+    // Browser storage is unavailable during server rendering. Loading it after
+    // hydration keeps the initial markup deterministic.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setProjects(getProjectsIndex());
+  }, []);
 
-        const id = crypto.randomUUID();
+  const handleCreate = () => {
+    const name = newName.trim();
+    if (!name || projects == null || hasProjectName(projectList, name)) return;
 
-        const meta: ProjectMeta = {
-            id,
-            name,
-            description: "",
-            updatedAt: new Date().toISOString(),
-        };
-        const updated = [...projects, meta];
-        saveProjectsIndex(updated);
-        setProjects(updated);
-        setDialogOpen(false);
-        setNewName("");
-        onSelect(id, name);
+    const id = crypto.randomUUID();
+    const meta: ProjectMeta = {
+      id,
+      name,
+      description: "",
+      updatedAt: new Date().toISOString(),
     };
+    const updatedProjects = [...projectList, meta];
 
-    const handleDelete = (id: string) => {
-        deleteProjectData(id);
-        setProjects(getProjectsIndex());
-    };
+    try {
+      saveProjectsIndex(updatedProjects);
+      setProjects(updatedProjects);
+      setDialogOpen(false);
+      setNewName("");
+      setError(null);
+      onSelect(id, name);
+    } catch (storageError) {
+      console.error("Could not create project.", storageError);
+      setError("The project could not be saved in browser storage.");
+    }
+  };
 
-    const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
-        if (!file) return;
+  const handleDelete = (id: string) => {
+    try {
+      deleteProjectData(id);
+      setProjects((current) =>
+        (current ?? []).filter((project) => project.id !== id),
+      );
+      setProjectToDelete(null);
+      setError(null);
+    } catch (storageError) {
+      console.error("Could not delete project.", storageError);
+      setError("The project could not be deleted from browser storage.");
+    }
+  };
 
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            try {
-                const data = JSON.parse(e.target?.result as string);
-                const name =
-                    data.productOverview?.name ||
-                    file.name.replace(/\.json$/i, "");
+  const handleImport = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
 
-                // Avoid duplicates by appending a number
-                let finalName = name;
-                let counter = 1;
-                while (projects.find((p) => p.name === finalName)) {
-                    finalName = `${name} (${counter++})`;
-                }
+    try {
+      const data = parseJson(await file.text(), "Imported project");
+      const importedStore = Store.create({ productOverview: {} });
+      importedStore.import(data);
 
-                const id = crypto.randomUUID();
+      const baseName =
+        importedStore.productOverview.name?.trim() ||
+        file.name.replace(/\.json$/i, "");
+      let name = baseName;
+      let suffix = 1;
+      while (hasProjectName(projectList, name)) {
+        name = `${baseName} (${suffix})`;
+        suffix += 1;
+      }
 
-                const meta: ProjectMeta = {
-                    id,
-                    name: finalName,
-                    description: data.description?.slice(0, 200) ?? "",
-                    updatedAt: new Date().toISOString(),
-                };
+      const id = crypto.randomUUID();
+      const meta: ProjectMeta = {
+        id,
+        name,
+        description: importedStore.description.slice(0, 200),
+        updatedAt: new Date().toISOString(),
+      };
 
-                // Create a temporary store and use the import action to properly
-                // hydrate it, then save the full MST snapshot to localStorage
-                const tempStore = Store.create({ productOverview: {} });
-                tempStore.import(data);
-                saveProjectData(id, getSnapshot(tempStore));
+      const updatedProjects = [...projectList, meta];
+      saveProjectBundle(id, getSnapshot(importedStore), updatedProjects);
+      setProjects(updatedProjects);
+      setError(null);
+      onSelect(id, name);
+    } catch (importError) {
+      console.error("Could not import project.", importError);
+      setError("The selected file is not a valid Requireganizer project.");
+    }
+  };
 
-                const updated = [...projects, meta];
-                saveProjectsIndex(updated);
-                setProjects(updated);
-                onSelect(id, finalName);
-            } catch (error) {
-                console.error("Error importing project:", error);
+  return (
+    <Stack
+      sx={{
+        alignItems: "center",
+        py: 6,
+        gap: 4,
+        maxWidth: 700,
+        mx: "auto",
+      }}
+    >
+      <Typography variant="h3">Requireganizer</Typography>
+      <Typography variant="body1" sx={{ color: "text.secondary" }}>
+        Select a project to continue, or create a new one.
+      </Typography>
+
+      {error && (
+        <Alert severity="error" onClose={() => setError(null)} sx={{ width: "100%" }}>
+          {error}
+        </Alert>
+      )}
+
+      <Stack sx={{ gap: 2, width: "100%" }}>
+        {projectList.map((project) => (
+          <Card key={project.id} variant="outlined">
+            <CardContent>
+              <Typography variant="h6">{project.name}</Typography>
+              {project.description && (
+                <Typography
+                  variant="body2"
+                  sx={{
+                    color: "text.secondary",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {project.description}
+                </Typography>
+              )}
+              <Typography variant="caption" sx={{ color: "text.disabled" }}>
+                Last updated: {new Date(project.updatedAt).toLocaleString()}
+              </Typography>
+            </CardContent>
+            <CardActions>
+              <Button
+                component={Link}
+                href={`/project/${encodeURIComponent(project.id)}`}
+                startIcon={<FolderOpen />}
+                onClick={() => onSelect(project.id, project.name)}
+              >
+                Open
+              </Button>
+              <IconButton
+                size="small"
+                color="error"
+                aria-label={`Delete ${project.name}`}
+                onClick={() => setProjectToDelete(project)}
+                sx={{ ml: "auto" }}
+              >
+                <Delete />
+              </IconButton>
+            </CardActions>
+          </Card>
+        ))}
+
+        {projects === null ? (
+          <Typography
+            variant="body1"
+            sx={{ color: "text.secondary", textAlign: "center", py: 4 }}
+          >
+            Loading projects…
+          </Typography>
+        ) : projects.length === 0 ? (
+          <Typography
+            variant="body1"
+            sx={{ color: "text.secondary", textAlign: "center", py: 4 }}
+          >
+            No projects yet. Create one to get started.
+          </Typography>
+        ) : null}
+      </Stack>
+
+      <Stack direction="row" sx={{ gap: 2 }}>
+        <Button
+          variant="contained"
+          size="large"
+          startIcon={<Add />}
+          disabled={projects === null}
+          onClick={() => setDialogOpen(true)}
+        >
+          New Project
+        </Button>
+        <Button
+          variant="outlined"
+          size="large"
+          startIcon={<Upload />}
+          disabled={projects === null}
+          onClick={() => importInputRef.current?.click()}
+        >
+          Import Project
+        </Button>
+        <input
+          hidden
+          ref={importInputRef}
+          type="file"
+          accept=".json,application/json"
+          onChange={handleImport}
+        />
+      </Stack>
+
+      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)}>
+        <DialogTitle>New Project</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            fullWidth
+            error={newName.trim().length > 0 && hasProjectName(projectList, newName.trim())}
+            helperText={
+              newName.trim().length > 0 && hasProjectName(projectList, newName.trim())
+                ? "A project with this name already exists."
+                : undefined
             }
-        };
-        reader.readAsText(file);
+            label="Project Name"
+            value={newName}
+            onChange={(event) => setNewName(event.target.value)}
+            onKeyDown={(event) => event.key === "Enter" && handleCreate()}
+            sx={{ mt: 1 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={handleCreate}
+            disabled={!newName.trim() || hasProjectName(projectList, newName.trim())}
+          >
+            Create
+          </Button>
+        </DialogActions>
+      </Dialog>
 
-        if (importInputRef.current) importInputRef.current.value = "";
-    };
-
-    return (
-        <Stack
-            sx={{
-                alignItems: "center",
-                py: 6,
-                gap: 4,
-                maxWidth: 700,
-                mx: "auto"
-            }}>
-            <Typography variant="h3">Requireganizer</Typography>
-            <Typography variant="body1" sx={{
-                color: "text.secondary"
-            }}>
-                Select a project to continue, or create a new one.
-            </Typography>
-
-            <Stack
-                sx={{
-                    gap: 2,
-                    width: "100%"
-                }}>
-                {projects.map((project) => (
-                    <Card key={project.id} variant="outlined">
-                        <CardContent>
-                            <Typography variant="h6">{project.name}</Typography>
-                            {project.description && (
-                                <Typography
-                                    variant="body2"
-                                    sx={{
-                                        color: "text.secondary",
-                                        overflow: "hidden",
-                                        textOverflow: "ellipsis",
-                                        whiteSpace: "nowrap"
-                                    }}>
-                                    {project.description}
-                                </Typography>
-                            )}
-                            <Typography variant="caption" sx={{
-                                color: "text.disabled"
-                            }}>
-                                Last updated: {new Date(project.updatedAt).toLocaleString()}
-                            </Typography>
-                        </CardContent>
-                        <CardActions>
-                            <Button
-                                component={Link}
-                                href={`/project/${project.id}`}
-                                startIcon={<FolderOpen />}
-                                onClick={() => onSelect(project.id, project.name)}
-                            >
-                                Open
-                            </Button>
-                            <IconButton
-                                size="small"
-                                color="error"
-                                aria-label={`Delete ${project.name}`}
-                                onClick={() => handleDelete(project.id)}
-                                sx={{ ml: "auto" }}
-                            >
-                                <Delete />
-                            </IconButton>
-                        </CardActions>
-                    </Card>
-                ))}
-
-                {projects.length === 0 && (
-                    <Typography
-                        variant="body1"
-                        sx={{
-                            color: "text.secondary",
-                            textAlign: "center",
-                            py: 4
-                        }}>
-                        No projects yet. Create one to get started.
-                    </Typography>
-                )}
-            </Stack>
-
-            <Stack direction="row" sx={{
-                gap: 2
-            }}>
-                <Button
-                    variant="contained"
-                    size="large"
-                    startIcon={<Add />}
-                    onClick={() => setDialogOpen(true)}
-                >
-                    New Project
-                </Button>
-                <Button
-                    variant="outlined"
-                    size="large"
-                    startIcon={<Upload />}
-                    onClick={() => importInputRef.current?.click()}
-                >
-                    Import Project
-                </Button>
-                <input
-                    hidden
-                    ref={importInputRef}
-                    type="file"
-                    accept=".json"
-                    onChange={handleImport}
-                />
-            </Stack>
-
-            <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)}>
-                <DialogTitle>New Project</DialogTitle>
-                <DialogContent>
-                    <TextField
-                        autoFocus
-                        fullWidth
-                        label="Project Name"
-                        value={newName}
-                        onChange={(e) => setNewName(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && handleCreate()}
-                        sx={{ mt: 1 }}
-                    />
-                </DialogContent>
-                <DialogActions>
-                    <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
-                    <Button
-                        variant="contained"
-                        onClick={handleCreate}
-                        disabled={!newName.trim()}
-                    >
-                        Create
-                    </Button>
-                </DialogActions>
-            </Dialog>
-        </Stack>
-    );
-};
-
-export default ProjectSelector;
+      <Dialog
+        open={projectToDelete !== null}
+        onClose={() => setProjectToDelete(null)}
+      >
+        <DialogTitle>Delete project?</DialogTitle>
+        <DialogContent>
+          <Typography>
+            {projectToDelete == null
+              ? "This project will be permanently deleted."
+              : `“${projectToDelete.name}” and all of its generated data will be permanently deleted.`}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setProjectToDelete(null)}>Cancel</Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={() => projectToDelete && handleDelete(projectToDelete.id)}
+          >
+            Delete Project
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Stack>
+  );
+}

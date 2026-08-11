@@ -27,7 +27,7 @@ const CodeTabContent: React.FunctionComponent<{ step: Step }> = observer(
   ({ step }) => {
     const store = useStore();
 
-    if (!store.projectConfigLocked) {
+    if (!store.projectConfigLocked || store.isProjectConfigOutdated) {
       return (
         <Stack
           sx={{
@@ -39,7 +39,9 @@ const CodeTabContent: React.FunctionComponent<{ step: Step }> = observer(
           <Typography variant="h5" sx={{
             color: "text.secondary"
           }}>
-            Project scaffold has not been generated yet.
+            {store.isProjectConfigOutdated
+              ? "The generated project is out of date."
+              : "Project scaffold has not been generated yet."}
           </Typography>
           <Typography
             variant="body1"
@@ -47,13 +49,16 @@ const CodeTabContent: React.FunctionComponent<{ step: Step }> = observer(
               color: "text.secondary",
               textAlign: "center"
             }}>
-            Generate the project configuration and scaffold before writing{" "}
-            {step === Step.TestCode ? "test" : "application"} code.
+            {store.isProjectConfigOutdated
+              ? "The specification changed after the project configuration was generated. Regenerate it before continuing."
+              : `Generate the project configuration and scaffold before writing ${
+                step === Step.TestCode ? "test" : "application"
+              } code.`}
           </Typography>
           <Stack direction="row" sx={{
             gap: 2
           }}>
-            {store.projectConfig == null ? (
+            {store.projectConfig == null || store.isProjectConfigOutdated ? (
               <Button
                 variant="contained"
                 size="large"
@@ -64,7 +69,9 @@ const CodeTabContent: React.FunctionComponent<{ step: Step }> = observer(
                 }
                 onClick={() => store.generateProjectConfig()}
               >
-                Generate Project Config
+                {store.isProjectConfigOutdated
+                  ? "Regenerate Project Config"
+                  : "Generate Project Config"}
               </Button>
             ) : (
               <Button

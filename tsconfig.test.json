@@ -1,0 +1,25 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "allowJs": false,
+    "incremental": false,
+    "isolatedModules": false,
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "noEmit": false,
+    "outDir": ".test-dist",
+    "plugins": [],
+    "rootDir": "."
+  },
+  "include": [
+    "app/ai-harness/**/*.ts",
+    "app/lib/json.ts",
+    "app/lib/projectStorage.ts",
+    "app/lib/scaffold.ts",
+    "app/store/constants.ts",
+    "app/utilities.ts",
+    "app/utilities/testParser.ts",
+    "tests/**/*.ts"
+  ],
+  "exclude": ["node_modules"]
+}

@@ -5,7 +5,15 @@ import importPlugin from "eslint-plugin-import";
 /** @type {import("eslint").Linter.Config} */
 const config = [
   {
-    ignores: ["**/.wrangler/**", "**/.open-next/**", "**/.vercel/**", "**/.next/**"],
+    ignores: [
+      "**/.wrangler/**",
+      "**/.open-next/**",
+      "**/.vercel/**",
+      "**/.next/**",
+      "**/.test-dist/**",
+      "**/docs/.vitepress/cache/**",
+      "**/docs/.vitepress/dist/**",
+    ],
   },
   ...nextCoreWebVitals,
   {

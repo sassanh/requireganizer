@@ -1,108 +1,127 @@
-export const getCommentSyntax = (language: string): { prefix: string; suffix: string } => {
-    const lang = language.toLowerCase().trim();
+interface CommentSyntax {
+  prefix: string;
+  suffix: string;
+}
 
-    // Hash style comments
-    if (['python', 'ruby', 'bash', 'sh', 'shell', 'perl', 'r', 'yaml', 'yml'].includes(lang)) {
-        return { prefix: '#', suffix: '' };
-    }
+interface ScaffoldFileContent {
+  path: string;
+  content: string;
+}
 
-    // Dash style comments
-    if (['sql', 'haskell', 'lua', 'elm'].includes(lang)) {
-        return { prefix: '--', suffix: '' };
-    }
+const HASH_COMMENT_LANGUAGES = new Set([
+  "python",
+  "ruby",
+  "bash",
+  "sh",
+  "shell",
+  "perl",
+  "r",
+  "yaml",
+  "yml",
+]);
+const DASH_COMMENT_LANGUAGES = new Set(["sql", "haskell", "lua", "elm"]);
+const MARKUP_COMMENT_LANGUAGES = new Set(["html", "xml", "svg", "vue"]);
+const LISP_COMMENT_LANGUAGES = new Set(["lisp", "clojure", "scheme"]);
 
-    // HTML/XML style
-    if (['html', 'xml', 'svg', 'vue'].includes(lang)) {
-        return { prefix: '<!--', suffix: '-->' };
-    }
+export function getCommentSyntax(language: string): CommentSyntax {
+  const normalizedLanguage = language.toLowerCase().trim();
 
-    // Lisp style
-    if (['lisp', 'clojure', 'scheme'].includes(lang)) {
-        return { prefix: ';', suffix: '' };
-    }
+  if (HASH_COMMENT_LANGUAGES.has(normalizedLanguage)) {
+    return { prefix: "#", suffix: "" };
+  }
+  if (DASH_COMMENT_LANGUAGES.has(normalizedLanguage)) {
+    return { prefix: "--", suffix: "" };
+  }
+  if (MARKUP_COMMENT_LANGUAGES.has(normalizedLanguage)) {
+    return { prefix: "<!--", suffix: "-->" };
+  }
+  if (LISP_COMMENT_LANGUAGES.has(normalizedLanguage)) {
+    return { prefix: ";", suffix: "" };
+  }
+  return { prefix: "//", suffix: "" };
+}
 
-    // Default to C-style double slashes
-    return { prefix: '//', suffix: '' };
-};
+export function generateTestAnnotation(
+  language: string,
+  codeAndTitle: string,
+  id: string,
+  type: "beginning" | "end" | "scenario",
+): string {
+  const syntax = getCommentSyntax(language);
+  const suffix = syntax.suffix ? ` ${syntax.suffix}` : "";
+  return type === "scenario"
+    ? `${syntax.prefix} TSC-SCENARIO - ${id}${suffix}`
+    : `${syntax.prefix} ${codeAndTitle} - ${id} - ${type}${suffix}`;
+}
 
-export const generateTestAnnotation = (
-    language: string,
-    codeAndTitle: string,
-    uuid: string,
-    type: 'beginning' | 'end' | 'scenario'
-): string => {
-    const syntax = getCommentSyntax(language);
-    const suffix = syntax.suffix ? ` ${syntax.suffix}` : '';
-    return type === 'scenario'
-        ? `${syntax.prefix} TSC-SCENARIO - ${uuid}${suffix}`
-        : `${syntax.prefix} ${codeAndTitle} - ${uuid} - ${type}${suffix}`;
-};
+export function findScenarioFiles(
+  scaffoldFiles: ScaffoldFileContent[],
+  scenarioId: string,
+): ScaffoldFileContent[] {
+  return scaffoldFiles.filter((file) =>
+    file.content.includes(`TSC-SCENARIO - ${scenarioId}`),
+  );
+}
 
-export const findScenarioFile = (
-    scaffoldFiles: { path: string; content: string }[],
-    scenarioId: string
-) => {
-    return scaffoldFiles.filter(f => f.content.includes(`TSC-SCENARIO - ${scenarioId}`));
-};
+function escapeRegularExpression(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
-export const extractTestCaseCode = (
-    scaffoldFiles: { path: string; content: string }[],
-    scenarioId: string,
-    testCaseId: string,
-    language: string
-): string | null => {
-    // 1. Find the exact file with the in-file scenario UUID annotation
-    const files = findScenarioFile(scaffoldFiles, scenarioId);
-    if (files.length === 0) return null;
-    const file = files[0];
+export function extractTestCaseCode(
+  scaffoldFiles: ScaffoldFileContent[],
+  scenarioId: string,
+  testCaseId: string,
+  language: string,
+): string | null {
+  const [file] = findScenarioFiles(scaffoldFiles, scenarioId);
+  if (!file) return null;
 
-    // 2. Build the precise Regex for the language's comment syntax
-    const syntax = getCommentSyntax(language);
-
-    // Escape prefix and suffix for Regex
-    const escapeRegex = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const escapedPrefix = escapeRegex(syntax.prefix);
-    const escapedSuffix = syntax.suffix ? escapeRegex(' ' + syntax.suffix) : '';
-
-    // E.g., for JS: \/\/ .* - <uuid> - beginning\n([\s\S]*?)\/\/ .* - <uuid> - end
-    const regexSource = `${escapedPrefix}\\s*.*?\\s*-\\s*${testCaseId}\\s*-\\s*beginning${escapedSuffix}\\n([\\s\\S]*?)${escapedPrefix}\\s*.*?\\s*-\\s*${testCaseId}\\s*-\\s*end${escapedSuffix}`;
-    const regex = new RegExp(regexSource, 'i');
-
-    const match = file.content.match(regex);
-    if (match && match[1]) {
-        return match[1].trim();
-    }
-
-    return null;
-};
+  const syntax = getCommentSyntax(language);
+  const escapedPrefix = escapeRegularExpression(syntax.prefix);
+  const escapedSuffix = syntax.suffix
+    ? escapeRegularExpression(` ${syntax.suffix}`)
+    : "";
+  const escapedTestCaseId = escapeRegularExpression(testCaseId);
+  const annotation = `${escapedPrefix}\\s*.*?\\s*-\\s*${escapedTestCaseId}`;
+  const expression = new RegExp(
+    `${annotation}\\s*-\\s*beginning${escapedSuffix}\\r?\\n` +
+      `([\\s\\S]*?)${annotation}\\s*-\\s*end${escapedSuffix}`,
+    "i",
+  );
+  const match = file.content.match(expression);
+  return match?.[1]?.trim() || null;
+}
 
 export interface HydratableTestCase {
-    id: string;
-    lastGeneratedAt: number | null;
-    lastModifiedAt: number;
-    setLastGeneratedAt: (timestamp: number) => void;
+  id: string;
+  lastGeneratedAt: number | null;
+  lastModifiedAt: number;
+  setLastGeneratedAt: (timestamp: number) => void;
 }
 
 export interface HydratableTestScenario {
-    id: string;
-    testCases: HydratableTestCase[];
+  id: string;
+  testCases: HydratableTestCase[];
 }
 
-export const hydrateMissingLastGeneratedAt = (
-    testScenarios: HydratableTestScenario[],
-    scaffoldFiles: { path: string; content: string }[],
-    language: string
-) => {
-    const files = Array.from(scaffoldFiles);
+export function hydrateMissingLastGeneratedAt(
+  testScenarios: HydratableTestScenario[],
+  scaffoldFiles: ScaffoldFileContent[],
+  language: string,
+): void {
+  testScenarios.forEach((scenario) => {
+    scenario.testCases.forEach((testCase) => {
+      if (testCase.lastGeneratedAt != null) return;
 
-    testScenarios.forEach((scenario) => {
-        scenario.testCases.forEach((testCase) => {
-            if (!testCase.lastGeneratedAt) {
-                const code = extractTestCaseCode(files, scenario.id, testCase.id, language);
-                if (code) {
-                    testCase.setLastGeneratedAt(testCase.lastModifiedAt || Date.now());
-                }
-            }
-        });
+      const code = extractTestCaseCode(
+        scaffoldFiles,
+        scenario.id,
+        testCase.id,
+        language,
+      );
+      if (code) {
+        testCase.setLastGeneratedAt(testCase.lastModifiedAt || Date.now());
+      }
     });
-};
+  });
+}

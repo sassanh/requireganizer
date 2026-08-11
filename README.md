@@ -1,57 +1,54 @@
 # Requireganizer
 
-Requireganizer is a software application designed to facilitate an iterative software development process. It automates the generation of necessary documentation and code with the help of ChatGPT, a large language model trained by OpenAI.
+Requireganizer is an AI-assisted requirements and test-design workspace. It turns a project description into a traceable chain of product overview, user stories, requirements, acceptance criteria, test scenarios, test cases, executable tests, and a deterministic project scaffold.
 
-<img width="1055" alt="image" src="https://github.com/sassanh/requireganizer/assets/1270688/89a9873c-7b80-4ab0-a647-c2f246f42401">
+The AI harness is contract-first: each operation exposes one scoped OpenAI-compatible function, validates its arguments and engineering relationships, and applies successful proposals atomically.
 
-## Status
+## Documentation
 
-:warning: Requireganizer is currently under active development. Some features may not be fully implemented yet, or they may change in future updates. Please keep this in mind when using the application.
+Read the [project documentation](docs/index.md) for the complete workflow, architecture, harness contracts, prompt design, state invalidation, testing, environment, and deployment model.
 
-## Key Features
+The published site is available at [sassanh.github.io/requireganizer](https://sassanh.github.io/requireganizer/).
 
-- **Iterative Documentation Generation:** Converts a human-written software description into a formal product overview, generates user stories, requirements, acceptance criteria, test scenarios, and test cases.
+## Quick start
 
-- **Automated Code Generation:** Using the generated test scenarios, the application creates test code and generates the code required to satisfy those tests.
+Requirements:
 
-- **Retrospective Analysis:** Assists in running retrospectives to understand user concerns and facilitate updates in the specification for the next iteration.
-
-- **Consistency Check:** Throughout each iteration, Requireganizer utilizes ChatGPT to identify and highlight any inconsistencies in the generated material for user attention and potential correction.
-
-## Configuration
-
-This project uses environment variables for configuration.
-
-We provide an `.env.example` file in the repository as a template for all the environment variables used in the project. To use it, copy it to a new file named `.env.local`:
+- Node.js 22.13 or newer
+- pnpm 11
 
 ```bash
+pnpm install
 cp .env.example .env.local
-```
-
-Then, open .env.local and fill in your actual values.
-
-_Note: .env.local is listed in .gitignore and will not be checked into the git repository._
-
-## Usage
-
-Run the development server:
-
-```bash
 pnpm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the application running.
+Open [http://localhost:3000](http://localhost:3000).
 
-To use the application, provide a detailed description of the desired software. The application guides users through multiple steps, resulting in a iteration of the software development process. Each iteration includes the generation/modification of a requirements, user stories, acceptance criteria, test scenarios, test cases, test code, and application code.
+The default OpenCode Zen model can be used anonymously. Configure another OpenAI-compatible function-calling endpoint or model through `.env.local`; see the [environment reference](docs/reference/environment.md).
 
-## Contribution
+## Quality gate
 
-We welcome contributions to Requireganizer. Please read our [contributing guidelines](/CONTRIBUTING.md) before submitting a Pull Request.
+```bash
+pnpm run check
+```
+
+This runs linting, strict TypeScript checks, unit and harness contract tests, the production application build, and the production VitePress build. GitHub Actions runs the same gate for pushes to `main` and pull requests.
+
+To work on the docs locally:
+
+```bash
+pnpm run docs:dev
+```
+
+## Status
+
+Requireganizer remains under active development. Generated artifacts require human review, and the final application-code stage is an architectural destination rather than a complete autonomous implementation pipeline.
+
+## Contributing
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 
 ## License
 
-This project is licensed under the MIT License. See the [LICENSE](/LICENSE) file for details.
-
-## Contact
-
-If you have any questions or want to discuss something about the project, feel free to open an issue.
+Requireganizer is released under the [MIT License](LICENSE).

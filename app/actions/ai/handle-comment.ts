@@ -1,17 +1,22 @@
 "use server";
 import "server-only";
 
+import { runStructuredHarnessTask } from "actions/lib/harness";
 import {
-  AIModelError,
-  generateSystemPrompt,
-  queryAiModel,
-} from "actions/lib/prompts";
-import { ActionParameters, ActionReturnValue } from "lib/types";
+  buildFragmentRevisionPrompt,
+  buildSystemPrompt,
+} from "ai-harness/prompts";
+import { buildFragmentRevisionTool } from "ai-harness/tools";
+import { parseFragmentRevisionProposal } from "ai-harness/validation";
+import { parseJsonObject } from "lib/json";
+import { ActionParameters } from "lib/types";
 import {
   ENGINEER_ROLE_BY_STEP,
+  EngineerRole,
   STEP_BY_STRUCTURAL_FRAGMENT,
   StructuralFragment,
-} from "store";
+} from "store/constants";
+import { isEnumMember } from "utilities";
 
 export interface HandleCommentParameters extends ActionParameters {
   comment: string;
@@ -24,22 +29,35 @@ export async function handleComment({
   comment,
   structuralFragment,
   id,
-}: HandleCommentParameters): Promise<ActionReturnValue> {
-  try {
-    const result = await queryAiModel([
-      generateSystemPrompt(
-        ENGINEER_ROLE_BY_STEP[STEP_BY_STRUCTURAL_FRAGMENT[structuralFragment]],
-      ),
-      `current state: ${state}`,
-      `Regarding ${structuralFragment} with id ${id} consider this comment: """${comment}""".`,
-    ]);
-
-    return { functionCalls: result };
-  } catch (error) {
-    if (error instanceof AIModelError) {
-      throw error;
-    }
-    console.error(error);
-    throw new Error("Unexpected error while handling comment");
+}: HandleCommentParameters) {
+  const parsedState = parseJsonObject(state, "Project state");
+  if (!isEnumMember(structuralFragment, StructuralFragment)) {
+    throw new Error("Invalid structural fragment type.");
   }
+  if (comment.trim().length === 0 || id.trim().length === 0) {
+    throw new Error("A comment and fragment id are required.");
+  }
+
+  const operation = `revise ${structuralFragment.replaceAll("_", " ")}`;
+  const step = STEP_BY_STRUCTURAL_FRAGMENT[structuralFragment];
+  return runStructuredHarnessTask({
+    operation,
+    systemPrompt: buildSystemPrompt({
+      operation,
+      role:
+        ENGINEER_ROLE_BY_STEP[step][0] ?? EngineerRole.RequirementsEngineer,
+    }),
+    userPrompt: buildFragmentRevisionPrompt({
+      state: parsedState,
+      entityType: structuralFragment,
+      id,
+      comment,
+    }),
+    resultTool: buildFragmentRevisionTool(structuralFragment),
+    parseResult: (value) =>
+      parseFragmentRevisionProposal(value, {
+        expectedEntityType: structuralFragment,
+        expectedId: id,
+      }),
+  });
 }

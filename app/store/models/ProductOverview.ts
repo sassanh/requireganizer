@@ -2,6 +2,7 @@ import { cast, Instance, SnapshotIn, types } from "mobx-state-tree";
 
 import {
   Framework,
+  PROGRAMMING_LANGUAGE_BY_FRAMEWORK,
   ProgrammingLanguage,
   StructuralFragment,
 } from "store/constants";
@@ -82,12 +83,17 @@ export const ProductOverviewModel = types
     },
     get isComplete() {
       return (
-        self.name !== null &&
-        self.purpose !== null &&
+        (self.name?.trim().length ?? 0) > 0 &&
+        (self.purpose?.trim().length ?? 0) > 0 &&
         self.primaryFeatures.length > 0 &&
+        self.primaryFeatures.every(({ content }) => content.trim().length > 0) &&
         self.targetUsers.length > 0 &&
+        self.targetUsers.every(({ content }) => content.trim().length > 0) &&
         self.framework !== null &&
-        self.programmingLanguage !== null
+        self.programmingLanguage !== null &&
+        PROGRAMMING_LANGUAGE_BY_FRAMEWORK[self.framework].includes(
+          self.programmingLanguage,
+        )
       );
     },
   }));

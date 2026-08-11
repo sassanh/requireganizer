@@ -10,6 +10,18 @@ import {
 
 export type Reference = Instance<typeof ReferenceModel>;
 
+export interface ReferenceData {
+  id: string;
+  type: StructuralFragmentName;
+}
+
+export interface StructuralFragmentUpdate {
+  content?: string;
+  priority?: Priority;
+  references?: ReferenceData[];
+  dependencies?: string[];
+}
+
 export const ReferenceModel = types.model({
   id: types.string,
   type: types.enumeration(Object.values(StructuralFragmentName)),
@@ -37,7 +49,7 @@ const HalfStructuralFragmentModel = types
     setPriority(newPriority: Priority) {
       self.priority = newPriority;
     },
-    setReferences(newReferences: Reference[]) {
+    setReferences(newReferences: ReferenceData[]) {
       self.references = cast(newReferences);
     },
     setDependencies(newDependencies: string[]) {
@@ -48,12 +60,7 @@ const HalfStructuralFragmentModel = types
       priority,
       references,
       dependencies,
-    }: {
-      content?: string;
-      priority?: Priority;
-      references?: Reference[];
-      dependencies?: string[];
-    }) {
+    }: StructuralFragmentUpdate) {
       if (content !== undefined) self.content = content;
       if (priority !== undefined) self.priority = priority;
       if (references !== undefined)

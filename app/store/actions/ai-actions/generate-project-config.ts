@@ -3,22 +3,34 @@ import { toGenerator } from "mobx-state-tree";
 import { generateProjectConfig } from "actions/ai/generate-project-config";
 import { Step } from "store";
 
-import { generator } from "./utilities";
+import {
+  applyProjectConfigurationProposal,
+  consumeHarnessResult,
+  generator,
+} from "./utilities";
 
 export default generator(
-    function* (self) {
-        self.resetValidationErrors();
-        self.projectConfig = null;
-        self.projectConfigLocked = false;
+  function* (self) {
+    const result = yield* toGenerator(
+      generateProjectConfig({
+        state: self.json(Step.TestCases),
+      }),
+    );
 
-        const { config } = yield* toGenerator(
-            generateProjectConfig({
-                state: self.json(Step.TestCases),
-            }),
-        );
-
-        self.projectConfig = config;
-        self.isProjectConfigDialogOpen = true;
-    },
-    { requirements: ["description"] },
+    const config = consumeHarnessResult(self, result);
+    if (config == null) return;
+    applyProjectConfigurationProposal(self, config);
+  },
+  {
+    operation: "generate the project configuration",
+    requirements: [
+      "description",
+      "productOverview",
+      "userStories",
+      "requirements",
+      "acceptanceCriteria",
+      "testScenarios",
+    ],
+    requiredSteps: [Step.TestCases],
+  },
 );

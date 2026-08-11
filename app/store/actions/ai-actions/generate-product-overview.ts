@@ -1,29 +1,30 @@
-import { cast, toGenerator } from "mobx-state-tree";
+import { toGenerator } from "mobx-state-tree";
 
 import { generateProductOverview } from "actions/ai/generate-product-overview";
 import { Step } from "store";
 
-import { generator, handleFunctionCalls } from "./utilities";
+import {
+  applyProductOverviewProposal,
+  consumeHarnessResult,
+  generator,
+} from "./utilities";
 
 export default generator(
   function* (self) {
-    self.resetValidationErrors();
-
-    self.productOverview.name = null;
-    self.productOverview.purpose = null;
-    self.productOverview.primaryFeatures = cast([]);
-    self.productOverview.targetUsers = cast([]);
-    self.productOverview.framework = null;
-    self.productOverview.programmingLanguage = null;
-
-    const { functionCalls } = yield* toGenerator(
+    const result = yield* toGenerator(
       generateProductOverview({
         state: self.json(Step.ProductOverview),
       }),
     );
 
-    handleFunctionCalls(self, functionCalls);
+    const proposal = consumeHarnessResult(self, result);
+    if (proposal == null) return;
+    applyProductOverviewProposal(self, proposal);
     self.eventTarget.emit("stepUpdate", Step.ProductOverview);
   },
-  { requirements: ["description"] },
+  {
+    operation: "generate the product overview",
+    requirements: ["description"],
+    requiredSteps: [Step.Description],
+  },
 );

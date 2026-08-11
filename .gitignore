@@ -2,11 +2,13 @@
 
 # dependencies
 /node_modules
+/.pnpm-store
 /.pnp
 .pnp.js
 
 # testing
 /coverage
+/.test-dist
 
 # next.js
 /.next/
@@ -14,6 +16,8 @@
 
 # production
 /build
+/docs/.vitepress/dist
+/docs/.vitepress/cache
 
 # misc
 .DS_Store

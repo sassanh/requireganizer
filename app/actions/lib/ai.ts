@@ -1,27 +1,54 @@
 import OpenAI from "openai";
 import type { ChatCompletionCreateParamsNonStreaming } from "openai/resources/chat/completions";
 
-export const MODEL_FUNCTION_CALLING = "deepseek-v4-flash-free";
-export const MODEL_TEXT = "deepseek-v4-flash-free";
+import type {
+  ToolGenerationOptions,
+  ToolModelResponse,
+} from "ai-harness/runner";
 
-const BASE_URL = "https://opencode.ai/zen/v1";
+const DEFAULT_MODEL = "deepseek-v4-flash-free";
+const DEFAULT_BASE_URL = "https://opencode.ai/zen/v1";
+const DEFAULT_TIMEOUT_MS = 60_000;
+
+export const MODEL = process.env.AI_MODEL?.trim() || DEFAULT_MODEL;
+export const BASE_URL = process.env.AI_BASE_URL?.trim() || DEFAULT_BASE_URL;
+
+function requestTimeout(): number {
+  const configured = Number(process.env.AI_REQUEST_TIMEOUT_MS);
+  return Number.isFinite(configured) && configured >= 1_000
+    ? configured
+    : DEFAULT_TIMEOUT_MS;
+}
 
 // The OpenCode Zen gateway accepts `Authorization: Bearer public` as
 // anonymous access for the free models. An optional OPENCODE_API_KEY can be
 // used for higher rate limits.
 const ANONYMOUS_API_KEY = "public";
 
-export type AIChatCompletionParams = ChatCompletionCreateParamsNonStreaming & {
-  thinking?: { type: "enabled" | "disabled" };
+type ThinkingControl = {
+  thinking?: { type: "disabled" };
 };
+
+export type AIChatCompletionParams = ChatCompletionCreateParamsNonStreaming &
+  ThinkingControl;
+
+export interface ToolCompletionTarget {
+  model: string;
+  baseURL: string;
+}
 
 let client: OpenAI | null = null;
 
 export function getAIClient(): OpenAI {
   if (client == null) {
     client = new OpenAI({
-      apiKey: process.env.OPENCODE_API_KEY ?? ANONYMOUS_API_KEY,
+      apiKey:
+        process.env.AI_API_KEY?.trim() ||
+        process.env.OPENCODE_API_KEY?.trim() ||
+        ANONYMOUS_API_KEY,
       baseURL: BASE_URL,
+      maxRetries: 0,
+      timeout: requestTimeout(),
     });
   }
   return client;
@@ -43,20 +70,26 @@ function getErrorCode(error: unknown): string | undefined {
   return undefined;
 }
 
-function isTransientError(error: unknown): boolean {
+export function isTransientError(error: unknown): boolean {
+  if (error instanceof OpenAI.APIConnectionError) return true;
   if (error instanceof OpenAI.APIError && error.status != null) {
-    return false;
+    return (
+      [408, 409, 425, 429].includes(error.status) || error.status >= 500
+    );
   }
   const code = getErrorCode(error);
   return (
-    code === undefined ||
+    code !== undefined &&
     ["ENOTFOUND", "ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "ENETUNREACH"].includes(code)
   );
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function withRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
+export async function withRetry<T>(
+  fn: () => Promise<T>,
+  attempts = 3,
+): Promise<T> {
   let lastError: unknown;
   for (let attempt = 0; attempt < attempts; attempt++) {
     try {
@@ -64,7 +97,7 @@ async function withRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
     } catch (error) {
       lastError = error;
       if (attempt < attempts - 1 && isTransientError(error)) {
-        await sleep(500 * (attempt + 1));
+        await sleep(500 * 2 ** attempt);
       } else {
         throw error;
       }
@@ -79,33 +112,73 @@ export async function chatCompletion(
   return withRetry(() => getAIClient().chat.completions.create(params));
 }
 
-export async function generateText(
-  prompt: string,
-  options?: { system?: string; json?: boolean },
-): Promise<string> {
-  const completion = await chatCompletion({
-    model: MODEL_TEXT,
-    messages: [
-      ...(options?.system ? [{ role: "system" as const, content: options.system }] : []),
-      { role: "user", content: prompt },
-    ],
-    ...(options?.json ? { response_format: { type: "json_object" } } : {}),
-    thinking: { type: "disabled" },
-  });
+function requiresDisabledThinking({
+  model,
+  baseURL,
+}: ToolCompletionTarget): boolean {
+  if (model !== DEFAULT_MODEL) return false;
 
-  const message = completion.choices[0]?.message;
-  const reasoningContent = (
-    message as typeof message & { reasoning_content?: string }
-  ).reasoning_content;
-  return message?.content ?? reasoningContent ?? "";
+  try {
+    const url = new URL(baseURL);
+    return (
+      url.protocol === "https:" &&
+      url.hostname === "opencode.ai" &&
+      url.pathname.replace(/\/+$/, "") === "/zen/v1"
+    );
+  } catch {
+    return false;
+  }
 }
 
-export function stripMarkdownFences(
-  text: string,
-  language = "(?:json|jsonc|javascript)?",
-): string {
-  return text
-    .replace(new RegExp(`^\`\`\`${language}\\n?`, "i"), "")
-    .replace(/\n?```$/i, "")
-    .trim();
+export function buildToolCompletionParams(
+  prompt: string,
+  { system, tools }: ToolGenerationOptions,
+  target: ToolCompletionTarget = { model: MODEL, baseURL: BASE_URL },
+): AIChatCompletionParams {
+  return {
+    model: target.model,
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: prompt },
+    ],
+    tools: tools.map((tool) => ({
+      type: "function" as const,
+      function: tool,
+    })),
+    tool_choice: "required",
+    parallel_tool_calls: false,
+    ...(requiresDisabledThinking(target)
+      ? { thinking: { type: "disabled" as const } }
+      : {}),
+  };
+}
+
+type CompletionGenerator = (
+  params: AIChatCompletionParams,
+) => Promise<OpenAI.Chat.Completions.ChatCompletion>;
+
+export async function generateToolResponse(
+  prompt: string,
+  options: ToolGenerationOptions,
+  complete: CompletionGenerator = chatCompletion,
+): Promise<ToolModelResponse> {
+  const completion = await complete(buildToolCompletionParams(prompt, options));
+
+  const message = completion.choices[0]?.message;
+  const calls = (message?.tool_calls ?? []).map((toolCall) =>
+    toolCall.type === "function"
+      ? {
+        name: toolCall.function.name,
+        arguments: toolCall.function.arguments,
+      }
+      : {
+        name: `unsupported_${toolCall.type}`,
+        arguments: "{}",
+      },
+  );
+
+  return {
+    calls,
+    rawResponse: JSON.stringify(completion, null, 2),
+  };
 }

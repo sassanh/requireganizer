@@ -1,27 +1,26 @@
 "use client";
 import { ArrowBack } from "@mui/icons-material";
-import { Button, Divider, Stack, Typography } from "@mui/material";
+import { Alert, Button, Divider, Stack, Typography } from "@mui/material";
 import { observer } from "mobx-react-lite";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { Suspense, useEffect } from "react";
 
-import { Toolbar } from "components";
+import { Toolbar, ValidationErrorAlert } from "components";
+import { getProjectsIndex } from "lib/projectStorage";
 import { useProject } from "provider";
 import { Factory } from "screens";
-import { getProjectsIndex } from "screens/ProjectSelector";
-import { Framework, ProgrammingLanguage, Store, useStore } from "store";
-import {
-  AcceptanceCriteria,
-  Requirement,
-  TestScenario,
-  UserStory,
-} from "store/models";
-import { ProductOverview } from "store/models/ProductOverview";
+import { Store, useStore } from "store";
 
 function Home() {
   const store = useStore();
-  const { activeProject, selectProject, backToProjects } = useProject();
+  const {
+    activeProject,
+    persistenceError,
+    selectProject,
+    backToProjects,
+    clearPersistenceError,
+  } = useProject();
   const params = useParams();
   const router = useRouter();
 
@@ -50,23 +49,23 @@ function Home() {
     return null; // Return null while loading to avoid flashing the selector or empty state
   }
 
-  const handleImport = (data: {
-    programmingLanguage: ProgrammingLanguage;
-    framework: Framework;
-    description: string;
-    productOverview: ProductOverview;
-    userStories: UserStory[];
-    requirements: Requirement[];
-    acceptanceCriteria: AcceptanceCriteria[];
-    testScenarios: TestScenario[];
-  }) => {
-    store.import(data);
-  };
-
   return (
     <>
+      {persistenceError && (
+        <Alert
+          severity="warning"
+          onClose={clearPersistenceError}
+          sx={{ mb: 2 }}
+        >
+          {persistenceError}
+        </Alert>
+      )}
       {store.validationErrors ? (
-        <div className="validation-errors">{store.validationErrors}</div>
+        <ValidationErrorAlert
+          message={store.validationErrors}
+          details={store.validationErrorDetails}
+          onClose={store.resetValidationErrors}
+        />
       ) : null}
       <Stack
         direction="row"
@@ -92,7 +91,7 @@ function Home() {
         disabled={store.isBusy}
         exportCodeDisabled={!store.hasGeneratedScaffold}
         onExportCode={store.exportCode}
-        onImport={handleImport}
+        onImport={store.import}
         onExport={store.export}
         onReset={store.reset}
       />
@@ -104,4 +103,4 @@ function Home() {
   );
 }
 
-export default observer(Home as React.FC);
+export default observer(Home);

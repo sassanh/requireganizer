@@ -1,35 +1,28 @@
 "use server";
 import "server-only";
 
-import { generateText, stripMarkdownFences } from "actions/lib/ai";
+import { runStructuredHarnessTask } from "actions/lib/harness";
+import {
+  buildProjectConfigurationPrompt,
+  buildSystemPrompt,
+} from "ai-harness/prompts";
+import { buildProjectConfigurationTool } from "ai-harness/tools";
+import { parseProjectConfigurationProposal } from "ai-harness/validation";
+import { parseJsonObject } from "lib/json";
 import { ActionParameters } from "lib/types";
+import { EngineerRole } from "store/constants";
 
-export async function generateProjectConfig({
-    state,
-}: ActionParameters): Promise<{ config: string }> {
-    const parsed = JSON.parse(state);
-
-    const text = await generateText(`Based on the following project information, generate a project configuration as a JSONC (JSON with // comments) object.
-
-Project: ${parsed.productOverview?.name || "Unnamed"}
-Framework: ${parsed.productOverview?.framework || "Unknown"}
-Language: ${parsed.productOverview?.programmingLanguage || "Unknown"}
-Purpose: ${parsed.productOverview?.purpose || "Unknown"}
-
-Generate a JSONC configuration object that includes all parameters needed to set up the testing framework and relevant project settings.
-
-Rules:
-- For fields with known sane defaults, fill them in directly and add a comment explaining alternatives
-- Always include these fields: testFramework, packageManager
-- OMIT any fields related to output paths, directory paths, or file locations. The filesystem is virtual.
-- Include any framework-specific configuration fields relevant to the chosen framework and language
-- Add // comments explaining each field and available options
-- The output must be valid JSONC (JSON with // single-line comments)
-- Do NOT wrap in markdown code fences
-- Output ONLY the raw JSONC content, nothing else`);
-
-    // Strip markdown fences if the model added them
-    const cleaned = stripMarkdownFences(text);
-
-    return { config: cleaned };
+export async function generateProjectConfig({ state }: ActionParameters) {
+  const parsedState = parseJsonObject(state, "Project state");
+  const operation = "generate project configuration";
+  return runStructuredHarnessTask({
+    operation,
+    systemPrompt: buildSystemPrompt({
+      operation,
+      role: EngineerRole.SoftwareDeveloper,
+    }),
+    userPrompt: buildProjectConfigurationPrompt(parsedState),
+    resultTool: buildProjectConfigurationTool(),
+    parseResult: parseProjectConfigurationProposal,
+  });
 }

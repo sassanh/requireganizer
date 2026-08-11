@@ -11,21 +11,25 @@ import {
   loadProjectData,
   saveProjectData,
   saveProjectsIndex,
-} from "screens/ProjectSelector";
+} from "lib/projectStorage";
 import { Store, storeContext } from "store";
 
 import { theme } from "./theme";
 
 interface ProjectContextValue {
   activeProject: { id: string, name: string } | null;
+  persistenceError: string | null;
   selectProject: (id: string, name: string) => void;
   backToProjects: () => void;
+  clearPersistenceError: () => void;
 }
 
 const projectContext = createContext<ProjectContextValue>({
   activeProject: null,
+  persistenceError: null,
   selectProject: () => { },
   backToProjects: () => { },
+  clearPersistenceError: () => { },
 });
 
 export const useProject = () => useContext(projectContext);
@@ -34,6 +38,7 @@ let isStoreReloadNeeded = true;
 
 export default function Providers({ children }: { children: React.ReactNode }) {
   const [activeProject, setActiveProject] = useState<{ id: string, name: string } | null>(null);
+  const [persistenceError, setPersistenceError] = useState<string | null>(null);
   const [store, setStore] = useState(() => {
     isStoreReloadNeeded = false;
     return Store.create({ productOverview: {} });
@@ -49,16 +54,22 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     if (!activeProject) return;
 
     disposerRef.current = onSnapshot(store, (snapshot) => {
-      saveProjectData(activeProject.id, snapshot);
+      try {
+        saveProjectData(activeProject.id, snapshot);
 
-      const projects = getProjectsIndex();
-      const idx = projects.findIndex((p) => p.id === activeProject.id);
-      if (idx >= 0) {
-        projects[idx].description =
-          (snapshot as { description?: string }).description?.slice(0, 200) ??
-          "";
-        projects[idx].updatedAt = new Date().toISOString();
-        saveProjectsIndex(projects);
+        const projects = getProjectsIndex();
+        const index = projects.findIndex((project) => project.id === activeProject.id);
+        if (index >= 0) {
+          projects[index].description = snapshot.description.slice(0, 200);
+          projects[index].updatedAt = new Date().toISOString();
+          saveProjectsIndex(projects);
+        }
+        setPersistenceError(null);
+      } catch (error) {
+        console.error("Could not persist project changes.", error);
+        setPersistenceError(
+          "Changes could not be saved in browser storage. Export the project to avoid losing work.",
+        );
       }
     });
 
@@ -82,13 +93,20 @@ export default function Providers({ children }: { children: React.ReactNode }) {
       const data = loadProjectData(id);
       if (data) {
         try {
-          setStore(Store.create(data as Parameters<typeof Store.create>[0]));
-        } catch {
-          // If snapshot is corrupted, start fresh
+          const loadedStore = Store.create({ productOverview: {} });
+          loadedStore.import(data);
+          setStore(loadedStore);
+          setPersistenceError(null);
+        } catch (error) {
+          console.error("Stored project data is invalid.", error);
           setStore(Store.create({ productOverview: {} }));
+          setPersistenceError(
+            "The stored project was invalid, so a blank project was opened.",
+          );
         }
       } else {
         setStore(Store.create({ productOverview: {} }));
+        setPersistenceError(null);
       }
       setActiveProject({ id, name });
     },
@@ -97,10 +115,23 @@ export default function Providers({ children }: { children: React.ReactNode }) {
 
   const backToProjects = useCallback(() => {
     setActiveProject(null);
+    setPersistenceError(null);
+  }, []);
+
+  const clearPersistenceError = useCallback(() => {
+    setPersistenceError(null);
   }, []);
 
   return (
-    <projectContext.Provider value={{ activeProject, selectProject, backToProjects }}>
+    <projectContext.Provider
+      value={{
+        activeProject,
+        persistenceError,
+        selectProject,
+        backToProjects,
+        clearPersistenceError,
+      }}
+    >
       <storeContext.Provider value={store}>
         <AppRouterCacheProvider options={{}}>
           <ThemeProvider theme={theme}>

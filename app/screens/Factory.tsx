@@ -19,7 +19,11 @@ import { observer } from "mobx-react-lite";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import React, { useEffect } from "react";
 
-import { SectionHeader, StructuralFragments } from "components";
+import {
+  SectionHeader,
+  StructuralFragments,
+  TestCaseFragments,
+} from "components";
 import { STEP_LABELS, Status, Step, StructuralFragment, useStore } from "store";
 import { isEnumMember } from "utilities";
 
@@ -108,6 +112,7 @@ const Factory: React.FunctionComponent<FactoryProps> = ({ activeProject }) => {
                     justifyContent: "space-between",
                     color: {
                       [Status.Pending]: "text.disabled",
+                      [Status.Outdated]: "warning.main",
                       [Status.Completed]: "success.main",
                     }[status],
                   }}
@@ -138,18 +143,6 @@ const Factory: React.FunctionComponent<FactoryProps> = ({ activeProject }) => {
             <ProductOverview />
           </StyledTabPanel>
 
-          <StyledTabPanel value={Step.Requirements}>
-            <SectionHeader step={Step.Requirements} />
-            <StructuralFragments
-              fragments={store.requirements}
-              isDisabled={store.isBusy}
-              structuralFragment={StructuralFragment.Requirement}
-              onAddFragment={store.addRequirement}
-              onComment={store.handleComment}
-              onRemoveFragment={store.removeRequirement}
-            />
-          </StyledTabPanel>
-
           <StyledTabPanel value={Step.UserStories}>
             <SectionHeader step={Step.UserStories} />
             <StructuralFragments
@@ -159,6 +152,18 @@ const Factory: React.FunctionComponent<FactoryProps> = ({ activeProject }) => {
               onAddFragment={store.addUserStory}
               onComment={store.handleComment}
               onRemoveFragment={store.removeUserStory}
+            />
+          </StyledTabPanel>
+
+          <StyledTabPanel value={Step.Requirements}>
+            <SectionHeader step={Step.Requirements} />
+            <StructuralFragments
+              fragments={store.requirements}
+              isDisabled={store.isBusy}
+              structuralFragment={StructuralFragment.Requirement}
+              onAddFragment={store.addRequirement}
+              onComment={store.handleComment}
+              onRemoveFragment={store.removeRequirement}
             />
           </StyledTabPanel>
 
@@ -232,10 +237,9 @@ const Factory: React.FunctionComponent<FactoryProps> = ({ activeProject }) => {
                       >
                         Generate Test Cases
                       </Button>
-                      <StructuralFragments
+                      <TestCaseFragments
                         fragments={testScenario.testCases}
                         isDisabled={store.isBusy}
-                        structuralFragment={StructuralFragment.TestCase}
                         onAddFragment={testScenario.addTestCase}
                         onComment={store.handleComment}
                         onRemoveFragment={testScenario.removeTestCase}

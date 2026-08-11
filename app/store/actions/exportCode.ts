@@ -108,7 +108,6 @@ export const exportCode = (
                 saveAs(blob, `${projectName}.tar.gz`);
             } else if (format === "tar.bz2") {
                 const tar = createTar(files);
-                // @ts-expect-error Untyped dynamic import
                 const compressjs = await import("compressjs");
                 const bzip2 = compressjs.default?.Bzip2 || compressjs.Bzip2;
                 const compressed = bzip2.compressFile(tar);

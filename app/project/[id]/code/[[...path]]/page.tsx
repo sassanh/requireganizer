@@ -1,6 +1,6 @@
 "use client";
 
-import { Code , ArrowBack } from "@mui/icons-material";
+import { ArrowBack, Code } from "@mui/icons-material";
 import {
     Box,
     Button,
@@ -12,7 +12,58 @@ import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState, Suspense } from "react";
 
 import { CodeBlock, FileTree } from "components";
-import { loadProjectData } from "screens/ProjectSelector";
+import {
+    loadProjectData,
+    readStoredProjectView,
+    StoredProjectView,
+} from "lib/projectStorage";
+
+const EMPTY_PROJECT_VIEW: StoredProjectView = {
+    name: "",
+    scaffoldFiles: [],
+};
+
+function loadProjectView(projectId: string): StoredProjectView {
+    return readStoredProjectView(loadProjectData(projectId)) ?? EMPTY_PROJECT_VIEW;
+}
+
+function getCodeLanguage(path: string): string {
+    const extension = path.split(".").pop()?.toLowerCase();
+    switch (extension) {
+        case "ts":
+        case "tsx":
+            return "typescript";
+        case "js":
+        case "jsx":
+            return "javascript";
+        case "json":
+            return "json";
+        case "md":
+            return "markdown";
+        case "html":
+            return "html";
+        case "css":
+            return "css";
+        case "yml":
+        case "yaml":
+            return "yaml";
+        case "sh":
+            return "bash";
+        case "py":
+            return "python";
+        case "rs":
+            return "rust";
+        case "go":
+            return "go";
+        default:
+            return "text";
+    }
+}
+
+function getFileHref(projectId: string, path: string): string {
+    const encodedPath = path.split("/").map(encodeURIComponent).join("/");
+    return `/project/${encodeURIComponent(projectId)}/code/${encodedPath}`;
+}
 
 function CodeViewerContent() {
     const params = useParams();
@@ -20,28 +71,23 @@ function CodeViewerContent() {
     const projectId = params?.id as string;
     const pathArray = params?.path as string[] | undefined;
 
-    const [files, setFiles] = useState<{ path: string; content: string }[]>(
-        () => (loadProjectData(projectId)?.scaffoldFiles as { path: string; content: string }[] | undefined) || [],
-    );
-    const [projectName, setProjectName] = useState<string>(
-        () => (loadProjectData(projectId)?.productOverview as { name?: string } | undefined)?.name || "",
-    );
+    const [projectView, setProjectView] = useState<StoredProjectView | null>(null);
+    const { name: projectName, scaffoldFiles: files } =
+        projectView ?? EMPTY_PROJECT_VIEW;
 
-    const selectedFile = pathArray ? pathArray.map(decodeURIComponent).join("/") : null;
+    const selectedFile = pathArray ? pathArray.join("/") : null;
 
 
     const reloadData = useCallback(() => {
         if (!projectId) return;
-        const data = loadProjectData(projectId) as any;
-        if (data && data.productOverview) {
-            setProjectName(data.productOverview.name || "Unknown Project");
-        }
-        if (data && data.scaffoldFiles) {
-            setFiles(data.scaffoldFiles || []);
-        } else {
-            setFiles([]);
-        }
+        setProjectView(loadProjectView(projectId));
     }, [projectId]);
+
+    useEffect(() => {
+        // Browser storage is unavailable during server rendering.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        reloadData();
+    }, [reloadData]);
 
     useEffect(() => {
         // Listen to localStorage changes across tabs
@@ -57,43 +103,25 @@ function CodeViewerContent() {
 
     useEffect(() => {
         if (files.length > 0 && !selectedFile) {
-            router.replace(`/project/${projectId}/code/${files[0].path}`);
+            router.replace(getFileHref(projectId, files[0].path));
         }
     }, [files, selectedFile, projectId, router]);
 
-    if (!projectId || files.length === 0 && !projectName) {
+    if (projectView == null) {
+        return <Box sx={{ p: 3 }}>Loading code viewer…</Box>;
+    }
+
+    if (!projectId || (files.length === 0 && !projectName)) {
         return (
             <Box sx={{
                 p: 3
             }}>
-                <Typography color="error">Project not found or loading.</Typography>
+                <Typography color="error">Project not found.</Typography>
             </Box>
         );
     }
 
     const selectedFileContent = files.find((f) => f.path === selectedFile)?.content || "";
-
-    // Helper to determine language for CodeBlock based on file extension
-    const getLanguage = (path: string) => {
-        const ext = path.split(".").pop()?.toLowerCase();
-        switch (ext) {
-            case "ts":
-            case "tsx": return "typescript";
-            case "js":
-            case "jsx": return "javascript";
-            case "json": return "json";
-            case "md": return "markdown";
-            case "html": return "html";
-            case "css": return "css";
-            case "yml":
-            case "yaml": return "yaml";
-            case "sh": return "bash";
-            case "py": return "python";
-            case "rs": return "rust";
-            case "go": return "go";
-            default: return "text";
-        }
-    };
 
     return (
         <Stack direction="column" sx={{ height: "100vh", overflow: "hidden" }}>
@@ -144,7 +172,11 @@ function CodeViewerContent() {
                     </Typography>
                     <Divider />
                     <Box sx={{ flexGrow: 1, overflowY: "auto" }}>
-                        <FileTree files={files} selectedFile={selectedFile} onSelectFile={(path) => router.push(`/project/${projectId}/code/${path}`)} />
+                        <FileTree
+                            files={files}
+                            selectedFile={selectedFile}
+                            onSelectFile={(path) => router.push(getFileHref(projectId, path))}
+                        />
                     </Box>
                 </Box>
 
@@ -168,7 +200,10 @@ function CodeViewerContent() {
                                 {selectedFile}
                             </Stack>
                             <Box sx={{ flexGrow: 1, overflowY: "auto", p: 2 }}>
-                                <CodeBlock code={selectedFileContent} language={getLanguage(selectedFile)} />
+                                <CodeBlock
+                                    code={selectedFileContent}
+                                    language={getCodeLanguage(selectedFile)}
+                                />
                             </Box>
                         </>
                     ) : (

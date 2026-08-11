@@ -1,13 +1,12 @@
 import { Document, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
 import { observer } from "mobx-react-lite";
-import { SnapshotOut } from "mobx-state-tree";
 import React from "react";
 
 import { Store } from "store";
 import { extractTestCaseCode } from "utilities/testParser";
 
 interface PDFDocumentProps {
-  store: SnapshotOut<Store>;
+  store: Store;
 }
 
 const styles = StyleSheet.create({

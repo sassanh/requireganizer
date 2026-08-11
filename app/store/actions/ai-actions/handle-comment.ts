@@ -4,18 +4,20 @@ import { handleComment } from "actions/ai/handle-comment";
 import { STEP_BY_STRUCTURAL_FRAGMENT } from "store";
 import { StructuralFragment } from "store/models";
 
-import { generator, handleFunctionCalls } from "./utilities";
+import {
+  applyFragmentRevisionProposal,
+  consumeHarnessResult,
+  generator,
+} from "./utilities";
 
 export default generator(
   function* (
     self,
     { fragment, comment }: { fragment: StructuralFragment; comment: string },
   ) {
-    self.resetValidationErrors();
-
     const step = STEP_BY_STRUCTURAL_FRAGMENT[fragment.type];
 
-    const { functionCalls } = yield* toGenerator(
+    const result = yield* toGenerator(
       handleComment({
         state: self.json(step),
         structuralFragment: fragment.type,
@@ -24,9 +26,12 @@ export default generator(
       }),
     );
 
-    handleFunctionCalls(self, functionCalls);
+    const proposal = consumeHarnessResult(self, result);
+    if (proposal == null) return;
+    applyFragmentRevisionProposal(self, proposal);
   },
   {
+    operation: "apply the requested change",
     requirements: [],
   },
 );

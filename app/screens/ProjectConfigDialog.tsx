@@ -15,6 +15,8 @@ import { useStore } from "store";
 
 const ProjectConfigDialog: React.FunctionComponent = observer(() => {
   const store = useStore();
+  const isCurrentAndLocked =
+    store.projectConfigLocked && !store.isProjectConfigOutdated;
 
   if (store.projectConfig == null) return null;
 
@@ -42,16 +44,18 @@ const ProjectConfigDialog: React.FunctionComponent = observer(() => {
             color: "text.secondary",
             mb: 2
           }}>
-          {store.projectConfigLocked
+          {isCurrentAndLocked
             ? "Scaffold has been generated. Configuration is locked."
-            : "Review and fill in all <placeholder> values, then generate the scaffold."}
+            : store.isProjectConfigOutdated
+              ? "The specification changed. Regenerate this configuration before generating another scaffold."
+              : "Review the generated configuration, then generate the scaffold."}
         </Typography>
         <TextField
           multiline
           fullWidth
           value={store.projectConfig}
           onChange={(e) => store.setProjectConfig(e.target.value)}
-          disabled={store.projectConfigLocked || store.isBusy}
+          disabled={isCurrentAndLocked || store.isBusy}
           slotProps={{
             input: {
               sx: {
@@ -65,7 +69,7 @@ const ProjectConfigDialog: React.FunctionComponent = observer(() => {
         />
       </DialogContent>
       <DialogActions sx={{ p: 2 }}>
-        {store.projectConfigLocked ? (
+        {isCurrentAndLocked ? (
           <Button
             variant="outlined"
             color="success"
@@ -73,6 +77,16 @@ const ProjectConfigDialog: React.FunctionComponent = observer(() => {
             disabled
           >
             Scaffold Generated
+          </Button>
+        ) : store.isProjectConfigOutdated ? (
+          <Button
+            variant="contained"
+            color="warning"
+            startIcon={<Build />}
+            disabled={store.isBusy}
+            onClick={() => store.generateProjectConfig()}
+          >
+            Regenerate Configuration
           </Button>
         ) : (
           <Button
