@@ -6,35 +6,21 @@ import {
   StructuralFragment,
 } from "store/constants";
 
-import { StructuralFragmentModel } from "./StructuralFragment";
+import { createStructuralFragmentModel } from "./StructuralFragment";
 
 export type PrimaryFeature = Instance<typeof PrimaryFeatureModel>;
 
-export const PrimaryFeatureModel = types
-  .compose(
-    StructuralFragmentModel,
-    types.model({
-      type: types.optional(
-        types.literal(StructuralFragment.PrimaryFeature),
-        StructuralFragment.PrimaryFeature,
-      ),
-    }),
-  )
-  .named("PrimaryFeature");
+export const PrimaryFeatureModel = createStructuralFragmentModel(
+  "PrimaryFeature",
+  StructuralFragment.PrimaryFeature,
+);
 
 export type TargetUser = Instance<typeof TargetUserModel>;
 
-export const TargetUserModel = types
-  .compose(
-    StructuralFragmentModel,
-    types.model({
-      type: types.optional(
-        types.literal(StructuralFragment.TargetUser),
-        StructuralFragment.TargetUser,
-      ),
-    }),
-  )
-  .named("TargetUser");
+export const TargetUserModel = createStructuralFragmentModel(
+  "TargetUser",
+  StructuralFragment.TargetUser,
+);
 
 export type ProductOverview = Instance<typeof ProductOverviewModel>;
 

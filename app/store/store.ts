@@ -429,7 +429,7 @@ export const FlatStore = types
           : {}),
       };
     },
-    structuralFragmentsCache() {
+    get structuralFragmentsCache() {
       function extract(list: StructuralFragment[]) {
         return Object.fromEntries(
           list.map((fragment) => [fragment.id, fragment]),
@@ -442,19 +442,19 @@ export const FlatStore = types
         ...extract(self.userStories),
         ...extract(self.acceptanceCriteria),
         ...extract(self.testScenarios),
-        ...(Object.assign(
-          {},
-          ...self.testScenarios.map((testScenario) =>
-            extract(testScenario.testCases),
-          ),
-        ) as Record<string, StructuralFragment>),
+        ...extract(
+          self.testScenarios.flatMap(
+            (testScenario) => testScenario.testCases,
+          ) as StructuralFragment[],
+        ),
       };
     },
     getCode(id: string) {
-      return this.structuralFragmentsCache()[id].getCode();
+      return this.structuralFragmentsCache[id]?.getCode();
     },
     getPath(id: string) {
-      const fragment = this.structuralFragmentsCache()[id];
+      const fragment = this.structuralFragmentsCache[id];
+      if (!fragment) return undefined;
       return `?step=${STEP_BY_STRUCTURAL_FRAGMENT[fragment.type]}#${fragment.getCode()}`;
     },
     getStepStatus(step: Step) {

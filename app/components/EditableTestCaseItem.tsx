@@ -216,7 +216,7 @@ const EditableTestCaseItem = ({
                         <Fragment key={id}>
                             <Link
                                 scroll={false}
-                                href={`#${store.getCode(id)}`}
+                                href={store.getCode(id) ? `#${store.getCode(id)}` : "#"}
                                 underline="hover"
                             >
                                 {FRAGMENT_CODES[fragment.type]}-
@@ -234,8 +234,8 @@ const EditableTestCaseItem = ({
                     References:{" "}
                     {fragment.references.map((reference, index) => (
                         <Fragment key={reference.id}>
-                            <Link href={store.getPath(reference.id)} underline="hover">
-                                {store.getCode(reference.id)}
+                            <Link href={store.getPath(reference.id) ?? "#"} underline="hover">
+                                {store.getCode(reference.id) ?? reference.id}
                             </Link>
                             {index < fragment.references.length - 1 ? ", " : ""}
                         </Fragment>

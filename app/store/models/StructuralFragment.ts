@@ -83,3 +83,17 @@ export const StructuralFragmentModel = HalfStructuralFragmentModel.views(
     },
   }))
   .named("StructuralFragment");
+
+export function createStructuralFragmentModel<
+  Name extends string,
+  Type extends StructuralFragmentName,
+>(name: Name, type: Type) {
+  return types
+    .compose(
+      StructuralFragmentModel,
+      types.model({
+        type: types.optional(types.literal(type), type),
+      }),
+    )
+    .named(name);
+}

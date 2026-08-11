@@ -1,19 +1,12 @@
-import { Instance, types } from "mobx-state-tree";
+import { Instance } from "mobx-state-tree";
 
 import { StructuralFragment } from "store";
 
-import { StructuralFragmentModel } from "./StructuralFragment";
+import { createStructuralFragmentModel } from "./StructuralFragment";
+
+export const UserStoryModel = createStructuralFragmentModel(
+  "UserStory",
+  StructuralFragment.UserStory,
+);
 
 export type UserStory = Instance<typeof UserStoryModel>;
-
-export const UserStoryModel = types
-  .compose(
-    StructuralFragmentModel,
-    types.model({
-      type: types.optional(
-        types.literal(StructuralFragment.UserStory),
-        StructuralFragment.UserStory,
-      ),
-    }),
-  )
-  .named("UserStory");
