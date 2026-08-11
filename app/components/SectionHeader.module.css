@@ -1,22 +1,9 @@
 .header-previous {
-  grid-area: header-previous;
   display: flex;
   align-items: center;
-}
-
-.header-title {
-  grid-area: header-title;
-  display: flex;
-  align-items: center;
-  margin: 0;
-}
-
-.header-title * {
-  margin: 0;
 }
 
 .header-next {
-  grid-area: header-next;
   display: flex;
   flex-direction: row-reverse;
   align-items: center;

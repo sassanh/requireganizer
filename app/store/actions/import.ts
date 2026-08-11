@@ -6,7 +6,7 @@ import {
   UserStory,
 } from "store/models";
 import { ProductOverview } from "store/models/ProductOverview";
-import { extractTestCaseCode } from "utilities/testParser";
+import { hydrateMissingLastGeneratedAt } from "utilities/testParser";
 
 const import_ = (
   self_: unknown,
@@ -48,19 +48,11 @@ const import_ = (
     self.setScaffoldFiles(scaffoldFiles);
 
     // Legacy Migration: Auto-hydrate missing lastGeneratedAt hooks for old test cases
-    const files = Array.from(self.scaffoldFiles);
-    const lang = productOverview?.programmingLanguage || "typescript";
-
-    self.testScenarios.forEach((scenario) => {
-      scenario.testCases.forEach((testCase) => {
-        if (!testCase.lastGeneratedAt) {
-          const code = extractTestCaseCode(files, scenario.id, testCase.id, lang);
-          if (code) {
-            testCase.setLastGeneratedAt(testCase.lastModifiedAt || Date.now());
-          }
-        }
-      });
-    });
+    hydrateMissingLastGeneratedAt(
+      self.testScenarios,
+      Array.from(self.scaffoldFiles),
+      productOverview?.programmingLanguage || "typescript",
+    );
   }
 };
 

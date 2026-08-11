@@ -75,3 +75,34 @@ export const extractTestCaseCode = (
 
     return null;
 };
+
+export interface HydratableTestCase {
+    id: string;
+    lastGeneratedAt: number | null;
+    lastModifiedAt: number;
+    setLastGeneratedAt: (timestamp: number) => void;
+}
+
+export interface HydratableTestScenario {
+    id: string;
+    testCases: HydratableTestCase[];
+}
+
+export const hydrateMissingLastGeneratedAt = (
+    testScenarios: HydratableTestScenario[],
+    scaffoldFiles: { path: string; content: string }[],
+    language: string
+) => {
+    const files = Array.from(scaffoldFiles);
+
+    testScenarios.forEach((scenario) => {
+        scenario.testCases.forEach((testCase) => {
+            if (!testCase.lastGeneratedAt) {
+                const code = extractTestCaseCode(files, scenario.id, testCase.id, language);
+                if (code) {
+                    testCase.setLastGeneratedAt(testCase.lastModifiedAt || Date.now());
+                }
+            }
+        });
+    });
+};

@@ -29,17 +29,22 @@ export const TestCaseModel = types
     }
   }))
   .actions((self) => ({
+    touch() {
+      self.lastModifiedAt = Date.now();
+    },
+  }))
+  .actions((self) => ({
     setTitle(title: string) {
       self.title = title;
-      self.lastModifiedAt = Date.now();
+      self.touch();
     },
     setSteps(steps: string) {
       self.steps = steps;
-      self.lastModifiedAt = Date.now();
+      self.touch();
     },
     setExpectedResult(expectedResult: string) {
       self.expectedResult = expectedResult;
-      self.lastModifiedAt = Date.now();
+      self.touch();
     },
     setLastGeneratedAt(timestamp: number) {
       self.lastGeneratedAt = timestamp;
@@ -53,6 +58,15 @@ export const TestCaseModel = types
       if (data.references !== undefined) self.setReferences(data.references);
       if (data.dependencies !== undefined) self.setDependencies(data.dependencies);
       if (data.content !== undefined) self.setContent(data.content);
+
+      if (
+        data.priority !== undefined ||
+        data.references !== undefined ||
+        data.dependencies !== undefined ||
+        data.content !== undefined
+      ) {
+        self.touch();
+      }
     }
   }))
   .named("TestCase");

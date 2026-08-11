@@ -3,7 +3,7 @@
 import { IMSTArray, Instance, SnapshotIn, cast, types } from "mobx-state-tree";
 import { createContext, useContext } from "react";
 
-import { extractTestCaseCode } from "utilities/testParser";
+import { hydrateMissingLastGeneratedAt } from "utilities/testParser";
 
 import {
   export as export_,
@@ -489,6 +489,11 @@ export const FlatStore = types
           ).length > 0
             ? Status.Completed
             : Status.Pending;
+        case Step.Code:
+        case Step.TestCode:
+          return self.hasGeneratedScaffold
+            ? Status.Completed
+            : Status.Pending;
         default:
           return Status.Pending;
       }
@@ -503,19 +508,11 @@ export const FlatStore = types
     afterCreate() {
       // Legacy Migration: Auto-hydrate missing lastGeneratedAt hooks for old test cases
       if (self.scaffoldFiles.length > 0) {
-        const files = Array.from(self.scaffoldFiles);
-        const lang = self.productOverview?.programmingLanguage || "typescript";
-
-        self.testScenarios.forEach((scenario) => {
-          scenario.testCases.forEach((testCase) => {
-            if (!testCase.lastGeneratedAt) {
-              const code = extractTestCaseCode(files, scenario.id, testCase.id, lang);
-              if (code) {
-                testCase.setLastGeneratedAt(testCase.lastModifiedAt || Date.now());
-              }
-            }
-          });
-        });
+        hydrateMissingLastGeneratedAt(
+          self.testScenarios,
+          Array.from(self.scaffoldFiles),
+          self.productOverview?.programmingLanguage || "typescript",
+        );
       }
     }
   }));
