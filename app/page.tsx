@@ -1,8 +1,9 @@
 "use client";
+import { observer } from "mobx-react-lite";
 import { useRouter } from "next/navigation";
+
 import { useProject } from "provider";
 import ProjectSelector from "screens/ProjectSelector";
-import { observer } from "mobx-react-lite";
 
 function LandingPage() {
     const router = useRouter();

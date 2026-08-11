@@ -71,6 +71,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (isStoreReloadNeeded) {
       const snapshot = getSnapshot(store);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional one-time store reload
       setStore(Store.create(snapshot));
       isStoreReloadNeeded = false;
     }

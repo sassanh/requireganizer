@@ -1,13 +1,13 @@
 import { saveAs } from "file-saver";
 import JSZip from "jszip";
+import { Instance } from "mobx-state-tree";
 
 import { Store } from "store";
 import { ScaffoldFileModel } from "store/store";
-import { Instance } from "mobx-state-tree";
 
 type ScaffoldFile = Instance<typeof ScaffoldFileModel>;
 
-function createTar(files: ScaffoldFile[]): Uint8Array {
+function createTar(files: ScaffoldFile[]): Uint8Array<ArrayBuffer> {
     const out: Uint8Array[] = [];
     const encoder = new TextEncoder();
 
@@ -62,7 +62,7 @@ function createTar(files: ScaffoldFile[]): Uint8Array {
     out.push(new Uint8Array(1024)); // Two EOF blocks (1024 zero bytes)
 
     const totalLen = out.reduce((a, b) => a + b.length, 0);
-    const result = new Uint8Array(totalLen);
+    const result = new Uint8Array(new ArrayBuffer(totalLen));
     let offset = 0;
     for (const chunk of out) {
         result.set(chunk, offset);

@@ -16,7 +16,8 @@ import {
   ListItemIcon,
   ListItemText,
 } from "@mui/material";
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
+
 import { Framework, ProgrammingLanguage } from "store";
 import {
   AcceptanceCriteria,
@@ -52,7 +53,7 @@ const Toolbar: React.FunctionComponent<ToolbarProps> = ({
   onImport,
   onReset,
 }) => {
-  const [inputRef, setInputRef] = useState<HTMLInputElement | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const [exportCodeAnchorEl, setExportCodeAnchorEl] =
     useState<null | HTMLElement>(null);
   const [exportProjectAnchorEl, setExportProjectAnchorEl] =
@@ -99,13 +100,18 @@ const Toolbar: React.FunctionComponent<ToolbarProps> = ({
     };
     reader.readAsText(file);
 
-    if (inputRef != null) {
-      inputRef.value = "";
+    if (inputRef.current != null) {
+      inputRef.current.value = "";
     }
   };
 
   return (
-    <Stack direction="row" gap={1} flexWrap="wrap">
+    <Stack
+      direction="row"
+      sx={{
+        gap: 1,
+        flexWrap: "wrap"
+      }}>
       {/* --- Import & Reset Group --- */}
       <Button
         disabled={disabled}
@@ -121,7 +127,7 @@ const Toolbar: React.FunctionComponent<ToolbarProps> = ({
         color="secondary"
         variant="outlined"
         startIcon={<UploadFile />}
-        onClick={() => inputRef?.click()}
+        onClick={() => inputRef.current?.click()}
       >
         Import JSON
       </Button>
@@ -188,7 +194,7 @@ const Toolbar: React.FunctionComponent<ToolbarProps> = ({
 
       <input
         hidden
-        ref={setInputRef}
+        ref={inputRef}
         type="file"
         id="import-json"
         accept=".json"

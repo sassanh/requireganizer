@@ -18,9 +18,9 @@ import {
     TextField,
     Typography,
 } from "@mui/material";
-import React, { useState } from "react";
 import { getSnapshot } from "mobx-state-tree";
 import Link from "next/link";
+import React, { useRef, useState } from "react";
 
 import { Store } from "store";
 
@@ -80,7 +80,7 @@ const ProjectSelector: React.FunctionComponent<ProjectSelectorProps> = ({
     const [projects, setProjects] = useState<ProjectMeta[]>(getProjectsIndex);
     const [dialogOpen, setDialogOpen] = useState(false);
     const [newName, setNewName] = useState("");
-    const [importInputRef, setImportInputRef] = useState<HTMLInputElement | null>(null);
+    const importInputRef = useRef<HTMLInputElement>(null);
 
     const handleCreate = () => {
         const name = newName.trim();
@@ -154,17 +154,30 @@ const ProjectSelector: React.FunctionComponent<ProjectSelectorProps> = ({
         };
         reader.readAsText(file);
 
-        if (importInputRef) importInputRef.value = "";
+        if (importInputRef.current) importInputRef.current.value = "";
     };
 
     return (
-        <Stack alignItems="center" py={6} gap={4} sx={{ maxWidth: 700, mx: "auto" }}>
+        <Stack
+            sx={{
+                alignItems: "center",
+                py: 6,
+                gap: 4,
+                maxWidth: 700,
+                mx: "auto"
+            }}>
             <Typography variant="h3">Requireganizer</Typography>
-            <Typography variant="body1" color="text.secondary">
+            <Typography variant="body1" sx={{
+                color: "text.secondary"
+            }}>
                 Select a project to continue, or create a new one.
             </Typography>
 
-            <Stack gap={2} sx={{ width: "100%" }}>
+            <Stack
+                sx={{
+                    gap: 2,
+                    width: "100%"
+                }}>
                 {projects.map((project) => (
                     <Card key={project.id} variant="outlined">
                         <CardContent>
@@ -172,17 +185,18 @@ const ProjectSelector: React.FunctionComponent<ProjectSelectorProps> = ({
                             {project.description && (
                                 <Typography
                                     variant="body2"
-                                    color="text.secondary"
                                     sx={{
+                                        color: "text.secondary",
                                         overflow: "hidden",
                                         textOverflow: "ellipsis",
-                                        whiteSpace: "nowrap",
-                                    }}
-                                >
+                                        whiteSpace: "nowrap"
+                                    }}>
                                     {project.description}
                                 </Typography>
                             )}
-                            <Typography variant="caption" color="text.disabled">
+                            <Typography variant="caption" sx={{
+                                color: "text.disabled"
+                            }}>
                                 Last updated: {new Date(project.updatedAt).toLocaleString()}
                             </Typography>
                         </CardContent>
@@ -210,16 +224,19 @@ const ProjectSelector: React.FunctionComponent<ProjectSelectorProps> = ({
                 {projects.length === 0 && (
                     <Typography
                         variant="body1"
-                        color="text.secondary"
-                        textAlign="center"
-                        py={4}
-                    >
+                        sx={{
+                            color: "text.secondary",
+                            textAlign: "center",
+                            py: 4
+                        }}>
                         No projects yet. Create one to get started.
                     </Typography>
                 )}
             </Stack>
 
-            <Stack direction="row" gap={2}>
+            <Stack direction="row" sx={{
+                gap: 2
+            }}>
                 <Button
                     variant="contained"
                     size="large"
@@ -232,13 +249,13 @@ const ProjectSelector: React.FunctionComponent<ProjectSelectorProps> = ({
                     variant="outlined"
                     size="large"
                     startIcon={<Upload />}
-                    onClick={() => importInputRef?.click()}
+                    onClick={() => importInputRef.current?.click()}
                 >
                     Import Project
                 </Button>
                 <input
                     hidden
-                    ref={setImportInputRef}
+                    ref={importInputRef}
                     type="file"
                     accept=".json"
                     onChange={handleImport}

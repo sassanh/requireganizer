@@ -158,9 +158,14 @@ export const FileTree = ({ files, selectedFile, onSelectFile }: FileTreeProps) =
 
     if (files.length === 0) {
         return (
-            <Typography variant="body2" color="text.secondary" sx={{ p: 2, fontStyle: "italic" }}>
-                No files generated yet.
-            </Typography>
+            <Typography
+                variant="body2"
+                sx={{
+                    color: "text.secondary",
+                    p: 2,
+                    fontStyle: "italic"
+                }}>No files generated yet.
+                            </Typography>
         );
     }
 

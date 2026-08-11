@@ -1,28 +1,17 @@
-/// <reference path="./eslint-types.d.ts" />
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-
-import { FlatCompat } from "@eslint/eslintrc";
-import js from "@eslint/js";
+import nextCoreWebVitals from "eslint-config-next/core-web-vitals";
 import etc from "eslint-plugin-etc";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const compat = new FlatCompat({
-  baseDirectory: __dirname,
-  recommendedConfig: js.configs.recommended,
-  allConfig: js.configs.all,
-});
+import importPlugin from "eslint-plugin-import";
 
 /** @type {import("eslint").Linter.Config} */
 const config = [
   {
-    ignores: ["**/.wrangler/**", "**/.open-next/**"],
+    ignores: ["**/.wrangler/**", "**/.open-next/**", "**/.vercel/**", "**/.next/**"],
   },
-  ...compat.extends("next/core-web-vitals"),
+  ...nextCoreWebVitals,
   {
     plugins: {
       etc,
+      import: importPlugin,
     },
 
     rules: {

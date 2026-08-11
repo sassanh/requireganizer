@@ -27,7 +27,13 @@ const StructuralFragments = <Type extends StructuralFragment>({
   onRemoveFragment,
 }: StructuralFragmentsProps<Type>): React.ReactElement => {
   return (
-    <Stack component={Paper} p={1} gap={1} variant="outlined">
+    <Stack
+      component={Paper}
+      variant="outlined"
+      sx={{
+        p: 1,
+        gap: 1
+      }}>
       {fragments.map((fragment, index) => (
         <Fragment key={fragment.id}>
           {structuralFragment === StructuralFragmentEnum.TestCase ? (

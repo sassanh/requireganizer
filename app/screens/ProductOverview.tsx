@@ -25,7 +25,9 @@ const ProductOverview: React.FunctionComponent = () => {
   );
 
   return (
-    <Stack gap={2}>
+    <Stack sx={{
+      gap: 2
+    }}>
       <TextField
         fullWidth
         label="Name"
@@ -40,7 +42,9 @@ const ProductOverview: React.FunctionComponent = () => {
         onChange={(event) => store.setPurpose({ purpose: event.target.value })}
       />
       <Divider />
-      <Stack direction="row" gap={2}>
+      <Stack direction="row" sx={{
+        gap: 2
+      }}>
         <Select
           fullWidth
           label="Framework"

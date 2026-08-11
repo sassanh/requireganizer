@@ -1,4 +1,3 @@
-import ProductOverview from "./ProductOverview";
 import {
   Build,
   CheckBox,
@@ -8,9 +7,7 @@ import {
   NewReleases,
   Timer,
   Visibility,
-} from "@mui/icons-material";
-import { Circle, ErrorOutline } from "@mui/icons-material";
-import { Refresh } from "@mui/icons-material";
+ Circle, ErrorOutlined , Refresh } from "@mui/icons-material";
 import { TabContext, TabList, TabPanel, TabPanelProps } from "@mui/lab";
 import {
   Accordion,
@@ -29,14 +26,16 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { SectionHeader, StructuralFragments } from "components";
-import { CodeBlock, CommentButton } from "components";
 import { observer } from "mobx-react-lite";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import React, { useEffect } from "react";
+
+import { CodeBlock, CommentButton , SectionHeader, StructuralFragments } from "components";
 import { STEP_LABELS, Status, Step, StructuralFragment, useStore } from "store";
 import { isEnumMember } from "utilities";
 import { extractTestCaseCode } from "utilities/testParser";
+
+import ProductOverview from "./ProductOverview";
 
 function StyledTabPanel({ sx, ...props }: TabPanelProps) {
   return (
@@ -75,7 +74,12 @@ const ProjectConfigDialog: React.FunctionComponent = observer(() => {
         </IconButton>
       </DialogTitle>
       <DialogContent dividers>
-        <Typography variant="body2" color="text.secondary" mb={2}>
+        <Typography
+          variant="body2"
+          sx={{
+            color: "text.secondary",
+            mb: 2
+          }}>
           {store.projectConfigLocked
             ? "Scaffold has been generated. Configuration is locked."
             : "Review and fill in all <placeholder> values, then generate the scaffold."}
@@ -130,15 +134,30 @@ const CodeTabContent: React.FunctionComponent<{ step: Step }> = observer(
 
     if (!store.projectConfigLocked) {
       return (
-        <Stack alignItems="center" justifyContent="center" gap={3} py={8}>
-          <Typography variant="h5" color="text.secondary">
+        <Stack
+          sx={{
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 3,
+            py: 8
+          }}>
+          <Typography variant="h5" sx={{
+            color: "text.secondary"
+          }}>
             Project scaffold has not been generated yet.
           </Typography>
-          <Typography variant="body1" color="text.secondary" textAlign="center">
+          <Typography
+            variant="body1"
+            sx={{
+              color: "text.secondary",
+              textAlign: "center"
+            }}>
             Generate the project configuration and scaffold before writing{" "}
             {step === Step.TestCode ? "test" : "application"} code.
           </Typography>
-          <Stack direction="row" gap={2}>
+          <Stack direction="row" sx={{
+            gap: 2
+          }}>
             {store.projectConfig == null ? (
               <Button
                 variant="contained"
@@ -170,8 +189,15 @@ const CodeTabContent: React.FunctionComponent<{ step: Step }> = observer(
 
     if (step === Step.TestCode) {
       return (
-        <Stack gap={1}>
-          <Stack direction="row" justifyContent="flex-end" mb={1}>
+        <Stack sx={{
+          gap: 1
+        }}>
+          <Stack
+            direction="row"
+            sx={{
+              justifyContent: "flex-end",
+              mb: 1
+            }}>
             <Button
               variant="outlined"
               size="small"
@@ -190,29 +216,33 @@ const CodeTabContent: React.FunctionComponent<{ step: Step }> = observer(
               <AccordionSummary>
                 <Stack
                   direction="row"
-                  alignItems="center"
-                  justifyContent="space-between"
-                  sx={{ width: "100%", pr: 2 }}
-                  gap={2}
-                >
+                  sx={{
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 2,
+                    width: "100%",
+                    pr: 2
+                  }}>
                   <Typography variant="h6" sx={{ flexGrow: 1, pr: 2 }}>
                     {testScenario.content}
                   </Typography>
                   {/* Progressive Status Bar (Aligned Right) */}
                   <Stack
-                    alignItems="flex-end"
                     sx={{
+                      alignItems: "flex-end",
                       flexShrink: 0,
                       minWidth: 120,
                       width: "16%",
-                      maxWidth: 200,
-                    }}
-                  >
+                      maxWidth: 200
+                    }}>
                     <Typography
                       variant="caption"
-                      color="text.secondary"
-                      sx={{ mb: 0.5, lineHeight: 1, whiteSpace: "nowrap" }}
-                    >
+                      sx={{
+                        color: "text.secondary",
+                        mb: 0.5,
+                        lineHeight: 1,
+                        whiteSpace: "nowrap"
+                      }}>
                       {testScenario.scenarioTestStatuses["generated-count"]} out
                       of {testScenario.scenarioTestStatuses["total-count"]}
                     </Typography>
@@ -253,7 +283,9 @@ const CodeTabContent: React.FunctionComponent<{ step: Step }> = observer(
                 </Stack>
               </AccordionSummary>
               <AccordionDetails>
-                <Stack gap={1}>
+                <Stack sx={{
+                  gap: 1
+                }}>
                   {testScenario.testCases.map((testCase) => (
                     <Accordion
                       component={Stack}
@@ -278,11 +310,13 @@ const CodeTabContent: React.FunctionComponent<{ step: Step }> = observer(
                       <AccordionSummary>
                         <Stack
                           direction="row"
-                          alignItems="center"
-                          justifyContent="space-between"
-                          sx={{ width: "100%", pr: 2 }}
-                          gap={2}
-                        >
+                          sx={{
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            gap: 2,
+                            width: "100%",
+                            pr: 2
+                          }}>
                           <Typography variant="body1">
                             <strong>{testCase.title}</strong>
                           </Typography>
@@ -294,7 +328,7 @@ const CodeTabContent: React.FunctionComponent<{ step: Step }> = observer(
                                 sx={{ fontSize: 20 }}
                               />
                             ) : testCase.testStatus === "out-of-sync" ? (
-                              <ErrorOutline
+                              <ErrorOutlined
                                 color="warning"
                                 sx={{ fontSize: 20 }}
                               />
@@ -311,7 +345,9 @@ const CodeTabContent: React.FunctionComponent<{ step: Step }> = observer(
                         </Stack>
                       </AccordionSummary>
                       <AccordionDetails>
-                        <Stack gap={2}>
+                        <Stack sx={{
+                          gap: 2
+                        }}>
                           <Box>
                             <Typography
                               variant="body2"
@@ -359,7 +395,9 @@ const CodeTabContent: React.FunctionComponent<{ step: Step }> = observer(
                                 Generate Test Code
                               </Button>
                             ) : (
-                              <Stack gap={2}>
+                              <Stack sx={{
+                                gap: 2
+                              }}>
                                 <CodeBlock
                                   code={testCaseCode}
                                   language={
@@ -367,7 +405,9 @@ const CodeTabContent: React.FunctionComponent<{ step: Step }> = observer(
                                     "typescript"
                                   }
                                 />
-                                <Stack direction="row" gap={1}>
+                                <Stack direction="row" sx={{
+                                  gap: 1
+                                }}>
                                   <Button
                                     variant="outlined"
                                     startIcon={<Refresh />}
@@ -408,8 +448,16 @@ const CodeTabContent: React.FunctionComponent<{ step: Step }> = observer(
     }
 
     return (
-      <Stack alignItems="center" justifyContent="center" gap={3} py={8}>
-        <Typography variant="h5" color="text.secondary">
+      <Stack
+        sx={{
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 3,
+          py: 8
+        }}>
+        <Typography variant="h5" sx={{
+          color: "text.secondary"
+        }}>
           Application code generation coming soon.
         </Typography>
       </Stack>
@@ -451,7 +499,13 @@ const Factory: React.FunctionComponent<FactoryProps> = ({ activeProject }) => {
   return (
     <Stack direction="row" sx={{ minHeight: 0, flexGrow: 1 }}>
       <TabContext value={step}>
-        <Stack direction="row" gap={2} sx={{ flexGrow: 1, minWidth: 0 }}>
+        <Stack
+          direction="row"
+          sx={{
+            gap: 2,
+            flexGrow: 1,
+            minWidth: 0
+          }}>
           <TabList
             variant="scrollable"
             orientation="vertical"
@@ -557,7 +611,9 @@ const Factory: React.FunctionComponent<FactoryProps> = ({ activeProject }) => {
 
           <StyledTabPanel value={Step.TestCases}>
             <SectionHeader step={Step.TestCases} />
-            <Stack gap={1}>
+            <Stack sx={{
+              gap: 1
+            }}>
               {store.testScenarios.map((testScenario) => (
                 <Accordion
                   component={Stack}
@@ -567,23 +623,24 @@ const Factory: React.FunctionComponent<FactoryProps> = ({ activeProject }) => {
                   <AccordionSummary>
                     <Stack
                       direction="row"
-                      alignItems="center"
-                      justifyContent="space-between"
-                      sx={{ width: "100%", pr: 2 }}
-                      gap={2}
-                    >
+                      sx={{
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 2,
+                        width: "100%",
+                        pr: 2
+                      }}>
                       <Typography variant="h6" sx={{ flexGrow: 1, pr: 2 }}>
                         {testScenario.content}
                       </Typography>
                       <Typography
                         variant="caption"
-                        color="text.secondary"
                         sx={{
+                          color: "text.secondary",
                           flexShrink: 0,
                           whiteSpace: "nowrap",
-                          textAlign: "right",
-                        }}
-                      >
+                          textAlign: "right"
+                        }}>
                         {testScenario.testCases.length} Test Cases
                       </Typography>
                     </Stack>

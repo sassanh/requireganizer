@@ -1,12 +1,13 @@
 "use client";
 import { ArrowBack } from "@mui/icons-material";
 import { Button, Divider, Stack, Typography } from "@mui/material";
-import { Toolbar } from "components";
 import { observer } from "mobx-react-lite";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useProject } from "provider";
 import { Suspense, useEffect } from "react";
+
+import { Toolbar } from "components";
+import { useProject } from "provider";
 import { Factory } from "screens";
 import { getProjectsIndex } from "screens/ProjectSelector";
 import { Framework, ProgrammingLanguage, Store, useStore } from "store";
@@ -68,7 +69,12 @@ function Home() {
       {store.validationErrors ? (
         <div className="validation-errors">{store.validationErrors}</div>
       ) : null}
-      <Stack direction="row" alignItems="center" gap={2}>
+      <Stack
+        direction="row"
+        sx={{
+          alignItems: "center",
+          gap: 2
+        }}>
         <Button
           component={Link}
           href="/"

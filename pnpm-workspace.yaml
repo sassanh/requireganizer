@@ -1,5 +1,17 @@
 allowBuilds:
+  '@google/genai': true
   esbuild: true
   protobufjs: true
   sharp: true
   workerd: true
+minimumReleaseAgeExclude:
+  - '@shikijs/core@4.4.3'
+  - '@shikijs/engine-javascript@4.4.3'
+  - '@shikijs/engine-oniguruma@4.4.3'
+  - '@shikijs/langs@4.4.3'
+  - '@shikijs/primitive@4.4.3'
+  - '@shikijs/themes@4.4.3'
+  - '@shikijs/types@4.4.3'
+  - miniflare@5.20260804.0-alpha
+  - shiki@4.4.3
+  - wrangler@4.120.1

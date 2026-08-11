@@ -47,14 +47,20 @@ const Header: React.FunctionComponent<HeaderProps> = ({
   }, [store, nextStepGeneratorAction]);
 
   return (
-    <Stack gap={2} mb={2}>
+    <Stack
+      sx={{
+        gap: 2,
+        mb: 2
+      }}>
       {store.systemMessage && (
         <Alert>
           <AlertTitle>Needs Action!</AlertTitle>
           <div>{store.systemMessage}</div>
         </Alert>
       )}
-      <Stack direction="row" justifyContent="space-between">
+      <Stack direction="row" sx={{
+        justifyContent: "space-between"
+      }}>
         <div className={css.headerPrevious}>
           {currentStepGeneratorAction != null ? (
             <Button
@@ -83,7 +89,9 @@ const Header: React.FunctionComponent<HeaderProps> = ({
           ) : null}
         </div>
       </Stack>
-      <Typography variant="h3" alignSelf="center">
+      <Typography variant="h3" sx={{
+        alignSelf: "center"
+      }}>
         {STEP_LABELS[step]}
       </Typography>
     </Stack>

@@ -1,8 +1,6 @@
 "use client";
 
-import { Code } from "@mui/icons-material";
-
-import { ArrowBack } from "@mui/icons-material";
+import { Code , ArrowBack } from "@mui/icons-material";
 import {
     Box,
     Button,
@@ -10,8 +8,8 @@ import {
     Stack,
     Typography,
 } from "@mui/material";
-import { useEffect, useState, Suspense } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { useCallback, useEffect, useState, Suspense } from "react";
 
 import { CodeBlock, FileTree } from "components";
 import { loadProjectData } from "screens/ProjectSelector";
@@ -22,13 +20,17 @@ function CodeViewerContent() {
     const projectId = params?.id as string;
     const pathArray = params?.path as string[] | undefined;
 
-    const [files, setFiles] = useState<{ path: string; content: string }[]>([]);
-    const [projectName, setProjectName] = useState<string>("");
+    const [files, setFiles] = useState<{ path: string; content: string }[]>(
+        () => (loadProjectData(projectId)?.scaffoldFiles as { path: string; content: string }[] | undefined) || [],
+    );
+    const [projectName, setProjectName] = useState<string>(
+        () => (loadProjectData(projectId)?.productOverview as { name?: string } | undefined)?.name || "",
+    );
 
     const selectedFile = pathArray ? pathArray.map(decodeURIComponent).join("/") : null;
 
 
-    const reloadData = () => {
+    const reloadData = useCallback(() => {
         if (!projectId) return;
         const data = loadProjectData(projectId) as any;
         if (data && data.productOverview) {
@@ -39,12 +41,9 @@ function CodeViewerContent() {
         } else {
             setFiles([]);
         }
-    };
+    }, [projectId]);
 
     useEffect(() => {
-        // Initial load
-        reloadData();
-
         // Listen to localStorage changes across tabs
         const handleStorageChange = (e: StorageEvent) => {
             if (e.key === `requireganizer:project:${projectId}`) {
@@ -54,7 +53,7 @@ function CodeViewerContent() {
 
         window.addEventListener("storage", handleStorageChange);
         return () => window.removeEventListener("storage", handleStorageChange);
-    }, [projectId]);
+    }, [projectId, reloadData]);
 
     useEffect(() => {
         if (files.length > 0 && !selectedFile) {
@@ -64,7 +63,9 @@ function CodeViewerContent() {
 
     if (!projectId || files.length === 0 && !projectName) {
         return (
-            <Box p={3}>
+            <Box sx={{
+                p: 3
+            }}>
                 <Typography color="error">Project not found or loading.</Typography>
             </Box>
         );
@@ -99,18 +100,19 @@ function CodeViewerContent() {
             {/* Top Bar */}
             <Stack
                 direction="row"
-                alignItems="center"
-                gap={2}
                 sx={{
+                    alignItems: "center",
+                    gap: 2,
                     px: 2,
                     py: 1,
                     borderBottom: "1px solid",
                     borderColor: "divider",
-                    bgcolor: "background.paper",
-                }}
-            >
+                    bgcolor: "background.paper"
+                }}>
                 <Typography variant="h6" sx={{ flexGrow: 1, display: "flex", alignItems: "center", gap: 1 }}>
-                    <Code /> {projectName} <Typography variant="caption" color="text.secondary">— Code Viewer</Typography>
+                    <Code /> {projectName} <Typography variant="caption" sx={{
+                    color: "text.secondary"
+                }}>— Code Viewer</Typography>
                 </Typography>
                 <Button
                     variant="outlined"
@@ -182,7 +184,9 @@ function CodeViewerContent() {
 
 export default function CodeViewerPage() {
     return (
-        <Suspense fallback={<Box p={3}>Loading Code Viewer...</Box>}>
+        <Suspense fallback={<Box sx={{
+            p: 3
+        }}>Loading Code Viewer...</Box>}>
             <CodeViewerContent />
         </Suspense>
     );

@@ -1,8 +1,10 @@
-import { generator, handleFunctionCalls } from "./utilities";
-import { generateStructuralFragment } from "actions/ai/generate-structural-fragment";
 import { toGenerator } from "mobx-state-tree";
+
+import { generateStructuralFragment } from "actions/ai/generate-structural-fragment";
 import { Step, StructuralFragment } from "store";
 import { TestScenario } from "store/models";
+
+import { generator, handleFunctionCalls } from "./utilities";
 
 export default generator(
   function* generateTestCases(self, testScenario?: TestScenario) {
@@ -29,7 +31,7 @@ export default generator(
         }),
       );
 
-      console.log(functionCalls);
+      console.debug(functionCalls);
       handleFunctionCalls(self, functionCalls);
     }
     self.eventTarget.emit("stepUpdate", Step.TestCases);

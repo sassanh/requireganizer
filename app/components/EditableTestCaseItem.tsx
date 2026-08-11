@@ -208,7 +208,9 @@ const EditableTestCaseItem = ({
                 </Stack>
             </Stack>
             {fragment.dependencies.length > 0 && (
-                <Typography variant="caption" py={1}>
+                <Typography variant="caption" sx={{
+                    py: 1
+                }}>
                     Dependencies:{" "}
                     {fragment.dependencies.map((id, index) => (
                         <Fragment key={id}>
@@ -226,7 +228,9 @@ const EditableTestCaseItem = ({
                 </Typography>
             )}
             {fragment.references.length > 0 && (
-                <Typography variant="caption" py={1}>
+                <Typography variant="caption" sx={{
+                    py: 1
+                }}>
                     References:{" "}
                     {fragment.references.map((reference, index) => (
                         <Fragment key={reference.id}>

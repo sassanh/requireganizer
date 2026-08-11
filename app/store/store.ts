@@ -3,6 +3,8 @@
 import { IMSTArray, Instance, SnapshotIn, cast, types } from "mobx-state-tree";
 import { createContext, useContext } from "react";
 
+import { extractTestCaseCode } from "utilities/testParser";
+
 import {
   export as export_,
   generateAcceptanceCriteria,
@@ -18,7 +20,6 @@ import {
   import as import_,
   exportCode,
 } from "./actions";
-import { extractTestCaseCode } from "utilities/testParser";
 import {
   Framework,
   Step,

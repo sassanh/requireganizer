@@ -1,4 +1,5 @@
 import { type FunctionDeclaration, GoogleGenAI, Type } from "@google/genai";
+
 import { FunctionCall, ManipulationFunction } from "lib/types";
 import {
   ENGINEER_ROLE_LABELS,
