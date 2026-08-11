@@ -328,6 +328,9 @@ export const queryAiModel = async (
       };
     });
   } catch (e) {
+    if (e instanceof AIModelError) {
+      throw e;
+    }
     console.error("Error while querying AI model:");
     console.error(e);
     if (e instanceof Error) {

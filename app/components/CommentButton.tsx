@@ -77,9 +77,9 @@ const CommentButton = ({
             ref={(element) => element?.focus()}
             onChange={handleCommentChange}
           />
-          <IconButton tabIndex={0} type="submit" onClick={handleSubmit}>
-            <Send />
-          </IconButton>
+<IconButton type="submit">
+          <Send />
+        </IconButton>
         </Paper>
       </Popover>
     </>
