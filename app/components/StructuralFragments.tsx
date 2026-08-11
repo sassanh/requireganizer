@@ -34,14 +34,13 @@ const StructuralFragments = <Type extends StructuralFragment>({
         p: 1,
         gap: 1
       }}>
-      {fragments.map((fragment, index) => (
+      {fragments.map((fragment) => (
         <Fragment key={fragment.id}>
           {structuralFragment === StructuralFragmentEnum.TestCase ? (
             <EditableTestCaseItem
               key={fragment.id}
               list={fragments as unknown as TestCase[]}
               fragment={fragment as unknown as TestCase}
-              index={index}
               isDisabled={isDisabled}
               onComment={onComment as unknown as (parameters: { fragment: TestCase; comment: string }) => void}
               onRemove={onRemoveFragment as unknown as (parameters: { fragment: TestCase }) => void}
@@ -51,7 +50,6 @@ const StructuralFragments = <Type extends StructuralFragment>({
               key={fragment.id}
               list={fragments}
               fragment={fragment}
-              index={index}
               isDisabled={isDisabled}
               onComment={onComment}
               onRemove={onRemoveFragment}
