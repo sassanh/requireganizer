@@ -1,7 +1,7 @@
 "use server";
 import "server-only";
 
-import { getGeminiClient, MODEL_TEXT, stripMarkdownFences } from "actions/lib/ai";
+import { generateText, stripMarkdownFences } from "actions/lib/ai";
 import { generateTestAnnotation } from "utilities/testParser";
 
 export async function generateTestCode({
@@ -25,8 +25,6 @@ export async function generateTestCode({
     testScenarioContent: string;
     comment?: string;
 }): Promise<{ path?: string; code: string }> {
-    const client = getGeminiClient();
-
     const parsed = JSON.parse(state);
     const projectConfig = parsed.projectConfig;
     const scaffoldFiles = parsed.scaffoldFiles;
@@ -68,18 +66,8 @@ ${state}`;
     const beginComment = generateTestAnnotation(programmingLanguage, codeAndTitle, testCaseId, "beginning");
     const endComment = generateTestAnnotation(programmingLanguage, codeAndTitle, testCaseId, "end");
 
-    const result = await client.models.generateContent({
-        model: MODEL_TEXT,
-        config: {
-            responseMimeType: "application/json",
-            systemInstruction: `You are a Software Test Engineer writing test code. You must reply strictly with a JSON object containing exactly two keys: "path" and "code".`,
-        },
-        contents: [
-            {
-                role: "user",
-                parts: [
-                    {
-                        text: `${prompt}
+    const text = await generateText(
+        `${prompt}
 
 Rules:
 - You must reply with a valid JSON object.
@@ -96,13 +84,12 @@ ${endComment}
 
 - CRITICAL MERGING RULES: Review the 'scaffoldFiles' array in the provided 'state' JSON. Find any existing file whose content contains the exact string "TSC-SCENARIO - ${testScenarioId}". If an existing file is found for this scenario, you MUST reuse it and merge tightly into its original code. DO NOT overwrite the file from scratch if it already exists, merge natively.
 - JSON keys must be strictly "path" and "code".`,
-                    },
-                ],
-            },
-        ],
-    });
+        {
+            system: "You are a Software Test Engineer writing test code. You must reply strictly with a JSON object containing exactly two keys: \"path\" and \"code\".",
+            json: true,
+        },
+    );
 
-    const text = result.text?.trim() ?? "{}";
     // Strip markdown fences if present
     const cleaned = stripMarkdownFences(text);
 

@@ -1,7 +1,7 @@
 "use server";
 import "server-only";
 
-import { getGeminiClient, MODEL_TEXT, stripMarkdownFences } from "actions/lib/ai";
+import { generateText, stripMarkdownFences } from "actions/lib/ai";
 
 export interface ScaffoldFile {
     path: string;
@@ -15,16 +15,7 @@ export async function generateScaffold({
     config: Record<string, unknown>;
     state: string;
 }): Promise<{ files: ScaffoldFile[] }> {
-    const client = getGeminiClient();
-
-    const result = await client.models.generateContent({
-        model: MODEL_TEXT,
-        contents: [
-            {
-                role: "user",
-                parts: [
-                    {
-                        text: `You are a project scaffolding generator. Based on the following project configuration and state, generate all the boilerplate files needed to set up the project.
+    const text = await generateText(`You are a project scaffolding generator. Based on the following project configuration and state, generate all the boilerplate files needed to set up the project.
 
 Project Configuration:
 ${JSON.stringify(config, null, 2)}
@@ -51,14 +42,8 @@ Do NOT include:
 - Lock files
 
 Output ONLY a valid JSON array, no markdown fences, no explanation.
-Example format: [{"path": "package.json", "content": "..."}, ...]`,
-                    },
-                ],
-            },
-        ],
-    });
+Example format: [{"path": "package.json", "content": "..."}, ...]`);
 
-    const text = result.text?.trim() ?? "[]";
     // Strip markdown fences if present
     const cleaned = stripMarkdownFences(text);
 

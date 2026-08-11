@@ -1,6 +1,4 @@
-import { type FunctionDeclaration, Type } from "@google/genai";
-
-import { getGeminiClient, MODEL_FUNCTION_CALLING } from "actions/lib/ai";
+import { AIChatCompletionParams, chatCompletion, MODEL_FUNCTION_CALLING } from "actions/lib/ai";
 import { FunctionCall, ManipulationFunction } from "lib/types";
 import {
   ENGINEER_ROLE_LABELS,
@@ -69,42 +67,42 @@ For each task, you receive:
 - If a task cannot be completed due to missing, conflicting, or incorrect information, immediately call the \`communicate\` function to report the issue.`;
 
 const structuralFragmentObject = {
-  type: Type.OBJECT,
+  type: "object",
   properties: {
     content: {
-      type: Type.STRING,
+      type: "string",
       description: "The text content of the entity. Optional for Test Cases.",
     },
     title: {
-      type: Type.STRING,
+      type: "string",
       description: "Title of the test case (Test Cases only)",
     },
     steps: {
-      type: Type.STRING,
+      type: "string",
       description: "Execution steps of the test case (Test Cases only)",
     },
     expectedResult: {
-      type: Type.STRING,
+      type: "string",
       description: "Expected result of the test case (Test Cases only)",
     },
     priority: {
-      type: Type.STRING,
+      type: "string",
       enum: Object.values(Priority),
       description: "Priority of the entity",
     },
     references: {
-      type: Type.ARRAY,
+      type: "array",
       description:
         "List of references to other entities. Can be empty in case no reference is required.",
       items: {
-        type: Type.OBJECT,
+        type: "object",
         properties: {
           id: {
-            type: Type.STRING,
+            type: "string",
             description: "uuid of the referenced entity",
           },
           type: {
-            type: Type.STRING,
+            type: "string",
             enum: Object.values(StructuralFragment),
             description: "The type of the referenced entity",
           },
@@ -113,11 +111,11 @@ const structuralFragmentObject = {
       },
     },
     dependencies: {
-      type: Type.ARRAY,
+      type: "array",
       description:
         "List of uuids of entities that this entity depends on. Can be empty in case no dependency is required.",
       items: {
-        type: Type.STRING,
+        type: "string",
         description: "uuid of the dependent entity",
       },
     },
@@ -131,40 +129,40 @@ export const manipulationFunctions = [
     description:
       "Sets the product overview, including name, purpose, primary features, target users, programming language, and framework",
     parameters: {
-      type: Type.OBJECT,
+      type: "object",
       properties: {
         name: {
-          type: Type.STRING,
+          type: "string",
           description: "The software's name",
         },
         purpose: {
-          type: Type.STRING,
+          type: "string",
           description:
             "A clear and concise statement of what the software does",
         },
         primaryFeatures: {
-          type: Type.ARRAY,
+          type: "array",
           items: {
-            type: Type.STRING,
+            type: "string",
           },
           description:
             "A list of key functionalities derived directly from the description, one line per feature",
         },
         targetUsers: {
-          type: Type.ARRAY,
+          type: "array",
           items: {
-            type: Type.STRING,
+            type: "string",
           },
           description:
             "Who will use this software. If not mentioned, pass an empty array",
         },
         framework: {
-          type: Type.STRING,
+          type: "string",
           enum: Object.values(Framework),
           description: "The chosen framework",
         },
         programmingLanguage: {
-          type: Type.STRING,
+          type: "string",
           enum: Object.values(ProgrammingLanguage),
           description: "The chosen programming language",
         },
@@ -184,28 +182,28 @@ export const manipulationFunctions = [
     description: `Update items in a list of entities, for example list of user stories, requirements, acceptance criteria, etc by manipulating the list with "modification", "sort", insertion" and "removal" operations. Sort and modifications are applied first on existing items, and then insertions and removals are applied.
 if an old entity has the same purpose as a new entity but its content should be different, it is preferred to modify it instead of removing it and adding it again. For example if an old entity is "we need 2 buttons" and it should be changed to "we need 3 buttons", modification is preferred over removal and re-insertion so that the uuid of the item is preserved. But if the new item has a different purpose, even if its string distance with the old content is small, remove and insert is preferred to assign a new uuid to break references intentionally.`,
     parameters: {
-      type: Type.OBJECT,
+      type: "object",
       properties: {
         entityType: {
-          type: Type.STRING,
+          type: "string",
           enum: Object.values(StructuralFragment),
           description: "The entity type of the list to be updated.",
         },
         parentId: {
-          type: Type.STRING,
+          type: "string",
           description:
             "(optional) The uuid of the parent element, for example a test case belongs to a test scenario.",
         },
         modifications: {
-          type: Type.ARRAY,
+          type: "array",
           description:
             "List of items to be modified. Can be empty in case no modification is required.",
           items: {
-            type: Type.OBJECT,
+            type: "object",
             properties: {
               ...structuralFragmentObject.properties,
               id: {
-                type: Type.STRING,
+                type: "string",
                 description:
                   "The uuid of the entity to be modified. not to be confused with the index of the entity.",
               },
@@ -214,24 +212,24 @@ if an old entity has the same purpose as a new entity but its content should be 
           },
         },
         sort: {
-          type: Type.ARRAY,
+          type: "array",
           description:
             "List of existing uuids in the desired order. If no change in the order is intended, an empty list can be provided.",
           items: {
-            type: Type.STRING,
+            type: "string",
             description: "uuid of an entity",
           },
         },
         insertions: {
-          type: Type.ARRAY,
+          type: "array",
           description:
             "List of items to be added. Can be empty in case no insertion is required.",
           items: {
-            type: Type.OBJECT,
+            type: "object",
             properties: {
               ...structuralFragmentObject.properties,
               index: {
-                type: Type.NUMBER,
+                type: "number",
                 description: "Index, in which the item will be placed",
               },
             },
@@ -239,11 +237,11 @@ if an old entity has the same purpose as a new entity but its content should be 
           },
         },
         removals: {
-          type: Type.ARRAY,
+          type: "array",
           description:
             "List of existing uuids needed to be removed from the list. Can be empty in case no removal is required",
           items: {
-            type: Type.STRING,
+            type: "string",
             description: "uuid of the entity to be removed",
           },
         },
@@ -262,15 +260,15 @@ if an old entity has the same purpose as a new entity but its content should be 
     description:
       "Used when something should be communicated with the user or the task cannot be fulfilled properly due to an error/inconsistency/missing-information/etc",
     parameters: {
-      type: Type.OBJECT,
+      type: "object",
       properties: {
         description: {
-          type: Type.STRING,
+          type: "string",
           description:
             "A description of the issue that needs to be communicated",
         },
         context: {
-          type: Type.STRING,
+          type: "string",
           description:
             "The context in which the issue occurred, for example the entity type or the task that was being performed",
         },
@@ -296,32 +294,37 @@ export const queryAiModel = async (
     const systemInstruction = query[0];
     const userMessages = query.slice(1);
 
-    const result = await getGeminiClient().models.generateContent({
+    const result = await chatCompletion({
       model: MODEL_FUNCTION_CALLING,
-      contents: userMessages.map((item) => ({
-        role: "user" as const,
-        parts: [{ text: item }],
+      messages: [
+        { role: "system", content: systemInstruction },
+        ...userMessages.map((item) => ({
+          role: "user" as const,
+          content: item,
+        })),
+      ],
+      tools: tools.map(({ name, description, parameters }) => ({
+        type: "function",
+        function: { name, description, parameters },
       })),
-      config: {
-        systemInstruction,
-        tools: [
-          {
-            functionDeclarations: tools as unknown as FunctionDeclaration[],
-          },
-        ],
-      },
+      thinking: { type: "disabled" },
     });
 
-    const functionCalls = result.functionCalls ?? [];
+    const toolCalls = result.choices[0]?.message.tool_calls ?? [];
 
-    return functionCalls.map(({ name, args }) => {
-      if (!name || !isEnumMember(name, ManipulationFunction)) {
+    return toolCalls.map((toolCall) => {
+      if (toolCall.type !== "function") {
+        throw new AIModelError("Invalid function call");
+      }
+
+      const { name, arguments: argumentsJson } = toolCall.function;
+      if (!isEnumMember(name, ManipulationFunction)) {
         throw new AIModelError("Invalid function name");
       }
 
       return {
         name,
-        arguments: args ? JSON.stringify(args) : undefined,
+        arguments: argumentsJson ?? undefined,
       };
     });
   } catch (e) {
