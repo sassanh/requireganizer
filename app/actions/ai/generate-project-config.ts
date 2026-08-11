@@ -1,18 +1,18 @@
 "use server";
 import "server-only";
 
+import { getGeminiClient, MODEL_TEXT, stripMarkdownFences } from "actions/lib/ai";
 import { ActionParameters } from "lib/types";
 
 export async function generateProjectConfig({
     state,
 }: ActionParameters): Promise<{ config: string }> {
-    const { GoogleGenAI } = await import("@google/genai");
-    const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+    const client = getGeminiClient();
 
     const parsed = JSON.parse(state);
 
     const result = await client.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: MODEL_TEXT,
         contents: [
             {
                 role: "user",
@@ -44,10 +44,7 @@ Rules:
 
     const config = result.text?.trim() ?? "";
     // Strip markdown fences if the model added them
-    const cleaned = config
-        .replace(/^```(?:jsonc?|javascript)?\n?/i, "")
-        .replace(/\n?```$/i, "")
-        .trim();
+    const cleaned = stripMarkdownFences(config);
 
     return { config: cleaned };
 }

@@ -1,7 +1,7 @@
 "use server";
 import "server-only";
 
-import { GoogleGenAI } from "@google/genai";
+import { getGeminiClient, MODEL_TEXT, stripMarkdownFences } from "actions/lib/ai";
 
 export interface ScaffoldFile {
     path: string;
@@ -15,10 +15,10 @@ export async function generateScaffold({
     config: Record<string, unknown>;
     state: string;
 }): Promise<{ files: ScaffoldFile[] }> {
-    const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+    const client = getGeminiClient();
 
     const result = await client.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: MODEL_TEXT,
         contents: [
             {
                 role: "user",
@@ -60,10 +60,7 @@ Example format: [{"path": "package.json", "content": "..."}, ...]`,
 
     const text = result.text?.trim() ?? "[]";
     // Strip markdown fences if present
-    const cleaned = text
-        .replace(/^```(?:json)?\n?/i, "")
-        .replace(/\n?```$/i, "")
-        .trim();
+    const cleaned = stripMarkdownFences(text);
 
     try {
         const files: ScaffoldFile[] = JSON.parse(cleaned);

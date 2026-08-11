@@ -8,8 +8,9 @@ import {
     Typography,
 } from "@mui/material";
 import { observer } from "mobx-react-lite";
-import { Fragment, useEffect, useState } from "react";
+import { Fragment } from "react";
 
+import { useFragmentHash } from "hooks/useFragmentHash";
 import { FRAGMENT_CODES, Priority, useStore } from "store";
 import { TestCase } from "store/models";
 
@@ -37,28 +38,7 @@ const EditableTestCaseItem = ({
 }: EditableTestCaseItemProps) => {
     const store = useStore();
 
-    const [hash, setHash] = useState("");
-
-    useEffect(() => {
-        const onHashChanged = () => setHash(window.location.hash.replace(/^#/, ""));
-
-        onHashChanged();
-
-        const { pushState, replaceState } = window.history;
-        window.history.pushState = function (...args) {
-            pushState.apply(window.history, args);
-            setTimeout(onHashChanged);
-        };
-        window.history.replaceState = function (...args) {
-            replaceState.apply(window.history, args);
-            setTimeout(onHashChanged);
-        };
-
-        window.addEventListener("hashchange", onHashChanged);
-        return () => {
-            window.removeEventListener("hashchange", onHashChanged);
-        };
-    }, []);
+    const hash = useFragmentHash();
 
     const handleRemove = () => {
         onRemove({ fragment });

@@ -1,5 +1,6 @@
-import { type FunctionDeclaration, GoogleGenAI, Type } from "@google/genai";
+import { type FunctionDeclaration, Type } from "@google/genai";
 
+import { getGeminiClient, MODEL_FUNCTION_CALLING } from "actions/lib/ai";
 import { FunctionCall, ManipulationFunction } from "lib/types";
 import {
   ENGINEER_ROLE_LABELS,
@@ -10,10 +11,6 @@ import {
   StructuralFragment,
 } from "store";
 import { isEnumMember } from "utilities";
-
-const client = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY!,
-});
 
 export const generateStructuralFragmentPrompt = (
   subject: StructuralFragment,
@@ -299,8 +296,8 @@ export const queryAiModel = async (
     const systemInstruction = query[0];
     const userMessages = query.slice(1);
 
-    const result = await client.models.generateContent({
-      model: "gemini-3-flash-preview",
+    const result = await getGeminiClient().models.generateContent({
+      model: MODEL_FUNCTION_CALLING,
       contents: userMessages.map((item) => ({
         role: "user" as const,
         parts: [{ text: item }],

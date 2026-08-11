@@ -1,8 +1,7 @@
 "use server";
 import "server-only";
 
-import { GoogleGenAI } from "@google/genai";
-
+import { getGeminiClient, MODEL_TEXT, stripMarkdownFences } from "actions/lib/ai";
 import { generateTestAnnotation } from "utilities/testParser";
 
 export async function generateTestCode({
@@ -26,7 +25,7 @@ export async function generateTestCode({
     testScenarioContent: string;
     comment?: string;
 }): Promise<{ path?: string; code: string }> {
-    const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+    const client = getGeminiClient();
 
     const parsed = JSON.parse(state);
     const projectConfig = parsed.projectConfig;
@@ -70,7 +69,7 @@ ${state}`;
     const endComment = generateTestAnnotation(programmingLanguage, codeAndTitle, testCaseId, "end");
 
     const result = await client.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: MODEL_TEXT,
         config: {
             responseMimeType: "application/json",
             systemInstruction: `You are a Software Test Engineer writing test code. You must reply strictly with a JSON object containing exactly two keys: "path" and "code".`,
@@ -105,10 +104,7 @@ ${endComment}
 
     const text = result.text?.trim() ?? "{}";
     // Strip markdown fences if present
-    const cleaned = text
-        .replace(/^```(?:json)?\n?/i, "")
-        .replace(/\n?```$/i, "")
-        .trim();
+    const cleaned = stripMarkdownFences(text);
 
     try {
         const parsed = JSON.parse(cleaned);
