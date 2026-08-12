@@ -40,6 +40,8 @@ Transport and runner tests verify:
 - OpenAI SDK connection timeouts are classified as transient;
 - exactly one task tool or `communicate` call is accepted;
 - the repair attempt uses the same formal tools;
+- reusable prompt and schema content precedes request-specific data;
+- provider usage fields normalize into input, cached-input, cache-write, output, and total token metadata;
 - public errors stay concise while raw responses exist only in development details.
 
 Contract and state tests verify:

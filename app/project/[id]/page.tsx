@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { Suspense, useEffect } from "react";
 
-import { Toolbar, ValidationErrorAlert } from "components";
+import { ProviderActivity, Toolbar, ValidationErrorAlert } from "components";
 import { getProjectsIndex } from "lib/projectStorage";
 import { useProject } from "provider";
 import { Factory } from "screens";
@@ -86,6 +86,10 @@ function Home() {
         <Typography variant="h6" sx={{ flexGrow: 1 }}>
           {activeProject.name}
         </Typography>
+        <ProviderActivity
+          calls={store.providerCalls}
+          onClear={store.clearProviderCalls}
+        />
       </Stack>
       <Toolbar
         disabled={store.isBusy}

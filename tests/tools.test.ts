@@ -80,4 +80,39 @@ describe("AI function-tool schemas", () => {
     assert.equal("id" in properties, false);
     assert.ok("key" in properties);
   });
+
+  it("serializes stable schema fields before request-specific ID enums", () => {
+    const tool = buildArtifactListTool({
+      definition: getArtifactStageDefinition(
+        StructuralFragment.AcceptanceCriteria,
+      ),
+      state: {
+        requirements: [
+          { id: "requirement-dynamic", type: StructuralFragment.Requirement },
+        ],
+        userStories: [
+          { id: "story-dynamic", type: StructuralFragment.UserStory },
+        ],
+        acceptanceCriteria: [
+          {
+            id: "criterion-dynamic",
+            type: StructuralFragment.AcceptanceCriteria,
+          },
+        ],
+      },
+    });
+    const serialized = JSON.stringify(tool.parameters);
+
+    assert.ok(
+      serialized.indexOf('"required"') < serialized.indexOf('"properties"'),
+    );
+    assert.ok(
+      serialized.indexOf('"dependencies"') <
+        serialized.indexOf("story-dynamic"),
+    );
+    assert.ok(
+      serialized.indexOf("story-dynamic") <
+        serialized.indexOf("criterion-dynamic"),
+    );
+  });
 });

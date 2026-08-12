@@ -27,6 +27,7 @@ export function consumeHarnessResult<Value>(
   store: FlatStore,
   result: HarnessResult<Value>,
 ): Value | null {
+  store.recordProviderCalls(result.metadata.providerCalls);
   if (result.status === "needs_input") {
     store.communicate({ description: result.message });
     return null;

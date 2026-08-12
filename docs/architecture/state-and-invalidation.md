@@ -49,7 +49,7 @@ Project export includes:
 - stage fingerprints;
 - the project-configuration fingerprint.
 
-Development-only AI error details live in volatile UI state and are excluded from autosave and project export.
+Development-only AI error details and provider-call activity live in volatile UI state and are excluded from autosave and project export. Provider activity retains bounded timing, outcome, identity, and token metadata without prompts or successful model responses.
 
 Imported project data and its project-index entry are written as one recoverable browser-storage transaction. If either write fails, both keys are restored to their prior values. Import validates persisted scaffold paths and restores valid fingerprints.
 

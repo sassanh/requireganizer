@@ -1,6 +1,10 @@
 import "server-only";
 
-import { generateToolResponse } from "actions/lib/ai";
+import {
+  MODEL,
+  PROVIDER,
+  generateToolResponse,
+} from "actions/lib/ai";
 import {
   executeStructuredHarnessTask,
   StructuredHarnessTask,
@@ -13,5 +17,7 @@ export function runStructuredHarnessTask<Value>(
   return executeStructuredHarnessTask({
     ...task,
     generate: generateToolResponse,
+    provider: PROVIDER,
+    providerModel: MODEL,
   });
 }

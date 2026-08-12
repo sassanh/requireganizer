@@ -36,6 +36,17 @@ function response(
   return {
     calls: [{ name, arguments: argumentsJson }],
     rawResponse,
+    metadata: {
+      responseId: `response-${rawResponse}`,
+      model: "test-model",
+      finishReason: "tool_calls",
+      usage: {
+        inputTokens: 100,
+        cachedInputTokens: 60,
+        outputTokens: 20,
+        totalTokens: 120,
+      },
+    },
   };
 }
 
@@ -45,6 +56,8 @@ const task = {
   userPrompt: "Generate an example.",
   resultTool,
   parseResult: parseValue,
+  provider: "provider.test",
+  providerModel: "test-model",
 };
 
 describe("structured harness runner", () => {
@@ -57,6 +70,14 @@ describe("structured harness runner", () => {
     assert.equal(result.status, "success");
     if (result.status !== "success") assert.fail("Expected success result.");
     assert.equal(result.value, "ok");
+    assert.deepEqual(
+      result.metadata.providerCalls.map(({ outcome, model, provider }) => ({
+        outcome,
+        model,
+        provider,
+      })),
+      [{ outcome: "success", model: "test-model", provider: "provider.test" }],
+    );
   });
 
   it("uses communicate for essential missing input", async () => {
@@ -71,6 +92,7 @@ describe("structured harness runner", () => {
       assert.fail("Expected needs-input result.");
     }
     assert.equal(result.message, "Which environment?");
+    assert.equal(result.metadata.providerCalls[0]?.outcome, "needs_input");
   });
 
   it("repairs an invalid call through the same formal tools", async () => {
@@ -95,6 +117,16 @@ describe("structured harness runner", () => {
       ["submit_example", "communicate"],
       ["submit_example", "communicate"],
     ]);
+    assert.deepEqual(
+      result.metadata.providerCalls.map(({ attempt, outcome }) => ({
+        attempt,
+        outcome,
+      })),
+      [
+        { attempt: 1, outcome: "rejected" },
+        { attempt: 2, outcome: "success" },
+      ],
+    );
   });
 
   it("returns concise errors and development-only raw responses", async () => {
@@ -151,5 +183,27 @@ describe("structured harness runner", () => {
     assert.equal(result.code, "provider_request_failed");
     assert.match(result.message, /provider timed out/i);
     assert.match(result.message, /No model response was received/);
+    assert.equal(result.metadata.providerCalls[0]?.outcome, "failed");
+    assert.equal(result.metadata.providerCalls[0]?.toolCallCount, 0);
+  });
+
+  it("records provider failure identifiers for diagnosis", async () => {
+    const providerError = Object.assign(new Error("rate limited"), {
+      status: 429,
+      code: "rate_limit_exceeded",
+      requestID: "request-429",
+    });
+    const result = await executeStructuredHarnessTask({
+      ...task,
+      generate: async () => {
+        throw providerError;
+      },
+    });
+
+    assert.equal(result.status, "error");
+    const metadata = result.metadata.providerCalls[0];
+    assert.equal(metadata?.httpStatus, 429);
+    assert.equal(metadata?.errorCode, "rate_limit_exceeded");
+    assert.equal(metadata?.requestId, "request-429");
   });
 });

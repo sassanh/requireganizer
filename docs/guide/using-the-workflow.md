@@ -45,3 +45,9 @@ Each scenario has a stable language-specific test path containing the scenario c
 The inline alert is intentionally concise. When a provider returned a tool call that failed validation, development builds show **More details**. The dialog contains the concrete validator error and the rejected raw provider response for each attempt. Production builds do not receive or display that diagnostic payload.
 
 A provider timeout is different: no model response exists to inspect. The alert states that the provider timed out, and development details contain the transport stack rather than a fabricated response.
+
+## Provider activity
+
+The information button beside the project name opens a session report for AI provider calls. It shows each operation and attempt, its outcome and duration, the selected model and tool, provider identifiers, and reported input, cached-input, cache-write, output, and total token counts. The summary calculates a cache-hit rate when the provider reports both input and cached-input tokens.
+
+Provider activity is limited to the current in-memory project session. Project autosave and export exclude it, and the report does not retain prompts or successful model responses.

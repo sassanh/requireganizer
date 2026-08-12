@@ -31,6 +31,8 @@ Every request also supplies `communicate`. It has one `message` argument and is 
 
 The canonical workflow definition owns stage order, role, prerequisites, reference types, coverage type, objective, item contract, and quality constraints.
 
+Prompt serialization keeps reusable policy, workflow, task contracts, and quality rules ahead of assignment-specific values and project data. Tool schemas likewise place stable constraints before request-specific identifier enums. Providers with automatic prefix caching can therefore reuse the longest safe prefix without weakening validation.
+
 Examples:
 
 - user stories use a specific user, testable outcome, and objective value;

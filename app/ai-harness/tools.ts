@@ -19,9 +19,9 @@ const objectSchema = (
   required: readonly string[],
 ): Record<string, unknown> => ({
   type: "object",
-  properties,
   required,
   additionalProperties: false,
+  properties,
 });
 
 const nonEmptyString = (description: string): Record<string, unknown> => ({
@@ -109,14 +109,14 @@ function referenceSchema(
 
   return objectSchema(
     {
-      id: {
-        ...nonEmptyString("An exact existing artifact ID from projectContext."),
-        ...(allowedIds.length === 0 ? {} : { enum: allowedIds }),
-      },
       type: {
         type: "string",
         enum: allowedTypes,
         description: "The exact type of the referenced artifact.",
+      },
+      id: {
+        ...nonEmptyString("An exact existing artifact ID from projectContext."),
+        ...(allowedIds.length === 0 ? {} : { enum: allowedIds }),
       },
     },
     ["id", "type"],
@@ -146,16 +146,6 @@ export function buildArtifactListTool({
       description:
         "A proposal-local key unique within this result. Dependencies refer to these keys; this is not a persisted artifact ID.",
     },
-    ...(existingIds.length === 0
-      ? {}
-      : {
-        id: {
-          type: "string",
-          enum: existingIds,
-          description:
-            "Include only when preserving the intent of this exact existing target artifact. Omit for new artifacts.",
-        },
-      }),
     ...(definition.entityType === StructuralFragment.TestCase
       ? {
         title: nonEmptyString("A concise single-line test-case title."),
@@ -170,15 +160,25 @@ export function buildArtifactListTool({
       enum: Object.values(Priority),
       description: "The artifact priority.",
     },
+    dependencies: stringArray(
+      "Proposal-local keys of items in this same result that must precede this item. Use an empty array when there are none.",
+    ),
     references: {
       type: "array",
       minItems: 1,
       description: "Traceability references to exact upstream artifacts.",
       items: referenceSchema(definition, state),
     },
-    dependencies: stringArray(
-      "Proposal-local keys of items in this same result that must precede this item. Use an empty array when there are none.",
-    ),
+    ...(existingIds.length === 0
+      ? {}
+      : {
+        id: {
+          type: "string",
+          enum: existingIds,
+          description:
+            "Include only when preserving the intent of this exact existing target artifact. Omit for new artifacts.",
+        },
+      }),
   };
   const itemRequired = [
     "key",

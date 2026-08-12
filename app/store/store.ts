@@ -24,6 +24,7 @@ import {
   isSafeVirtualPath,
   parseScaffoldFiles,
 } from "lib/scaffold";
+import type { ProviderCallMetadata } from "lib/types";
 import { uuid } from "utilities";
 import { hydrateMissingLastGeneratedAt } from "utilities/testParser";
 
@@ -77,6 +78,8 @@ import {
   TargetUserModel,
 } from "./models/ProductOverview";
 import { withSelf } from "./utilities";
+
+const MAX_PROVIDER_CALL_HISTORY = 100;
 
 function createFragment(
   entityType: StructuralFragmentName,
@@ -218,6 +221,7 @@ export const FlatStore = types
   })
   .volatile(() => ({
     validationErrorDetails: null as string | null,
+    providerCalls: [] as ProviderCallMetadata[],
   }))
   .views((self) => {
     const eventTarget = new StoreEventEmitter();
@@ -238,6 +242,7 @@ export const FlatStore = types
       self.description = "";
       self.validationErrors = null;
       self.validationErrorDetails = null;
+      self.providerCalls = [];
 
       self.productOverview = ProductOverviewModel.create({
         name: null,
@@ -279,6 +284,15 @@ export const FlatStore = types
       self.validationErrors = null;
       self.validationErrorDetails = null;
       self.systemMessage = null;
+    },
+    recordProviderCalls(calls: ProviderCallMetadata[]) {
+      if (calls.length === 0) return;
+      self.providerCalls = [...self.providerCalls, ...calls].slice(
+        -MAX_PROVIDER_CALL_HISTORY,
+      );
+    },
+    clearProviderCalls() {
+      self.providerCalls = [];
     },
     setProjectConfig(config: string) {
       self.projectConfig = config;

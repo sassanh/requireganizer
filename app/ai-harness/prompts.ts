@@ -3,6 +3,7 @@ import {
   ArtifactStageDefinition,
   WORKFLOW_SUMMARY,
 } from "ai-harness/workflow";
+import { HARNESS_PROTOCOL_VERSION, PROMPT_VERSION } from "lib/types";
 import {
   ENGINEER_ROLE_LABELS,
   EngineerRole,
@@ -11,17 +12,7 @@ import {
   StructuralFragment,
 } from "store/constants";
 
-export function buildSystemPrompt({
-  operation,
-  role,
-}: {
-  operation: string;
-  role: EngineerRole;
-}): string {
-  return `You are the ${ENGINEER_ROLE_LABELS[role]} inside Requireganizer's AI harness.
-
-Operation: ${operation}
-Prompt protocol: 2026-08-12 / v3
+const SYSTEM_PROMPT_PREFIX = `You operate inside Requireganizer's AI harness.
 
 Canonical workflow:
 ${WORKFLOW_SUMMARY}
@@ -33,6 +24,20 @@ Operating rules:
 - Never answer with ordinary assistant text and never call more than one tool.
 - Optimize for traceability, testability, small reviewable artifacts, and deterministic downstream use.
 - Follow the selected tool's parameter schema and descriptions exactly.`;
+
+export function buildSystemPrompt({
+  operation,
+  role,
+}: {
+  operation: string;
+  role: EngineerRole;
+}): string {
+  return `${SYSTEM_PROMPT_PREFIX}
+
+Current assignment:
+- Role: ${ENGINEER_ROLE_LABELS[role]}
+- Operation: ${operation}
+- Prompt protocol: ${PROMPT_VERSION} / v${HARNESS_PROTOCOL_VERSION}`;
 }
 
 export function buildProductOverviewPrompt(
@@ -46,7 +51,6 @@ export function buildProductOverviewPrompt(
   return JSON.stringify(
     {
       task: "Create a complete product overview from the project description.",
-      projectContext: state,
       supportedFrameworkLanguagePairs: supportedPairs,
       qualityRules: [
         "Separate user outcomes from implementation details.",
@@ -55,6 +59,7 @@ export function buildProductOverviewPrompt(
         "Call communicate when target users or essential behavior cannot be established without guessing.",
         "Choose only a framework-language pair from supportedFrameworkLanguagePairs.",
       ],
+      projectContext: state,
     },
     null,
     2,
@@ -73,11 +78,6 @@ export function buildArtifactStagePrompt({
   return JSON.stringify(
     {
       task: definition.objective,
-      target: {
-        entityType: definition.entityType,
-        parentId: parentId ?? null,
-      },
-      projectContext: state,
       itemContract: definition.itemContract,
       qualityRules: definition.qualityRules,
       identityRules: [
@@ -92,6 +92,11 @@ export function buildArtifactStagePrompt({
         "Keep references within the allowed types and use exact IDs from projectContext.",
         "The list must preserve coverage of all required upstream artifacts.",
       ],
+      target: {
+        entityType: definition.entityType,
+        parentId: parentId ?? null,
+      },
+      projectContext: state,
     },
     null,
     2,
@@ -112,15 +117,15 @@ export function buildFragmentRevisionPrompt({
   return JSON.stringify(
     {
       task: "Revise exactly one artifact in response to user feedback.",
-      target: { entityType, id },
-      userFeedback: comment,
-      projectContext: state,
       rules: [
         "Submit only fields that need to change in patch.",
         "Do not revise, add, remove, reorder, or reference another artifact.",
         "Keep the result consistent with the supplied upstream context.",
         "Call communicate if the feedback is ambiguous or conflicts with project context.",
       ],
+      target: { entityType, id },
+      userFeedback: comment,
+      projectContext: state,
     },
     null,
     2,
@@ -134,13 +139,13 @@ export function buildProjectConfigurationPrompt(
     {
       task:
         "Select a deterministic build and test configuration for the specified project.",
-      projectContext: state,
       rules: [
         "Prefer established defaults supported by the selected language and framework.",
         "Commands must be exact, non-interactive, and suitable for a clean CI environment.",
         "Do not include output paths, secrets, credentials, or placeholder values.",
         "Call communicate rather than selecting an incompatible toolchain.",
       ],
+      projectContext: state,
     },
     null,
     2,
@@ -158,8 +163,6 @@ export function buildScaffoldPrompt({
     {
       task:
         "Generate the minimal deterministic project scaffold required to build and run tests.",
-      projectContext: state,
-      projectConfig: config,
       include: [
         "dependency manifest",
         "compiler or build configuration",
@@ -181,6 +184,8 @@ export function buildScaffoldPrompt({
         "Submit a minimal scaffold; do not add speculative libraries.",
         "Every submitted file must be complete and internally consistent.",
       ],
+      projectContext: state,
+      projectConfig: config,
     },
     null,
     2,
@@ -205,19 +210,6 @@ export function buildTestCodePrompt({
       task: request.comment
         ? "Revise one generated test block using the user's feedback."
         : "Generate one executable automated test and merge it into the scenario file.",
-      project: request.project,
-      projectConfig: request.projectConfig,
-      scenario: request.scenario,
-      testCase: request.testCase,
-      targetPath: request.targetPath,
-      existingFile: request.existingFile,
-      userFeedback: request.comment ?? null,
-      requiredAnnotations: {
-        firstLine: scenarioAnnotation,
-        currentTestBeginning: beginAnnotation,
-        currentTestEnd: endAnnotation,
-      },
-      protectedTestCaseIds,
       rules: [
         "Submit the complete scenario test-file content; the target path is controlled by the server.",
         "The first line must be firstLine exactly.",
@@ -226,6 +218,19 @@ export function buildTestCodePrompt({
         "Do not replace existing unrelated tests with placeholders or summaries.",
         "Use the configured test framework and produce code suitable for the configured test command.",
       ],
+      requiredAnnotations: {
+        firstLine: scenarioAnnotation,
+        currentTestBeginning: beginAnnotation,
+        currentTestEnd: endAnnotation,
+      },
+      protectedTestCaseIds,
+      project: request.project,
+      projectConfig: request.projectConfig,
+      scenario: request.scenario,
+      testCase: request.testCase,
+      targetPath: request.targetPath,
+      existingFile: request.existingFile,
+      userFeedback: request.comment ?? null,
     },
     null,
     2,

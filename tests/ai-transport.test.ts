@@ -86,7 +86,21 @@ describe("OpenAI-compatible tool transport", () => {
           },
         },
       ],
-      usage: undefined,
+      usage: {
+        prompt_tokens: 100,
+        completion_tokens: 20,
+        total_tokens: 120,
+        prompt_tokens_details: {
+          cached_tokens: 75,
+          audio_tokens: 0,
+        },
+        completion_tokens_details: {
+          accepted_prediction_tokens: 0,
+          audio_tokens: 0,
+          reasoning_tokens: 0,
+          rejected_prediction_tokens: 0,
+        },
+      },
     } as unknown as OpenAI.Chat.Completions.ChatCompletion;
 
     const response = await generateToolResponse(
@@ -102,7 +116,57 @@ describe("OpenAI-compatible tool transport", () => {
     assert.deepEqual(response.calls, [
       { name: "submit_example", arguments: '{"value":"accepted"}' },
     ]);
+    assert.deepEqual(response.metadata.usage, {
+      inputTokens: 100,
+      cachedInputTokens: 75,
+      cacheWriteTokens: undefined,
+      outputTokens: 20,
+      totalTokens: 120,
+    });
     assert.match(response.rawResponse, /completion-1/);
+  });
+
+  it("normalizes DeepSeek cache-hit and cache-write usage fields", async () => {
+    const completion = {
+      id: "completion-cache",
+      model: "deepseek-model",
+      choices: [
+        {
+          finish_reason: "tool_calls",
+          message: {
+            tool_calls: [
+              {
+                type: "function",
+                function: {
+                  name: "submit_example",
+                  arguments: '{"value":"accepted"}',
+                },
+              },
+            ],
+          },
+        },
+      ],
+      usage: {
+        prompt_tokens: 100,
+        prompt_cache_hit_tokens: 70,
+        cache_creation_input_tokens: 10,
+        completion_tokens: 20,
+      },
+    } as unknown as OpenAI.Chat.Completions.ChatCompletion;
+
+    const response = await generateToolResponse(
+      "Generate it.",
+      { system: "Use the supplied function.", tools: [resultTool] },
+      async () => completion,
+    );
+
+    assert.deepEqual(response.metadata.usage, {
+      inputTokens: 100,
+      cachedInputTokens: 70,
+      cacheWriteTokens: 10,
+      outputTokens: 20,
+      totalTokens: 120,
+    });
   });
 
   it("classifies OpenAI connection timeouts as transient", () => {

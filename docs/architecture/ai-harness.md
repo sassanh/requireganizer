@@ -76,7 +76,8 @@ Every result carries:
 
 - `protocolVersion`: the machine-contract version;
 - `promptVersion`: the prompt-policy release date;
-- `operation`: the requested operation.
+- `operation`: the requested operation;
+- `providerCalls`: bounded metadata for every generation or repair attempt, including timing, outcome, provider/model identity, selected tool, response identifiers, and normalized token usage when reported.
 
 Version metadata identifies the exact harness contract used for a result and supports diagnostics.
 

@@ -8,6 +8,9 @@ import { InvalidJsonError, isRecord, parseJsonObject } from "lib/json";
 import type {
   HarnessMetadata,
   HarnessResult,
+  ProviderCallMetadata,
+  ProviderCallOutcome,
+  ProviderTokenUsage,
 } from "lib/types";
 import {
   HARNESS_PROTOCOL_VERSION,
@@ -27,6 +30,13 @@ export interface StructuredHarnessTask<Value> {
 export interface ToolModelResponse {
   calls: Array<{ name: string; arguments: string }>;
   rawResponse: string;
+  metadata: {
+    responseId?: string;
+    requestId?: string;
+    model?: string;
+    finishReason?: string;
+    usage?: ProviderTokenUsage;
+  };
 }
 
 export interface ToolGenerationOptions {
@@ -57,6 +67,88 @@ function errorDetails(error: unknown): string {
 
 function developmentDetails(details: string): string | undefined {
   return process.env.NODE_ENV === "development" ? details : undefined;
+}
+
+function providerErrorFields(error: unknown): {
+  requestId?: string;
+  httpStatus?: number;
+  errorCode?: string;
+} {
+  let current: unknown = error;
+  const fields: {
+    requestId?: string;
+    httpStatus?: number;
+    errorCode?: string;
+  } = {};
+
+  for (let depth = 0; depth < 5 && isRecord(current); depth += 1) {
+    if (fields.requestId === undefined) {
+      const requestId =
+        current.requestID ??
+        current.requestId ??
+        current._request_id ??
+        current.request_id;
+      if (typeof requestId === "string") fields.requestId = requestId;
+    }
+    if (fields.httpStatus === undefined && typeof current.status === "number") {
+      fields.httpStatus = current.status;
+    }
+    if (fields.errorCode === undefined && typeof current.code === "string") {
+      fields.errorCode = current.code;
+    }
+    current = current.cause;
+  }
+
+  return fields;
+}
+
+function providerCallMetadata({
+  operation,
+  attempt,
+  startedAt,
+  startedAtMilliseconds,
+  completedAtMilliseconds,
+  provider,
+  providerModel,
+  outcome,
+  response,
+  error,
+}: {
+  operation: string;
+  attempt: number;
+  startedAt: string;
+  startedAtMilliseconds: number;
+  completedAtMilliseconds?: number;
+  provider: string;
+  providerModel: string;
+  outcome: ProviderCallOutcome;
+  response?: ToolModelResponse;
+  error?: unknown;
+}): ProviderCallMetadata {
+  const errorFields = providerErrorFields(error);
+  return {
+    operation,
+    attempt,
+    promptVersion: PROMPT_VERSION,
+    protocolVersion: HARNESS_PROTOCOL_VERSION,
+    startedAt,
+    durationMs: Math.max(
+      0,
+      (completedAtMilliseconds ?? Date.now()) - startedAtMilliseconds,
+    ),
+    provider,
+    model: response?.metadata.model ?? providerModel,
+    outcome,
+    toolCallCount: response?.calls.length ?? 0,
+    toolName:
+      response?.calls.length === 1 ? response.calls[0].name : undefined,
+    finishReason: response?.metadata.finishReason,
+    responseId: response?.metadata.responseId,
+    requestId: response?.metadata.requestId ?? errorFields.requestId,
+    httpStatus: errorFields.httpStatus,
+    errorCode: errorFields.errorCode,
+    usage: response?.metadata.usage,
+  };
 }
 
 function isTimeoutFailure(error: unknown): boolean {
@@ -142,6 +234,8 @@ function formatAttempt(
 
 export async function executeStructuredHarnessTask<Value>({
   generate,
+  provider = "unknown",
+  providerModel = "unknown",
   operation,
   systemPrompt,
   userPrompt,
@@ -149,11 +243,15 @@ export async function executeStructuredHarnessTask<Value>({
   parseResult,
 }: StructuredHarnessTask<Value> & {
   generate: HarnessToolGenerator;
+  provider?: string;
+  providerModel?: string;
 }): Promise<HarnessResult<Value>> {
+  const providerCalls: ProviderCallMetadata[] = [];
   const metadata: HarnessMetadata = {
     operation,
     promptVersion: PROMPT_VERSION,
     protocolVersion: HARNESS_PROTOCOL_VERSION,
+    providerCalls,
   };
   const failedAttempts: string[] = [];
   let previousToolCalls: ToolModelResponse["calls"] = [];
@@ -167,26 +265,43 @@ export async function executeStructuredHarnessTask<Value>({
           {
             task:
               "Correct the previous function call so it satisfies the original task and selected tool schema.",
-            validationError,
-            previousToolCalls,
-            originalRequest: userPrompt,
             rules: [
               "Call exactly one supplied function tool.",
               "Do not answer with ordinary assistant text.",
               "Do not repeat a value that the validation error identified as invalid.",
             ],
+            validationError,
+            previousToolCalls,
+            originalRequest: userPrompt,
           },
           null,
           2,
         );
 
     let response: ToolModelResponse;
+    const startedAtMilliseconds = Date.now();
+    const startedAt = new Date(startedAtMilliseconds).toISOString();
+    let completedAtMilliseconds: number | undefined;
     try {
       response = await generate(prompt, {
         system: systemPrompt,
         tools: [resultTool, COMMUNICATE_TOOL],
       });
+      completedAtMilliseconds = Date.now();
     } catch (error) {
+      providerCalls.push(
+        providerCallMetadata({
+          operation,
+          attempt,
+          startedAt,
+          startedAtMilliseconds,
+          completedAtMilliseconds,
+          provider,
+          providerModel,
+          outcome: "failed",
+          error,
+        }),
+      );
       const providerFailure = [
         `Operation: ${operation}`,
         "Provider request failed before a model response was received.",
@@ -209,10 +324,36 @@ export async function executeStructuredHarnessTask<Value>({
 
     try {
       const parsed = parseToolResponse(response, resultTool, parseResult);
+      providerCalls.push(
+        providerCallMetadata({
+          operation,
+          attempt,
+          startedAt,
+          startedAtMilliseconds,
+          completedAtMilliseconds,
+          provider,
+          providerModel,
+          outcome: parsed.status,
+          response,
+        }),
+      );
       return parsed.status === "success"
         ? { status: "success", value: parsed.value, metadata }
         : { status: "needs_input", message: parsed.message, metadata };
     } catch (error) {
+      providerCalls.push(
+        providerCallMetadata({
+          operation,
+          attempt,
+          startedAt,
+          startedAtMilliseconds,
+          completedAtMilliseconds,
+          provider,
+          providerModel,
+          outcome: "rejected",
+          response,
+        }),
+      );
       validationError = compactError(error);
       previousToolCalls = response.calls;
       failedAttempts.push(formatAttempt(attempt, errorDetails(error), response));
