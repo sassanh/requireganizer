@@ -8,6 +8,7 @@ import {
   buildToolCompletionParams,
   generateToolResponse,
   isTransientError,
+  resolveApiKey,
 } from "../app/actions/lib/ai";
 import type { HarnessToolDefinition } from "../app/ai-harness/tools";
 
@@ -23,6 +24,21 @@ const resultTool: HarnessToolDefinition = {
 };
 
 describe("OpenAI-compatible tool transport", () => {
+  it("prefers configured credentials and otherwise uses anonymous access", () => {
+    assert.equal(
+      resolveApiKey({
+        AI_API_KEY: " provider-neutral ",
+        OPENCODE_API_KEY: "opencode-specific",
+      }),
+      "provider-neutral",
+    );
+    assert.equal(
+      resolveApiKey({ OPENCODE_API_KEY: " opencode-specific " }),
+      "opencode-specific",
+    );
+    assert.equal(resolveApiKey({}), "public");
+  });
+
   it("disables thinking for required tools on the default OpenCode model", () => {
     const params = buildToolCompletionParams("Generate it.", {
       system: "Use the supplied function.",
@@ -175,5 +191,18 @@ describe("OpenAI-compatible tool transport", () => {
       true,
     );
     assert.equal(isTransientError(new Error("validation failed")), false);
+  });
+
+  it("treats provider HTTP 429 responses as transient", () => {
+    const error = new OpenAI.RateLimitError(
+      429,
+      {
+        type: "FreeUsageLimitError",
+        message: "Rate limit exceeded.",
+      },
+      undefined,
+      new Headers(),
+    );
+    assert.equal(isTransientError(error), true);
   });
 });

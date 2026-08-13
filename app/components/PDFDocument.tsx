@@ -73,10 +73,11 @@ const PDFDocument: React.FunctionComponent<PDFDocumentProps> = ({ store }) => {
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.title}>Programming Language and Framework</Text>
+          <Text style={styles.title}>Implementation Profile</Text>
           <Text style={styles.item}>
-            {store.productOverview.programmingLanguage} -{" "}
-            {store.productOverview.framework}
+            {store.implementationProfile == null
+              ? "Not approved"
+              : `${store.implementationProfile.language} - ${store.implementationProfile.framework}`}
           </Text>
         </View>
 
@@ -116,7 +117,7 @@ const PDFDocument: React.FunctionComponent<PDFDocumentProps> = ({ store }) => {
                   Array.from(store.scaffoldFiles),
                   testScenario.id,
                   testCase.id,
-                  store.productOverview.programmingLanguage || "typescript"
+                  store.implementationProfile?.language || "typescript"
                 );
 
                 return (

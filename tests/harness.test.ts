@@ -5,14 +5,16 @@ import {
   parseArtifactListProposal,
   parseFragmentRevisionProposal,
   parseProductOverviewProposal,
-  parseScaffoldProposal,
   parseTestCodeProposal,
   parseTestCodeRequest,
 } from "../app/ai-harness/validation";
 import {
-  Framework,
+  renderTestCaseExpectedResult,
+  renderTestCaseSteps,
+  type TestCaseDefinition,
+} from "../app/contract-domain";
+import {
   Priority,
-  ProgrammingLanguage,
   StructuralFragment,
 } from "../app/store/constants";
 
@@ -21,8 +23,6 @@ const state = {
   productOverview: {
     name: "Requireganizer",
     purpose: "Create traceable engineering artifacts.",
-    framework: Framework.NextJS,
-    programmingLanguage: ProgrammingLanguage.TypeScript,
     primaryFeatures: [
       { id: "feature-1", type: StructuralFragment.PrimaryFeature },
       { id: "feature-2", type: StructuralFragment.PrimaryFeature },
@@ -41,42 +41,25 @@ const state = {
   acceptanceCriteria: [
     { id: "criterion-1", type: StructuralFragment.AcceptanceCriteria },
   ],
-  testScenarios: [
-    {
-      id: "scenario-1",
-      type: StructuralFragment.TestScenario,
-      testCases: [],
-    },
-    {
-      id: "scenario-2",
-      type: StructuralFragment.TestScenario,
-      testCases: [],
-    },
-  ],
 };
 
 describe("AI harness contracts", () => {
-  it("accepts only compatible framework-language pairs", () => {
+  it("keeps implementation choices out of product overview", () => {
     const proposal = {
       name: "Requireganizer",
       purpose: "Create traceable software plans.",
       primaryFeatures: ["Generate reviewable artifacts"],
       targetUsers: ["Software teams"],
-      framework: Framework.NextJS,
-      programmingLanguage: ProgrammingLanguage.TypeScript,
     };
 
-    assert.equal(
-      parseProductOverviewProposal(proposal).programmingLanguage,
-      ProgrammingLanguage.TypeScript,
-    );
+    assert.equal(parseProductOverviewProposal(proposal).name, "Requireganizer");
     assert.throws(
       () =>
         parseProductOverviewProposal({
           ...proposal,
-          programmingLanguage: ProgrammingLanguage.Go,
+          programmingLanguage: "TypeScript",
         }),
-      /not supported/,
+      /unsupported field/,
     );
   });
 
@@ -226,36 +209,6 @@ describe("AI harness contracts", () => {
     );
   });
 
-  it("rejects cross-scenario test cases", () => {
-    assert.throws(
-      () =>
-        parseArtifactListProposal(
-          {
-            items: [
-              {
-                key: "preserve-references",
-                title: "Preserves references",
-                steps: "1. Generate a requirement.",
-                expectedResult: "Its upstream reference is retained.",
-                priority: Priority.P0,
-                references: [
-                  { id: "scenario-1", type: StructuralFragment.TestScenario },
-                  { id: "scenario-2", type: StructuralFragment.TestScenario },
-                ],
-                dependencies: [],
-              },
-            ],
-          },
-          {
-            expectedEntityType: StructuralFragment.TestCase,
-            expectedParentId: "scenario-1",
-            state,
-          },
-        ),
-      /must not reference another scenario/,
-    );
-  });
-
   it("keeps revision identity server-controlled", () => {
     assert.deepEqual(
       parseFragmentRevisionProposal(
@@ -309,36 +262,76 @@ describe("AI harness contracts", () => {
   });
 
   it("bounds scaffold output and validates test-generation requests", () => {
-    assert.throws(
-      () =>
-        parseScaffoldProposal({
-          files: Array.from({ length: 101 }, (_, index) => ({
-            path: `src/${index}.ts`,
-            content: "",
-          })),
-        }),
-      /at most 100 files/,
-    );
-
+    const definition: TestCaseDefinition = {
+      kind: "behavioral",
+      scenarioRevisionId: "scenario-r1",
+      subjectId: "product",
+      initialFixture: {},
+      trace: [
+        { id: "input", kind: "input", correlationAlias: "request", interfaceId: "api", interactionId: "review", payload: {}, captures: [] },
+        { id: "output", kind: "output", correlationAlias: "request", interfaceId: "api", interactionId: "review", outcomeId: "complete", matcher: { kind: "schema" }, captures: [] },
+      ],
+      boundaryRevisionId: "boundary-r1",
+      interfaceContractRevisionIds: ["interface-r1"],
+      subjectContractRevisionId: "subject-r1",
+    };
     const request = {
       project: {
         name: "Requireganizer",
         purpose: "Create traceable engineering artifacts.",
-        framework: Framework.NextJS,
-        programmingLanguage: ProgrammingLanguage.TypeScript,
+        framework: "Next.js",
+        language: "TypeScript",
       },
       projectConfig: { testFramework: "node:test" },
+      contracts: {
+        boundaryRevisionId: "boundary-r1",
+        interfaceContracts: [{
+          interfaceId: "api",
+          revisionId: "interface-r1",
+          status: "approved",
+          adapter: { id: "api-adapter", version: "1.0.0" },
+        }],
+        subjectContracts: [{
+          subjectId: "product",
+          revisionId: "subject-r1",
+          status: "approved",
+        }],
+        verificationContracts: [],
+      },
+      scaffoldManifest: {
+        language: "TypeScript",
+        testTargets: [{
+          scenarioId: "scenario-1",
+          path: "tests/tsc-1-scenario.test.ts",
+        }],
+      },
+      bindingMetadata: {
+        adapterIds: ["api-adapter@1.0.0"],
+        interfaceContractRevisionIds: ["interface-r1"],
+        subjectContractRevisionIds: ["subject-r1"],
+      },
       scenario: {
         id: "scenario-1",
+        revisionId: "scenario-r1",
         code: "TSC-1",
         content: "Review traceability.",
+        binding: {
+          kind: "behavioral",
+          subjectId: "product",
+          interfaceIds: ["api"],
+          boundaryRevisionId: "boundary-r1",
+          interfaceContractRevisionIds: ["interface-r1"],
+          subjectContractRevisionId: "subject-r1",
+        },
       },
       testCase: {
         id: "case-1",
+        revisionId: "case-r1",
         code: "TCS-1",
         title: "Preserve traceability",
-        steps: "1. Generate artifacts.",
-        expectedResult: "References are preserved.",
+        definition,
+        renderedSteps: renderTestCaseSteps(definition),
+        renderedExpectedResult: renderTestCaseExpectedResult(definition),
       },
       targetPath: "tests/tsc-1-scenario.test.ts",
       existingFile: null,
@@ -352,6 +345,25 @@ describe("AI harness contracts", () => {
           testCase: { ...request.testCase, title: "Unsafe\nannotation" },
         }),
       /must be a single line/,
+    );
+    assert.throws(
+      () =>
+        parseTestCodeRequest({
+          ...request,
+          targetPath: "tests/invented.test.ts",
+        }),
+      /unique scaffold-manifest target/,
+    );
+    assert.throws(
+      () =>
+        parseTestCodeRequest({
+          ...request,
+          bindingMetadata: {
+            ...request.bindingMetadata,
+            adapterIds: ["wrong-adapter@1.0.0"],
+          },
+        }),
+      /exact supplied contract revisions and adapters/,
     );
   });
 });

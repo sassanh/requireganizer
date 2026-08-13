@@ -19,7 +19,7 @@ interface FragmentListProps<Type extends StructuralFragmentModel> {
   fragments: Type[];
   isDisabled: boolean;
   structuralFragment: Type["type"];
-  onAddFragment: () => void;
+  onAddFragment?: () => void;
   renderFragment: (fragment: Type) => ReactNode;
 }
 
@@ -38,9 +38,11 @@ function FragmentList<Type extends StructuralFragmentModel>({
           <Divider />
         </Fragment>
       ))}
-      <Button disabled={isDisabled} endIcon={<Add />} onClick={onAddFragment}>
-        Add {STRUCTURAL_FRAGMENT_LABEL[structuralFragment]}
-      </Button>
+      {onAddFragment && (
+        <Button disabled={isDisabled} endIcon={<Add />} onClick={onAddFragment}>
+          Add {STRUCTURAL_FRAGMENT_LABEL[structuralFragment]}
+        </Button>
+      )}
     </Stack>
   );
 }
@@ -82,31 +84,22 @@ const StructuralFragments = <Type extends StructuralFragmentModel>({
 interface TestCaseFragmentsProps {
   fragments: TestCase[];
   isDisabled: boolean;
-  onAddFragment: () => void;
-  onComment: (parameters: { fragment: TestCase; comment: string }) => void;
-  onRemoveFragment: (parameters: { fragment: TestCase }) => void;
 }
 
 export const TestCaseFragments = observer(function TestCaseFragments({
   fragments,
   isDisabled,
-  onAddFragment,
-  onComment,
-  onRemoveFragment,
 }: TestCaseFragmentsProps) {
   return (
     <FragmentList
       fragments={fragments}
       isDisabled={isDisabled}
       structuralFragment={StructuralFragmentName.TestCase}
-      onAddFragment={onAddFragment}
       renderFragment={(fragment) => (
         <EditableTestCaseItem
           list={fragments}
           fragment={fragment}
           isDisabled={isDisabled}
-          onComment={onComment}
-          onRemove={onRemoveFragment}
         />
       )}
     />

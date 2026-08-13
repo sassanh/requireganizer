@@ -9,7 +9,10 @@ import {
   Accordion,
   AccordionDetails,
   AccordionSummary,
-  Button,
+  Alert,
+  Card,
+  CardContent,
+  Chip,
   Stack,
   Tab,
   TextField,
@@ -20,6 +23,7 @@ import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import React, { useEffect } from "react";
 
 import {
+  GenerationButton,
   SectionHeader,
   StructuralFragments,
   TestCaseFragments,
@@ -27,9 +31,12 @@ import {
 import { STEP_LABELS, Status, Step, StructuralFragment, useStore } from "store";
 import { isEnumMember } from "utilities";
 
-import CodeTabContent from "./CodeTabContent";
+import AutomatedTests from "./AutomatedTests";
+import BoundaryDesign from "./BoundaryDesign";
+import CodePlaceholder from "./CodePlaceholder";
+import InterfaceContracts from "./InterfaceContracts";
 import ProductOverview from "./ProductOverview";
-import ProjectConfigDialog from "./ProjectConfigDialog";
+import ProjectSetup from "./ProjectSetup";
 
 function StyledTabPanel({ sx, ...props }: TabPanelProps) {
   return (
@@ -97,16 +104,7 @@ const Factory: React.FunctionComponent<FactoryProps> = ({ activeProject }) => {
               const Icon = ICONS[status];
               return (
                 <Tab
-                  {...(step === Step.Code
-                    ? {
-                      href: activeProject
-                        ? `/project/${encodeURIComponent(activeProject.id)}/code`
-                        : "#",
-                      target: "_blank",
-                      rel: "noopener noreferrer",
-                      disabled: !activeProject,
-                    }
-                    : { href: `?step=${step}` })}
+                  href={`?step=${step}`}
                   sx={{
                     alignSelf: "stretch",
                     justifyContent: "space-between",
@@ -179,16 +177,40 @@ const Factory: React.FunctionComponent<FactoryProps> = ({ activeProject }) => {
             />
           </StyledTabPanel>
 
+          <StyledTabPanel value={Step.BoundaryDesign}>
+            <SectionHeader step={Step.BoundaryDesign} />
+            <BoundaryDesign />
+          </StyledTabPanel>
+
+          <StyledTabPanel value={Step.InterfaceContracts}>
+            <SectionHeader step={Step.InterfaceContracts} />
+            <InterfaceContracts />
+          </StyledTabPanel>
+
           <StyledTabPanel value={Step.TestScenarios}>
             <SectionHeader step={Step.TestScenarios} />
-            <StructuralFragments
-              fragments={store.testScenarios}
-              isDisabled={store.isBusy}
-              structuralFragment={StructuralFragment.TestScenario}
-              onAddFragment={store.addTestScenario}
-              onComment={store.handleComment}
-              onRemoveFragment={store.removeTestScenario}
-            />
+            <Stack spacing={1.5}>
+              {store.testScenarios.length === 0 && <Alert severity="info">Generate scenarios from the approved contract suite.</Alert>}
+              {store.testScenarios.map((scenario) => (
+                <Card key={scenario.id} variant="outlined">
+                  <CardContent component={Stack} spacing={1}>
+                    <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+                      <Typography variant="h6" sx={{ flexGrow: 1 }}>{scenario.content}</Typography>
+                      <Chip size="small" label={scenario.binding?.kind ?? "unbound"} />
+                      <Chip size="small" label={scenario.priority ?? "unprioritized"} />
+                    </Stack>
+                    <Typography>{scenario.description}</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {scenario.binding?.kind === "behavioral"
+                        ? `Subject ${scenario.binding.subjectId} · ${scenario.binding.interfaceIds.length} interface(s)`
+                        : scenario.binding?.kind === "verification"
+                          ? `Verification obligation ${scenario.binding.verificationObligationId}`
+                          : "No binding"}
+                    </Typography>
+                  </CardContent>
+                </Card>
+              ))}
+            </Stack>
           </StyledTabPanel>
 
           <StyledTabPanel value={Step.TestCases}>
@@ -229,20 +251,17 @@ const Factory: React.FunctionComponent<FactoryProps> = ({ activeProject }) => {
                   </AccordionSummary>
                   <AccordionDetails>
                     <Stack>
-                      <Button
+                      <GenerationButton
                         endIcon={<Build />}
                         disabled={store.isBusy}
-                        onClick={() => store.generateTestCases(testScenario)}
+                        onGenerate={() => store.generateTestCases(testScenario)}
                         sx={{ alignSelf: "end" }}
                       >
                         Generate Test Cases
-                      </Button>
+                      </GenerationButton>
                       <TestCaseFragments
                         fragments={testScenario.testCases}
                         isDisabled={store.isBusy}
-                        onAddFragment={testScenario.addTestCase}
-                        onComment={store.handleComment}
-                        onRemoveFragment={testScenario.removeTestCase}
                       />
                     </Stack>
                   </AccordionDetails>
@@ -251,14 +270,22 @@ const Factory: React.FunctionComponent<FactoryProps> = ({ activeProject }) => {
             </Stack>
           </StyledTabPanel>
 
-          <StyledTabPanel value={Step.TestCode}>
-            <SectionHeader step={Step.TestCode} />
-            <CodeTabContent step={Step.TestCode} />
+          <StyledTabPanel value={Step.ProjectSetup}>
+            <SectionHeader step={Step.ProjectSetup} />
+            <ProjectSetup />
+          </StyledTabPanel>
+
+          <StyledTabPanel value={Step.AutomatedTests}>
+            <SectionHeader step={Step.AutomatedTests} />
+            <AutomatedTests />
+          </StyledTabPanel>
+
+          <StyledTabPanel value={Step.Code}>
+            <SectionHeader step={Step.Code} />
+            <CodePlaceholder />
           </StyledTabPanel>
         </Stack>
       </TabContext>
-
-      <ProjectConfigDialog />
     </Stack>
   );
 };

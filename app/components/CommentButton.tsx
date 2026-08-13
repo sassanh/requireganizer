@@ -6,7 +6,7 @@ import { ChangeEvent, useCallback, useState } from "react";
 interface CommentButtonProps {
   disabled?: boolean;
   target?: HTMLElement;
-  onSubmit: (comment: string) => void;
+  onSubmit: (comment: string) => unknown;
 }
 
 const CommentButton = ({
@@ -16,6 +16,7 @@ const CommentButton = ({
 }: CommentButtonProps) => {
   const [isOpen, setIsOpen] = useState(false);
   const [comment, setComment] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [popupRef, setPopupRef] = useState<HTMLFormElement | null>(null);
   const [buttonRef, setButtonRef] = useState<HTMLButtonElement | null>(null);
@@ -37,11 +38,19 @@ const CommentButton = ({
   );
 
   const handleSubmit = useCallback(
-    (event: React.FormEvent) => {
+    async (event: React.FormEvent) => {
       event.preventDefault();
-      onSubmit(comment);
+      if (isSubmitting || comment.trim().length === 0) return;
+      setIsSubmitting(true);
+      try {
+        await onSubmit(comment);
+        setComment("");
+        setIsOpen(false);
+      } finally {
+        setIsSubmitting(false);
+      }
     },
-    [onSubmit, comment],
+    [comment, isSubmitting, onSubmit],
   );
 
   return (
@@ -49,7 +58,7 @@ const CommentButton = ({
       <IconButton
         aria-label="Comment"
         ref={setButtonRef}
-        disabled={disabled}
+        disabled={disabled || isSubmitting}
         onClick={handleCommentOpen}
       >
         <Comment />
@@ -75,10 +84,16 @@ const CommentButton = ({
             minRows={2}
             multiline
             value={comment}
+            disabled={disabled || isSubmitting}
             ref={(element) => element?.focus()}
             onChange={handleCommentChange}
           />
-          <IconButton aria-label="Send comment" type="submit">
+          <IconButton
+            aria-label="Send comment"
+            disabled={disabled || comment.trim().length === 0}
+            loading={isSubmitting}
+            type="submit"
+          >
             <Send />
           </IconButton>
         </Paper>

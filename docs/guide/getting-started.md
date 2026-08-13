@@ -6,7 +6,7 @@
 - pnpm 11
 - An OpenAI-compatible chat-completions endpoint and model that support formal function tools
 
-The default configuration uses the OpenCode Zen gateway and its free `deepseek-v4-flash-free` model. An API key is optional for that default endpoint.
+The default configuration uses the OpenCode Zen gateway and the `deepseek-v4-flash-free` model. Set provider credentials or override the endpoint and model in `.env.local` when needed.
 
 ## Install and run
 
@@ -18,7 +18,7 @@ pnpm run dev
 
 Open `http://localhost:3000`.
 
-The values in `.env.example` are usable defaults. Change the provider URL, model, timeout, or key in `.env.local` if you operate a different compatible endpoint. See [environment variables](/reference/environment) for the full reference.
+The values in `.env.example` are usable defaults. Change the provider URL, model, timeout, or optional key in `.env.local` if you operate a different compatible endpoint. See [environment variables](/reference/environment) for the full reference.
 
 ## Run the quality gate
 
@@ -38,10 +38,11 @@ The documentation uses the GitHub Pages base path `/requireganizer/`. VitePress 
 
 ## First project
 
-1. Write a concrete project description with intended users, key behavior, boundaries, and mandatory technical constraints.
+1. Write a concrete project description with intended users, key behavior, boundaries, and mandatory constraints.
 2. Generate and review the product overview.
 3. Continue through each stage in order. Do not treat generated output as approved merely because it passed structural validation.
-4. Regenerate a stage marked **Outdated** after changing its upstream inputs.
-5. Lock the generated project configuration before creating the scaffold or executable tests.
+4. Approve Boundary Design, the Implementation Profile, and each formal contract bundle after review.
+5. Review any downstream impact before applying a new approved-artifact revision.
+6. Generate Project Setup and then generate each automated test from its structured case.
 
 The model calls `communicate` when required scope is missing or contradictory. The application exposes that as a needs-input message. Answer the question by improving the project data, then run the stage again.

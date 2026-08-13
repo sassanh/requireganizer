@@ -11,3 +11,6 @@ export { default as CodeBlock } from "./CodeBlock";
 export { default as FileTree } from "./FileTree";
 export { default as ValidationErrorAlert } from "./ValidationErrorAlert";
 export { default as ProviderActivity } from "./ProviderActivity";
+export { default as GenerationButton } from "./GenerationButton";
+export { default as ImpactConfirmationDialog } from "./ImpactConfirmationDialog";
+export { default as RevisionHistoryDialog } from "./RevisionHistoryDialog";

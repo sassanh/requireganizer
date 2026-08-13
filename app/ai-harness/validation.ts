@@ -3,8 +3,6 @@ import {
   ArtifactProposalItem,
   FragmentRevisionProposal,
   ProductOverviewProposal,
-  ProjectConfigurationProposal,
-  ScaffoldProposal,
   TestCodeRequest,
   TestCodeProposal,
 } from "ai-harness/contracts";
@@ -12,13 +10,16 @@ import {
   ArtifactStageDefinition,
   getArtifactStageDefinition,
 } from "ai-harness/workflow";
-import { InvalidJsonError, isRecord } from "lib/json";
-import { assertSafeVirtualPath, parseScaffoldFiles } from "lib/scaffold";
 import {
-  Framework,
+  parseTestCaseDefinition,
+  parseTestScenarioBinding,
+  renderTestCaseExpectedResult,
+  renderTestCaseSteps,
+} from "contract-domain";
+import { InvalidJsonError, isRecord } from "lib/json";
+import { assertSafeVirtualPath } from "lib/scaffold";
+import {
   Priority,
-  PROGRAMMING_LANGUAGE_BY_FRAMEWORK,
-  ProgrammingLanguage,
   StructuralFragment,
 } from "store/constants";
 import { isEnumMember } from "utilities";
@@ -28,9 +29,6 @@ export interface ArtifactIdentity {
   type: StructuralFragment;
 }
 
-const MAX_SCAFFOLD_FILES = 100;
-const MAX_SCAFFOLD_FILE_CHARACTERS = 500_000;
-const MAX_SCAFFOLD_TOTAL_CHARACTERS = 2_000_000;
 const MAX_TEST_CODE_CHARACTERS = 500_000;
 
 function requiredString(
@@ -164,27 +162,9 @@ export function parseProductOverviewProposal(
       "purpose",
       "primaryFeatures",
       "targetUsers",
-      "framework",
-      "programmingLanguage",
     ],
     "Product overview",
   );
-
-  const framework = enumValue(
-    value.framework,
-    Framework,
-    "Product overview framework",
-  );
-  const programmingLanguage = enumValue(
-    value.programmingLanguage,
-    ProgrammingLanguage,
-    "Product overview programming language",
-  );
-  if (!PROGRAMMING_LANGUAGE_BY_FRAMEWORK[framework].includes(programmingLanguage)) {
-    throw new InvalidJsonError(
-      `Programming language ${programmingLanguage} is not supported by ${framework}.`,
-    );
-  }
 
   return {
     name: requiredString(value, "name", "Product overview"),
@@ -195,8 +175,6 @@ export function parseProductOverviewProposal(
     targetUsers: stringArray(value, "targetUsers", "Product overview", {
       allowEmpty: false,
     }),
-    framework,
-    programmingLanguage,
   };
 }
 
@@ -230,21 +208,12 @@ export function collectArtifactIdentities(
     StructuralFragment.AcceptanceCriteria,
     artifacts,
   );
-  collectList(state.testScenarios, StructuralFragment.TestScenario, artifacts);
-  if (Array.isArray(state.testScenarios)) {
-    state.testScenarios.forEach((scenario) => {
-      if (isRecord(scenario)) {
-        collectList(scenario.testCases, StructuralFragment.TestCase, artifacts);
-      }
-    });
-  }
   return artifacts;
 }
 
 export function getExistingTargetIds(
   state: Record<string, unknown>,
   entityType: StructuralFragment,
-  parentId?: string,
 ): Set<string> {
   let list: unknown;
   const overview = isRecord(state.productOverview) ? state.productOverview : {};
@@ -265,19 +234,9 @@ export function getExistingTargetIds(
       list = state.acceptanceCriteria;
       break;
     case StructuralFragment.TestScenario:
-      list = state.testScenarios;
-      break;
     case StructuralFragment.TestCase:
-      list = Array.isArray(state.testScenarios)
-        ? state.testScenarios.find(
-          (scenario) => isRecord(scenario) && scenario.id === parentId,
-        )
-        : undefined;
-      list = isRecord(list) ? list.testCases : undefined;
-      break;
     case StructuralFragment.TestCode:
-      list = [];
-      break;
+      throw new InvalidJsonError(`${entityType} uses the contract-first parser.`);
   }
 
   return new Set(
@@ -336,18 +295,7 @@ function parseArtifactItem(
 
   assertAllowedKeys(
     value,
-    definition.entityType === StructuralFragment.TestCase
-      ? [
-        "key",
-        "id",
-        "title",
-        "steps",
-        "expectedResult",
-        "priority",
-        "references",
-        "dependencies",
-      ]
-      : ["key", "id", "content", "priority", "references", "dependencies"],
+    ["key", "id", "content", "priority", "references", "dependencies"],
     label,
   );
 
@@ -373,16 +321,6 @@ function parseArtifactItem(
     references,
     dependencies: stringArray(value, "dependencies", label),
   };
-
-  if (definition.entityType === StructuralFragment.TestCase) {
-    return {
-      ...base,
-      content: optionalString(value, "content", label) ?? "",
-      title: requiredSingleLineString(value, "title", label),
-      steps: requiredString(value, "steps", label),
-      expectedResult: requiredString(value, "expectedResult", label),
-    };
-  }
 
   return {
     ...base,
@@ -454,11 +392,9 @@ export function parseArtifactListProposal(
   value: unknown,
   {
     expectedEntityType,
-    expectedParentId,
     state,
   }: {
     expectedEntityType: StructuralFragment;
-    expectedParentId?: string;
     state: Record<string, unknown>;
   },
 ): ArtifactListProposal {
@@ -467,11 +403,9 @@ export function parseArtifactListProposal(
   }
   assertAllowedKeys(value, ["items"], "Artifact result");
   const entityType = expectedEntityType;
-  const parentId = expectedParentId;
-
   const definition = getArtifactStageDefinition(entityType);
   const artifacts = collectArtifactIdentities(state);
-  const existingTargetIds = getExistingTargetIds(state, entityType, parentId);
+  const existingTargetIds = getExistingTargetIds(state, entityType);
   const rawItems = requiredArray(value, "items", "Artifact result");
   if (rawItems.length === 0) {
     throw new InvalidJsonError("Artifact result.items must not be empty.");
@@ -494,29 +428,9 @@ export function parseArtifactListProposal(
   if (new Set(keys).size !== keys.length) {
     throw new InvalidJsonError("Artifact result contains duplicate proposal keys.");
   }
-  if (entityType === StructuralFragment.TestCase && expectedParentId != null) {
-    items.forEach((item, index) => {
-      if (!item.references.some(({ id }) => id === expectedParentId)) {
-        throw new InvalidJsonError(
-          `Artifact result.items[${index}] must reference its parent scenario.`,
-        );
-      }
-      if (
-        item.references.some(
-          ({ id, type }) =>
-            type === StructuralFragment.TestScenario && id !== expectedParentId,
-        )
-      ) {
-        throw new InvalidJsonError(
-          `Artifact result.items[${index}] must not reference another scenario.`,
-        );
-      }
-    });
-  }
-
   assertValidDependencies(items);
   assertCoverage(items, artifacts, definition);
-  return { entityType, parentId, items };
+  return { entityType, items };
 }
 
 export function parseFragmentRevisionProposal(
@@ -534,13 +448,17 @@ export function parseFragmentRevisionProposal(
   }
   assertAllowedKeys(value, ["patch"], "Fragment revision");
   const entityType = expectedEntityType;
+  if (
+    entityType === StructuralFragment.TestScenario ||
+    entityType === StructuralFragment.TestCase ||
+    entityType === StructuralFragment.TestCode
+  ) {
+    throw new InvalidJsonError(`${entityType} uses its contract-first revision flow.`);
+  }
   const id = expectedId;
   const rawPatch = requiredRecord(value, "patch", "Fragment revision");
   const patch: FragmentRevisionProposal["patch"] = {};
-  const allowedTextFields =
-    entityType === StructuralFragment.TestCase
-      ? (["title", "steps", "expectedResult"] as const)
-      : (["content"] as const);
+  const allowedTextFields = ["content"] as const;
   const allowedKeys = new Set<string>([...allowedTextFields, "priority"]);
   Object.keys(rawPatch).forEach((key) => {
     if (!allowedKeys.has(key)) {
@@ -551,10 +469,7 @@ export function parseFragmentRevisionProposal(
   });
   for (const key of allowedTextFields) {
     if (rawPatch[key] !== undefined) {
-      patch[key] =
-        key === "title"
-          ? requiredSingleLineString(rawPatch, key, "Fragment revision.patch")
-          : requiredString(rawPatch, key, "Fragment revision.patch");
+      patch[key] = requiredString(rawPatch, key, "Fragment revision.patch");
     }
   }
   if (rawPatch.priority !== undefined) {
@@ -568,71 +483,6 @@ export function parseFragmentRevisionProposal(
     throw new InvalidJsonError("Fragment revision.patch must contain a change.");
   }
   return { entityType, id, patch };
-}
-
-export function parseProjectConfigurationProposal(
-  value: unknown,
-): ProjectConfigurationProposal {
-  if (!isRecord(value)) {
-    throw new InvalidJsonError("Project configuration result must be an object.");
-  }
-  assertAllowedKeys(
-    value,
-    ["packageManager", "testFramework", "buildCommand", "testCommand", "settings"],
-    "Project configuration",
-  );
-  return {
-    packageManager: requiredSingleLineString(
-      value,
-      "packageManager",
-      "Project configuration",
-    ),
-    testFramework: requiredSingleLineString(
-      value,
-      "testFramework",
-      "Project configuration",
-    ),
-    buildCommand: requiredSingleLineString(
-      value,
-      "buildCommand",
-      "Project configuration",
-    ),
-    testCommand: requiredSingleLineString(
-      value,
-      "testCommand",
-      "Project configuration",
-    ),
-    settings: requiredRecord(value, "settings", "Project configuration"),
-  };
-}
-
-export function parseScaffoldProposal(value: unknown): ScaffoldProposal {
-  if (!isRecord(value)) {
-    throw new InvalidJsonError("Scaffold result must be an object.");
-  }
-  assertAllowedKeys(value, ["files"], "Scaffold result");
-  const files = parseScaffoldFiles(value.files);
-  if (files.length === 0) {
-    throw new InvalidJsonError("Scaffold result.files must not be empty.");
-  }
-  if (files.length > MAX_SCAFFOLD_FILES) {
-    throw new InvalidJsonError(
-      `Scaffold result.files must contain at most ${MAX_SCAFFOLD_FILES} files.`,
-    );
-  }
-  let totalCharacters = 0;
-  files.forEach((file) => {
-    if (file.content.length > MAX_SCAFFOLD_FILE_CHARACTERS) {
-      throw new InvalidJsonError(
-        `Scaffold file ${file.path} exceeds the response size limit.`,
-      );
-    }
-    totalCharacters += file.content.length;
-  });
-  if (totalCharacters > MAX_SCAFFOLD_TOTAL_CHARACTERS) {
-    throw new InvalidJsonError("Scaffold result exceeds the total response size limit.");
-  }
-  return { files };
 }
 
 export function parseTestCodeProposal(
@@ -662,6 +512,9 @@ export function parseTestCodeRequest(value: unknown): TestCodeRequest {
     [
       "project",
       "projectConfig",
+      "contracts",
+      "scaffoldManifest",
+      "bindingMetadata",
       "scenario",
       "testCase",
       "targetPath",
@@ -674,35 +527,27 @@ export function parseTestCodeRequest(value: unknown): TestCodeRequest {
   const project = requiredRecord(value, "project", "Test-code request");
   assertAllowedKeys(
     project,
-    ["name", "purpose", "framework", "programmingLanguage"],
+    ["name", "purpose", "language", "framework"],
     "Test-code request.project",
   );
-  const framework = enumValue(
-    project.framework,
-    Framework,
-    "Test-code request.project.framework",
-  );
-  const programmingLanguage = enumValue(
-    project.programmingLanguage,
-    ProgrammingLanguage,
-    "Test-code request.project.programmingLanguage",
-  );
-  if (!PROGRAMMING_LANGUAGE_BY_FRAMEWORK[framework].includes(programmingLanguage)) {
-    throw new InvalidJsonError(
-      "Test-code request contains an incompatible framework-language pair.",
-    );
-  }
-
   const scenario = requiredRecord(value, "scenario", "Test-code request");
   assertAllowedKeys(
     scenario,
-    ["id", "code", "content"],
+    ["id", "revisionId", "code", "content", "binding"],
     "Test-code request.scenario",
   );
   const testCase = requiredRecord(value, "testCase", "Test-code request");
   assertAllowedKeys(
     testCase,
-    ["id", "code", "title", "steps", "expectedResult"],
+    [
+      "id",
+      "revisionId",
+      "code",
+      "title",
+      "definition",
+      "renderedSteps",
+      "renderedExpectedResult",
+    ],
     "Test-code request.testCase",
   );
   const targetPath = assertSafeVirtualPath(value.targetPath);
@@ -738,29 +583,293 @@ export function parseTestCodeRequest(value: unknown): TestCodeRequest {
     throw new InvalidJsonError("Test-code request.comment must not be empty.");
   }
 
+  const bindingMetadata = requiredRecord(
+    value,
+    "bindingMetadata",
+    "Test-code request",
+  );
+  assertAllowedKeys(
+    bindingMetadata,
+    ["adapterIds", "interfaceContractRevisionIds", "subjectContractRevisionIds"],
+    "Test-code request.bindingMetadata",
+  );
+  const metadataList = (key: string): string[] => {
+    const candidate = bindingMetadata[key];
+    if (!Array.isArray(candidate) || candidate.some((item) => typeof item !== "string")) {
+      throw new InvalidJsonError(`Test-code request.bindingMetadata.${key} must be a text array.`);
+    }
+    return [...new Set(candidate as string[])];
+  };
+
+  const scenarioRevisionId = requiredSingleLineString(
+    scenario,
+    "revisionId",
+    "Test-code request.scenario",
+  );
+  const definition = parseTestCaseDefinition(
+    testCase.definition,
+    "Test-code request.testCase.definition",
+  );
+  if (definition.scenarioRevisionId !== scenarioRevisionId) {
+    throw new InvalidJsonError(
+      "Test-code request.testCase.definition must bind the exact scenario revision.",
+    );
+  }
+
+  const binding = parseTestScenarioBinding(
+    scenario.binding,
+    "Test-code request.scenario.binding",
+  );
+  if (definition.kind !== binding.kind) {
+    throw new InvalidJsonError(
+      "Test-code request.testCase.definition kind must match its scenario binding.",
+    );
+  }
+  if (
+    definition.kind === "behavioral" &&
+    binding.kind === "behavioral" &&
+    (
+      definition.subjectId !== binding.subjectId ||
+      definition.boundaryRevisionId !== binding.boundaryRevisionId ||
+      definition.subjectContractRevisionId !==
+        binding.subjectContractRevisionId ||
+      definition.interfaceContractRevisionIds.length !==
+        binding.interfaceContractRevisionIds.length ||
+      definition.interfaceContractRevisionIds.some(
+        (id) => !binding.interfaceContractRevisionIds.includes(id),
+      )
+    )
+  ) {
+    throw new InvalidJsonError(
+      "Test-code request.testCase.definition must bind the scenario's exact subject and contract revisions.",
+    );
+  }
+  if (
+    definition.kind === "verification" &&
+    binding.kind === "verification" &&
+    definition.verificationContractRevisionId !==
+      binding.verificationContractRevisionId
+  ) {
+    throw new InvalidJsonError(
+      "Test-code request.testCase.definition must bind the scenario's exact verification contract revision.",
+    );
+  }
+
+  const contracts = requiredRecord(value, "contracts", "Test-code request");
+  assertAllowedKeys(
+    contracts,
+    [
+      "boundaryRevisionId",
+      "interfaceContracts",
+      "subjectContracts",
+      "verificationContracts",
+    ],
+    "Test-code request.contracts",
+  );
+  const boundaryRevisionId = requiredSingleLineString(
+    contracts,
+    "boundaryRevisionId",
+    "Test-code request.contracts",
+  );
+  if (boundaryRevisionId !== binding.boundaryRevisionId) {
+    throw new InvalidJsonError(
+      "Test-code request.contracts use a different boundary revision than the scenario.",
+    );
+  }
+  const contractRecords = (key: string): Record<string, unknown>[] =>
+    requiredArray(contracts, key, "Test-code request.contracts").map(
+      (candidate, index) => {
+        if (!isRecord(candidate)) {
+          throw new InvalidJsonError(
+            `Test-code request.contracts.${key}[${index}] must be an object.`,
+          );
+        }
+        return candidate;
+      },
+    );
+  const interfaceContracts = contractRecords("interfaceContracts");
+  const subjectContracts = contractRecords("subjectContracts");
+  const verificationContracts = contractRecords("verificationContracts");
+  const approvedRevision = (
+    contract: Record<string, unknown>,
+    label: string,
+  ): string => {
+    if (contract.status !== "approved") {
+      throw new InvalidJsonError(`${label} must be approved.`);
+    }
+    return requiredSingleLineString(contract, "revisionId", label);
+  };
+  const interfaceRevisionIds = interfaceContracts.map((contract, index) =>
+    approvedRevision(
+      contract,
+      `Test-code request.contracts.interfaceContracts[${index}]`,
+    ),
+  );
+  const subjectRevisionIds = subjectContracts.map((contract, index) =>
+    approvedRevision(
+      contract,
+      `Test-code request.contracts.subjectContracts[${index}]`,
+    ),
+  );
+  const verificationRevisionIds = verificationContracts.map((contract, index) =>
+    approvedRevision(
+      contract,
+      `Test-code request.contracts.verificationContracts[${index}]`,
+    ),
+  );
+  const exactSet = (left: readonly string[], right: readonly string[]) =>
+    left.length === right.length && left.every((item) => right.includes(item));
+  const adapterIds = interfaceContracts.map((contract, index) => {
+    const label = `Test-code request.contracts.interfaceContracts[${index}]`;
+    const adapter = requiredRecord(contract, "adapter", label);
+    return `${requiredSingleLineString(adapter, "id", `${label}.adapter`)}@${requiredSingleLineString(adapter, "version", `${label}.adapter`)}`;
+  });
+  if (binding.kind === "behavioral") {
+    const interfaceIds = interfaceContracts.map((contract, index) =>
+      requiredSingleLineString(
+        contract,
+        "interfaceId",
+        `Test-code request.contracts.interfaceContracts[${index}]`,
+      ),
+    );
+    if (
+      !exactSet(interfaceRevisionIds, binding.interfaceContractRevisionIds) ||
+      !exactSet(interfaceIds, binding.interfaceIds) ||
+      subjectContracts.length !== 1 ||
+      subjectRevisionIds[0] !== binding.subjectContractRevisionId ||
+      requiredSingleLineString(
+        subjectContracts[0],
+        "subjectId",
+        "Test-code request.contracts.subjectContracts[0]",
+      ) !== binding.subjectId ||
+      verificationContracts.length !== 0
+    ) {
+      throw new InvalidJsonError(
+        "Test-code request.contracts do not exactly match the behavioral scenario binding.",
+      );
+    }
+  } else if (
+    interfaceContracts.length !== 0 ||
+    subjectContracts.length !== 0 ||
+    verificationContracts.length !== 1 ||
+    verificationRevisionIds[0] !== binding.verificationContractRevisionId ||
+    requiredSingleLineString(
+      verificationContracts[0],
+      "verificationObligationId",
+      "Test-code request.contracts.verificationContracts[0]",
+    ) !== binding.verificationObligationId
+  ) {
+    throw new InvalidJsonError(
+      "Test-code request.contracts do not exactly match the verification scenario binding.",
+    );
+  }
+
+  const parsedMetadata = {
+    adapterIds: metadataList("adapterIds"),
+    interfaceContractRevisionIds: metadataList(
+      "interfaceContractRevisionIds",
+    ),
+    subjectContractRevisionIds: metadataList("subjectContractRevisionIds"),
+  };
+  if (
+    !exactSet(parsedMetadata.adapterIds, adapterIds) ||
+    !exactSet(
+      parsedMetadata.interfaceContractRevisionIds,
+      interfaceRevisionIds,
+    ) ||
+    !exactSet(parsedMetadata.subjectContractRevisionIds, subjectRevisionIds)
+  ) {
+    throw new InvalidJsonError(
+      "Test-code request.bindingMetadata must identify the exact supplied contract revisions and adapters.",
+    );
+  }
+
+  const scaffoldManifest = requiredRecord(
+    value,
+    "scaffoldManifest",
+    "Test-code request",
+  );
+  const projectLanguage = requiredString(
+    project,
+    "language",
+    "Test-code request.project",
+  );
+  if (scaffoldManifest.language !== projectLanguage) {
+    throw new InvalidJsonError(
+      "Test-code request project language must match the scaffold manifest.",
+    );
+  }
+  const scenarioId = requiredSingleLineString(
+    scenario,
+    "id",
+    "Test-code request.scenario",
+  );
+  const matchingTargets = requiredArray(
+    scaffoldManifest,
+    "testTargets",
+    "Test-code request.scaffoldManifest",
+  ).filter(
+    (candidate) => isRecord(candidate) && candidate.scenarioId === scenarioId,
+  );
+  if (
+    matchingTargets.length !== 1 ||
+    !isRecord(matchingTargets[0]) ||
+    matchingTargets[0].path !== targetPath
+  ) {
+    throw new InvalidJsonError(
+      "Test-code request.targetPath must be the scenario's unique scaffold-manifest target.",
+    );
+  }
+
+  const renderedSteps = requiredString(
+    testCase,
+    "renderedSteps",
+    "Test-code request.testCase",
+  );
+  const renderedExpectedResult = requiredString(
+    testCase,
+    "renderedExpectedResult",
+    "Test-code request.testCase",
+  );
+  if (
+    renderedSteps !== renderTestCaseSteps(definition) ||
+    renderedExpectedResult !== renderTestCaseExpectedResult(definition)
+  ) {
+    throw new InvalidJsonError(
+      "Test-code request human-readable steps must be rendered from its structured definition.",
+    );
+  }
+
   return {
     project: {
       name: requiredString(project, "name", "Test-code request.project"),
       purpose: requiredString(project, "purpose", "Test-code request.project"),
-      framework,
-      programmingLanguage,
+      framework: requiredString(project, "framework", "Test-code request.project"),
+      language: projectLanguage,
     },
     projectConfig: requiredRecord(value, "projectConfig", "Test-code request"),
+    contracts,
+    scaffoldManifest,
+    bindingMetadata: parsedMetadata,
     scenario: {
-      id: requiredSingleLineString(scenario, "id", "Test-code request.scenario"),
+      id: scenarioId,
+      revisionId: scenarioRevisionId,
       code: requiredSingleLineString(scenario, "code", "Test-code request.scenario"),
       content: requiredString(scenario, "content", "Test-code request.scenario"),
+      binding,
     },
     testCase: {
       id: requiredSingleLineString(testCase, "id", "Test-code request.testCase"),
-      code: requiredSingleLineString(testCase, "code", "Test-code request.testCase"),
-      title: requiredSingleLineString(testCase, "title", "Test-code request.testCase"),
-      steps: requiredString(testCase, "steps", "Test-code request.testCase"),
-      expectedResult: requiredString(
+      revisionId: requiredSingleLineString(
         testCase,
-        "expectedResult",
+        "revisionId",
         "Test-code request.testCase",
       ),
+      code: requiredSingleLineString(testCase, "code", "Test-code request.testCase"),
+      title: requiredSingleLineString(testCase, "title", "Test-code request.testCase"),
+      definition,
+      renderedSteps,
+      renderedExpectedResult,
     },
     targetPath,
     existingFile,

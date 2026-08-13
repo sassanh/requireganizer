@@ -9,34 +9,14 @@ interface EditableTestCaseItemProps extends StackProps {
   isDisabled: boolean;
   list: TestCase[];
   fragment: TestCase;
-  onComment: (parameters: { fragment: TestCase; comment: string }) => void;
-  onRemove: (parameters: { fragment: TestCase }) => void;
 }
 
 const EditableTestCaseItem = ({
   isDisabled,
   list,
   fragment,
-  onComment,
-  onRemove,
   ...props
 }: EditableTestCaseItemProps) => {
-  const handleTitleChange = ({
-    target: { value },
-  }: React.ChangeEvent<HTMLTextAreaElement>) => {
-    fragment.setTitle(value);
-  };
-  const handleStepsChange = ({
-    target: { value },
-  }: React.ChangeEvent<HTMLTextAreaElement>) => {
-    fragment.setSteps(value);
-  };
-  const handleExpectedResultChange = ({
-    target: { value },
-  }: React.ChangeEvent<HTMLTextAreaElement>) => {
-    fragment.setExpectedResult(value);
-  };
-
   const handleKeyUp = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Escape") {
       event.currentTarget.blur();
@@ -48,8 +28,7 @@ const EditableTestCaseItem = ({
       isDisabled={isDisabled}
       list={list}
       fragment={fragment}
-      onComment={onComment}
-      onRemove={onRemove}
+      showActions={false}
       highlightSx={(theme) => ({
         outline: `2px solid ${theme.palette.action.focus}`,
       })}
@@ -73,9 +52,7 @@ const EditableTestCaseItem = ({
         <TextField
           multiline
           fullWidth
-          onChange={handleTitleChange}
           value={fragment.title}
-          disabled={isDisabled}
           placeholder="Test Case Title"
           size="small"
           sx={{
@@ -84,6 +61,7 @@ const EditableTestCaseItem = ({
           slotProps={{
             input: {
               onKeyUp: handleKeyUp,
+              readOnly: true,
               sx: { pl: 9, fontWeight: "bold" },
             },
           }}
@@ -91,9 +69,7 @@ const EditableTestCaseItem = ({
         <TextField
           multiline
           fullWidth
-          onChange={handleStepsChange}
           value={fragment.steps}
-          disabled={isDisabled}
           placeholder="Test Steps"
           size="small"
           sx={{
@@ -102,6 +78,7 @@ const EditableTestCaseItem = ({
           slotProps={{
             input: {
               onKeyUp: handleKeyUp,
+              readOnly: true,
               sx: { pl: 9 },
             },
           }}
@@ -109,9 +86,7 @@ const EditableTestCaseItem = ({
         <TextField
           multiline
           fullWidth
-          onChange={handleExpectedResultChange}
           value={fragment.expectedResult}
-          disabled={isDisabled}
           placeholder="Expected Result"
           size="small"
           sx={{
@@ -120,6 +95,7 @@ const EditableTestCaseItem = ({
           slotProps={{
             input: {
               onKeyUp: handleKeyUp,
+              readOnly: true,
               sx: { pl: 9, fontStyle: "italic" },
             },
           }}

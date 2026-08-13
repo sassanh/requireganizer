@@ -19,6 +19,7 @@
     "app/store/constants.ts",
     "app/utilities.ts",
     "app/utilities/testParser.ts",
+    "types/**/*.d.ts",
     "tests/**/*.ts"
   ],
   "exclude": ["node_modules"]

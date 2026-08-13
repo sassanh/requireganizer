@@ -1,110 +1,226 @@
 import { applySnapshot, getSnapshot, getType } from "mobx-state-tree";
 
+import {
+  fingerprint,
+  validateBoundaryDesign,
+  validateContractSuite,
+  validateImplementationProfile,
+  validateProjectSetup,
+  validateScenarioAcceptanceCriteria,
+  validateScenarioBinding,
+  validateTestCaseDefinition,
+} from "contract-domain";
 import { InvalidJsonError, isRecord } from "lib/json";
+import {
+  assertCurrentProjectSchema,
+  PROJECT_SCHEMA_VERSION,
+} from "lib/projectSchema";
 import { parseScaffoldFiles } from "lib/scaffold";
 import type { Store } from "store";
-import { Step } from "store/constants";
-import { isEnumMember } from "utilities";
+import { StructuralFragment } from "store/constants";
+import { testDesignFingerprint } from "store/store";
 
-function optionalArray(
-  value: unknown,
-  label: string,
-): unknown[] {
-  if (value === undefined) return [];
-  if (!Array.isArray(value)) {
-    throw new InvalidJsonError(`${label} must be an array.`);
-  }
+function array(value: unknown, label: string): unknown[] {
+  if (!Array.isArray(value)) throw new InvalidJsonError(`${label} must be an array.`);
   return value;
 }
 
-function normalizeProjectConfig(value: unknown): string | null {
-  if (value == null) return null;
-  if (typeof value === "string") return value;
-  if (isRecord(value)) return JSON.stringify(value, null, 2);
-  throw new InvalidJsonError(
-    "Project configuration must be a string or JSON object.",
-  );
-}
-
-function normalizeStageInputFingerprints(
-  value: unknown,
-): Record<string, string> {
-  if (value === undefined) return {};
-  if (!isRecord(value)) {
-    throw new InvalidJsonError("Stage input fingerprints must be an object.");
+function validateLocalDependencies(
+  items: readonly { id: string; dependencies: readonly string[] }[],
+  label: string,
+): void {
+  const ids = new Set(items.map(({ id }) => id));
+  if (ids.size !== items.length) {
+    throw new InvalidJsonError(`${label} contains duplicate artifact IDs.`);
   }
-  return Object.fromEntries(
-    Object.entries(value).map(([step, fingerprint]) => {
-      if (!isEnumMember(step, Step) || typeof fingerprint !== "string") {
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const visit = (id: string): void => {
+    if (visiting.has(id)) {
+      throw new InvalidJsonError(`${label} dependencies contain a cycle.`);
+    }
+    if (visited.has(id)) return;
+    visiting.add(id);
+    const item = items.find((candidate) => candidate.id === id)!;
+    for (const dependency of item.dependencies) {
+      if (!ids.has(dependency)) {
         throw new InvalidJsonError(
-          "Stage input fingerprints contain an invalid entry.",
+          `${label} dependency ${dependency} is outside its artifact set.`,
         );
       }
-      return [step, fingerprint];
-    }),
-  );
-}
-
-function optionalFingerprint(value: unknown): string | null {
-  if (value == null) return null;
-  if (typeof value !== "string") {
-    throw new InvalidJsonError(
-      "Project configuration input fingerprint must be text.",
-    );
-  }
-  return value;
+      if (dependency === id) {
+        throw new InvalidJsonError(`${label} artifact ${id} depends on itself.`);
+      }
+      visit(dependency);
+    }
+    visiting.delete(id);
+    visited.add(id);
+  };
+  items.forEach(({ id }) => visit(id));
 }
 
 const importProject = (self_: unknown, value: unknown): void => {
   const self = self_ as Store;
-  if (!isRecord(value)) {
-    throw new InvalidJsonError("Imported project must be a JSON object.");
-  }
+  assertCurrentProjectSchema(value);
+  if (typeof value.description !== "string") throw new InvalidJsonError("Project description must be text.");
+  if (!isRecord(value.productOverview)) throw new InvalidJsonError("Product overview must be an object.");
 
-  const description = value.description ?? "";
-  if (typeof description !== "string") {
-    throw new InvalidJsonError("Project description must be text.");
-  }
-
-  const productOverview = value.productOverview ?? {};
-  if (!isRecord(productOverview)) {
-    throw new InvalidJsonError("Product overview must be a JSON object.");
-  }
-
-  const scaffoldFiles = parseScaffoldFiles(value.scaffoldFiles ?? []);
-  const projectConfig = normalizeProjectConfig(value.projectConfig);
   const candidateSnapshot = {
-    ...getSnapshot(self),
+    schemaVersion: PROJECT_SCHEMA_VERSION,
     isClean: false,
     businessCounter: 0,
-    description,
+    description: value.description,
     validationErrors: null,
     systemMessage: null,
-    productOverview,
-    userStories: optionalArray(value.userStories, "User stories"),
-    requirements: optionalArray(value.requirements, "Requirements"),
-    acceptanceCriteria: optionalArray(
-      value.acceptanceCriteria,
-      "Acceptance criteria",
-    ),
-    testScenarios: optionalArray(value.testScenarios, "Test scenarios"),
-    projectConfig,
-    projectConfigLocked:
-      projectConfig !== null && scaffoldFiles.length > 0,
-    projectConfigInputFingerprint: optionalFingerprint(
-      value.projectConfigInputFingerprint,
-    ),
-    isProjectConfigDialogOpen: false,
-    scaffoldFiles,
-    stageInputFingerprints: normalizeStageInputFingerprints(
-      value.stageInputFingerprints,
-    ),
+    productOverview: value.productOverview,
+    userStories: array(value.userStories, "User stories"),
+    requirements: array(value.requirements, "Requirements"),
+    acceptanceCriteria: array(value.acceptanceCriteria, "Acceptance criteria"),
+    boundaryDesign: value.boundaryDesign ?? null,
+    implementationProfile: value.implementationProfile ?? null,
+    contractSuite: value.contractSuite ?? null,
+    testScenarios: array(value.testScenarios, "Test scenarios"),
+    projectSetup: value.projectSetup ?? null,
+    scaffoldFiles: parseScaffoldFiles(value.scaffoldFiles ?? []),
+    stageInputFingerprints: isRecord(value.stageInputFingerprints)
+      ? value.stageInputFingerprints
+      : {},
   };
 
-  // Construct a detached candidate first so a malformed import can never
-  // partially mutate the active project.
-  const candidateStore = getType(self).create(candidateSnapshot);
-  applySnapshot(self, getSnapshot(candidateStore));
+  const candidate = getType(self).create(candidateSnapshot) as Store;
+  if (candidate.boundaryDesign != null) {
+    validateBoundaryDesign(candidate.boundaryDesign, {
+      requirementIds: new Set(candidate.requirements.map(({ id }) => id)),
+      acceptanceCriteriaIds: new Set(candidate.acceptanceCriteria.map(({ id }) => id)),
+      requirementsRevisionId: fingerprint(
+        candidate.requirements.map((item) => getSnapshot(item)),
+      ),
+      acceptanceCriteriaRevisionId: fingerprint(
+        candidate.acceptanceCriteria.map((item) => getSnapshot(item)),
+      ),
+    });
+  }
+  if (candidate.implementationProfile != null) {
+    if (candidate.boundaryDesign == null) {
+      throw new InvalidJsonError(
+        "Implementation profile requires an approved Boundary Design.",
+      );
+    }
+    if (candidate.boundaryDesign.status !== "approved") {
+      throw new InvalidJsonError(
+        "Implementation profile requires an approved Boundary Design.",
+      );
+    }
+    validateImplementationProfile(
+      candidate.implementationProfile,
+      candidate.boundaryDesign.revisionId,
+    );
+  }
+  if (candidate.contractSuite != null) {
+    if (candidate.boundaryDesign == null || candidate.implementationProfile == null) {
+      throw new InvalidJsonError("Contract suite requires a boundary design and implementation profile.");
+    }
+    if (candidate.implementationProfile.status !== "approved") {
+      throw new InvalidJsonError(
+        "Contract suite requires an approved Implementation Profile.",
+      );
+    }
+    validateContractSuite(candidate.contractSuite, candidate.boundaryDesign, candidate.implementationProfile.revisionId);
+    if (
+      candidate.testScenarios.length > 0 &&
+      !candidate.allContractsApproved
+    ) {
+      throw new InvalidJsonError(
+        "Test scenarios require every formal contract bundle to be approved.",
+      );
+    }
+    validateLocalDependencies(candidate.testScenarios, "Test scenarios");
+    for (const scenario of candidate.testScenarios) {
+      if (scenario.binding == null) throw new InvalidJsonError(`Scenario ${scenario.id} has no binding.`);
+      validateScenarioBinding(scenario.binding, candidate.boundaryDesign, candidate.contractSuite);
+      if (
+        scenario.references.some(
+          ({ type }) => type !== StructuralFragment.AcceptanceCriteria,
+        )
+      ) {
+        throw new InvalidJsonError(
+          `Scenario ${scenario.id} contains a reference outside acceptance criteria.`,
+        );
+      }
+      const scenarioCriteria = scenario.references.map(({ id }) => id);
+      validateScenarioAcceptanceCriteria(
+        scenarioCriteria,
+        scenario.binding,
+        candidate.boundaryDesign,
+      );
+      validateLocalDependencies(
+        scenario.testCases,
+        `Test cases for scenario ${scenario.id}`,
+      );
+      const coveredCriteria = new Set<string>();
+      for (const testCase of scenario.testCases) {
+        if (testCase.definition == null) throw new InvalidJsonError(`Test case ${testCase.id} has no structured definition.`);
+        const parentReferences = testCase.references.filter(
+          ({ type }) => type === StructuralFragment.TestScenario,
+        );
+        if (
+          parentReferences.length !== 1 ||
+          parentReferences[0].id !== scenario.id ||
+          testCase.references.some(
+            ({ type }) =>
+              type !== StructuralFragment.TestScenario &&
+              type !== StructuralFragment.AcceptanceCriteria,
+          )
+        ) {
+          throw new InvalidJsonError(
+            `Test case ${testCase.id} must reference exactly its parent scenario and acceptance criteria.`,
+          );
+        }
+        const caseCriteria = testCase.references
+          .filter(({ type }) => type === StructuralFragment.AcceptanceCriteria)
+          .map(({ id }) => id);
+        if (
+          caseCriteria.length === 0 ||
+          caseCriteria.some((id) => !scenarioCriteria.includes(id))
+        ) {
+          throw new InvalidJsonError(
+            `Test case ${testCase.id} claims acceptance criteria outside its scenario.`,
+          );
+        }
+        caseCriteria.forEach((id) => coveredCriteria.add(id));
+        validateTestCaseDefinition(
+          testCase.definition,
+          scenario.binding,
+          candidate.boundaryDesign,
+          candidate.contractSuite,
+          scenario.revisionId,
+        );
+      }
+      if (
+        scenario.testCases.length > 0 &&
+        scenarioCriteria.some((id) => !coveredCriteria.has(id))
+      ) {
+        throw new InvalidJsonError(
+          `Test cases for scenario ${scenario.id} do not cover every claimed acceptance criterion.`,
+        );
+      }
+    }
+    if (candidate.projectSetup != null) {
+      validateProjectSetup(
+        candidate.projectSetup,
+        candidate.boundaryDesign,
+        candidate.implementationProfile,
+        candidate.contractSuite,
+        testDesignFingerprint(candidate),
+        new Set(candidate.testScenarios.map(({ id }) => id)),
+      );
+    }
+  } else if (candidate.testScenarios.length > 0 || candidate.projectSetup != null) {
+    throw new InvalidJsonError(
+      "Test scenarios and Project Setup require an approved contract suite.",
+    );
+  }
+  applySnapshot(self, getSnapshot(candidate));
 };
 
 export default importProject;

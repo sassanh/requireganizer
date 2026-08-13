@@ -25,7 +25,7 @@ pnpm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-The default OpenCode Zen model can be used anonymously. Configure another OpenAI-compatible function-calling endpoint or model through `.env.local`; see the [environment reference](docs/reference/environment.md).
+The default configuration uses an OpenCode Zen model. Configure credentials or another OpenAI-compatible function-calling endpoint and model through `.env.local`; see the [environment reference](docs/reference/environment.md).
 
 ## Quality gate
 

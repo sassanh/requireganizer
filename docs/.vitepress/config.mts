@@ -45,6 +45,7 @@ export default defineConfig({
       {
         text: "Reference",
         items: [
+          { text: "Artifact contracts", link: "/reference/artifacts" },
           { text: "Environment variables", link: "/reference/environment" },
         ],
       },

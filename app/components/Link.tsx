@@ -2,26 +2,31 @@
 import { UrlObject } from "url";
 
 import MuiLink, { LinkProps as MuiLinkProps } from "@mui/material/Link";
-import { styled } from "@mui/material/styles";
 import clsx from "clsx";
 import NextLink, { LinkProps as NextLinkProps } from "next/link";
 import { usePathname } from "next/navigation";
 import * as React from "react";
 
-// Add support for the sx prop for consistency with the other branches.
-const Anchor = styled("a")({});
-
 interface NextLinkComposedProps
   extends Omit<React.AnchorHTMLAttributes<HTMLAnchorElement>, "href">,
     Omit<
       NextLinkProps,
-      "href" | "as" | "passHref" | "onMouseEnter" | "onClick" | "onTouchStart"
+      | "href"
+      | "as"
+      | "legacyBehavior"
+      | "passHref"
+      | "onMouseEnter"
+      | "onClick"
+      | "onTouchStart"
     > {
   to: NextLinkProps["href"];
   linkAs?: NextLinkProps["as"];
 }
 
-export function NextLinkComposed(props: NextLinkComposedProps) {
+export const NextLinkComposed = React.forwardRef<
+  HTMLAnchorElement,
+  NextLinkComposedProps
+>(function NextLinkComposed(props, ref) {
   const {
     to,
     linkAs,
@@ -29,27 +34,24 @@ export function NextLinkComposed(props: NextLinkComposedProps) {
     scroll,
     shallow,
     prefetch,
-    legacyBehavior = true,
     locale,
     ...other
   } = props;
 
   return (
     <NextLink
+      ref={ref}
       href={to}
       prefetch={prefetch}
       as={linkAs}
       replace={replace}
       scroll={scroll}
       shallow={shallow}
-      passHref
       locale={locale}
-      legacyBehavior={legacyBehavior}
-    >
-      <Anchor {...other} />
-    </NextLink>
+      {...other}
+    />
   );
-}
+});
 
 export type LinkProps = {
   activeClassName?: string;
@@ -68,7 +70,6 @@ function Link(props: LinkProps) {
     as,
     className: classNameProps,
     href,
-    legacyBehavior,
     linkAs: linkAsProp,
     locale,
     noLinkStyle,
@@ -94,7 +95,6 @@ function Link(props: LinkProps) {
     scroll,
     shallow,
     prefetch,
-    legacyBehavior,
     locale,
   };
 

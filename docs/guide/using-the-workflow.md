@@ -1,53 +1,27 @@
 # Using the workflow
 
-Requireganizer is a review loop, not a one-click code generator. Each stage narrows uncertainty and creates inputs for the next stage.
+Generate and review each stage in order. Approval is a deliberate gate at Boundary Design, the Implementation Profile, every interface bundle, every subject protocol/binding, and every verification contract.
 
-## Review rhythm
+## Boundary Design
 
-For every stage:
+Review what each subject owns and excludes, which peer uses each interface, and whether interactions describe observable behavior without implementation syntax. Confirm that internal subjects are justified and every acceptance criterion has behavioral or non-behavioral coverage. Simple semantic text can be edited while the graph is a draft. Use a graph-level change request for structural changes, then approve the complete graph.
 
-1. Generate a complete proposal.
-2. Review scope, wording, references, priority, and dependencies.
-3. Edit artifacts directly or ask for a focused revision.
-4. Resolve any **Outdated** downstream stages before relying on them.
-5. Continue only when the current artifact set expresses the intended product behavior.
+## Interface Contracts
 
-## What statuses mean
+Review and approve the open-ended Implementation Profile first. For each interface, inspect the adapter identity, formal declarations, normalized operation/outcome schemas, native anchors, and hashes. Review each subject's shared lifecycle and harness binding. Formal artifacts are read-only; request a reconciled revision when they need changes. The reconciled draft includes an artifact diff and every changed bundle returns to draft status for explicit approval.
 
-| Status | Meaning | Action |
-| --- | --- | --- |
-| Pending | No usable artifact set exists yet. | Complete the prerequisites and generate it. |
-| Completed | Artifacts exist and their recorded inputs still match. | Review, then continue. |
-| Outdated | Artifacts exist, but an upstream input changed after generation. | Review the upstream edit and regenerate this stage. |
+## Scenarios and cases
 
-An outdated result is preserved so a reviewer can compare it; it is not silently discarded or regenerated.
+A behavioral scenario identifies one subject and approved interfaces owned by it. A verification scenario identifies one formal non-behavioral obligation. Generated cases show human-readable steps and expected results, but their source of truth is the structured trace or verification plan.
 
-## Focused revisions
+## Project Setup and tests
 
-Comments revise exactly one artifact. The server validates both the artifact type and ID and accepts only fields editable for that type. A focused revision cannot add, remove, reorder, or modify neighboring artifacts.
+Project Setup selects deterministic build/test commands and creates a manifest-controlled scaffold. Approved native contracts are copied byte-for-byte. Product seams remain unimplemented. Automated Tests use exact case and contract revisions and write only to the scenario path declared by the manifest.
 
-Use full-stage generation when the desired target list itself should change. Full-stage results reconcile the complete target list atomically and must retain upstream coverage. Existing IDs are retained only for the same artifact intent; omitted items are removed; new items receive application-generated IDs. Retained scenarios keep their nested test cases.
+Project Files is a separate viewer. The Code stage remains pending because neither scaffold nor test generation implements the product.
 
-## Project configuration and scaffold
+## Stale work and recovery
 
-Project configuration is derived from the reviewed specification, including test cases. It selects the package manager, test framework, build command, test command, and framework-specific settings.
+When a revision would invalidate completed downstream artifacts, review the impact list. Confirming saves a complete recovery snapshot before applying the revision. Stale artifacts remain visible but cannot drive further generation. Open **Revisions** to pin, restore, download, or delete snapshots.
 
-Lock the configuration after review. Scaffold generation then produces only the minimal files required to install, build, and run tests. Test cases and feature implementation are deliberately excluded from the scaffold operation.
-
-Changing the specification after configuration makes the configuration and generated code stale. Regenerate and re-lock it before continuing.
-
-## Executable tests
-
-Each scenario has a stable language-specific test path containing the scenario code and an ID prefix. Each test case owns a bounded block between generated annotations. Revisions must retain the scenario header and every unrelated test block already present in the file.
-
-## Generation failures in development
-
-The inline alert is intentionally concise. When a provider returned a tool call that failed validation, development builds show **More details**. The dialog contains the concrete validator error and the rejected raw provider response for each attempt. Production builds do not receive or display that diagnostic payload.
-
-A provider timeout is different: no model response exists to inspect. The alert states that the provider timed out, and development details contain the transport stack rather than a fabricated response.
-
-## Provider activity
-
-The information button beside the project name opens a session report for AI provider calls. It shows each operation and attempt, its outcome and duration, the selected model and tool, provider identifiers, and reported input, cached-input, cache-write, output, and total token counts. The summary calculates a cache-hit rate when the provider reports both input and cached-input tokens.
-
-Provider activity is limited to the current in-memory project session. Project autosave and export exclude it, and the report does not retain prompts or successful model responses.
+Imports must use the current project schema. Obsolete imports are rejected clearly; no compatibility migration is applied.

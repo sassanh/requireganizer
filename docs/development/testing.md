@@ -12,7 +12,8 @@ The command runs, in order:
 2. Strict TypeScript checking without emission.
 3. The compiled Node test suite.
 4. A production Next.js build.
-5. A production VitePress build, including link validation.
+5. A Cloudflare/OpenNext worker build.
+6. A production VitePress build, including link validation.
 
 The same command runs for pull requests and pushes to `main`.
 
@@ -23,6 +24,7 @@ pnpm run lint
 pnpm run typecheck
 pnpm run test
 pnpm run build
+pnpm run cf:build
 pnpm run docs:build
 ```
 
@@ -46,29 +48,24 @@ Transport and runner tests verify:
 
 Contract and state tests verify:
 
-- framework-language compatibility;
-- server-owned stage, target, parent, and test-path identity;
+- subject containment, ownership, criterion coverage, and cross-subject restrictions;
+- adapter keyword, reference, size, depth, and resource-safety limits;
+- native documents, normalized indexes, mappings, and content hashes;
+- exact interface, subject-protocol, and verification revision bindings;
+- input/output, captured-value, event, failure, and bounded-silence traces;
+- portable matchers and structured verification plans;
+- manifest-controlled test paths and subject bindings;
 - rejection of fabricated persisted IDs;
 - proposal-local keys and dependency resolution;
 - required upstream coverage and typed references;
 - dependency cycles and cross-scenario references;
-- scaffold response bounds and safe paths;
+- scaffold response bounds, safe paths, and byte-for-byte contract placement;
 - byte-for-byte preservation of unrelated generated test blocks;
-- preservation of nested cases and unchanged generation timestamps;
-- recoverable imported-project storage writes;
-- canonical stage order and symmetric capability maps.
+- independent automated-test fingerprints;
+- current-schema import rejection and recoverable storage writes;
+- canonical contract-first stage order.
 
 When adding a validator, include at least one accepted example and a failure that exercises the semantic boundary—not only a missing property.
-
-## Real-provider verification
-
-Unit tests prove request construction and local behavior; they cannot prove that the configured gateway and selected model implement the claimed compatibility. Before treating a provider-facing bug as resolved:
-
-1. run the actual development server with the intended endpoint and model;
-2. reproduce the reporter's original project and workflow;
-3. inspect **More details** if a tool call is rejected;
-4. ask the reporter to repeat the failing operation;
-5. do not call the bug fixed or commit the repair until the reporter confirms the observed workflow.
 
 ## Manual review checklist
 

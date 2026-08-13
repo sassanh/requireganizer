@@ -1,4 +1,5 @@
 import { isRecord, parseJson } from "./json";
+import { deleteProjectSnapshots } from "./revisionStorage";
 import { parseScaffoldFiles, ScaffoldFileData } from "./scaffold";
 
 const PROJECTS_INDEX_KEY = "requireganizer:projects";
@@ -201,6 +202,9 @@ export function deleteProjectData(id: string): void {
 
     storage.removeItem(projectKey);
     storage.setItem(PROJECTS_INDEX_KEY, JSON.stringify(projects));
+    void deleteProjectSnapshots(id).catch((error) => {
+      console.error("Could not delete project revision snapshots.", error);
+    });
   } catch (error) {
     try {
       if (capturedState) {

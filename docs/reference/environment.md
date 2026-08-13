@@ -8,7 +8,7 @@
 | `AI_MODEL` | `deepseek-v4-flash-free` | Chat-completions model used for all harness operations. |
 | `AI_REQUEST_TIMEOUT_MS` | `60000` | Per-request transport timeout. Values below 1,000 ms fall back to the default. |
 
-When neither key variable is set, the default OpenCode endpoint receives `public`, which enables its anonymous free-model access. Other providers normally require `AI_API_KEY`.
+When neither key variable is set, the default endpoint receives `public` as its bearer credential. Other providers normally require `AI_API_KEY`. Set `AI_MODEL` explicitly when selecting a different model; Requireganizer does not silently change models because model identity affects output quality, caching, and reproducibility.
 
 Copy `.env.example` to `.env.local` for local development. Do not commit credentials.
 
@@ -24,6 +24,6 @@ The configured service and model must support OpenAI-compatible non-streaming ch
 
 ## Retry and timeout behavior
 
-The OpenAI SDK's internal retries are disabled. The application retries transient connection errors, SDK connection timeouts, HTTP 408, 409, 425, 429, server errors, and common transient network error codes. The default is three total attempts with exponential backoff.
+The OpenAI SDK's internal retries are disabled. The application retries transient connection errors, SDK connection timeouts, HTTP 408, 409, 425, 429 responses, server errors, and common transient network error codes. The default is three total attempts with exponential backoff.
 
 Contract repair is separate. It runs only after a provider returned a formal tool call whose name, argument JSON, or semantics failed validation. A transport timeout has no raw model response to repair or display.

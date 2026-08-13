@@ -10,6 +10,7 @@ import type { ProviderTokenUsage } from "lib/types";
 const DEFAULT_MODEL = "deepseek-v4-flash-free";
 const DEFAULT_BASE_URL = "https://opencode.ai/zen/v1";
 const DEFAULT_TIMEOUT_MS = 60_000;
+const ANONYMOUS_API_KEY = "public";
 
 export const MODEL = process.env.AI_MODEL?.trim() || DEFAULT_MODEL;
 export const BASE_URL = process.env.AI_BASE_URL?.trim() || DEFAULT_BASE_URL;
@@ -28,10 +29,31 @@ function requestTimeout(): number {
     : DEFAULT_TIMEOUT_MS;
 }
 
-// The OpenCode Zen gateway accepts `Authorization: Bearer public` as
-// anonymous access for the free models. An optional OPENCODE_API_KEY can be
-// used for higher rate limits.
-const ANONYMOUS_API_KEY = "public";
+export function resolveApiKey(
+  environment: Record<string, string | undefined> = process.env,
+): string {
+  return (
+    environment.AI_API_KEY?.trim() ||
+    environment.OPENCODE_API_KEY?.trim() ||
+    ANONYMOUS_API_KEY
+  );
+}
+
+export const AUTHENTICATION_MODE =
+  resolveApiKey() === ANONYMOUS_API_KEY ? "anonymous" : "configured";
+
+function isOpenCodeZen(baseURL: string): boolean {
+  try {
+    const url = new URL(baseURL);
+    return (
+      url.protocol === "https:" &&
+      url.hostname === "opencode.ai" &&
+      url.pathname.replace(/\/+$/, "") === "/zen/v1"
+    );
+  } catch {
+    return false;
+  }
+}
 
 type ThinkingControl = {
   thinking?: { type: "disabled" };
@@ -50,10 +72,7 @@ let client: OpenAI | null = null;
 export function getAIClient(): OpenAI {
   if (client == null) {
     client = new OpenAI({
-      apiKey:
-        process.env.AI_API_KEY?.trim() ||
-        process.env.OPENCODE_API_KEY?.trim() ||
-        ANONYMOUS_API_KEY,
+      apiKey: resolveApiKey(),
       baseURL: BASE_URL,
       maxRetries: 0,
       timeout: requestTimeout(),
@@ -62,18 +81,27 @@ export function getAIClient(): OpenAI {
   return client;
 }
 
-function getErrorCode(error: unknown): string | undefined {
-  let current: unknown = error;
-  for (let i = 0; i < 5; i++) {
-    if (current && typeof current === "object" && "code" in current) {
-      const code = (current as { code?: unknown }).code;
-      if (typeof code === "string") return code;
+function getErrorIdentifier(error: unknown): string | undefined {
+  const pending: unknown[] = [error];
+  const visited = new Set<object>();
+  for (let inspected = 0; pending.length > 0 && inspected < 10; inspected += 1) {
+    const current = pending.shift();
+    if (current == null || typeof current !== "object" || visited.has(current)) {
+      continue;
     }
-    if (current && typeof current === "object" && "cause" in current) {
-      current = (current as { cause: unknown }).cause;
-    } else {
-      break;
+    visited.add(current);
+    const record = current as Record<string, unknown>;
+    for (const key of ["code", "type"] as const) {
+      const identifier = record[key];
+      if (
+        typeof identifier === "string" &&
+        identifier.length > 0 &&
+        identifier !== "error"
+      ) {
+        return identifier;
+      }
     }
+    pending.push(record.cause, record.error);
   }
   return undefined;
 }
@@ -85,7 +113,7 @@ export function isTransientError(error: unknown): boolean {
       [408, 409, 425, 429].includes(error.status) || error.status >= 500
     );
   }
-  const code = getErrorCode(error);
+  const code = getErrorIdentifier(error);
   return (
     code !== undefined &&
     ["ENOTFOUND", "ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "ENETUNREACH"].includes(code)
@@ -187,16 +215,7 @@ function requiresDisabledThinking({
 }: ToolCompletionTarget): boolean {
   if (model !== DEFAULT_MODEL) return false;
 
-  try {
-    const url = new URL(baseURL);
-    return (
-      url.protocol === "https:" &&
-      url.hostname === "opencode.ai" &&
-      url.pathname.replace(/\/+$/, "") === "/zen/v1"
-    );
-  } catch {
-    return false;
-  }
+  return isOpenCodeZen(baseURL);
 }
 
 export function buildToolCompletionParams(

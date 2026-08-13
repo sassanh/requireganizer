@@ -1,9 +1,6 @@
 import { cast, Instance, SnapshotIn, types } from "mobx-state-tree";
 
 import {
-  Framework,
-  PROGRAMMING_LANGUAGE_BY_FRAMEWORK,
-  ProgrammingLanguage,
   StructuralFragment,
 } from "store/constants";
 
@@ -31,10 +28,6 @@ export const ProductOverviewModel = types
     purpose: types.maybeNull(types.string),
     primaryFeatures: types.array(PrimaryFeatureModel),
     targetUsers: types.array(TargetUserModel),
-    framework: types.maybeNull(types.enumeration(Object.values(Framework))),
-    programmingLanguage: types.maybeNull(
-      types.enumeration(Object.values(ProgrammingLanguage)),
-    ),
   })
   .actions((self) => ({
     setPrimaryFeatures({
@@ -76,9 +69,7 @@ export const ProductOverviewModel = types
         self.name === null &&
         self.purpose === null &&
         self.primaryFeatures.length === 0 &&
-        self.targetUsers.length === 0 &&
-        self.framework === null &&
-        self.programmingLanguage === null
+        self.targetUsers.length === 0
       );
     },
     get isComplete() {
@@ -88,12 +79,7 @@ export const ProductOverviewModel = types
         self.primaryFeatures.length > 0 &&
         self.primaryFeatures.every(({ content }) => content.trim().length > 0) &&
         self.targetUsers.length > 0 &&
-        self.targetUsers.every(({ content }) => content.trim().length > 0) &&
-        self.framework !== null &&
-        self.programmingLanguage !== null &&
-        PROGRAMMING_LANGUAGE_BY_FRAMEWORK[self.framework].includes(
-          self.programmingLanguage,
-        )
+        self.targetUsers.every(({ content }) => content.trim().length > 0)
       );
     },
   }));

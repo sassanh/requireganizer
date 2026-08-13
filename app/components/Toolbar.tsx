@@ -76,7 +76,11 @@ export default function Toolbar({
       setImportError(null);
     } catch (error) {
       console.error("Could not import project data.", error);
-      setImportError("The selected file is not a valid Requireganizer project.");
+      setImportError(
+        error instanceof Error
+          ? error.message
+          : "The selected file is not a valid Requireganizer project.",
+      );
     }
   };
 

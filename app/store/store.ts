@@ -4,56 +4,73 @@ import {
   IMSTArray,
   Instance,
   SnapshotIn,
+  applySnapshot,
   cast,
   getSnapshot,
   types,
 } from "mobx-state-tree";
 import { createContext, useContext } from "react";
 
-import {
+import type {
   ArtifactListProposal,
   FragmentRevisionProposal,
+  ProductOverviewProposal,
+  TestCodeProposal,
 } from "ai-harness/contracts";
 import {
   materializeArtifactItems,
-  PersistedArtifactItem,
+  type PersistedArtifactItem,
 } from "ai-harness/reconciliation";
-import { parseJsoncObject } from "lib/json";
+import {
+  type BoundaryDesign,
+  type ContractSuite,
+  type ImplementationProfile,
+  type ProjectSetup,
+  type TestCaseDefinition,
+  type TestScenarioBinding,
+  fingerprint,
+  validateBoundaryDesign,
+  validateContractSuite,
+  validateImplementationProfile,
+} from "contract-domain";
+import { PROJECT_SCHEMA_VERSION } from "lib/projectSchema";
 import {
   assertSafeVirtualPath,
   isSafeVirtualPath,
   parseScaffoldFiles,
 } from "lib/scaffold";
-import type { ProviderCallMetadata } from "lib/types";
+import type { ProviderCallMetadata, ProviderCallRecord } from "lib/types";
 import { uuid } from "utilities";
-import { hydrateMissingLastGeneratedAt } from "utilities/testParser";
 
 import {
   export as export_,
+  exportCode,
   generateAcceptanceCriteria,
+  generateBoundaryDesign,
+  generateImplementationProfile,
+  generateInterfaceContracts,
   generateProductOverview,
-  generateProjectConfig,
+  generateProjectSetup,
   generateRequirements,
-  generateScaffold,
   generateTestCases,
   generateTestCode,
   generateTestScenarios,
   generateUserStories,
   handleComment,
   import as import_,
-  exportCode,
+  reviseBoundaryDesign,
+  reviseFormalContract,
 } from "./actions";
 import {
-  Framework,
-  Step,
+  GENERATION_PREREQUISITE_BY_STEP,
   LAST_STEP,
-  PROGRAMMING_LANGUAGE_BY_FRAMEWORK,
-  ProgrammingLanguage,
-  StructuralFragment as StructuralFragmentName,
-  isBefore,
   Priority,
   STEP_BY_STRUCTURAL_FRAGMENT,
+  STEPS,
   Status,
+  Step,
+  StructuralFragment as StructuralFragmentName,
+  isBefore,
 } from "./constants";
 import {
   AcceptanceCriteria,
@@ -63,7 +80,6 @@ import {
   StructuralFragment,
   StructuralFragmentModel,
   TestCase,
-  TestCaseModel,
   TestScenario,
   TestScenarioModel,
   UserStory,
@@ -79,14 +95,53 @@ import {
 } from "./models/ProductOverview";
 import { withSelf } from "./utilities";
 
+export { PROJECT_SCHEMA_VERSION } from "lib/projectSchema";
 const MAX_PROVIDER_CALL_HISTORY = 100;
+
+export interface PendingImpactChange {
+  sourceStep: Step;
+  sourceLabel: string;
+  affectedSteps: Step[];
+  affectedArtifacts: Array<{
+    step: Step;
+    label: string;
+    reason: string;
+  }>;
+  summary: string;
+  candidateSnapshot: unknown;
+}
+
+export interface TestScenarioSnapshotInput {
+  id: string;
+  title: string;
+  description: string;
+  priority: Priority;
+  references: { id: string; type: StructuralFragmentName }[];
+  dependencies: string[];
+  binding: TestScenarioBinding;
+  revisionId: string;
+  revision: number;
+  testCases?: SnapshotIn<TestCase>[];
+}
+
+export interface TestCaseSnapshotInput {
+  id: string;
+  title: string;
+  description: string;
+  priority: Priority;
+  references: { id: string; type: StructuralFragmentName }[];
+  dependencies: string[];
+  definition: TestCaseDefinition;
+  revisionId: string;
+  revision: number;
+  generatedInputFingerprint?: string | null;
+}
 
 function createFragment(
   entityType: StructuralFragmentName,
   data: PersistedArtifactItem,
 ): StructuralFragment {
   const snapshot = { ...data, content: data.content ?? "" };
-
   switch (entityType) {
     case StructuralFragmentName.PrimaryFeature:
       return PrimaryFeatureModel.create(snapshot);
@@ -99,11 +154,9 @@ function createFragment(
     case StructuralFragmentName.AcceptanceCriteria:
       return AcceptanceCriteriaModel.create(snapshot);
     case StructuralFragmentName.TestScenario:
-      return TestScenarioModel.create(snapshot);
     case StructuralFragmentName.TestCase:
-      return TestCaseModel.create(snapshot);
     case StructuralFragmentName.TestCode:
-      throw new Error("Test code is managed as scaffold files, not fragments.");
+      throw new Error(`${entityType} is managed by the contract-first workflow.`);
   }
 }
 
@@ -113,127 +166,130 @@ interface WorkflowInputSource {
   userStories: readonly unknown[];
   requirements: readonly unknown[];
   acceptanceCriteria: readonly unknown[];
-  testScenarios: readonly {
-    id: string;
-    type: StructuralFragmentName;
-    content: string;
-    priority: Priority | null;
-    references: readonly unknown[];
-    dependencies: readonly string[];
-  }[];
+  boundaryDesign: BoundaryDesign | null;
+  implementationProfile: ImplementationProfile | null;
+  contractSuite: ContractSuite | null;
+  testScenarios: readonly TestScenario[];
+  projectSetup: ProjectSetup | null;
 }
 
-function buildWorkflowInput(
+function scenarioDesign(scenarios: readonly TestScenario[]) {
+  return scenarios.map((scenario) => ({
+    id: scenario.id,
+    content: scenario.content,
+    description: scenario.description,
+    priority: scenario.priority,
+    references: scenario.references.map(({ id, type }) => ({ id, type })),
+    dependencies: Array.from(scenario.dependencies),
+    binding: scenario.binding,
+    revisionId: scenario.revisionId,
+    revision: scenario.revision,
+    testCases: scenario.testCases.map((testCase) => ({
+      id: testCase.id,
+      title: testCase.title,
+      description: testCase.description,
+      priority: testCase.priority,
+      references: testCase.references.map(({ id, type }) => ({ id, type })),
+      dependencies: Array.from(testCase.dependencies),
+      definition: testCase.definition,
+      revisionId: testCase.revisionId,
+      revision: testCase.revision,
+    })),
+  }));
+}
+
+export function buildWorkflowInput(
   source: WorkflowInputSource,
   step: Step,
 ): Record<string, unknown> {
-  const base = { description: source.description };
-  if (step === Step.ProductOverview) return base;
-
-  const withOverview = { ...base, productOverview: source.productOverview };
-  if (step === Step.UserStories) return withOverview;
-
-  const withStories = { ...withOverview, userStories: source.userStories };
-  if (step === Step.Requirements) return withStories;
-
-  const withRequirements = {
-    ...withStories,
-    requirements: source.requirements,
-  };
-  if (step === Step.AcceptanceCriteria) return withRequirements;
-
-  const withCriteria = {
-    ...withRequirements,
-    acceptanceCriteria: source.acceptanceCriteria,
-  };
-  if (step === Step.TestScenarios) return withCriteria;
-
-  if (step === Step.TestCases) {
-    return {
-      ...withCriteria,
-      testScenarios: source.testScenarios.map((scenario) => ({
-        id: scenario.id,
-        type: scenario.type,
-        content: scenario.content,
-        priority: scenario.priority,
-        references: scenario.references,
-        dependencies: scenario.dependencies,
-      })),
-    };
-  }
-
-  return withCriteria;
+  const result: Record<string, unknown> = { description: source.description };
+  if (step === Step.ProductOverview) return result;
+  result.productOverview = source.productOverview;
+  if (step === Step.UserStories) return result;
+  result.userStories = source.userStories;
+  if (step === Step.Requirements) return result;
+  result.requirements = source.requirements;
+  if (step === Step.AcceptanceCriteria) return result;
+  result.acceptanceCriteria = source.acceptanceCriteria;
+  if (step === Step.BoundaryDesign) return result;
+  result.boundaryDesign = source.boundaryDesign;
+  if (step === Step.InterfaceContracts) return result;
+  result.implementationProfile = source.implementationProfile;
+  result.contractSuite = source.contractSuite;
+  if (step === Step.TestScenarios) return result;
+  result.testScenarios = scenarioDesign(source.testScenarios).map(
+    ({ testCases: _testCases, ...scenario }) => scenario,
+  );
+  if (step === Step.TestCases) return result;
+  result.testScenarios = scenarioDesign(source.testScenarios);
+  if (step === Step.ProjectSetup) return result;
+  result.projectSetup = source.projectSetup;
+  return result;
 }
 
-function buildProjectConfigurationInput(
-  source: WorkflowInputSource,
-): Record<string, unknown> {
-  return {
-    ...buildWorkflowInput(source, Step.TestCases),
-    testScenarios: source.testScenarios,
-  };
+export function workflowFingerprint(source: WorkflowInputSource, step: Step) {
+  return fingerprint(buildWorkflowInput(source, step));
+}
+
+export function testDesignFingerprint(source: WorkflowInputSource): string {
+  return fingerprint({
+    boundaryRevisionId: source.boundaryDesign?.revisionId,
+    profileRevisionId: source.implementationProfile?.revisionId,
+    contractSuiteRevisionId: source.contractSuite?.revisionId,
+    scenarios: scenarioDesign(source.testScenarios),
+  });
 }
 
 class StoreEventEmitter {
-  private readonly stepUpdateListeners = new Set<(step: Step) => void>();
+  private readonly listeners = new Set<(step: Step) => void>();
 
   emit(_event: "stepUpdate", step: Step): void {
-    this.stepUpdateListeners.forEach((listener) => listener(step));
+    this.listeners.forEach((listener) => listener(step));
   }
 
   on(_event: "stepUpdate", listener: (step: Step) => void): void {
-    this.stepUpdateListeners.add(listener);
+    this.listeners.add(listener);
   }
 
   off(_event: "stepUpdate", listener: (step: Step) => void): void {
-    this.stepUpdateListeners.delete(listener);
+    this.listeners.delete(listener);
   }
 }
 
 export const ScaffoldFileModel = types.model({
-  path: types.refinement(
-    "SafeVirtualFilePath",
-    types.string,
-    isSafeVirtualPath,
-  ),
+  path: types.refinement("SafeVirtualFilePath", types.string, isSafeVirtualPath),
   content: types.string,
 });
 
 export const FlatStore = types
   .model("Store", {
+    schemaVersion: types.optional(types.literal(PROJECT_SCHEMA_VERSION), PROJECT_SCHEMA_VERSION),
     isClean: types.optional(types.boolean, true),
     businessCounter: types.optional(types.number, 0),
     description: types.optional(types.string, ""),
     validationErrors: types.maybeNull(types.string),
-
     productOverview: ProductOverviewModel,
     userStories: types.array(UserStoryModel),
     requirements: types.array(RequirementModel),
     acceptanceCriteria: types.array(AcceptanceCriteriaModel),
+    boundaryDesign: types.maybeNull(types.frozen<BoundaryDesign>()),
+    implementationProfile: types.maybeNull(types.frozen<ImplementationProfile>()),
+    contractSuite: types.maybeNull(types.frozen<ContractSuite>()),
     testScenarios: types.array(TestScenarioModel),
-    systemMessage: types.maybeNull(types.string),
-    projectConfig: types.maybeNull(types.string),
-    projectConfigLocked: types.optional(types.boolean, false),
-    projectConfigInputFingerprint: types.maybeNull(types.string),
-    isProjectConfigDialogOpen: types.optional(types.boolean, false),
+    projectSetup: types.maybeNull(types.frozen<ProjectSetup>()),
     scaffoldFiles: types.array(ScaffoldFileModel),
     stageInputFingerprints: types.map(types.string),
+    systemMessage: types.maybeNull(types.string),
   })
   .volatile(() => ({
     validationErrorDetails: null as string | null,
-    providerCalls: [] as ProviderCallMetadata[],
+    providerCalls: [] as ProviderCallRecord[],
+    pendingImpactChange: null as PendingImpactChange | null,
+    contractRevisionDiff: null as string | null,
   }))
-  .views((self) => {
+  .views(() => {
     const eventTarget = new StoreEventEmitter();
-
-    return {
-      get eventTarget() {
-        return eventTarget;
-      },
-      get hasGeneratedScaffold() {
-        return self.scaffoldFiles.length > 0;
-      }
-    };
+    return { get eventTarget() { return eventTarget; } };
   })
   .actions((self) => ({
     reset() {
@@ -242,26 +298,20 @@ export const FlatStore = types
       self.description = "";
       self.validationErrors = null;
       self.validationErrorDetails = null;
-      self.providerCalls = [];
-
-      self.productOverview = ProductOverviewModel.create({
-        name: null,
-        purpose: null,
-        primaryFeatures: [],
-        targetUsers: [],
-        programmingLanguage: null,
-        framework: null,
-      });
+      self.productOverview = ProductOverviewModel.create({});
       self.userStories = cast([]);
       self.requirements = cast([]);
       self.acceptanceCriteria = cast([]);
+      self.boundaryDesign = null;
+      self.implementationProfile = null;
+      self.contractSuite = null;
       self.testScenarios = cast([]);
-      self.projectConfig = null;
-      self.projectConfigLocked = false;
-      self.projectConfigInputFingerprint = null;
-      self.isProjectConfigDialogOpen = false;
+      self.projectSetup = null;
       self.scaffoldFiles = cast([]);
       self.stageInputFingerprints.clear();
+      self.systemMessage = null;
+      self.pendingImpactChange = null;
+      self.contractRevisionDiff = null;
     },
     setDescription({ description }: { description: string }) {
       self.description = description;
@@ -270,13 +320,7 @@ export const FlatStore = types
       self.validationErrors = validationErrors;
       self.validationErrorDetails = null;
     },
-    setValidationError({
-      message,
-      details,
-    }: {
-      message: string;
-      details?: string;
-    }) {
+    setValidationError({ message, details }: { message: string; details?: string }) {
       self.validationErrors = message;
       self.validationErrorDetails = details ?? null;
     },
@@ -285,34 +329,46 @@ export const FlatStore = types
       self.validationErrorDetails = null;
       self.systemMessage = null;
     },
+    communicate({ description }: { description: string }) {
+      self.systemMessage = description;
+    },
+    clearMessage() {
+      self.systemMessage = null;
+    },
     recordProviderCalls(calls: ProviderCallMetadata[]) {
       if (calls.length === 0) return;
-      self.providerCalls = [...self.providerCalls, ...calls].slice(
-        -MAX_PROVIDER_CALL_HISTORY,
-      );
+      self.providerCalls = [
+        ...self.providerCalls,
+        ...calls.map((call) => ({ ...call, id: uuid() })),
+      ].slice(-MAX_PROVIDER_CALL_HISTORY);
+    },
+    hydrateProviderCalls(calls: ProviderCallRecord[]) {
+      self.providerCalls = calls.slice(-MAX_PROVIDER_CALL_HISTORY);
+    },
+    deleteProviderCall(id: string) {
+      self.providerCalls = self.providerCalls.filter((call) => call.id !== id);
     },
     clearProviderCalls() {
       self.providerCalls = [];
     },
-    setProjectConfig(config: string) {
-      self.projectConfig = config;
+    setContractRevisionDiff(diff: string | null) {
+      self.contractRevisionDiff = diff;
     },
-    setProjectConfigLocked(locked: boolean) {
-      self.projectConfigLocked = locked;
+    queueImpactChange(change: PendingImpactChange) {
+      self.pendingImpactChange = change;
     },
-    markProjectConfigCurrent() {
-      self.projectConfigInputFingerprint = JSON.stringify(
-        buildProjectConfigurationInput(self),
-      );
+    cancelPendingImpactChange() {
+      self.pendingImpactChange = null;
+      self.contractRevisionDiff = null;
+    },
+    applyPendingImpactChange() {
+      if (self.pendingImpactChange == null) return;
+      const snapshot = self.pendingImpactChange.candidateSnapshot;
+      self.pendingImpactChange = null;
+      applySnapshot(self, snapshot as SnapshotIn<typeof FlatStore>);
     },
     markStageGenerated(step: Step) {
-      self.stageInputFingerprints.set(
-        step,
-        JSON.stringify(buildWorkflowInput(self, step)),
-      );
-    },
-    setProjectConfigDialogOpen(isOpen: boolean) {
-      self.isProjectConfigDialogOpen = isOpen;
+      self.stageInputFingerprints.set(step, workflowFingerprint(self, step));
     },
     setScaffoldFiles(files: { path: string; content: string }[]) {
       self.scaffoldFiles = cast(parseScaffoldFiles(files));
@@ -320,17 +376,23 @@ export const FlatStore = types
     setScaffoldFile(path: string, content: string) {
       const safePath = assertSafeVirtualPath(path);
       const existing = self.scaffoldFiles.find((file) => file.path === safePath);
-      if (existing) {
-        existing.content = content;
-      } else {
-        self.scaffoldFiles.push({ path: safePath, content });
-      }
+      if (existing) existing.content = content;
+      else self.scaffoldFiles.push({ path: safePath, content });
     },
     removeScaffoldFile(path: string) {
-      const index = self.scaffoldFiles.findIndex((f) => f.path === path);
-      if (index > -1) {
-        self.scaffoldFiles.splice(index, 1);
-      }
+      const index = self.scaffoldFiles.findIndex((file) => file.path === path);
+      if (index >= 0) self.scaffoldFiles.splice(index, 1);
+    },
+  }))
+  .actions((self) => ({
+    initialize(info: ProductOverviewProposal) {
+      self.productOverview = ProductOverviewModel.create({
+        name: info.name,
+        purpose: info.purpose,
+        primaryFeatures: info.primaryFeatures.map((content) => ({ content })),
+        targetUsers: info.targetUsers.map((content) => ({ content })),
+      });
+      self.eventTarget.emit("stepUpdate", Step.ProductOverview);
     },
     setName({ name }: { name: string }) {
       self.productOverview.name = name;
@@ -338,65 +400,21 @@ export const FlatStore = types
     setPurpose({ purpose }: { purpose: string }) {
       self.productOverview.purpose = purpose;
     },
-    setPrimaryFeatures({
-      primaryFeatures,
-    }: {
-      primaryFeatures: SnapshotIn<PrimaryFeature[]>;
-    }) {
+    setPrimaryFeatures({ primaryFeatures }: { primaryFeatures: SnapshotIn<PrimaryFeature>[] }) {
       self.productOverview.primaryFeatures = cast(primaryFeatures);
     },
-    setTargetUsers({ targetUsers }: { targetUsers: SnapshotIn<TargetUser[]> }) {
+    setTargetUsers({ targetUsers }: { targetUsers: SnapshotIn<TargetUser>[] }) {
       self.productOverview.targetUsers = cast(targetUsers);
-    },
-    setFramework({ framework }: { framework: Framework | null }) {
-      self.productOverview.framework = framework;
-      if (framework != null)
-        self.productOverview.programmingLanguage =
-          PROGRAMMING_LANGUAGE_BY_FRAMEWORK[framework].length === 1
-            ? PROGRAMMING_LANGUAGE_BY_FRAMEWORK[framework][0]
-            : null;
-    },
-    setProgrammingLanguage({
-      programmingLanguage,
-    }: {
-      programmingLanguage: ProgrammingLanguage;
-    }) {
-      self.productOverview.programmingLanguage = programmingLanguage;
-    },
-    initialize(info: {
-      name: string;
-      purpose: string;
-      primaryFeatures: string[];
-      targetUsers: string[];
-      programmingLanguage: ProgrammingLanguage;
-      framework: Framework;
-    }) {
-      self.productOverview = ProductOverviewModel.create({
-        ...info,
-        primaryFeatures: info.primaryFeatures.map((content) =>
-          PrimaryFeatureModel.create({ content }),
-        ),
-        targetUsers: info.targetUsers.map((content) =>
-          TargetUserModel.create({ content }),
-        ),
-      });
-      self.eventTarget.emit("stepUpdate", Step.ProductOverview);
     },
     setProductOverview(productOverview: ProductOverview) {
       self.productOverview = cast(productOverview);
     },
     setUserStories({ userStories }: { userStories: SnapshotIn<UserStory>[] }) {
       self.isClean = false;
-      self.userStories.clear();
       self.userStories = cast(userStories);
     },
-    setRequirements({
-      requirements,
-    }: {
-      requirements: SnapshotIn<Requirement>[];
-    }) {
+    setRequirements({ requirements }: { requirements: SnapshotIn<Requirement>[] }) {
       self.isClean = false;
-      self.requirements.clear();
       self.requirements = cast(requirements);
     },
     setAcceptanceCriteria({
@@ -405,125 +423,277 @@ export const FlatStore = types
       acceptanceCriteria: SnapshotIn<AcceptanceCriteria>[];
     }) {
       self.isClean = false;
-      self.acceptanceCriteria.clear();
       self.acceptanceCriteria = cast(acceptanceCriteria);
     },
-    setTestScenarios({
-      testScenarios,
-    }: {
-      testScenarios: SnapshotIn<TestScenario>[];
-    }) {
-      self.isClean = false;
-      self.testScenarios.clear();
-      self.testScenarios = cast(testScenarios);
-    },
     addUserStory() {
-      self.isClean = false;
-      self.userStories.push(
-        UserStoryModel.create({ content: "New User Story" }),
-      );
+      self.userStories.push(UserStoryModel.create({ content: "New User Story" }));
     },
     addRequirement() {
-      self.isClean = false;
-      self.requirements.push(
-        RequirementModel.create({ content: "New Requirement" }),
-      );
+      self.requirements.push(RequirementModel.create({ content: "New Requirement" }));
     },
     addAcceptanceCriteria() {
-      self.isClean = false;
       self.acceptanceCriteria.push(
         AcceptanceCriteriaModel.create({ content: "New Acceptance Criteria" }),
       );
     },
-    addTestScenario() {
-      self.isClean = false;
-      self.testScenarios.push(
-        TestScenarioModel.create({ content: "New Test Scenario" }),
+    removeUserStory({ fragment }: { fragment: UserStory }) {
+      self.userStories.remove(fragment);
+    },
+    removeRequirement({ fragment }: { fragment: Requirement }) {
+      self.requirements.remove(fragment);
+    },
+    removeAcceptanceCriteria({ fragment }: { fragment: AcceptanceCriteria }) {
+      self.acceptanceCriteria.remove(fragment);
+    },
+    setBoundaryDesign(design: BoundaryDesign) {
+      self.boundaryDesign = cast(design);
+    },
+    approveBoundaryDesign() {
+      if (self.boundaryDesign == null) return;
+      try {
+        validateBoundaryDesign(self.boundaryDesign, {
+          requirementIds: new Set(self.requirements.map(({ id }) => id)),
+          acceptanceCriteriaIds: new Set(
+            self.acceptanceCriteria.map(({ id }) => id),
+          ),
+          requirementsRevisionId: fingerprint(
+            self.requirements.map((item) => getSnapshot(item)),
+          ),
+          acceptanceCriteriaRevisionId: fingerprint(
+            self.acceptanceCriteria.map((item) => getSnapshot(item)),
+          ),
+        });
+      } catch (error) {
+        self.setValidationError({
+          message: `Boundary Design cannot be approved: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        });
+        return;
+      }
+      self.boundaryDesign = cast({
+        ...self.boundaryDesign,
+        status: "approved",
+        approvedAt: new Date().toISOString(),
+      });
+      self.markStageGenerated(Step.BoundaryDesign);
+    },
+    updateBoundaryText(
+      collection: "subjects" | "interfaces" | "interactions" | "verificationObligations",
+      id: string,
+      field: string,
+      value: string,
+    ) {
+      if (self.boundaryDesign == null || self.boundaryDesign.status === "approved") return;
+      self.boundaryDesign = cast({
+        ...self.boundaryDesign,
+        [collection]: self.boundaryDesign[collection].map((item) =>
+          item.id === id ? { ...item, [field]: value } : item,
+        ),
+      });
+    },
+    setImplementationProfile(profile: ImplementationProfile) {
+      self.implementationProfile = cast(profile);
+    },
+    updateImplementationProfile(
+      field:
+        | "platform"
+        | "runtime"
+        | "language"
+        | "framework"
+        | "moduleSystem"
+        | "buildEcosystem"
+        | "testEcosystem",
+      value: string,
+    ) {
+      if (self.implementationProfile == null || self.implementationProfile.status === "approved") {
+        return;
+      }
+      self.implementationProfile = cast({
+        ...self.implementationProfile,
+        [field]: value,
+      });
+    },
+    updateImplementationProfileConstraints(value: string) {
+      if (
+        self.implementationProfile == null ||
+        self.implementationProfile.status === "approved"
+      ) {
+        return;
+      }
+      self.implementationProfile = cast({
+        ...self.implementationProfile,
+        constraints: value
+          .split(/\r?\n/)
+          .map((item) => item.trim())
+          .filter(Boolean),
+      });
+    },
+    approveImplementationProfile() {
+      if (self.implementationProfile == null) return;
+      try {
+        validateImplementationProfile(
+          self.implementationProfile,
+          self.boundaryDesign?.revisionId,
+        );
+      } catch (error) {
+        self.setValidationError({
+          message: `Implementation Profile cannot be approved: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        });
+        return;
+      }
+      self.implementationProfile = cast({
+        ...self.implementationProfile,
+        status: "approved",
+        approvedAt: new Date().toISOString(),
+      });
+    },
+    setContractSuite(suite: ContractSuite) {
+      self.contractSuite = cast(suite);
+    },
+    approveContract(
+      kind: "interface" | "subject" | "verification",
+      id: string,
+    ) {
+      if (self.contractSuite == null) return;
+      try {
+        if (self.boundaryDesign == null || self.implementationProfile == null) {
+          throw new Error(
+            "Boundary Design and Implementation Profile are required.",
+          );
+        }
+        validateContractSuite(
+          self.contractSuite,
+          self.boundaryDesign,
+          self.implementationProfile.revisionId,
+        );
+      } catch (error) {
+        self.setValidationError({
+          message: `Formal contract cannot be approved: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        });
+        return;
+      }
+      const suite = self.contractSuite;
+      const now = new Date().toISOString();
+      self.contractSuite = cast(kind === "interface"
+        ? {
+          ...suite,
+          interfaceContracts: suite.interfaceContracts.map((bundle) =>
+            bundle.id === id ? { ...bundle, status: "approved" as const, approvedAt: now } : bundle,
+          ),
+        }
+        : kind === "subject"
+          ? {
+            ...suite,
+            subjectContracts: suite.subjectContracts.map((bundle) =>
+              bundle.id === id ? { ...bundle, status: "approved" as const, approvedAt: now } : bundle,
+            ),
+          }
+          : {
+            ...suite,
+            verificationContracts: suite.verificationContracts.map((bundle) =>
+              bundle.id === id ? { ...bundle, status: "approved" as const, approvedAt: now } : bundle,
+            ),
+          });
+      const approvedSuite = self.contractSuite!;
+      if (
+        approvedSuite.interfaceContracts.every(({ status }) => status === "approved") &&
+        approvedSuite.subjectContracts.every(({ status }) => status === "approved") &&
+        approvedSuite.verificationContracts.every(({ status }) => status === "approved")
+      ) {
+        self.markStageGenerated(Step.InterfaceContracts);
+      }
+    },
+    setTestScenarios(scenarios: TestScenarioSnapshotInput[]) {
+      self.testScenarios = cast(
+        scenarios.map((scenario) => ({
+          id: scenario.id,
+          type: StructuralFragmentName.TestScenario as const,
+          content: scenario.title,
+          description: scenario.description,
+          priority: scenario.priority,
+          references: scenario.references,
+          dependencies: scenario.dependencies,
+          binding: scenario.binding,
+          revisionId: scenario.revisionId,
+          revision: scenario.revision,
+          testCases: scenario.testCases ?? [],
+        })) as SnapshotIn<TestScenario>[],
       );
     },
-    removeUserStory({ fragment: userStory }: { fragment: UserStory }) {
-      self.userStories.remove(userStory);
+    replaceTestCases(scenarioId: string, cases: TestCaseSnapshotInput[]) {
+      const scenario = self.testScenarios.find(({ id }) => id === scenarioId);
+      if (scenario == null) throw new Error(`Cannot find test scenario ${scenarioId}.`);
+      scenario.setTestCases(
+        cases.map((testCase) => ({
+          id: testCase.id,
+          type: StructuralFragmentName.TestCase,
+          content: testCase.description,
+          description: testCase.description,
+          title: testCase.title,
+          priority: testCase.priority,
+          references: testCase.references,
+          dependencies: testCase.dependencies,
+          definition: testCase.definition,
+          revisionId: testCase.revisionId,
+          revision: testCase.revision,
+          generatedInputFingerprint: testCase.generatedInputFingerprint ?? null,
+        })),
+      );
     },
-    removeRequirement({ fragment: requirement }: { fragment: Requirement }) {
-      self.requirements.remove(requirement);
+    setProjectSetup(setup: ProjectSetup) {
+      self.projectSetup = cast(setup);
+      self.setScaffoldFiles(setup.files);
+      self.testScenarios.forEach((scenario) =>
+        scenario.testCases.forEach((testCase) => testCase.clearGenerated()),
+      );
+      self.markStageGenerated(Step.ProjectSetup);
     },
-    removeAcceptanceCriteria({
-      fragment: acceptanceCriteria,
-    }: {
-      fragment: AcceptanceCriteria;
-    }) {
-      self.acceptanceCriteria.remove(acceptanceCriteria);
-    },
-    removeTestScenario({ fragment: testScenario }: { fragment: TestScenario }) {
-      self.testScenarios.remove(testScenario);
+    markTestGenerated(testCaseId: string, inputFingerprint: string) {
+      for (const scenario of self.testScenarios) {
+        const testCase = scenario.testCases.find(({ id }) => id === testCaseId);
+        if (testCase != null) {
+          testCase.markGenerated(inputFingerprint);
+          return;
+        }
+      }
+      throw new Error(`Cannot mark missing test case ${testCaseId} as generated.`);
     },
   }))
   .actions((self) => ({
-    resetIsBusy() {
-      self.businessCounter = 0;
-    },
-    replaceArtifactList({
-      entityType,
-      parentId = "",
-      items,
-    }: ArtifactListProposal) {
-      const list: IMSTArray<typeof StructuralFragmentModel> | undefined = {
-        [StructuralFragmentName.PrimaryFeature]: () =>
-          self.productOverview.primaryFeatures,
-        [StructuralFragmentName.TargetUser]: () =>
-          self.productOverview.targetUsers,
+    replaceArtifactList({ entityType, items }: ArtifactListProposal) {
+      const list = {
+        [StructuralFragmentName.PrimaryFeature]: () => self.productOverview.primaryFeatures,
+        [StructuralFragmentName.TargetUser]: () => self.productOverview.targetUsers,
         [StructuralFragmentName.Requirement]: () => self.requirements,
         [StructuralFragmentName.UserStory]: () => self.userStories,
-        [StructuralFragmentName.AcceptanceCriteria]: () =>
-          self.acceptanceCriteria,
-        [StructuralFragmentName.TestScenario]: () => self.testScenarios,
-        [StructuralFragmentName.TestCase]: (parentId: string) =>
-          self.testScenarios.find(({ id }) => id === parentId)?.testCases,
+        [StructuralFragmentName.AcceptanceCriteria]: () => self.acceptanceCriteria,
+        [StructuralFragmentName.TestScenario]: () => undefined,
+        [StructuralFragmentName.TestCase]: () => undefined,
         [StructuralFragmentName.TestCode]: () => undefined,
-      }[entityType](parentId);
-
-      if (list == null) {
-        throw new Error(
-          `Cannot find the ${entityType} list${parentId ? ` for parent ${parentId}` : ""}.`,
-        );
-      }
+      }[entityType]();
+      if (list == null) throw new Error(`${entityType} requires a contract-first proposal.`);
       const existingById = new Map(list.map((item) => [item.id, item]));
       const snapshots = materializeArtifactItems(items, uuid).map((item) => {
         const existing = existingById.get(item.id);
-        if (existing == null) {
-          return getSnapshot(createFragment(entityType, item));
-        }
-
+        if (existing == null) return getSnapshot(createFragment(entityType, item));
         const { id: _id, ...update } = item;
-        if (entityType === StructuralFragmentName.TestCase) {
-          (existing as TestCase).setData(update);
-        } else {
-          existing.setData(update);
-        }
+        existing.setData(update);
         return getSnapshot(existing);
       });
-      list.clear();
-      list.push(...snapshots);
+      list.replace(snapshots as never[]);
     },
     reviseFragment({ entityType, id, patch }: FragmentRevisionProposal) {
-      if (entityType === StructuralFragmentName.TestCase) {
-        let testCase: TestCase | undefined;
-        self.testScenarios.forEach((scenario) => {
-          testCase ??= scenario.testCases.find((candidate) => candidate.id === id);
-        });
-        if (testCase == null) {
-          throw new Error(`Cannot revise missing test case ${id}.`);
-        }
-        testCase.setData(patch);
-        return;
-      }
       const fragments: StructuralFragment[] = [
         ...self.productOverview.primaryFeatures,
         ...self.productOverview.targetUsers,
         ...self.userStories,
         ...self.requirements,
         ...self.acceptanceCriteria,
-        ...self.testScenarios,
       ];
       const fragment = fragments.find((candidate) => candidate.id === id);
       if (fragment == null || fragment.type !== entityType) {
@@ -531,195 +701,265 @@ export const FlatStore = types
       }
       fragment.setData(patch);
     },
-    communicate({ description }: { description: string }) {
-      self.systemMessage = description;
-    },
-    clearMessage() {
-      self.systemMessage = null;
-    },
   }))
   .views((self) => ({
     get isBusy() {
       return self.businessCounter > 0;
     },
     get testCases() {
-      return self.testScenarios.flatMap(
-        (testScenario) => testScenario.testCases,
+      return self.testScenarios.flatMap((scenario) => scenario.testCases);
+    },
+    get hasGeneratedScaffold() {
+      return self.projectSetup != null && self.scaffoldFiles.length > 0;
+    },
+    get allContractsApproved() {
+      return (
+        self.implementationProfile?.status === "approved" &&
+        self.contractSuite != null &&
+        self.contractSuite.interfaceContracts.every(({ status }) => status === "approved") &&
+        self.contractSuite.subjectContracts.every(({ status }) => status === "approved") &&
+        self.contractSuite.verificationContracts.every(({ status }) => status === "approved")
       );
+    },
+    get testDesignFingerprint() {
+      return testDesignFingerprint(self);
     },
     data(step: Step = LAST_STEP, includeBuildArtifacts = false) {
       return {
-        ...(!isBefore(step, Step.Description)
-          ? { description: self.description }
-          : {}),
+        schemaVersion: PROJECT_SCHEMA_VERSION,
+        ...(!isBefore(step, Step.Description) ? { description: self.description } : {}),
         ...(!isBefore(step, Step.ProductOverview)
-          ? {
-            productOverview: self.productOverview,
-          }
+          ? { productOverview: self.productOverview }
           : {}),
-        ...(!isBefore(step, Step.UserStories)
-          ? { userStories: self.userStories }
-          : {}),
-        ...(!isBefore(step, Step.Requirements)
-          ? { requirements: self.requirements }
-          : {}),
+        ...(!isBefore(step, Step.UserStories) ? { userStories: self.userStories } : {}),
+        ...(!isBefore(step, Step.Requirements) ? { requirements: self.requirements } : {}),
         ...(!isBefore(step, Step.AcceptanceCriteria)
           ? { acceptanceCriteria: self.acceptanceCriteria }
+          : {}),
+        ...(!isBefore(step, Step.BoundaryDesign)
+          ? { boundaryDesign: self.boundaryDesign }
+          : {}),
+        ...(!isBefore(step, Step.InterfaceContracts)
+          ? {
+              implementationProfile: self.implementationProfile,
+              contractSuite: self.contractSuite,
+            }
           : {}),
         ...(!isBefore(step, Step.TestScenarios)
           ? { testScenarios: self.testScenarios }
           : {}),
-        ...(includeBuildArtifacts && self.projectConfig != null
-          ? {
-            projectConfig: parseJsoncObject(
-              self.projectConfig,
-              "Project configuration",
-            ),
-          }
-          : {}),
-        ...(includeBuildArtifacts && self.scaffoldFiles.length > 0
-          ? { scaffoldFiles: self.scaffoldFiles }
-          : {}),
         ...(includeBuildArtifacts
           ? {
-            stageInputFingerprints: Object.fromEntries(
-              self.stageInputFingerprints.entries(),
-            ),
-            projectConfigInputFingerprint:
-              self.projectConfigInputFingerprint,
-          }
+              projectSetup: self.projectSetup,
+              scaffoldFiles: self.scaffoldFiles,
+              stageInputFingerprints: Object.fromEntries(
+                self.stageInputFingerprints.entries(),
+              ),
+            }
           : {}),
       };
     },
     get structuralFragmentsCache() {
-      function extract(list: StructuralFragment[]) {
-        return Object.fromEntries(
-          list.map((fragment) => [fragment.id, fragment]),
-        );
-      }
-      const testCases: StructuralFragment[] = [];
-      self.testScenarios.forEach((testScenario) => {
-        testScenario.testCases.forEach((testCase) => testCases.push(testCase));
-      });
-
-      return {
-        ...extract(self.productOverview.primaryFeatures),
-        ...extract(self.productOverview.targetUsers),
-        ...extract(self.requirements),
-        ...extract(self.userStories),
-        ...extract(self.acceptanceCriteria),
-        ...extract(self.testScenarios),
-        ...extract(testCases),
-      };
+      const all = [
+        ...self.productOverview.primaryFeatures,
+        ...self.productOverview.targetUsers,
+        ...self.userStories,
+        ...self.requirements,
+        ...self.acceptanceCriteria,
+        ...self.testScenarios,
+        ...self.testScenarios.flatMap((scenario) => scenario.testCases),
+      ] as unknown as StructuralFragment[];
+      return Object.fromEntries(all.map((fragment) => [fragment.id, fragment]));
     },
-    getCode(id: string) {
-      return this.structuralFragmentsCache[id]?.getCode();
-    },
-    getPath(id: string) {
-      const fragment = this.structuralFragmentsCache[id];
-      if (!fragment) return undefined;
-      return `?step=${STEP_BY_STRUCTURAL_FRAGMENT[fragment.type]}#${fragment.getCode()}`;
-    },
-    getStepStatus(step: Step): Status {
-      const generatedInput = self.stageInputFingerprints.get(step);
-      const isOutdated =
-        generatedInput != null &&
-        generatedInput !== JSON.stringify(buildWorkflowInput(self, step));
-      const isGeneratedProjectOutdated =
-        self.projectConfigInputFingerprint != null &&
-        self.projectConfigInputFingerprint !==
-          JSON.stringify(buildProjectConfigurationInput(self));
-      const completedOrPending = (() => {
-        switch (step) {
-          case Step.Description:
-            return self.description.trim().length > 0
-              ? Status.Completed
-              : Status.Pending;
-          case Step.ProductOverview:
-            return self.productOverview.isComplete
-              ? Status.Completed
-              : Status.Pending;
-          case Step.Requirements:
-            return self.requirements.length > 0
-              ? Status.Completed
-              : Status.Pending;
-          case Step.UserStories:
-            return self.userStories.length > 0
-              ? Status.Completed
-              : Status.Pending;
-          case Step.AcceptanceCriteria:
-            return self.acceptanceCriteria.length > 0
-              ? Status.Completed
-              : Status.Pending;
-          case Step.TestScenarios:
-            return self.testScenarios.length > 0
-              ? Status.Completed
-              : Status.Pending;
-          case Step.TestCases:
-            return self.testScenarios.length > 0 &&
-              self.testScenarios.every(
-                (testScenario) => testScenario.testCases.length > 0,
-              )
-              ? Status.Completed
-              : Status.Pending;
-          case Step.TestCode: {
-            const testCases = self.testScenarios.flatMap(
-              (testScenario) => testScenario.testCases,
-            );
-            if (
-              testCases.length === 0 ||
-              testCases.some(({ lastGeneratedAt }) => lastGeneratedAt == null)
-            ) {
-              return Status.Pending;
-            }
-            return isGeneratedProjectOutdated ||
-              testCases.some(
-                ({ lastGeneratedAt, lastModifiedAt }) =>
-                  lastGeneratedAt != null &&
-                  (lastModifiedAt ?? 0) > lastGeneratedAt,
-              )
-              ? Status.Outdated
-              : Status.Completed;
-          }
-          case Step.Code:
-            return self.hasGeneratedScaffold
-              ? isGeneratedProjectOutdated
-                ? Status.Outdated
-                : Status.Completed
-              : Status.Pending;
-          default:
-            return Status.Pending;
-        }
-      })();
-      return completedOrPending === Status.Completed && isOutdated
-        ? Status.Outdated
-        : completedOrPending;
-    },
-    get isProjectConfigOutdated(): boolean {
-      return (
-        self.projectConfigInputFingerprint != null &&
-        self.projectConfigInputFingerprint !==
-          JSON.stringify(buildProjectConfigurationInput(self))
+  }))
+  .views((self) => ({
+    get projectSetupIsCurrent() {
+      return !(
+        self.projectSetup != null &&
+        (
+          self.projectSetup.boundaryRevisionId !== self.boundaryDesign?.revisionId ||
+          self.projectSetup.profileRevisionId !== self.implementationProfile?.revisionId ||
+          self.projectSetup.contractSuiteRevisionId !== self.contractSuite?.revisionId ||
+          self.projectSetup.testDesignFingerprint !== testDesignFingerprint(self)
+        )
       );
     },
   }))
   .views((self) => ({
-    json(step: Step) {
-      return JSON.stringify(self.data(step));
+    getCode(id: string) {
+      return self.structuralFragmentsCache[id]?.getCode();
+    },
+    getPath(id: string) {
+      const fragment = self.structuralFragmentsCache[id];
+      if (fragment == null) return undefined;
+      return `?step=${STEP_BY_STRUCTURAL_FRAGMENT[fragment.type]}#${fragment.getCode()}`;
+    },
+    get isProjectSetupOutdated() {
+      return self.projectSetup != null && !self.projectSetupIsCurrent;
+    },
+    getStepStatus(step: Step): Status {
+      const generated = self.stageInputFingerprints.get(step);
+      const inputIsOutdated =
+        generated != null && generated !== workflowFingerprint(self, step);
+      let status: Status;
+      switch (step) {
+        case Step.Description:
+          status = self.description.trim() ? Status.Completed : Status.Pending;
+          break;
+        case Step.ProductOverview:
+          status = self.productOverview.isComplete ? Status.Completed : Status.Pending;
+          break;
+        case Step.UserStories:
+          status = self.userStories.length > 0 ? Status.Completed : Status.Pending;
+          break;
+        case Step.Requirements:
+          status = self.requirements.length > 0 ? Status.Completed : Status.Pending;
+          break;
+        case Step.AcceptanceCriteria:
+          status = self.acceptanceCriteria.length > 0 ? Status.Completed : Status.Pending;
+          break;
+        case Step.BoundaryDesign:
+          status =
+            self.boundaryDesign?.status === "approved" ? Status.Completed : Status.Pending;
+          break;
+        case Step.InterfaceContracts:
+          status = self.allContractsApproved ? Status.Completed : Status.Pending;
+          if (
+            status === Status.Completed &&
+            (
+              self.contractSuite?.boundaryRevisionId !== self.boundaryDesign?.revisionId ||
+              self.contractSuite?.profileRevisionId !== self.implementationProfile?.revisionId ||
+              self.implementationProfile?.boundaryRevisionId !== self.boundaryDesign?.revisionId
+            )
+          ) {
+            status = Status.Outdated;
+          }
+          break;
+        case Step.TestScenarios:
+          status =
+            self.testScenarios.length > 0 && self.testScenarios.every(({ binding }) => binding != null)
+              ? Status.Completed
+              : Status.Pending;
+          break;
+        case Step.TestCases:
+          status =
+            self.testScenarios.length > 0 &&
+            self.testScenarios.every(
+              (scenario) =>
+                scenario.testCases.length > 0 &&
+                scenario.testCases.every(({ definition }) => definition != null),
+            )
+              ? Status.Completed
+              : Status.Pending;
+          break;
+        case Step.ProjectSetup:
+          status = self.projectSetup == null ? Status.Pending : Status.Completed;
+          if (status === Status.Completed && !self.projectSetupIsCurrent) {
+            status = Status.Outdated;
+          }
+          break;
+        case Step.AutomatedTests: {
+          const hasGeneratedTests = self.testScenarios.some((scenario) =>
+            scenario.testCases.some(
+              ({ generatedInputFingerprint }) =>
+                generatedInputFingerprint != null,
+            ),
+          );
+          if (
+            self.projectSetup == null ||
+            self.testScenarios.reduce((count, scenario) => count + scenario.testCases.length, 0) === 0
+          ) {
+            status = Status.Pending;
+          } else if (!self.projectSetupIsCurrent) {
+            status = hasGeneratedTests ? Status.Outdated : Status.Pending;
+          } else {
+            const statuses = self.testScenarios.reduce<Array<"not-generated" | "generated" | "out-of-sync">>(
+              (result, scenario) => [
+                ...result,
+                ...Array.from(scenario.testCases).map((testCase) => testCase.testStatus),
+              ],
+              [],
+            );
+            status = statuses.every((testStatus) => testStatus === "generated")
+              ? Status.Completed
+              : statuses.some((testStatus) => testStatus === "out-of-sync")
+                ? Status.Outdated
+                : Status.Pending;
+          }
+          break;
+        }
+        case Step.Code:
+          status = Status.Pending;
+          break;
+      }
+      return status === Status.Completed && inputIsOutdated ? Status.Outdated : status;
     },
   }))
-  .actions((self) => ({
-    afterCreate() {
-      // Recover generation timestamps from matching annotated test files.
-      if (self.scaffoldFiles.length > 0) {
-        hydrateMissingLastGeneratedAt(
-          self.testScenarios,
-          Array.from(self.scaffoldFiles),
-          self.productOverview?.programmingLanguage || "typescript",
-        );
+  .views((self) => ({
+    canGenerateStep(step: Step): boolean {
+      const prerequisite = GENERATION_PREREQUISITE_BY_STEP[step];
+      return prerequisite != null && self.getStepStatus(prerequisite) === Status.Completed;
+    },
+  }))
+  .views((self) => {
+    const hasStepArtifacts = (step: Step): boolean => {
+      switch (step) {
+        case Step.Description:
+          return self.description.trim().length > 0;
+        case Step.ProductOverview:
+          return !self.productOverview.isEmpty;
+        case Step.UserStories:
+          return self.userStories.length > 0;
+        case Step.Requirements:
+          return self.requirements.length > 0;
+        case Step.AcceptanceCriteria:
+          return self.acceptanceCriteria.length > 0;
+        case Step.BoundaryDesign:
+          return self.boundaryDesign != null;
+        case Step.InterfaceContracts:
+          return self.implementationProfile != null || self.contractSuite != null;
+        case Step.TestScenarios:
+          return self.testScenarios.length > 0;
+        case Step.TestCases:
+          return self.testScenarios.some(
+            ({ testCases }) => testCases.length > 0,
+          );
+        case Step.ProjectSetup:
+          return self.projectSetup != null;
+        case Step.AutomatedTests:
+          return self.testScenarios.some((scenario) =>
+            scenario.testCases.some(
+              ({ generatedInputFingerprint }) =>
+                generatedInputFingerprint != null,
+            ),
+          );
+        case Step.Code:
+          return false;
       }
-    }
-  }));
+    };
+
+    return {
+      json(step: Step) {
+        return JSON.stringify(self.data(step));
+      },
+      hasStepArtifacts,
+      affectedDownstreamSteps(
+        sourceStep: Step,
+        includeSourceStep = false,
+      ): Step[] {
+        return STEPS.slice(
+          STEPS.indexOf(sourceStep) + (includeSourceStep ? 0 : 1),
+        ).filter(
+          (step) =>
+            step !== Step.Code &&
+            (
+              self.getStepStatus(step) !== Status.Pending ||
+              hasStepArtifacts(step)
+            ),
+        );
+      },
+    };
+  });
 
 export const Store = FlatStore.actions(
   withSelf({
@@ -728,11 +968,15 @@ export const Store = FlatStore.actions(
     generateUserStories,
     generateRequirements,
     generateAcceptanceCriteria,
+    generateBoundaryDesign,
+    reviseBoundaryDesign,
+    generateImplementationProfile,
+    generateInterfaceContracts,
+    reviseFormalContract,
     generateTestScenarios,
     generateTestCases,
+    generateProjectSetup,
     generateTestCode,
-    generateProjectConfig,
-    generateScaffold,
   }),
 ).actions(withSelf({ import: import_, export: export_, exportCode }));
 

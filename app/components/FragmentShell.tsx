@@ -16,8 +16,9 @@ interface FragmentShellProps<Type extends StructuralFragment>
   isDisabled: boolean;
   list: Type[];
   fragment: Type;
-  onComment: (parameters: { fragment: Type; comment: string }) => void;
-  onRemove: (parameters: { fragment: Type }) => void;
+  onComment?: (parameters: { fragment: Type; comment: string }) => void;
+  onRemove?: (parameters: { fragment: Type }) => void;
+  showActions?: boolean;
   highlightSx?:
     | React.CSSProperties
     | ((theme: Theme) => React.CSSProperties);
@@ -30,6 +31,7 @@ const FragmentShell = <Type extends StructuralFragment>({
   fragment,
   onComment,
   onRemove,
+  showActions = true,
   highlightSx,
   sx,
   ...props
@@ -39,11 +41,11 @@ const FragmentShell = <Type extends StructuralFragment>({
   const hash = useFragmentHash();
 
   const handleRemove = () => {
-    onRemove({ fragment });
+    onRemove?.({ fragment });
   };
 
   const handleComment = (comment: string) => {
-    onComment({ fragment, comment });
+    onComment?.({ fragment, comment });
   };
 
   const isHighlighted = hash === fragment.getCode() || hash === fragment.id;
@@ -88,16 +90,18 @@ const FragmentShell = <Type extends StructuralFragment>({
           {fragment.getCode()}.
         </Typography>
         {children}
-        <Stack direction="row">
-          <IconButton
-            aria-label="Remove"
-            disabled={isDisabled}
-            onClick={handleRemove}
-          >
-            <Delete />
-          </IconButton>
-          <CommentButton disabled={isDisabled} onSubmit={handleComment} />
-        </Stack>
+        {showActions && (
+          <Stack direction="row">
+            <IconButton
+              aria-label="Remove"
+              disabled={isDisabled}
+              onClick={handleRemove}
+            >
+              <Delete />
+            </IconButton>
+            <CommentButton disabled={isDisabled} onSubmit={handleComment} />
+          </Stack>
+        )}
       </Stack>
       {fragment.dependencies.length > 0 && (
         <Typography variant="caption" sx={{ py: 1 }}>
