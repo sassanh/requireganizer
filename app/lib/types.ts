@@ -1,5 +1,5 @@
-export const HARNESS_PROTOCOL_VERSION = 4 as const;
-export const PROMPT_VERSION = "2026-08-12.1" as const;
+export const HARNESS_PROTOCOL_VERSION = 5 as const;
+export const PROMPT_VERSION = "2026-08-13.1" as const;
 
 export type ProviderCallOutcome =
   | "success"
@@ -24,6 +24,7 @@ export interface ProviderCallMetadata {
   durationMs: number;
   provider: string;
   model: string;
+  authenticationMode?: "anonymous" | "configured";
   outcome: ProviderCallOutcome;
   toolCallCount: number;
   toolName?: string;
@@ -33,6 +34,16 @@ export interface ProviderCallMetadata {
   httpStatus?: number;
   errorCode?: string;
   usage?: ProviderTokenUsage;
+  adapterIds?: string[];
+  interfaceContractRevisionIds?: string[];
+  subjectContractRevisionIds?: string[];
+}
+
+export interface ProviderCallRecord
+  extends Omit<ProviderCallMetadata, "promptVersion" | "protocolVersion"> {
+  id: string;
+  promptVersion: string;
+  protocolVersion: number;
 }
 
 export interface HarnessMetadata {

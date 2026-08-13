@@ -1,16 +1,26 @@
-import { Step, StructuralFragment } from "store";
+import { toGenerator } from "mobx-state-tree";
 
-import { makeStructuralFragmentFlow } from "./makeStructuralFragmentFlow";
+import { generateContractTestScenarios } from "actions/ai/generate-contract-test-scenarios";
+import { Step } from "store";
 
-export default makeStructuralFragmentFlow({
-  step: Step.TestScenarios,
-  structuralFragment: StructuralFragment.TestScenario,
-  requirements: [
-    "description",
-    "productOverview",
-    "userStories",
-    "requirements",
-    "acceptanceCriteria",
-  ],
-  requiredSteps: [Step.AcceptanceCriteria],
-});
+import { applyTestScenarioProposal, consumeHarnessResult, generator } from "./utilities";
+
+export default generator(
+  function* generateTestScenarios(self) {
+    const result = yield* toGenerator(generateContractTestScenarios({
+      state: self.json(Step.TestScenarios),
+      design: self.boundaryDesign,
+      suite: self.contractSuite,
+      existingIds: self.testScenarios.map(({ id }) => id),
+    }));
+    const proposal = consumeHarnessResult(self, result);
+    if (proposal == null) return;
+    applyTestScenarioProposal(self, proposal);
+    self.eventTarget.emit("stepUpdate", Step.TestScenarios);
+  },
+  {
+    operation: "generate test scenarios",
+    requirements: ["boundaryDesign", "contractSuite"],
+    requiredSteps: [Step.InterfaceContracts],
+  },
+);

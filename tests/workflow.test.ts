@@ -1,15 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { LANGUAGE_HARNESS_CAPABILITIES, getScenarioTestPath } from "../app/ai-harness/capabilities";
 import { buildArtifactStagePrompt, buildSystemPrompt } from "../app/ai-harness/prompts";
 import { CANONICAL_WORKFLOW, getArtifactStageDefinition } from "../app/ai-harness/workflow";
 import {
   EngineerRole,
-  Framework,
-  FRAMEWORKS_BY_PROGRAMMING_LANGUAGE,
-  PROGRAMMING_LANGUAGE_BY_FRAMEWORK,
-  ProgrammingLanguage,
+  GENERATION_PREREQUISITE_BY_STEP,
   Step,
   StructuralFragment,
 } from "../app/store/constants";
@@ -22,41 +18,26 @@ describe("canonical engineering workflow", () => {
       Step.UserStories,
       Step.Requirements,
       Step.AcceptanceCriteria,
+      Step.BoundaryDesign,
+      Step.InterfaceContracts,
       Step.TestScenarios,
       Step.TestCases,
-      Step.TestCode,
+      Step.ProjectSetup,
+      Step.AutomatedTests,
       Step.Code,
     ]);
-  });
-
-  it("defines a stable test-file convention for every language", () => {
-    assert.deepEqual(
-      Object.keys(LANGUAGE_HARNESS_CAPABILITIES).sort(),
-      Object.values(ProgrammingLanguage).sort(),
-    );
-    assert.notEqual(
-      getScenarioTestPath("TSC-1", "aaaaaaaa-0000", ProgrammingLanguage.Go),
-      getScenarioTestPath("TSC-1", "bbbbbbbb-0000", ProgrammingLanguage.Go),
-    );
-  });
-
-  it("keeps framework-language capability maps symmetric", () => {
-    for (const language of Object.values(ProgrammingLanguage)) {
-      for (const framework of FRAMEWORKS_BY_PROGRAMMING_LANGUAGE[language]) {
-        assert.ok(
-          PROGRAMMING_LANGUAGE_BY_FRAMEWORK[framework].includes(language),
-          `${framework} is missing inverse mapping for ${language}`,
-        );
-      }
-    }
-    for (const framework of Object.values(Framework)) {
-      for (const language of PROGRAMMING_LANGUAGE_BY_FRAMEWORK[framework]) {
-        assert.ok(
-          FRAMEWORKS_BY_PROGRAMMING_LANGUAGE[language].includes(framework),
-          `${language} is missing forward mapping for ${framework}`,
-        );
-      }
-    }
+    assert.deepEqual(GENERATION_PREREQUISITE_BY_STEP, {
+      [Step.ProductOverview]: Step.Description,
+      [Step.UserStories]: Step.ProductOverview,
+      [Step.Requirements]: Step.UserStories,
+      [Step.AcceptanceCriteria]: Step.Requirements,
+      [Step.BoundaryDesign]: Step.AcceptanceCriteria,
+      [Step.InterfaceContracts]: Step.BoundaryDesign,
+      [Step.TestScenarios]: Step.InterfaceContracts,
+      [Step.TestCases]: Step.TestScenarios,
+      [Step.ProjectSetup]: Step.TestCases,
+      [Step.AutomatedTests]: Step.ProjectSetup,
+    });
   });
 
   it("serializes project text as data and labels it untrusted", () => {

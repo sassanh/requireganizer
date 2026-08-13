@@ -1,6 +1,7 @@
 import "server-only";
 
 import {
+  AUTHENTICATION_MODE,
   MODEL,
   PROVIDER,
   generateToolResponse,
@@ -19,5 +20,6 @@ export function runStructuredHarnessTask<Value>(
     generate: generateToolResponse,
     provider: PROVIDER,
     providerModel: MODEL,
+    authenticationMode: AUTHENTICATION_MODE,
   });
 }

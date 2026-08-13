@@ -1,86 +1,34 @@
 # AI harness
 
-The harness is a formal function-calling boundary around an OpenAI-compatible chat-completions model. Prompts define engineering intent; function-tool schemas define the transport shape; runtime validators remain authoritative for semantic correctness.
+The AI harness is an OpenAI-compatible function-calling boundary. Every request supplies exactly two formal tools: one operation-specific result function and `communicate`. The provider must call exactly one tool; ordinary assistant text and parallel calls are rejected.
 
-## Lifecycle
+## Request lifecycle
 
-1. A client store action verifies the workflow prerequisites and clears any previous error.
-2. A stage-specific server action builds a system policy, a task payload, and one operation-specific submit tool.
-3. The shared runner adds the `communicate` tool and sends both as formal API `tools`.
-4. The provider selects a function through `choices[0].message.tool_calls`.
-5. Exactly one call is accepted. `communicate` produces a `needs_input` result; the operation-specific call proceeds to validation.
-6. The runner parses the selected function's `arguments` as a JSON object and applies the operation's runtime shape and semantic validators.
-7. If validation fails, one repair request receives the concrete validator error, prior tool call, and original task. The repair request uses the same formal tools.
-8. A valid proposal returns with protocol metadata. The client applies it to a cloned store and commits the resulting snapshot only if the complete update succeeds.
+1. The client verifies completion and approval prerequisites.
+2. The server builds a stable system policy, approved adapter instructions, and changing project/request data in that order.
+3. The provider receives formal function definitions with required tool choice and parallel calls disabled.
+4. The harness parses `message.tool_calls`, accepts exactly one supported function, and validates its arguments independently.
+5. One failed validation receives one repair turn through the same tools.
+6. A valid proposal is materialized with application-owned IDs, revisions, and content hashes, then applied atomically.
 
-Transport failures have a separate bounded retry policy. Connection failures, timeouts, rate limits, selected conflict/request-timeout statuses, and server errors receive up to three attempts with exponential backoff. OpenAI SDK retries are disabled so the application owns one explicit retry policy.
+Provider schema acceptance is not a correctness signal. Runtime validation is authoritative.
 
-## Function-tool transport
+## Adapter and schema safety
 
-Each request contains these transport controls:
+Each approved interface owns a persisted adapter program. Its exact revision is reused for scenario, case, setup, and automated-test generation. Adapter schemas must be self-contained, use local references only, remain within size/depth/count limits, use allowlisted keywords, and avoid resource-unsafe regular expressions.
 
-```json
-{
-  "tools": [
-    { "type": "function", "function": { "name": "submit_..." } },
-    { "type": "function", "function": { "name": "communicate" } }
-  ],
-  "tool_choice": "required",
-  "parallel_tool_calls": false
-}
-```
+`@cfworker/json-schema` performs authoritative runtime instance validation without generated code or `eval`. A conservative projection of the authoritative schema is used in provider-facing function definitions. The provider-facing projection never replaces runtime validation.
 
-The complete function definitions include JSON Schema parameters, required fields, enums, descriptions, and `additionalProperties: false` where the contract is closed.
+## Formal consistency
 
-This follows the [OpenAI function-calling transport](https://developers.openai.com/api/docs/guides/function-calling): function schemas are sent as tools, calls are read from `message.tool_calls`, `tool_choice: "required"` requires a call, and disabling parallel calls bounds the turn to one. Function definitions use Chat Completions' non-strict mode to support the default gateway and contracts with optional or free-form fields. Runtime parsing and the repair turn therefore remain mandatory.
+Interface bundles contain an adapter identity/version, native declarations or a neutral typed manifest, a normalized index of stable interaction/outcome IDs, and content hashes for native documents. Validation checks semantic interaction coverage, unique operations/outcomes, native anchors, schema safety, document paths and hashes. Subject bundles bind every owned interaction and interface revision. Project Setup places approved documents byte-for-byte and verifies their hashes.
 
-The server owns operation scope. An artifact-list tool accepts `items` while the server supplies the stage's `entityType`; a focused-revision tool accepts `patch` while the server supplies the target ID; and a test-code tool accepts `code` while the server supplies the target path.
+## Behavioral traces
 
-## Validation layers
+Behavioral cases declare one subject, one initial fixture, and an ordered asynchronous trace. Every input defines a unique correlation alias; its outputs, errors, and bounded-silence observations reference that alias. Inputs validate against normalized input schemas, including when a later input contains a capture reference. Outputs and errors identify declared outcomes and use portable matchers. Captures use JSON Pointer and can be referenced only by later inputs. Silence observations have a bounded timeout. Parallel branches and race assertions are outside the initial contract.
 
-| Layer | Examples |
-| --- | --- |
-| Transport | Timeout and transient retry; formal `tools`; exactly one supported function call. |
-| Arguments | Function arguments are one JSON object with only supported fields. |
-| Scope | Server-controlled stage, parent, artifact type, artifact ID, and file path. |
-| Identity | Existing IDs are constrained to the current target; new items use proposal-local keys and receive application-generated UUIDs during atomic client application. |
-| Traceability | Existing typed references, complete upstream coverage, and exact scenario parent. |
-| Graph | Known proposal-local dependency keys, no duplicates, self-links, or cycles. |
-| Capability | Supported framework-language pair and an explicit test suffix for every language. |
-| Files | Safe relative POSIX paths, unique scaffold paths, bounded file counts and response sizes. |
-| Test preservation | Exact scenario marker, one current begin/end pair, and every unrelated annotated test block preserved byte-for-byte. |
+## Metadata and diagnostics
 
-Runtime validation is the correctness boundary. It verifies function arguments independently of provider-side schema handling.
+Every provider attempt records prompt/protocol versions, timing, outcome, model, selected tool, provider identifiers, normalized token usage, adapter IDs, interface-contract revisions, and subject-contract revisions. Logs are partitioned per project in IndexedDB and can be deleted or exported as JSON or CSV.
 
-## Failure and diagnostic behavior
-
-The runner returns a discriminated result for all expected outcomes:
-
-- `success` contains a validated proposal;
-- `needs_input` contains the `communicate` message;
-- `error` contains a concise public message and an error code.
-
-An invalid first call receives one repair attempt. If the second call is also invalid, neither response changes project state. Provider failures likewise apply no project changes.
-
-These are domain results returned by a Next.js server action, so the underlying HTTP request can complete with status 200 while the result itself has `status: "error"`. HTTP success means the server action returned normally; it does not mean generation succeeded.
-
-In development builds, rejected provider responses and validation stacks are logged on the server and attached to the error result. The web application keeps the concise message inline and exposes the full diagnostic text only through **More details**, which opens a dialog. Production results omit those details entirely. A timeout has no rejected model response to display because no response was received.
-
-## Output bounds
-
-The harness accepts at most 100 scaffold files, 500,000 characters in any scaffold file, 2,000,000 scaffold characters in total, and 500,000 characters in a test-code result. These are application safety limits, not token-budget targets; prompts still ask for minimal output.
-
-## Version metadata
-
-Every result carries:
-
-- `protocolVersion`: the machine-contract version;
-- `promptVersion`: the prompt-policy release date;
-- `operation`: the requested operation;
-- `providerCalls`: bounded metadata for every generation or repair attempt, including timing, outcome, provider/model identity, selected tool, response identifiers, and normalized token usage when reported.
-
-Version metadata identifies the exact harness contract used for a result and supports diagnostics.
-
-## Provider configuration
-
-The default provider is OpenCode Zen. `AI_BASE_URL`, `AI_MODEL`, `AI_REQUEST_TIMEOUT_MS`, and `AI_API_KEY` allow deployment-specific configuration. When `AI_API_KEY` is unset, the harness uses `OPENCODE_API_KEY`. The selected endpoint and model must implement OpenAI-compatible function calling; see the [environment reference](/reference/environment).
+Development builds expose rejected raw responses behind **More details**. Production results omit that payload. A timeout has no model response to show.

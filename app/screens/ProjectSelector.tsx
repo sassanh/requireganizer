@@ -31,6 +31,7 @@ import {
   saveProjectBundle,
   saveProjectsIndex,
 } from "lib/projectStorage";
+import { deleteProviderCallsForProject } from "lib/providerCallStorage";
 import { Store } from "store";
 
 interface ProjectSelectorProps {
@@ -87,7 +88,7 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
     }
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     try {
       deleteProjectData(id);
       setProjects((current) =>
@@ -98,6 +99,16 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
     } catch (storageError) {
       console.error("Could not delete project.", storageError);
       setError("The project could not be deleted from browser storage.");
+      return;
+    }
+
+    try {
+      await deleteProviderCallsForProject(id);
+    } catch (storageError) {
+      console.error("Could not delete the project's provider activity.", storageError);
+      setError(
+        "The project was deleted, but its AI provider activity could not be removed from browser storage.",
+      );
     }
   };
 
@@ -136,7 +147,11 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
       onSelect(id, name);
     } catch (importError) {
       console.error("Could not import project.", importError);
-      setError("The selected file is not a valid Requireganizer project.");
+      setError(
+        importError instanceof Error
+          ? importError.message
+          : "The selected file is not a valid Requireganizer project.",
+      );
     }
   };
 
@@ -298,7 +313,9 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
           <Button
             color="error"
             variant="contained"
-            onClick={() => projectToDelete && handleDelete(projectToDelete.id)}
+            onClick={() => {
+              if (projectToDelete) void handleDelete(projectToDelete.id);
+            }}
           >
             Delete Project
           </Button>

@@ -1,7 +1,10 @@
+import type {
+  RevisionBindingMetadata,
+  TestCaseDefinition,
+  TestScenarioBinding,
+} from "contract-domain";
 import {
-  Framework,
   Priority,
-  ProgrammingLanguage,
   StructuralFragment,
 } from "store/constants";
 
@@ -10,8 +13,6 @@ export interface ProductOverviewProposal {
   purpose: string;
   primaryFeatures: string[];
   targetUsers: string[];
-  framework: Framework;
-  programmingLanguage: ProgrammingLanguage;
 }
 
 export interface ArtifactReferenceProposal {
@@ -22,10 +23,7 @@ export interface ArtifactReferenceProposal {
 export interface ArtifactProposalItem {
   key: string;
   id?: string;
-  content?: string;
-  title?: string;
-  steps?: string;
-  expectedResult?: string;
+  content: string;
   priority: Priority;
   references: ArtifactReferenceProposal[];
   dependencies: string[];
@@ -33,7 +31,6 @@ export interface ArtifactProposalItem {
 
 export interface ArtifactListProposal {
   entityType: StructuralFragment;
-  parentId?: string;
   items: ArtifactProposalItem[];
 }
 
@@ -42,49 +39,33 @@ export interface FragmentRevisionProposal {
   id: string;
   patch: {
     content?: string;
-    title?: string;
-    steps?: string;
-    expectedResult?: string;
     priority?: Priority;
   };
-}
-
-export interface ProjectConfigurationProposal {
-  packageManager: string;
-  testFramework: string;
-  buildCommand: string;
-  testCommand: string;
-  settings: Record<string, unknown>;
-}
-
-export interface ScaffoldFileProposal {
-  path: string;
-  content: string;
-}
-
-export interface ScaffoldProposal {
-  files: ScaffoldFileProposal[];
 }
 
 export interface TestCodeProjectContext {
   name: string;
   purpose: string;
-  framework: Framework;
-  programmingLanguage: ProgrammingLanguage;
+  language: string;
+  framework: string;
 }
 
 export interface TestCodeScenarioContext {
   id: string;
+  revisionId: string;
   code: string;
   content: string;
+  binding: TestScenarioBinding;
 }
 
 export interface TestCodeCaseContext {
   id: string;
+  revisionId: string;
   code: string;
   title: string;
-  steps: string;
-  expectedResult: string;
+  definition: TestCaseDefinition;
+  renderedSteps: string;
+  renderedExpectedResult: string;
 }
 
 export interface ExistingTestFileContext {
@@ -99,6 +80,9 @@ export interface TestCodeRequest {
   testCase: TestCodeCaseContext;
   targetPath: string;
   existingFile: ExistingTestFileContext | null;
+  contracts: Record<string, unknown>;
+  scaffoldManifest: Record<string, unknown>;
+  bindingMetadata: RevisionBindingMetadata;
   comment?: string;
 }
 

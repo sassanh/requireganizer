@@ -206,4 +206,41 @@ describe("structured harness runner", () => {
     assert.equal(metadata?.errorCode, "rate_limit_exceeded");
     assert.equal(metadata?.requestId, "request-429");
   });
+
+  it("reports provider response facts without interpreting provider policy", async () => {
+    const providerError = Object.assign(new Error("rate limited"), {
+      status: 429,
+      type: "FreeUsageLimitError",
+    });
+    const result = await executeStructuredHarnessTask({
+      ...task,
+      generate: async () => {
+        throw providerError;
+      },
+    });
+
+    assert.equal(result.status, "error");
+    if (result.status !== "error") assert.fail("Expected error result.");
+    assert.match(result.message, /HTTP 429/i);
+    assert.match(result.message, /error code FreeUsageLimitError/i);
+    assert.doesNotMatch(result.message, /quota|credential|model family|daily reset/i);
+    assert.equal(
+      result.metadata.providerCalls[0]?.errorCode,
+      "FreeUsageLimitError",
+    );
+  });
+
+  it("records whether a provider call used anonymous access", async () => {
+    const result = await executeStructuredHarnessTask({
+      ...task,
+      authenticationMode: "anonymous",
+      generate: async () => response("submit_example", '{"value":"ok"}'),
+    });
+
+    assert.equal(result.status, "success");
+    assert.equal(
+      result.metadata.providerCalls[0]?.authenticationMode,
+      "anonymous",
+    );
+  });
 });

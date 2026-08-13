@@ -4,23 +4,70 @@ import {
   ArtifactListProposal,
   FragmentRevisionProposal,
   ProductOverviewProposal,
-  ProjectConfigurationProposal,
-  ScaffoldProposal,
   TestCodeProposal,
 } from "ai-harness/contracts";
 import { getArtifactStageDefinition } from "ai-harness/workflow";
+import type {
+  BoundaryDesign,
+  BoundaryDesignProposal,
+  ContractSuite,
+  ContractSuiteProposal,
+  ImplementationProfile,
+  ImplementationProfileProposal,
+  ProjectSetup,
+  ProjectSetupProposal,
+  TestCaseListProposal,
+  TestScenarioListProposal,
+} from "contract-domain";
+import {
+  fingerprint,
+  formatContractSuiteDiff,
+  sha256Text,
+  validateBoundaryDesign,
+  validateContractSuite,
+  validateProjectSetup,
+} from "contract-domain";
 import { getUserFacingErrorMessage, UserFacingError } from "lib/errors";
 import { HarnessResult } from "lib/types";
-import { STEP_LABELS, Status, Step } from "store/constants";
-import type { FlatStore } from "store/store";
+import { Priority, STEP_LABELS, Status, Step, StructuralFragment } from "store/constants";
+import type { FlatStore, TestCaseSnapshotInput, TestScenarioSnapshotInput } from "store/store";
+import { uuid } from "utilities";
 
-function applyAtomically(
+export function applyAtomically(
   store: FlatStore,
   update: (candidate: FlatStore) => void,
+  impact?: {
+    sourceStep: Step;
+    sourceLabel?: string;
+    summary: string;
+    includeSourceStep?: boolean;
+  },
 ): void {
   const candidate = clone(store);
   update(candidate);
-  applySnapshot(store, getSnapshot(candidate));
+  const snapshot = getSnapshot(candidate);
+  const affectedSteps = impact == null
+    ? []
+    : store.affectedDownstreamSteps(
+      impact.sourceStep,
+      impact.includeSourceStep,
+    );
+  if (impact != null && affectedSteps.length > 0) {
+    store.queueImpactChange({
+      sourceStep: impact.sourceStep,
+      sourceLabel: impact.sourceLabel ?? STEP_LABELS[impact.sourceStep],
+      affectedSteps,
+      affectedArtifacts: affectedSteps.map((step) => ({
+        step,
+        label: `${STEP_LABELS[step]} artifacts`,
+        reason: `These artifacts consume ${impact.sourceLabel ?? STEP_LABELS[impact.sourceStep]} and will remain viewable but stale until regenerated.`,
+      })),
+      summary: impact.summary,
+      candidateSnapshot: snapshot,
+    });
+    return;
+  }
+  applySnapshot(store, snapshot);
 }
 
 export function consumeHarnessResult<Value>(
@@ -83,49 +130,377 @@ export function applyFragmentRevisionProposal(
   });
 }
 
-export function applyProjectConfigurationProposal(
-  store: FlatStore,
-  proposal: ProjectConfigurationProposal,
-): void {
-  applyAtomically(store, (candidate) => {
-    candidate.setProjectConfig(JSON.stringify(proposal, null, 2));
-    candidate.setProjectConfigLocked(false);
-    candidate.setScaffoldFiles([]);
-    candidate.markProjectConfigCurrent();
-    candidate.setProjectConfigDialogOpen(true);
-  });
-}
-
-export function applyScaffoldProposal(
-  store: FlatStore,
-  proposal: ScaffoldProposal,
-): void {
-  applyAtomically(store, (candidate) => {
-    candidate.setScaffoldFiles(proposal.files);
-    candidate.setProjectConfigLocked(true);
-    candidate.communicate({
-      description: "Scaffold generated successfully in the virtual filesystem.",
-    });
-  });
-}
-
 export function applyTestCodeProposal(
   store: FlatStore,
   proposal: TestCodeProposal,
   testCaseId: string,
-  generatedAt = Date.now(),
+  inputFingerprint: string,
 ): void {
   applyAtomically(store, (candidate) => {
     candidate.setScaffoldFile(proposal.path, proposal.code);
-    for (const scenario of candidate.testScenarios) {
-      const testCase = scenario.testCases.find(({ id }) => id === testCaseId);
-      if (testCase != null) {
-        testCase.setLastGeneratedAt(generatedAt);
-        return;
-      }
-    }
-    throw new Error(`Cannot mark missing test case ${testCaseId} as generated.`);
+    candidate.markTestGenerated(testCaseId, inputFingerprint);
   });
+}
+
+function revisionMetadata(previous?: { id: string; revision: number }) {
+  return {
+    id: previous?.id ?? uuid(),
+    revisionId: uuid(),
+    revision: (previous?.revision ?? 0) + 1,
+    status: "draft" as const,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+export function materializeBoundaryDesign(
+  proposal: BoundaryDesignProposal,
+  sourceRevisions: {
+    requirementsRevisionId: string;
+    acceptanceCriteriaRevisionId: string;
+  },
+  previous?: BoundaryDesign | null,
+): BoundaryDesign {
+  return {
+    ...revisionMetadata(previous ?? undefined),
+    ...sourceRevisions,
+    ...proposal,
+  };
+}
+
+export function applyBoundaryDesignProposal(
+  store: FlatStore,
+  proposal: BoundaryDesignProposal,
+): void {
+  const sourceRevisions = {
+    requirementsRevisionId: fingerprint(
+      store.requirements.map((item) => getSnapshot(item)),
+    ),
+    acceptanceCriteriaRevisionId: fingerprint(
+      store.acceptanceCriteria.map((item) => getSnapshot(item)),
+    ),
+  };
+  const design = materializeBoundaryDesign(
+    proposal,
+    sourceRevisions,
+    store.boundaryDesign,
+  );
+  validateBoundaryDesign(design, {
+    requirementIds: new Set(store.requirements.map(({ id }) => id)),
+    acceptanceCriteriaIds: new Set(store.acceptanceCriteria.map(({ id }) => id)),
+    ...sourceRevisions,
+  });
+  applyAtomically(
+    store,
+    (candidate) => candidate.setBoundaryDesign(design),
+    store.boundaryDesign == null
+      ? undefined
+      : { sourceStep: Step.BoundaryDesign, summary: "Apply the new boundary-design revision." },
+  );
+}
+
+export function materializeImplementationProfile(
+  proposal: ImplementationProfileProposal,
+  boundaryRevisionId: string,
+  previous?: ImplementationProfile | null,
+): ImplementationProfile {
+  return {
+    ...revisionMetadata(previous ?? undefined),
+    boundaryRevisionId,
+    ...proposal,
+  };
+}
+
+export function applyImplementationProfileProposal(
+  store: FlatStore,
+  proposal: ImplementationProfileProposal,
+): void {
+  if (store.boundaryDesign == null) {
+    throw new Error("An approved boundary design is required before implementation profiling.");
+  }
+  const profile = materializeImplementationProfile(
+    proposal,
+    store.boundaryDesign.revisionId,
+    store.implementationProfile,
+  );
+  applyAtomically(
+    store,
+    (candidate) => candidate.setImplementationProfile(profile),
+    store.implementationProfile == null
+      ? undefined
+      : {
+        sourceStep: Step.InterfaceContracts,
+        sourceLabel: "Implementation Profile",
+        summary: "Apply the new implementation-profile revision.",
+        includeSourceStep: true,
+      },
+  );
+}
+
+export function materializeContractSuite(
+  proposal: ContractSuiteProposal,
+  design: BoundaryDesign,
+  profile: ImplementationProfile,
+  previous?: ContractSuite | null,
+): ContractSuite {
+  const now = new Date().toISOString();
+  const interfaceContracts = proposal.interfaceContracts.map((candidate) => {
+    const prior = previous?.interfaceContracts.find(({ interfaceId }) => interfaceId === candidate.interfaceId);
+    const content = {
+      interfaceId: candidate.interfaceId,
+      boundaryRevisionId: design.revisionId,
+      profileRevisionId: profile.revisionId,
+      adapter: candidate.adapter,
+      formalContract: {
+        ...candidate.formalContract,
+        documents: candidate.formalContract.documents.map((document) => ({
+          path: document.path,
+          mediaType: document.mediaType,
+          content: document.content,
+          sha256: sha256Text(document.content),
+        })),
+      },
+      normalizedIndex: candidate.normalizedIndex,
+    };
+    const priorContent = prior == null
+      ? null
+      : {
+          interfaceId: prior.interfaceId,
+          boundaryRevisionId: prior.boundaryRevisionId,
+          profileRevisionId: prior.profileRevisionId,
+          adapter: prior.adapter,
+          formalContract: prior.formalContract,
+          normalizedIndex: prior.normalizedIndex,
+        };
+    return prior != null && fingerprint(priorContent) === fingerprint(content)
+      ? prior
+      : { ...revisionMetadata(prior), ...content };
+  });
+  const subjectContracts = proposal.subjectContracts.map((candidate) => {
+    const prior = previous?.subjectContracts.find(({ subjectId }) => subjectId === candidate.subjectId);
+    const interfaceContractRevisionIds = candidate.interfaceIds.map((interfaceId) => {
+      const contract = interfaceContracts.find((item) => item.interfaceId === interfaceId);
+      if (contract == null) throw new Error(`Missing interface contract for ${interfaceId}.`);
+      return contract.revisionId;
+    });
+    const content = {
+      subjectId: candidate.subjectId,
+      boundaryRevisionId: design.revisionId,
+      profileRevisionId: profile.revisionId,
+      interfaceContractRevisionIds,
+      protocol: candidate.protocol,
+      harness: candidate.harness,
+    };
+    const priorContent = prior == null
+      ? null
+      : {
+          subjectId: prior.subjectId,
+          boundaryRevisionId: prior.boundaryRevisionId,
+          profileRevisionId: prior.profileRevisionId,
+          interfaceContractRevisionIds: prior.interfaceContractRevisionIds,
+          protocol: prior.protocol,
+          harness: prior.harness,
+        };
+    return prior != null && fingerprint(priorContent) === fingerprint(content)
+      ? prior
+      : { ...revisionMetadata(prior), ...content };
+  });
+  const verificationContracts = proposal.verificationContracts.map((candidate) => {
+    const prior = previous?.verificationContracts.find(
+      ({ verificationObligationId }) => verificationObligationId === candidate.verificationObligationId,
+    );
+    const content = {
+      verificationObligationId: candidate.verificationObligationId,
+      boundaryRevisionId: design.revisionId,
+      profileRevisionId: profile.revisionId,
+      environment: candidate.environment,
+      stimulus: candidate.stimulus,
+      evidenceSchema: candidate.evidenceSchema,
+      passMatchers: candidate.passMatchers,
+    };
+    const priorContent = prior == null
+      ? null
+      : {
+          verificationObligationId: prior.verificationObligationId,
+          boundaryRevisionId: prior.boundaryRevisionId,
+          profileRevisionId: prior.profileRevisionId,
+          environment: prior.environment,
+          stimulus: prior.stimulus,
+          evidenceSchema: prior.evidenceSchema,
+          passMatchers: prior.passMatchers,
+        };
+    return prior != null && fingerprint(priorContent) === fingerprint(content)
+      ? prior
+      : { ...revisionMetadata(prior), ...content };
+  });
+  return {
+    id: previous?.id ?? uuid(),
+    revisionId: uuid(),
+    revision: (previous?.revision ?? 0) + 1,
+    createdAt: now,
+    boundaryRevisionId: design.revisionId,
+    profileRevisionId: profile.revisionId,
+    interfaceContracts,
+    subjectContracts,
+    verificationContracts,
+  };
+}
+
+export function applyContractSuiteProposal(
+  store: FlatStore,
+  proposal: ContractSuiteProposal,
+): void {
+  if (store.boundaryDesign == null || store.implementationProfile == null) {
+    throw new Error("Approved boundary design and implementation profile are required.");
+  }
+  if (
+    store.implementationProfile.boundaryRevisionId !==
+    store.boundaryDesign.revisionId
+  ) {
+    throw new Error(
+      "The implementation profile is bound to a stale boundary-design revision.",
+    );
+  }
+  const suite = materializeContractSuite(
+    proposal,
+    store.boundaryDesign,
+    store.implementationProfile,
+    store.contractSuite,
+  );
+  validateContractSuite(suite, store.boundaryDesign, store.implementationProfile.revisionId);
+  const revisionDiff = store.contractSuite == null
+    ? null
+    : formatContractSuiteDiff(store.contractSuite, suite);
+  applyAtomically(
+    store,
+    (candidate) => candidate.setContractSuite(suite),
+    store.contractSuite == null
+      ? undefined
+      : {
+        sourceStep: Step.InterfaceContracts,
+        sourceLabel: "Formal Contracts",
+        summary: "Apply the reconciled formal-contract revision.",
+        includeSourceStep: true,
+      },
+  );
+  store.setContractRevisionDiff(revisionDiff);
+}
+
+function resolveDependencies(
+  items: readonly { key: string; id?: string; dependencies: string[] }[],
+): Map<string, { id: string; dependencies: string[] }> {
+  const ids = new Map(items.map((item) => [item.key, item.id ?? uuid()]));
+  return new Map(items.map((item) => [
+    item.key,
+    {
+      id: ids.get(item.key)!,
+      dependencies: item.dependencies.map((key) => {
+        const id = ids.get(key);
+        if (id == null) throw new Error(`Unknown proposal dependency ${key}.`);
+        return id;
+      }),
+    },
+  ]));
+}
+
+export function applyTestScenarioProposal(
+  store: FlatStore,
+  proposal: TestScenarioListProposal,
+): void {
+  const resolved = resolveDependencies(proposal.items);
+  const previous = new Map(store.testScenarios.map((item) => [item.id, item]));
+  const snapshots: TestScenarioSnapshotInput[] = proposal.items.map((item) => {
+    const identity = resolved.get(item.key)!;
+    const prior = previous.get(identity.id);
+    return {
+      id: identity.id,
+      title: item.title,
+      description: item.description,
+      priority: item.priority as Priority,
+      references: item.acceptanceCriteriaIds.map((id) => ({ id, type: StructuralFragment.AcceptanceCriteria })),
+      dependencies: identity.dependencies,
+      binding: item.binding,
+      revisionId: uuid(),
+      revision: (prior?.revision ?? 0) + 1,
+      testCases: prior?.testCases.map((testCase) => getSnapshot(testCase)),
+    };
+  });
+  applyAtomically(
+    store,
+    (candidate) => {
+      candidate.setTestScenarios(snapshots);
+      candidate.markStageGenerated(Step.TestScenarios);
+    },
+    store.testScenarios.length === 0
+      ? undefined
+      : { sourceStep: Step.TestScenarios, summary: "Apply the new revision-bound scenario set." },
+  );
+}
+
+export function applyTestCaseProposal(store: FlatStore, proposal: TestCaseListProposal): void {
+  const scenario = store.testScenarios.find(({ id }) => id === proposal.scenarioId);
+  if (scenario == null) throw new Error(`Missing scenario ${proposal.scenarioId}.`);
+  const resolved = resolveDependencies(proposal.items);
+  const previous = new Map(scenario.testCases.map((item) => [item.id, item]));
+  const cases: TestCaseSnapshotInput[] = proposal.items.map((item) => {
+    const identity = resolved.get(item.key)!;
+    const prior = previous.get(identity.id);
+    return {
+      id: identity.id,
+      title: item.title,
+      description: item.description,
+      priority: item.priority as Priority,
+      references: [
+        { id: scenario.id, type: StructuralFragment.TestScenario },
+        ...item.acceptanceCriteriaIds.map((id) => ({ id, type: StructuralFragment.AcceptanceCriteria })),
+      ],
+      dependencies: identity.dependencies,
+      definition: item.definition,
+      revisionId: uuid(),
+      revision: (prior?.revision ?? 0) + 1,
+      generatedInputFingerprint: prior?.generatedInputFingerprint,
+    };
+  });
+  applyAtomically(
+    store,
+    (candidate) => {
+      candidate.replaceTestCases(proposal.scenarioId, cases);
+      candidate.markStageGenerated(Step.TestCases);
+    },
+    scenario.testCases.length === 0
+      ? undefined
+      : { sourceStep: Step.TestCases, summary: `Apply regenerated cases for ${scenario.content}.` },
+  );
+}
+
+export function applyProjectSetupProposal(
+  store: FlatStore,
+  proposal: ProjectSetupProposal,
+): void {
+  if (
+    store.boundaryDesign == null ||
+    store.implementationProfile == null ||
+    store.contractSuite == null
+  ) {
+    throw new Error(
+      "Approved contracts and an implementation profile are required before project setup.",
+    );
+  }
+  const setup: ProjectSetup = { ...revisionMetadata(store.projectSetup ?? undefined), ...proposal };
+  validateProjectSetup(
+    setup,
+    store.boundaryDesign,
+    store.implementationProfile,
+    store.contractSuite,
+    store.testDesignFingerprint,
+    new Set(store.testScenarios.map(({ id }) => id)),
+  );
+  applyAtomically(
+    store,
+    (candidate) => candidate.setProjectSetup(setup),
+    store.projectSetup == null
+      ? undefined
+      : { sourceStep: Step.ProjectSetup, summary: "Replace the project setup and scaffold manifest." },
+  );
 }
 
 export function generator<

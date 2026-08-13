@@ -1,17 +1,11 @@
 import { toGenerator } from "mobx-state-tree";
 
 import { generateTestCode as generateTestCodeAction } from "actions/ai/generate-test-code";
-import { getScenarioTestPath } from "ai-harness/capabilities";
 import { UserFacingError } from "lib/errors";
-import { parseJsoncObject } from "lib/json";
 import { Step } from "store";
-import { TestCase, TestScenario } from "store/models";
+import type { TestCase, TestScenario } from "store/models";
 
-import {
-  applyTestCodeProposal,
-  consumeHarnessResult,
-  generator,
-} from "./utilities";
+import { applyTestCodeProposal, consumeHarnessResult, generator } from "./utilities";
 
 export default generator(
   function* generateTestCode(
@@ -20,99 +14,98 @@ export default generator(
       testCase,
       testScenario,
       comment,
-    }: {
-      testCase: TestCase;
-      testScenario: TestScenario;
-      comment?: string;
-    },
+    }: { testCase: TestCase; testScenario: TestScenario; comment?: string },
   ) {
-    if (self.isProjectConfigOutdated) {
-      throw new UserFacingError(
-        "The specification changed. Regenerate the project configuration before generating test code.",
-      );
+    if (self.isProjectSetupOutdated) {
+      throw new UserFacingError("Project Setup is stale. Review and regenerate it before generating automated tests.");
     }
-    const existingFiles = self.scaffoldFiles.filter((file) =>
-      file.content.includes(`TSC-SCENARIO - ${testScenario.id}`),
+    if (testCase.definition == null || testScenario.binding == null) {
+      throw new UserFacingError("The selected case has no approved structured contract binding.");
+    }
+    const target = self.projectSetup.manifest.testTargets.find(
+      ({ scenarioId }) => scenarioId === testScenario.id,
     );
-    if (existingFiles.length > 1) {
-      throw new UserFacingError(
-        `Multiple test files reference ${testScenario.getCode()}. Remove the duplicate and try again.`,
-      );
-    }
+    if (target == null) throw new UserFacingError("Project Setup has no test target for this scenario.");
+    const existing = self.scaffoldFiles.find(({ path }) => path === target.path) ?? null;
+    const name = self.productOverview.name;
+    const purpose = self.productOverview.purpose;
+    if (name == null || purpose == null) throw new UserFacingError("Complete Product Overview first.");
 
-    const { framework, programmingLanguage, name, purpose } =
-      self.productOverview;
-    if (
-      framework == null ||
-      programmingLanguage == null ||
-      name == null ||
-      purpose == null
-    ) {
-      throw new UserFacingError(
-        "Complete the product overview before generating test code.",
-      );
-    }
-    if (self.projectConfig == null) {
-      throw new UserFacingError(
-        "Generate the project configuration before generating test code.",
-      );
-    }
-
-    const targetPath =
-      existingFiles[0]?.path ??
-      getScenarioTestPath(
-        testScenario.getCode(),
-        testScenario.id,
-        programmingLanguage,
-      );
-    const result = yield* toGenerator(
-      generateTestCodeAction({
-        project: {
-          name,
-          purpose,
-          framework,
-          programmingLanguage,
-        },
-        projectConfig: parseJsoncObject(
-          self.projectConfig,
-          "Project configuration",
-        ),
-        scenario: {
-          id: testScenario.id,
-          code: testScenario.getCode(),
-          content: testScenario.content,
-        },
-        testCase: {
-          id: testCase.id,
-          code: testCase.getCode(),
-          title: testCase.title,
-          steps: testCase.steps,
-          expectedResult: testCase.expectedResult,
-        },
-        targetPath,
-        existingFile: existingFiles[0]
-          ? {
-            path: existingFiles[0].path,
-            content: existingFiles[0].content,
-          }
-          : null,
-        comment,
-      }),
+    const binding = testScenario.binding;
+    const interfaceRevisionIds = binding.kind === "behavioral"
+      ? binding.interfaceContractRevisionIds
+      : [];
+    const subjectRevisionIds = binding.kind === "behavioral"
+      ? [binding.subjectContractRevisionId]
+      : [];
+    const interfaceContracts = self.contractSuite.interfaceContracts.filter(({ revisionId }) =>
+      interfaceRevisionIds.includes(revisionId),
     );
+    const subjectContracts = self.contractSuite.subjectContracts.filter(({ revisionId }) =>
+      subjectRevisionIds.includes(revisionId),
+    );
+    const verificationContracts = binding.kind === "verification"
+      ? self.contractSuite.verificationContracts.filter(
+        ({ revisionId }) => revisionId === binding.verificationContractRevisionId,
+      )
+      : [];
+    const inputFingerprint = testCase.inputFingerprint;
+    if (inputFingerprint == null) throw new UserFacingError("The test case has no structured definition.");
 
+    const result = yield* toGenerator(generateTestCodeAction({
+      project: {
+        name,
+        purpose,
+        language: self.implementationProfile.language,
+        framework: self.implementationProfile.framework,
+      },
+      projectConfig: self.projectSetup.configuration as unknown as Record<string, unknown>,
+      contracts: {
+        boundaryRevisionId: self.boundaryDesign.revisionId,
+        interfaceContracts,
+        subjectContracts,
+        verificationContracts,
+      },
+      scaffoldManifest: self.projectSetup.manifest as unknown as Record<string, unknown>,
+      bindingMetadata: {
+        adapterIds: interfaceContracts.map(({ adapter }) => `${adapter.id}@${adapter.version}`),
+        interfaceContractRevisionIds: interfaceRevisionIds,
+        subjectContractRevisionIds: subjectRevisionIds,
+      },
+      scenario: {
+        id: testScenario.id,
+        revisionId: testScenario.revisionId,
+        code: testScenario.getCode(),
+        content: `${testScenario.content}\n${testScenario.description}`,
+        binding: testScenario.binding,
+      },
+      testCase: {
+        id: testCase.id,
+        revisionId: testCase.revisionId,
+        code: testCase.getCode(),
+        title: testCase.title,
+        definition: testCase.definition,
+        renderedSteps: testCase.steps,
+        renderedExpectedResult: testCase.expectedResult,
+      },
+      targetPath: target.path,
+      existingFile: existing == null ? null : { path: existing.path, content: existing.content },
+      comment,
+    }));
     const proposal = consumeHarnessResult(self, result);
     if (proposal == null) return;
-    applyTestCodeProposal(self, proposal, testCase.id);
+    applyTestCodeProposal(self, proposal, testCase.id, inputFingerprint);
+    self.eventTarget.emit("stepUpdate", Step.AutomatedTests);
   },
   {
-    operation: "generate test code",
+    operation: "generate automated test",
     requirements: [
-      "description",
-      "productOverview",
+      "boundaryDesign",
+      "implementationProfile",
+      "contractSuite",
+      "projectSetup",
       "testScenarios",
-      "projectConfig",
-      "projectConfigLocked",
     ],
-    requiredSteps: [Step.TestCases],
+    requiredSteps: [Step.ProjectSetup],
   },
 );

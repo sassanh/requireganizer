@@ -23,7 +23,7 @@ export async function generateTestCode(request: TestCodeRequest) {
   const validatedRequest = parseTestCodeRequest(request);
   const targetPath = validatedRequest.targetPath;
 
-  const language = validatedRequest.project.programmingLanguage;
+  const language = validatedRequest.project.language;
   const scenarioAnnotation = generateTestAnnotation(
     language,
     "",
@@ -65,6 +65,7 @@ export async function generateTestCode(request: TestCodeRequest) {
       protectedTestCaseIds: protectedBlocks.map(({ id }) => id),
     }),
     resultTool: buildTestCodeTool(),
+    bindingMetadata: validatedRequest.bindingMetadata,
     parseResult: (value) => {
       const proposal = parseTestCodeProposal(value, targetPath);
       assertValidGeneratedTestCode({

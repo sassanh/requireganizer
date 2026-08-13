@@ -1,6 +1,11 @@
 "use client";
 
-import { ExpandMore, InfoOutlined } from "@mui/icons-material";
+import {
+  ChevronRight,
+  DeleteOutlined,
+  Download,
+  InfoOutlined,
+} from "@mui/icons-material";
 import {
   Accordion,
   AccordionDetails,
@@ -20,15 +25,19 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
+import { saveAs } from "file-saver";
 import { useMemo, useState } from "react";
 
-import type {
-  ProviderCallMetadata,
-  ProviderCallOutcome,
-} from "lib/types";
+import {
+  providerCallExportBaseName,
+  providerCallsToCsv,
+} from "lib/providerCallExport";
+import type { ProviderCallOutcome, ProviderCallRecord } from "lib/types";
 
 interface ProviderActivityProps {
-  calls: readonly ProviderCallMetadata[];
+  calls: readonly ProviderCallRecord[];
+  projectName: string;
+  onDelete: (id: string) => void;
   onClear: () => void;
 }
 
@@ -84,9 +93,15 @@ function MetadataItem({
 
 export default function ProviderActivity({
   calls,
+  projectName,
+  onDelete,
   onClear,
 }: ProviderActivityProps) {
   const [open, setOpen] = useState(false);
+  const [clearConfirmationOpen, setClearConfirmationOpen] = useState(false);
+  const [callToDelete, setCallToDelete] = useState<ProviderCallRecord | null>(
+    null,
+  );
   const summary = useMemo(() => {
     let inputTokens = 0;
     let cachedInputTokens = 0;
@@ -129,6 +144,19 @@ export default function ProviderActivity({
     };
   }, [calls]);
 
+  const exportCalls = (format: "json" | "csv") => {
+    const baseName = providerCallExportBaseName(projectName);
+    const content =
+      format === "json"
+        ? JSON.stringify(calls, null, 2)
+        : providerCallsToCsv(calls);
+    const type =
+      format === "json"
+        ? "application/json;charset=utf-8"
+        : "text/csv;charset=utf-8";
+    saveAs(new Blob([content], { type }), `${baseName}.${format}`);
+  };
+
   return (
     <>
       <Portal>
@@ -163,13 +191,14 @@ export default function ProviderActivity({
         maxWidth="md"
         open={open}
         onClose={() => setOpen(false)}
+        sx={(theme) => ({ zIndex: theme.zIndex.tooltip + 2 })}
       >
         <DialogTitle>AI provider activity</DialogTitle>
         <DialogContent dividers>
           <Stack spacing={2}>
             <Typography color="text.secondary" variant="body2">
-              This session-only report contains request metadata, not prompts or
-              model responses.
+              This project report is stored in this browser. It contains request
+              metadata, not prompts or model responses.
             </Typography>
 
             <Box
@@ -205,57 +234,76 @@ export default function ProviderActivity({
             </Box>
 
             {calls.length === 0 ? (
-              <Typography>No provider calls have been made in this session.</Typography>
+              <Typography>No provider calls have been recorded for this project.</Typography>
             ) : (
               <Stack spacing={1}>
-                {[...calls].reverse().map((call, index) => (
-                  <Accordion
-                    disableGutters
-                    key={`${call.responseId ?? call.requestId ?? call.startedAt}-${call.attempt}-${index}`}
-                    variant="outlined"
-                    sx={{
-                      "&::before": { display: "none" },
-                    }}
-                  >
-                    <AccordionSummary expandIcon={<ExpandMore />}>
-                      <Stack
-                        direction={{ xs: "column", sm: "row" }}
-                        sx={{
-                          alignItems: { xs: "flex-start", sm: "center" },
-                          gap: 1,
-                          minWidth: 0,
-                          pr: 1,
-                          width: "100%",
-                        }}
-                      >
-                        <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-                          <Typography noWrap variant="subtitle1">
-                            {call.operation}
-                          </Typography>
-                          <Typography color="text.secondary" variant="caption">
-                            {new Date(call.startedAt).toLocaleString()} · Attempt{" "}
-                            {call.attempt}
-                          </Typography>
-                        </Box>
+                {[...calls].reverse().map((call) => (
+                  <Box key={call.id} sx={{ position: "relative" }}>
+                    <Accordion
+                      disableGutters
+                      variant="outlined"
+                      sx={{
+                        "&::before": { display: "none" },
+                      }}
+                    >
+                    <AccordionSummary
+                      expandIcon={<ChevronRight />}
+                      sx={{
+                        minHeight: 64,
+                        pl: 6,
+                        pr: 7,
+                        "&.Mui-expanded": { minHeight: 64 },
+                        "& .MuiAccordionSummary-expandIconWrapper": {
+                          left: 12,
+                          position: "absolute",
+                          transform: "rotate(0deg)",
+                        },
+                        "& .MuiAccordionSummary-expandIconWrapper.Mui-expanded": {
+                          transform: "rotate(90deg)",
+                        },
+                      }}
+                    >
                         <Stack
-                          direction="row"
-                          sx={{ alignItems: "center", gap: 2, flexShrink: 0 }}
+                          direction={{ xs: "column", sm: "row" }}
+                          sx={{
+                            alignItems: { xs: "flex-start", sm: "center" },
+                            gap: 1,
+                            minWidth: 0,
+                            pr: 1,
+                            width: "100%",
+                          }}
                         >
-                          <Typography color="text.secondary" variant="body2">
-                            {formatDuration(call.durationMs)}
-                          </Typography>
-                          <Typography color="text.secondary" variant="body2">
-                            {call.usage?.totalTokens === undefined
-                              ? "Tokens not reported"
-                              : `${formatTokens(call.usage.totalTokens)} tokens`}
-                          </Typography>
+                          <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+                            <Typography noWrap variant="subtitle1">
+                              {call.operation}
+                            </Typography>
+                            <Typography
+                              color="text.secondary"
+                              variant="caption"
+                            >
+                              {new Date(call.startedAt).toLocaleString()} · Attempt{" "}
+                              {call.attempt}
+                            </Typography>
+                          </Box>
+                          <Stack
+                            direction="row"
+                            sx={{ alignItems: "center", gap: 2, flexShrink: 0 }}
+                          >
+                            <Typography color="text.secondary" variant="body2">
+                              {formatDuration(call.durationMs)}
+                            </Typography>
+                            <Typography color="text.secondary" variant="body2">
+                              {call.usage?.totalTokens === undefined
+                                ? "Tokens not reported"
+                                : `${formatTokens(call.usage.totalTokens)} tokens`}
+                            </Typography>
+                          </Stack>
+                          <Chip
+                            color={OUTCOME_COLORS[call.outcome]}
+                            label={OUTCOME_LABELS[call.outcome]}
+                            size="small"
+                          />
                         </Stack>
-                        <Chip
-                          color={OUTCOME_COLORS[call.outcome]}
-                          label={OUTCOME_LABELS[call.outcome]}
-                          size="small"
-                        />
-                      </Stack>
                     </AccordionSummary>
 
                     <AccordionDetails
@@ -287,6 +335,14 @@ export default function ProviderActivity({
                         />
                         <MetadataItem label="Provider" value={call.provider} />
                         <MetadataItem label="Model" value={call.model} />
+                        <MetadataItem
+                          label="Authentication"
+                          value={call.authenticationMode === "configured"
+                            ? "Configured API key"
+                            : call.authenticationMode === "anonymous"
+                              ? "No configured API key"
+                              : "Not reported"}
+                        />
                         <MetadataItem
                           label="Attempt"
                           value={call.attempt.toString()}
@@ -343,37 +399,135 @@ export default function ProviderActivity({
                           label="Harness contract"
                           value={`v${call.protocolVersion} / ${call.promptVersion}`}
                         />
+                        <MetadataItem
+                          label="Adapters"
+                          value={call.adapterIds?.join(", ") || "Not applicable"}
+                        />
+                        <MetadataItem
+                          label="Interface revisions"
+                          value={call.interfaceContractRevisionIds?.join(", ") || "Not applicable"}
+                        />
+                        <MetadataItem
+                          label="Subject revisions"
+                          value={call.subjectContractRevisionIds?.join(", ") || "Not applicable"}
+                        />
                       </Box>
                     </AccordionDetails>
-                  </Accordion>
+                    </Accordion>
+                    <Tooltip title="Delete call">
+                      <IconButton
+                        aria-label={`Delete ${call.operation} call`}
+                        color="error"
+                        size="small"
+                        onClick={() => setCallToDelete(call)}
+                        sx={{
+                          position: "absolute",
+                          right: 12,
+                          top: 32,
+                          transform: "translateY(-50%)",
+                          zIndex: 1,
+                        }}
+                      >
+                        <DeleteOutlined fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
                 ))}
               </Stack>
             )}
           </Stack>
         </DialogContent>
-        <DialogActions sx={{ gap: 1, p: 2 }}>
+        <DialogActions
+          sx={{ gap: 1, p: 2, flexWrap: "wrap", justifyContent: "flex-end" }}
+        >
           <Button
-            color="inherit"
+            color="error"
             disabled={calls.length === 0}
-            onClick={onClear}
+            onClick={() => setClearConfirmationOpen(true)}
+            startIcon={<DeleteOutlined />}
             variant="outlined"
-            sx={{
-              color: "text.primary",
-              borderColor: "divider",
-              "&.Mui-disabled": {
-                color: "text.secondary",
-                borderColor: "action.disabledBackground",
-                opacity: 0.7,
-              },
-            }}
           >
-            Clear history
+            Delete all
+          </Button>
+          <Box sx={{ flexGrow: 1 }} />
+          <Button
+            disabled={calls.length === 0}
+            onClick={() => exportCalls("json")}
+            startIcon={<Download />}
+            variant="outlined"
+          >
+            Export JSON
+          </Button>
+          <Button
+            disabled={calls.length === 0}
+            onClick={() => exportCalls("csv")}
+            startIcon={<Download />}
+            variant="outlined"
+          >
+            Export CSV
           </Button>
           <Button
             onClick={() => setOpen(false)}
             variant="contained"
           >
             Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={callToDelete !== null}
+        onClose={() => setCallToDelete(null)}
+        sx={(theme) => ({ zIndex: theme.zIndex.tooltip + 3 })}
+      >
+        <DialogTitle>Delete provider call?</DialogTitle>
+        <DialogContent>
+          <Typography>
+            {callToDelete == null
+              ? "This provider call will be permanently deleted."
+              : `The ${callToDelete.operation} call from ${new Date(
+                  callToDelete.startedAt,
+                ).toLocaleString()} will be permanently deleted.`}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCallToDelete(null)}>Cancel</Button>
+          <Button
+            color="error"
+            onClick={() => {
+              if (callToDelete != null) onDelete(callToDelete.id);
+              setCallToDelete(null);
+            }}
+            variant="contained"
+          >
+            Delete call
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={clearConfirmationOpen}
+        onClose={() => setClearConfirmationOpen(false)}
+        sx={(theme) => ({ zIndex: theme.zIndex.tooltip + 3 })}
+      >
+        <DialogTitle>Delete all provider calls?</DialogTitle>
+        <DialogContent>
+          <Typography>
+            All AI provider activity recorded for this project will be
+            permanently deleted from this browser.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setClearConfirmationOpen(false)}>Cancel</Button>
+          <Button
+            color="error"
+            onClick={() => {
+              onClear();
+              setClearConfirmationOpen(false);
+            }}
+            variant="contained"
+          >
+            Delete all
           </Button>
         </DialogActions>
       </Dialog>

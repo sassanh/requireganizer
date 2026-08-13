@@ -1,10 +1,14 @@
 export { default as handleComment } from "./handle-comment";
 export { default as generateAcceptanceCriteria } from "./generate-acceptance-criteria";
+export { default as generateBoundaryDesign } from "./generate-boundary-design";
+export { default as generateImplementationProfile } from "./generate-implementation-profile";
+export { default as generateInterfaceContracts } from "./generate-interface-contracts";
 export { default as generateProductOverview } from "./generate-product-overview";
-export { default as generateProjectConfig } from "./generate-project-config";
+export { default as generateProjectSetup } from "./generate-project-setup";
 export { default as generateRequirements } from "./generate-requirements";
-export { default as generateScaffold } from "./generate-scaffold";
 export { default as generateTestCases } from "./generate-test-cases";
 export { default as generateTestCode } from "./generate-test-code";
 export { default as generateTestScenarios } from "./generate-test-scenarios";
 export { default as generateUserStories } from "./generate-user-stories";
+export { default as reviseBoundaryDesign } from "./revise-boundary-design";
+export { default as reviseFormalContract } from "./revise-formal-contract";

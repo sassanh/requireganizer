@@ -42,7 +42,7 @@ ${testScenario.testCases.map((testCase) => {
                 Array.from(self.scaffoldFiles),
                 testScenario.id,
                 testCase.id,
-                self.productOverview.programmingLanguage || "typescript"
+                self.implementationProfile?.language || "typescript"
               );
 
               const codeOutput = codeBlock ? `\n\n  Code:\n${codeBlock.split('\n').map(l => `    ${l}`).join('\n')}` : "";

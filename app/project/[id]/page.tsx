@@ -1,12 +1,19 @@
 "use client";
-import { ArrowBack } from "@mui/icons-material";
+import { ArrowBack, FolderOpen, History } from "@mui/icons-material";
 import { Alert, Button, Divider, Stack, Typography } from "@mui/material";
 import { observer } from "mobx-react-lite";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { Suspense, useEffect } from "react";
+import { Suspense, useEffect, useState } from "react";
 
-import { ProviderActivity, Toolbar, ValidationErrorAlert } from "components";
+import {
+  ImpactConfirmationDialog,
+  ProviderActivity,
+  RevisionHistoryDialog,
+  Toolbar,
+  ValidationErrorAlert,
+} from "components";
+import { useProviderCallPersistence } from "hooks/useProviderCallPersistence";
 import { getProjectsIndex } from "lib/projectStorage";
 import { useProject } from "provider";
 import { Factory } from "screens";
@@ -23,8 +30,13 @@ function Home() {
   } = useProject();
   const params = useParams();
   const router = useRouter();
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const projectId = params?.id as string;
+  const providerCallPersistenceError = useProviderCallPersistence(
+    activeProject?.id === projectId ? projectId : null,
+    store,
+  );
 
   useEffect(() => {
     if (projectId && activeProject?.id !== projectId) {
@@ -60,6 +72,11 @@ function Home() {
           {persistenceError}
         </Alert>
       )}
+      {providerCallPersistenceError && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          {providerCallPersistenceError}
+        </Alert>
+      )}
       {store.validationErrors ? (
         <ValidationErrorAlert
           message={store.validationErrors}
@@ -86,8 +103,24 @@ function Home() {
         <Typography variant="h6" sx={{ flexGrow: 1 }}>
           {activeProject.name}
         </Typography>
+        <Button
+          component={Link}
+          href={`/project/${encodeURIComponent(activeProject.id)}/code`}
+          target="_blank"
+          rel="noopener noreferrer"
+          variant="outlined"
+          startIcon={<FolderOpen />}
+          disabled={!store.hasGeneratedScaffold}
+        >
+          Project files
+        </Button>
+        <Button variant="outlined" startIcon={<History />} onClick={() => setHistoryOpen(true)}>
+          Revisions
+        </Button>
         <ProviderActivity
           calls={store.providerCalls}
+          projectName={activeProject.name}
+          onDelete={store.deleteProviderCall}
           onClear={store.clearProviderCalls}
         />
       </Stack>
@@ -103,6 +136,12 @@ function Home() {
       <Suspense fallback={null}>
         <Factory activeProject={activeProject} />
       </Suspense>
+      <ImpactConfirmationDialog projectId={activeProject.id} />
+      <RevisionHistoryDialog
+        projectId={activeProject.id}
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+      />
     </>
   );
 }

@@ -140,7 +140,7 @@ function CodeViewerContent() {
                 <Typography variant="h6" sx={{ flexGrow: 1, display: "flex", alignItems: "center", gap: 1 }}>
                     <Code /> {projectName} <Typography variant="caption" sx={{
                     color: "text.secondary"
-                }}>— Code Viewer</Typography>
+                }}>— Project Files</Typography>
                 </Typography>
                 <Button
                     variant="outlined"
@@ -168,7 +168,7 @@ function CodeViewerContent() {
                     }}
                 >
                     <Typography variant="overline" sx={{ px: 2, py: 1, fontWeight: "bold", bgcolor: "action.hover" }}>
-                        Virtual Filesystem
+                        Project filesystem
                     </Typography>
                     <Divider />
                     <Box sx={{ flexGrow: 1, overflowY: "auto" }}>
@@ -221,7 +221,7 @@ export default function CodeViewerPage() {
     return (
         <Suspense fallback={<Box sx={{
             p: 3
-        }}>Loading Code Viewer...</Box>}>
+        }}>Loading Project Files...</Box>}>
             <CodeViewerContent />
         </Suspense>
     );

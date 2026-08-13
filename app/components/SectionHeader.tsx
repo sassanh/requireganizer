@@ -1,5 +1,5 @@
-import { ArrowRight, Build, Info, Refresh } from "@mui/icons-material";
-import { Alert, AlertTitle, Button, Stack, Typography } from "@mui/material";
+import { ArrowRight, Refresh } from "@mui/icons-material";
+import { Alert, AlertTitle, Stack, Typography } from "@mui/material";
 import { observer } from "mobx-react-lite";
 import React, { useEffect } from "react";
 
@@ -7,10 +7,12 @@ import {
   GENERATOR_ACTION_BY_STEP,
   STEPS,
   STEP_LABELS,
+  Status,
   Step,
   useStore,
 } from "store";
 
+import GenerationButton from "./GenerationButton";
 import css from "./SectionHeader.module.css";
 
 export interface HeaderProps {
@@ -24,7 +26,9 @@ const Header: React.FunctionComponent<HeaderProps> = ({
 
   const stepIndex = STEPS.indexOf(step);
   const nextStep = stepIndex < STEPS.length - 1 ? STEPS[stepIndex + 1] : null;
-  const currentStepGeneratorAction = GENERATOR_ACTION_BY_STEP[step];
+  const currentStepGeneratorAction = step === Step.InterfaceContracts
+    ? null
+    : GENERATOR_ACTION_BY_STEP[step];
   const nextStepGeneratorAction = nextStep
     ? GENERATOR_ACTION_BY_STEP[nextStep]
     : null;
@@ -35,7 +39,13 @@ const Header: React.FunctionComponent<HeaderProps> = ({
       ? "metaKey"
       : "ctrlKey";
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Enter" && event[osModifierKey]) {
+      if (
+        event.key === "Enter" &&
+        event[osModifierKey] &&
+        !store.isBusy &&
+        nextStep != null &&
+        store.canGenerateStep(nextStep)
+      ) {
         event.preventDefault();
         store[nextStepGeneratorAction]();
       }
@@ -44,7 +54,7 @@ const Header: React.FunctionComponent<HeaderProps> = ({
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [store, nextStepGeneratorAction]);
+  }, [store, nextStep, nextStepGeneratorAction]);
 
   return (
     <Stack
@@ -63,29 +73,32 @@ const Header: React.FunctionComponent<HeaderProps> = ({
       }}>
         <div className={css.headerPrevious}>
           {currentStepGeneratorAction != null ? (
-            <Button
-              disabled={store.isBusy}
+            <GenerationButton
+              disabled={store.isBusy || !store.canGenerateStep(step)}
               variant="outlined"
               size="large"
               startIcon={<Refresh />}
-              onClick={() => store[currentStepGeneratorAction]()}
+              onGenerate={() => store[currentStepGeneratorAction]()}
             >
-              Regenerate {STEP_LABELS[step]}
-            </Button>
+              {store.getStepStatus(step) === Status.Pending
+                ? "Generate"
+                : "Regenerate"}{" "}
+              {STEP_LABELS[step]}
+            </GenerationButton>
           ) : null}
         </div>
         <div className={css.headerNext}>
           {nextStep && nextStepGeneratorAction ? (
-            <Button
-              disabled={store.isBusy}
+            <GenerationButton
+              disabled={store.isBusy || !store.canGenerateStep(nextStep)}
               variant="contained"
               size="large"
               autoCapitalize="off"
               endIcon={<ArrowRight />}
-              onClick={() => store[nextStepGeneratorAction]()}
+              onGenerate={() => store[nextStepGeneratorAction]()}
             >
               {STEP_LABELS[nextStep]}
-            </Button>
+            </GenerationButton>
           ) : null}
         </div>
       </Stack>

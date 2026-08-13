@@ -1,28 +1,14 @@
-import { Divider, MenuItem, Select, Stack, TextField } from "@mui/material";
+import { Divider, Stack, TextField } from "@mui/material";
 import { observer } from "mobx-react-lite";
-import { useMemo } from "react";
 
 import { StructuralFragments } from "components";
 import {
-  Framework,
-  PROGRAMMING_LANGUAGE_BY_FRAMEWORK,
-  ProgrammingLanguage,
   StructuralFragment,
   useStore,
 } from "store";
-import { isEnumMember } from "utilities";
 
 const ProductOverview: React.FunctionComponent = () => {
   const store = useStore();
-
-  const frameworks = useMemo(() => Object.values(Framework), []);
-  const programmingLanguages = useMemo(
-    () =>
-      store.productOverview.framework
-        ? PROGRAMMING_LANGUAGE_BY_FRAMEWORK[store.productOverview.framework]
-        : [],
-    [store.productOverview.framework],
-  );
 
   return (
     <Stack sx={{
@@ -41,43 +27,6 @@ const ProductOverview: React.FunctionComponent = () => {
         placeholder="Summarize the key features and objectives of the software in a comprehensive overview..."
         onChange={(event) => store.setPurpose({ purpose: event.target.value })}
       />
-      <Divider />
-      <Stack direction="row" sx={{
-        gap: 2
-      }}>
-        <Select
-          fullWidth
-          label="Framework"
-          value={store.productOverview.framework || ""}
-          slotProps={{ input: { "aria-label": "Framework" } }}
-          onChange={({ target: { value } }) => {
-            if (!isEnumMember(value, Framework)) return;
-            store.setFramework({ framework: value });
-          }}
-        >
-          {frameworks.map((framework) => (
-            <MenuItem key={framework} value={framework}>
-              {framework}
-            </MenuItem>
-          ))}
-        </Select>
-        <Select
-          fullWidth
-          label="Programming Language"
-          value={store.productOverview.programmingLanguage || ""}
-          slotProps={{ input: { "aria-label": "Programming Language" } }}
-          onChange={({ target: { value } }) => {
-            if (!isEnumMember(value, ProgrammingLanguage)) return;
-            store.setProgrammingLanguage({ programmingLanguage: value });
-          }}
-        >
-          {programmingLanguages.map((programmingLanguage) => (
-            <MenuItem key={programmingLanguage} value={programmingLanguage}>
-              {programmingLanguage}
-            </MenuItem>
-          ))}
-        </Select>
-      </Stack>
       <Divider />
       <StructuralFragments
         fragments={store.productOverview.primaryFeatures}

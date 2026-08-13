@@ -4,6 +4,7 @@ import type {
 import {
   COMMUNICATE_TOOL,
 } from "ai-harness/tools";
+import type { RevisionBindingMetadata } from "contract-domain";
 import { InvalidJsonError, isRecord, parseJsonObject } from "lib/json";
 import type {
   HarnessMetadata,
@@ -25,6 +26,7 @@ export interface StructuredHarnessTask<Value> {
   userPrompt: string;
   resultTool: HarnessToolDefinition;
   parseResult: (value: unknown) => Value;
+  bindingMetadata?: RevisionBindingMetadata;
 }
 
 export interface ToolModelResponse {
@@ -74,14 +76,18 @@ function providerErrorFields(error: unknown): {
   httpStatus?: number;
   errorCode?: string;
 } {
-  let current: unknown = error;
+  const pending: unknown[] = [error];
+  const visited = new Set<object>();
   const fields: {
     requestId?: string;
     httpStatus?: number;
     errorCode?: string;
   } = {};
 
-  for (let depth = 0; depth < 5 && isRecord(current); depth += 1) {
+  for (let inspected = 0; pending.length > 0 && inspected < 10; inspected += 1) {
+    const current = pending.shift();
+    if (!isRecord(current) || visited.has(current)) continue;
+    visited.add(current);
     if (fields.requestId === undefined) {
       const requestId =
         current.requestID ??
@@ -93,10 +99,16 @@ function providerErrorFields(error: unknown): {
     if (fields.httpStatus === undefined && typeof current.status === "number") {
       fields.httpStatus = current.status;
     }
-    if (fields.errorCode === undefined && typeof current.code === "string") {
-      fields.errorCode = current.code;
+    if (fields.errorCode === undefined) {
+      const identifier =
+        typeof current.code === "string" && current.code.length > 0
+          ? current.code
+          : typeof current.type === "string" && current.type !== "error"
+            ? current.type
+            : undefined;
+      if (identifier !== undefined) fields.errorCode = identifier;
     }
-    current = current.cause;
+    pending.push(current.cause, current.error);
   }
 
   return fields;
@@ -110,9 +122,11 @@ function providerCallMetadata({
   completedAtMilliseconds,
   provider,
   providerModel,
+  authenticationMode,
   outcome,
   response,
   error,
+  bindingMetadata,
 }: {
   operation: string;
   attempt: number;
@@ -121,9 +135,11 @@ function providerCallMetadata({
   completedAtMilliseconds?: number;
   provider: string;
   providerModel: string;
+  authenticationMode?: "anonymous" | "configured";
   outcome: ProviderCallOutcome;
   response?: ToolModelResponse;
   error?: unknown;
+  bindingMetadata?: RevisionBindingMetadata;
 }): ProviderCallMetadata {
   const errorFields = providerErrorFields(error);
   return {
@@ -138,6 +154,7 @@ function providerCallMetadata({
     ),
     provider,
     model: response?.metadata.model ?? providerModel,
+    authenticationMode,
     outcome,
     toolCallCount: response?.calls.length ?? 0,
     toolName:
@@ -148,6 +165,7 @@ function providerCallMetadata({
     httpStatus: errorFields.httpStatus,
     errorCode: errorFields.errorCode,
     usage: response?.metadata.usage,
+    ...(bindingMetadata == null ? {} : bindingMetadata),
   };
 }
 
@@ -213,10 +231,18 @@ function parseToolResponse<Value>(
 }
 
 function providerFailureMessage(operation: string, error: unknown): string {
+  const { errorCode, httpStatus } = providerErrorFields(error);
   if (isTimeoutFailure(error)) {
     return `The AI provider timed out while trying to ${operation}. No model response was received and no project changes were applied. Try again.`;
   }
-  return `The AI provider request failed while trying to ${operation}. No model response was received and no project changes were applied. Try again.`;
+  const responseFacts = [
+    httpStatus === undefined ? undefined : `HTTP ${httpStatus}`,
+    errorCode === undefined ? undefined : `error code ${errorCode}`,
+  ].filter((value): value is string => value !== undefined);
+  const responseSummary = responseFacts.length === 0
+    ? ""
+    : ` The provider reported ${responseFacts.join(" and ")}.`;
+  return `The AI provider request failed while trying to ${operation}.${responseSummary} No model response was received and no project changes were applied. Try again.`;
 }
 
 function formatAttempt(
@@ -236,15 +262,18 @@ export async function executeStructuredHarnessTask<Value>({
   generate,
   provider = "unknown",
   providerModel = "unknown",
+  authenticationMode,
   operation,
   systemPrompt,
   userPrompt,
   resultTool,
   parseResult,
+  bindingMetadata,
 }: StructuredHarnessTask<Value> & {
   generate: HarnessToolGenerator;
   provider?: string;
   providerModel?: string;
+  authenticationMode?: "anonymous" | "configured";
 }): Promise<HarnessResult<Value>> {
   const providerCalls: ProviderCallMetadata[] = [];
   const metadata: HarnessMetadata = {
@@ -298,8 +327,10 @@ export async function executeStructuredHarnessTask<Value>({
           completedAtMilliseconds,
           provider,
           providerModel,
+          authenticationMode,
           outcome: "failed",
           error,
+          bindingMetadata,
         }),
       );
       const providerFailure = [
@@ -333,8 +364,10 @@ export async function executeStructuredHarnessTask<Value>({
           completedAtMilliseconds,
           provider,
           providerModel,
+          authenticationMode,
           outcome: parsed.status,
           response,
+          bindingMetadata,
         }),
       );
       return parsed.status === "success"
@@ -350,8 +383,10 @@ export async function executeStructuredHarnessTask<Value>({
           completedAtMilliseconds,
           provider,
           providerModel,
+          authenticationMode,
           outcome: "rejected",
           response,
+          bindingMetadata,
         }),
       );
       validationError = compactError(error);

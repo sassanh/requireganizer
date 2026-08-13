@@ -5,16 +5,12 @@ import {
   buildArtifactStagePrompt,
   buildFragmentRevisionPrompt,
   buildProductOverviewPrompt,
-  buildProjectConfigurationPrompt,
-  buildScaffoldPrompt,
   buildSystemPrompt,
   buildTestCodePrompt,
 } from "../app/ai-harness/prompts";
 import { getArtifactStageDefinition } from "../app/ai-harness/workflow";
 import {
   EngineerRole,
-  Framework,
-  ProgrammingLanguage,
   StructuralFragment,
 } from "../app/store/constants";
 
@@ -48,9 +44,8 @@ describe("cache-friendly prompt layout", () => {
   it("places reusable operation contracts before request data", () => {
     const state = { description: "Dynamic project description." };
     const artifactPrompt = buildArtifactStagePrompt({
-      definition: getArtifactStageDefinition(StructuralFragment.TestCase),
+      definition: getArtifactStageDefinition(StructuralFragment.AcceptanceCriteria),
       state,
-      parentId: "scenario-id",
     });
 
     const prompts: Array<[string, string, string]> = [
@@ -66,29 +61,54 @@ describe("cache-friendly prompt layout", () => {
         '"rules"',
         '"target"',
       ],
-      [buildProjectConfigurationPrompt(state), '"rules"', '"projectContext"'],
-      [
-        buildScaffoldPrompt({ state, config: { testFramework: "node:test" } }),
-        '"rules"',
-        '"projectContext"',
-      ],
       [
         buildTestCodePrompt({
           request: {
             project: {
               name: "Project",
               purpose: "Purpose",
-              framework: Framework.NextJS,
-              programmingLanguage: ProgrammingLanguage.TypeScript,
+              framework: "Next.js",
+              language: "TypeScript",
             },
             projectConfig: {},
-            scenario: { id: "scenario-id", code: "TSC-1", content: "Scenario" },
+            contracts: {},
+            scaffoldManifest: {},
+            bindingMetadata: {
+              adapterIds: [],
+              interfaceContractRevisionIds: [],
+              subjectContractRevisionIds: [],
+            },
+            scenario: {
+              id: "scenario-id",
+              revisionId: "scenario-r1",
+              code: "TSC-1",
+              content: "Scenario",
+              binding: {
+                kind: "behavioral",
+                subjectId: "product",
+                interfaceIds: ["api"],
+                boundaryRevisionId: "boundary-r1",
+                interfaceContractRevisionIds: ["interface-r1"],
+                subjectContractRevisionId: "subject-r1",
+              },
+            },
             testCase: {
               id: "case-id",
+              revisionId: "case-r1",
               code: "TC-1",
               title: "Case",
-              steps: "Steps",
-              expectedResult: "Result",
+              definition: {
+                kind: "behavioral",
+                scenarioRevisionId: "scenario-r1",
+                subjectId: "product",
+                initialFixture: {},
+                trace: [],
+                boundaryRevisionId: "boundary-r1",
+                interfaceContractRevisionIds: ["interface-r1"],
+                subjectContractRevisionId: "subject-r1",
+              },
+              renderedSteps: "Steps",
+              renderedExpectedResult: "Result",
             },
             targetPath: "tests/scenario.test.ts",
             existingFile: null,
