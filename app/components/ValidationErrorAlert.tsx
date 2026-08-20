@@ -1,5 +1,4 @@
 import {
-  Alert,
   Box,
   Button,
   Dialog,
@@ -9,6 +8,8 @@ import {
   Stack,
 } from "@mui/material";
 import { useState } from "react";
+
+import PersistentAlert from "components/PersistentAlert";
 
 interface ValidationErrorAlertProps {
   message: string;
@@ -27,7 +28,7 @@ export default function ValidationErrorAlert({
 
   return (
     <>
-      <Alert severity="error" onClose={onClose} sx={{ mb: 2 }}>
+      <PersistentAlert severity="error" onClose={onClose}>
         <Stack spacing={1} sx={{ alignItems: "flex-start" }}>
           <span>{message}</span>
           {canShowDetails && (
@@ -41,7 +42,7 @@ export default function ValidationErrorAlert({
             </Button>
           )}
         </Stack>
-      </Alert>
+      </PersistentAlert>
 
       {canShowDetails && detailsOpen && (
         <Dialog
@@ -49,6 +50,7 @@ export default function ValidationErrorAlert({
           maxWidth="lg"
           open
           onClose={() => setDetailsOpen(false)}
+          sx={(theme) => ({ zIndex: theme.zIndex.snackbar + 1 })}
         >
           <DialogTitle>AI error details</DialogTitle>
           <DialogContent dividers>

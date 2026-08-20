@@ -5,7 +5,6 @@ import {
   Upload,
 } from "@mui/icons-material";
 import {
-  Alert,
   Button,
   Card,
   CardActions,
@@ -23,6 +22,7 @@ import { getSnapshot } from "mobx-state-tree";
 import Link from "next/link";
 import { ChangeEvent, useEffect, useRef, useState } from "react";
 
+import { PersistentAlert } from "components";
 import { parseJson } from "lib/json";
 import {
   deleteProjectData,
@@ -171,9 +171,9 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
       </Typography>
 
       {error && (
-        <Alert severity="error" onClose={() => setError(null)} sx={{ width: "100%" }}>
+        <PersistentAlert severity="error" onClose={() => setError(null)}>
           {error}
-        </Alert>
+        </PersistentAlert>
       )}
 
       <Stack sx={{ gap: 2, width: "100%" }}>
