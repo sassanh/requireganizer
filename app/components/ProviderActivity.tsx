@@ -167,7 +167,7 @@ export default function ProviderActivity({
             onClick={() => setOpen(true)}
             sx={(theme) => ({
               position: "fixed",
-              top: "calc(env(safe-area-inset-top, 0px) + 16px)",
+              bottom: "calc(env(safe-area-inset-bottom, 0px) + 16px)",
               right: "calc(env(safe-area-inset-right, 0px) + 16px)",
               zIndex: theme.zIndex.tooltip + 1,
               bgcolor: "background.paper",
