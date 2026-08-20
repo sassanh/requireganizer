@@ -8,7 +8,6 @@ import {
   UploadFile,
 } from "@mui/icons-material";
 import {
-  Alert,
   Button,
   Dialog,
   DialogActions,
@@ -25,6 +24,8 @@ import {
 import { ChangeEvent, useRef, useState } from "react";
 
 import { parseJson } from "lib/json";
+
+import PersistentAlert from "./PersistentAlert";
 
 type CodeArchiveFormat = "zip" | "tar.gz" | "tar.bz2";
 type ProjectExportFormat = "pdf" | "txt" | "json";
@@ -179,9 +180,9 @@ export default function Toolbar({
       </Stack>
 
       {importError && (
-        <Alert severity="error" onClose={() => setImportError(null)}>
+        <PersistentAlert severity="error" onClose={() => setImportError(null)}>
           {importError}
-        </Alert>
+        </PersistentAlert>
       )}
 
       <Dialog open={resetDialogOpen} onClose={() => setResetDialogOpen(false)}>

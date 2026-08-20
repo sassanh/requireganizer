@@ -1,6 +1,6 @@
 "use client";
 import { ArrowBack, FolderOpen, History } from "@mui/icons-material";
-import { Alert, Button, Divider, Stack, Typography } from "@mui/material";
+import { Button, Divider, Stack, Typography } from "@mui/material";
 import { observer } from "mobx-react-lite";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -9,6 +9,7 @@ import { Suspense, useEffect, useState } from "react";
 import {
   ImpactConfirmationDialog,
   ProviderActivity,
+  PersistentAlert,
   RevisionHistoryDialog,
   Toolbar,
   ValidationErrorAlert,
@@ -64,18 +65,14 @@ function Home() {
   return (
     <>
       {persistenceError && (
-        <Alert
-          severity="warning"
-          onClose={clearPersistenceError}
-          sx={{ mb: 2 }}
-        >
+        <PersistentAlert severity="warning" onClose={clearPersistenceError}>
           {persistenceError}
-        </Alert>
+        </PersistentAlert>
       )}
       {providerCallPersistenceError && (
-        <Alert severity="warning" sx={{ mb: 2 }}>
+        <PersistentAlert severity="warning">
           {providerCallPersistenceError}
-        </Alert>
+        </PersistentAlert>
       )}
       {store.validationErrors ? (
         <ValidationErrorAlert
