@@ -286,6 +286,9 @@ export const FlatStore = types
     providerCalls: [] as ProviderCallRecord[],
     pendingImpactChange: null as PendingImpactChange | null,
     contractRevisionDiff: null as string | null,
+    thinkingLabel: null as string | null,
+    thinkingText: "",
+    aiAbortController: null as AbortController | null,
   }))
   .views(() => {
     const eventTarget = new StoreEventEmitter();
@@ -312,6 +315,9 @@ export const FlatStore = types
       self.systemMessage = null;
       self.pendingImpactChange = null;
       self.contractRevisionDiff = null;
+      self.thinkingLabel = null;
+      self.thinkingText = "";
+      self.aiAbortController = null;
     },
     setDescription({ description }: { description: string }) {
       self.description = description;
@@ -356,6 +362,32 @@ export const FlatStore = types
     },
     queueImpactChange(change: PendingImpactChange) {
       self.pendingImpactChange = change;
+    },
+    beginAiOperation({
+      operation,
+      controller,
+    }: {
+      operation: string;
+      controller: AbortController;
+    }) {
+      self.aiAbortController = controller;
+      self.thinkingLabel = operation;
+      self.thinkingText = "";
+    },
+    appendThinking(delta: string) {
+      self.thinkingText += delta;
+    },
+    beginThinkingSegment() {
+      if (self.thinkingLabel == null || self.thinkingText.length === 0) return;
+      self.thinkingText += "\n\n———\n\n";
+    },
+    endAiOperation() {
+      self.thinkingLabel = null;
+      self.thinkingText = "";
+      self.aiAbortController = null;
+    },
+    abortAiOperation() {
+      self.aiAbortController?.abort();
     },
     cancelPendingImpactChange() {
       self.pendingImpactChange = null;

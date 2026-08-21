@@ -21,7 +21,7 @@ import { parseJsonObject } from "lib/json";
 import type { ActionParameters } from "lib/types";
 import { EngineerRole } from "store/constants";
 
-interface Parameters extends ActionParameters {
+export interface Parameters extends ActionParameters {
   design: BoundaryDesign;
   profile: ImplementationProfile;
   currentSuite?: ContractSuite;

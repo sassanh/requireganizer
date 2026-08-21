@@ -1,17 +1,21 @@
 import { toGenerator } from "mobx-state-tree";
 
-import { generateContractTestCases } from "actions/ai/generate-contract-test-cases";
 import { Step } from "store";
 import type { TestScenario } from "store/models";
 
-import { applyTestCaseProposal, consumeHarnessResult, generator } from "./utilities";
+import {
+  applyTestCaseProposal,
+  consumeHarnessResult,
+  generator,
+  runAiOperation,
+} from "./utilities";
 
 export default generator(
   function* generateTestCases(self, target?: TestScenario) {
     const scenarios = target == null ? [...self.testScenarios] : [target];
     for (const scenario of scenarios) {
       if (scenario.binding == null) throw new Error(`Scenario ${scenario.id} has no contract binding.`);
-      const result = yield* toGenerator(generateContractTestCases({
+      const result = yield* toGenerator(runAiOperation(self, "generate-contract-test-cases", {
         state: self.json(Step.TestCases),
         design: self.boundaryDesign,
         suite: self.contractSuite,

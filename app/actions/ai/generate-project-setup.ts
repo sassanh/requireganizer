@@ -20,7 +20,7 @@ import { EngineerRole } from "store/constants";
 
 import { assertApprovedContractContext } from "./contract-context";
 
-interface Parameters extends ActionParameters {
+export interface Parameters extends ActionParameters {
   design: BoundaryDesign;
   profile: ImplementationProfile;
   suite: ContractSuite;

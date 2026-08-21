@@ -1,13 +1,14 @@
 import OpenAI from "openai";
 import type { ChatCompletionCreateParamsNonStreaming } from "openai/resources/chat/completions";
 
+import { getThinkingSink } from "actions/lib/thinking-sink";
 import type {
   ToolGenerationOptions,
   ToolModelResponse,
 } from "ai-harness/runner";
 import type { ProviderTokenUsage } from "lib/types";
 
-const DEFAULT_MODEL = "deepseek-v4-flash-free";
+const DEFAULT_MODEL = "x-preview-f-free";
 const DEFAULT_BASE_URL = "https://opencode.ai/zen/v1";
 const DEFAULT_TIMEOUT_MS = 60_000;
 const ANONYMOUS_API_KEY = "public";
@@ -56,7 +57,7 @@ function isOpenCodeZen(baseURL: string): boolean {
 }
 
 type ThinkingControl = {
-  thinking?: { type: "disabled" };
+  reasoning_effort?: "low" | "high" | "max";
 };
 
 export type AIChatCompletionParams = ChatCompletionCreateParamsNonStreaming &
@@ -107,6 +108,7 @@ function getErrorIdentifier(error: unknown): string | undefined {
 }
 
 export function isTransientError(error: unknown): boolean {
+  if (error instanceof OpenAI.APIUserAbortError) return false;
   if (error instanceof OpenAI.APIConnectionError) return true;
   if (error instanceof OpenAI.APIError && error.status != null) {
     return (
@@ -142,10 +144,105 @@ export async function withRetry<T>(
   throw lastError;
 }
 
+type ReasoningDelta = {
+  reasoning_content?: unknown;
+  reasoning?: unknown;
+};
+
+function reasoningText(delta: OpenAI.Chat.Completions.ChatCompletionChunk.Choice.Delta): string | undefined {
+  const { reasoning_content: reasoningContent, reasoning } = delta as unknown as ReasoningDelta;
+  const value = typeof reasoningContent === "string" ? reasoningContent : typeof reasoning === "string" ? reasoning : undefined;
+  return value && value.length > 0 ? value : undefined;
+}
+
+export async function consumeCompletionStream(
+  stream: AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk> & {
+    response?: { headers: { get(name: string): string | null } };
+  },
+  onThinking?: (delta: string) => void,
+): Promise<OpenAI.Chat.Completions.ChatCompletion> {
+  let id = "";
+  let created = 0;
+  let model = "";
+  let content = "";
+  let finishReason: OpenAI.Chat.Completions.ChatCompletion.Choice["finish_reason"] | null = null;
+  let usage: OpenAI.Chat.Completions.ChatCompletion["usage"] | undefined;
+  const toolCalls = new Map<
+    number,
+    { id: string; name: string; arguments: string }
+  >();
+
+  for await (const chunk of stream) {
+    id ||= chunk.id;
+    created ||= chunk.created;
+    model ||= chunk.model;
+    if (chunk.usage != null) usage = chunk.usage;
+    for (const choice of chunk.choices) {
+      if (choice.finish_reason != null) finishReason = choice.finish_reason;
+      const thinking = reasoningText(choice.delta);
+      if (thinking != null) onThinking?.(thinking);
+      if (typeof choice.delta.content === "string") content += choice.delta.content;
+      for (const call of choice.delta.tool_calls ?? []) {
+        const accumulated = toolCalls.get(call.index) ?? { id: "", name: "", arguments: "" };
+        if (call.id) accumulated.id = call.id;
+        if (call.function?.name) accumulated.name += call.function.name;
+        if (call.function?.arguments) accumulated.arguments += call.function.arguments;
+        toolCalls.set(call.index, accumulated);
+      }
+    }
+  }
+
+  const calls = [...toolCalls.entries()]
+    .sort(([left], [right]) => left - right)
+    .map(([index, call]) => ({
+      id: call.id,
+      type: "function" as const,
+      function: { name: call.name, arguments: call.arguments },
+      index,
+    }));
+
+  const completion = {
+    id,
+    object: "chat.completion" as const,
+    created,
+    model,
+    choices: [
+      {
+        index: 0,
+        message: {
+          role: "assistant" as const,
+          content: content.length > 0 ? content : null,
+          refusal: null,
+          ...(calls.length > 0 ? { tool_calls: calls } : {}),
+        },
+        finish_reason: finishReason ?? "stop",
+        logprobs: null,
+      },
+    ],
+    usage,
+  } satisfies OpenAI.Chat.Completions.ChatCompletion;
+
+  const requestId = stream.response?.headers.get("x-request-id");
+  return requestId == null
+    ? completion
+    : Object.assign(completion, { _request_id: requestId });
+}
+
 export async function chatCompletion(
   params: AIChatCompletionParams,
 ): Promise<OpenAI.Chat.Completions.ChatCompletion> {
-  return withRetry(() => getAIClient().chat.completions.create(params));
+  const sink = getThinkingSink();
+  if (sink == null) {
+    return withRetry(() => getAIClient().chat.completions.create(params));
+  }
+  return withRetry(async () => {
+    sink.onSegment?.();
+    const stream = await getAIClient().chat.completions.create(
+      { ...params, stream: true },
+      sink.signal == null ? undefined : { signal: sink.signal },
+    );
+    return consumeCompletionStream(stream, sink.onThinking);
+  });
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -209,13 +306,13 @@ function normalizeTokenUsage(value: unknown): ProviderTokenUsage | undefined {
     : undefined;
 }
 
-function requiresDisabledThinking({
+function thinkingControlFor({
   model,
   baseURL,
-}: ToolCompletionTarget): boolean {
-  if (model !== DEFAULT_MODEL) return false;
+}: ToolCompletionTarget): ThinkingControl {
+  if (model !== DEFAULT_MODEL) return {};
 
-  return isOpenCodeZen(baseURL);
+  return isOpenCodeZen(baseURL) ? { reasoning_effort: "high" } : {};
 }
 
 export function buildToolCompletionParams(
@@ -235,9 +332,7 @@ export function buildToolCompletionParams(
     })),
     tool_choice: "required",
     parallel_tool_calls: false,
-    ...(requiresDisabledThinking(target)
-      ? { thinking: { type: "disabled" as const } }
-      : {}),
+    ...thinkingControlFor(target),
   };
 }
 

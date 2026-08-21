@@ -1,13 +1,17 @@
 import { toGenerator } from "mobx-state-tree";
 
-import { generateProjectSetup as generateProjectSetupAction } from "actions/ai/generate-project-setup";
 import { Step } from "store";
 
-import { applyProjectSetupProposal, consumeHarnessResult, generator } from "./utilities";
+import {
+  applyProjectSetupProposal,
+  consumeHarnessResult,
+  generator,
+  runAiOperation,
+} from "./utilities";
 
 export default generator(
   function* generateProjectSetup(self) {
-    const result = yield* toGenerator(generateProjectSetupAction({
+    const result = yield* toGenerator(runAiOperation(self, "generate-project-setup", {
       state: self.json(Step.ProjectSetup),
       design: self.boundaryDesign,
       profile: self.implementationProfile,

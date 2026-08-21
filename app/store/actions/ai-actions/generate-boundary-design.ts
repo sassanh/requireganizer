@@ -1,13 +1,17 @@
 import { toGenerator } from "mobx-state-tree";
 
-import { generateBoundaryDesign as generateBoundaryDesignAction } from "actions/ai/generate-boundary-design";
 import { Step } from "store";
 
-import { applyBoundaryDesignProposal, consumeHarnessResult, generator } from "./utilities";
+import {
+  applyBoundaryDesignProposal,
+  consumeHarnessResult,
+  generator,
+  runAiOperation,
+} from "./utilities";
 
 export default generator(
   function* generateBoundaryDesign(self) {
-    const result = yield* toGenerator(generateBoundaryDesignAction({
+    const result = yield* toGenerator(runAiOperation(self, "generate-boundary-design", {
       state: self.json(Step.BoundaryDesign),
     }));
     const proposal = consumeHarnessResult(self, result);

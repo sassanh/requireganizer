@@ -15,3 +15,4 @@ export { default as PersistentAlert } from "./PersistentAlert";
 export { default as GenerationButton } from "./GenerationButton";
 export { default as ImpactConfirmationDialog } from "./ImpactConfirmationDialog";
 export { default as RevisionHistoryDialog } from "./RevisionHistoryDialog";
+export { default as ThinkingOverlayDialog } from "./ThinkingOverlayDialog";

@@ -1,21 +1,21 @@
 import { toGenerator } from "mobx-state-tree";
 
-import { generateProductOverview } from "actions/ai/generate-product-overview";
 import { Step } from "store";
 
 import {
   applyProductOverviewProposal,
   consumeHarnessResult,
   generator,
+  runAiOperation,
 } from "./utilities";
 
 export default generator(
   function* (self) {
-    const result = yield* toGenerator(
-      generateProductOverview({
-        state: self.json(Step.ProductOverview),
-      }),
-    );
+    const result = yield* toGenerator(runAiOperation(
+      self,
+      "generate-product-overview",
+      { state: self.json(Step.ProductOverview) },
+    ));
 
     const proposal = consumeHarnessResult(self, result);
     if (proposal == null) return;

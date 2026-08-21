@@ -6,6 +6,7 @@ import OpenAI from "openai";
 import {
   AIChatCompletionParams,
   buildToolCompletionParams,
+  consumeCompletionStream,
   generateToolResponse,
   isTransientError,
   resolveApiKey,
@@ -39,7 +40,7 @@ describe("OpenAI-compatible tool transport", () => {
     assert.equal(resolveApiKey({}), "public");
   });
 
-  it("disables thinking for required tools on the default OpenCode model", () => {
+  it("requests high reasoning effort on the default OpenCode model", () => {
     const params = buildToolCompletionParams("Generate it.", {
       system: "Use the supplied function.",
       tools: [resultTool],
@@ -48,7 +49,7 @@ describe("OpenAI-compatible tool transport", () => {
     assert.equal(params.tool_choice, "required");
     assert.equal(params.parallel_tool_calls, false);
     assert.equal("response_format" in params, false);
-    assert.deepEqual(params.thinking, { type: "disabled" });
+    assert.deepEqual(params.reasoning_effort, "high");
     assert.deepEqual(params.tools, [
       {
         type: "function",
@@ -57,7 +58,7 @@ describe("OpenAI-compatible tool transport", () => {
     ]);
   });
 
-  it("omits OpenCode thinking controls for other provider targets", () => {
+  it("omits OpenCode reasoning controls for other provider targets", () => {
     const params = buildToolCompletionParams(
       "Generate it.",
       { system: "Use the supplied function.", tools: [resultTool] },
@@ -68,7 +69,7 @@ describe("OpenAI-compatible tool transport", () => {
     );
 
     assert.equal(params.model, "provider-model");
-    assert.equal("thinking" in params, false);
+    assert.equal("reasoning_effort" in params, false);
     assert.equal(params.tool_choice, "required");
   });
 
@@ -204,5 +205,95 @@ describe("OpenAI-compatible tool transport", () => {
       new Headers(),
     );
     assert.equal(isTransientError(error), true);
+  });
+
+  it("classifies user aborts as non-transient", () => {
+    assert.equal(
+      isTransientError(new OpenAI.APIUserAbortError()),
+      false,
+    );
+  });
+
+  it("accumulates streamed reasoning, content, and tool calls into a completion", async () => {
+    const chunk = (
+      delta: Record<string, unknown>,
+      choiceOverrides: Record<string, unknown> = {},
+      topLevel: Record<string, unknown> = {},
+    ) =>
+      ({
+        id: "chunk-1",
+        created: 123,
+        model: "test-model",
+        object: "chat.completion.chunk",
+        choices: [{ index: 0, delta, ...choiceOverrides }],
+        ...topLevel,
+      }) as unknown as OpenAI.Chat.Completions.ChatCompletionChunk;
+
+    async function* stream() {
+      yield chunk({ reasoning_content: "Let me " });
+      yield chunk({ reasoning: "think." });
+      yield chunk({
+        tool_calls: [
+          { index: 0, id: "call-1", function: { name: "submit_example" } },
+        ],
+      });
+      yield chunk({
+        tool_calls: [
+          { index: 0, function: { arguments: '{"value":"ac' } },
+        ],
+      });
+      yield chunk({
+        content: "Done",
+        tool_calls: [
+          { index: 0, function: { arguments: 'cepted"}' } },
+        ],
+      });
+      yield chunk({}, { finish_reason: "tool_calls" });
+      yield chunk({}, { finish_reason: "tool_calls" }, {
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+      });
+    }
+
+    const thinking: string[] = [];
+    const completion = await consumeCompletionStream(stream(), (delta) => {
+      thinking.push(delta);
+    });
+
+    assert.deepEqual(thinking, ["Let me ", "think."]);
+    assert.equal(completion.id, "chunk-1");
+    assert.equal(completion.model, "test-model");
+    assert.equal(completion.choices[0].finish_reason, "tool_calls");
+    assert.deepEqual(completion.choices[0].message.tool_calls, [
+      {
+        id: "call-1",
+        type: "function",
+        function: {
+          name: "submit_example",
+          arguments: '{"value":"accepted"}',
+        },
+        index: 0,
+      },
+    ]);
+    assert.equal(completion.choices[0].message.content, "Done");
+    assert.deepEqual(completion.usage, {
+      prompt_tokens: 10,
+      completion_tokens: 5,
+      total_tokens: 15,
+    });
+  });
+
+  it("attaches the request id from the streaming response headers", async () => {
+    async function* stream(): AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk> {}
+
+    const completion = await consumeCompletionStream(
+      Object.assign(stream(), {
+        response: { headers: new Headers({ "x-request-id": "req-42" }) },
+      }),
+    );
+
+    assert.equal(
+      (completion as unknown as { _request_id?: string })._request_id,
+      "req-42",
+    );
   });
 });

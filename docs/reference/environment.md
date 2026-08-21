@@ -5,7 +5,7 @@
 | `AI_API_KEY` | None | Provider-neutral bearer token. Takes precedence when set. |
 | `OPENCODE_API_KEY` | None | OpenCode Zen token used when `AI_API_KEY` is unset. |
 | `AI_BASE_URL` | `https://opencode.ai/zen/v1` | Base URL for an OpenAI-compatible API. |
-| `AI_MODEL` | `deepseek-v4-flash-free` | Chat-completions model used for all harness operations. |
+| `AI_MODEL` | `x-preview-f-free` | Chat-completions model used for all harness operations. |
 | `AI_REQUEST_TIMEOUT_MS` | `60000` | Per-request transport timeout. Values below 1,000 ms fall back to the default. |
 
 When neither key variable is set, the default endpoint receives `public` as its bearer credential. Other providers normally require `AI_API_KEY`. Set `AI_MODEL` explicitly when selecting a different model; Requireganizer does not silently change models because model identity affects output quality, caching, and reproducibility.

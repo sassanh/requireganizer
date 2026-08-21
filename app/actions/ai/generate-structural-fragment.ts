@@ -14,7 +14,7 @@ import { ActionParameters } from "lib/types";
 import { StructuralFragment } from "store/constants";
 import { isEnumMember } from "utilities";
 
-interface GenerateStructuralFragmentParameters extends ActionParameters {
+export interface GenerateStructuralFragmentParameters extends ActionParameters {
   structuralFragment: StructuralFragment;
 }
 

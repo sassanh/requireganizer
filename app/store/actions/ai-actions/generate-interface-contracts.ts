@@ -1,10 +1,14 @@
 import { toGenerator } from "mobx-state-tree";
 
-import { generateInterfaceContracts as generateInterfaceContractsAction } from "actions/ai/generate-interface-contracts";
 import { UserFacingError } from "lib/errors";
 import { Step } from "store";
 
-import { applyContractSuiteProposal, consumeHarnessResult, generator } from "./utilities";
+import {
+  applyContractSuiteProposal,
+  consumeHarnessResult,
+  generator,
+  runAiOperation,
+} from "./utilities";
 
 export default generator(
   function* generateInterfaceContracts(self) {
@@ -16,7 +20,7 @@ export default generator(
         "Regenerate the implementation profile for the current Boundary Design before generating interface contracts.",
       );
     }
-    const result = yield* toGenerator(generateInterfaceContractsAction({
+    const result = yield* toGenerator(runAiOperation(self, "generate-interface-contracts", {
       state: self.json(Step.InterfaceContracts),
       design: self.boundaryDesign,
       profile: self.implementationProfile,

@@ -12,7 +12,7 @@ import { EngineerRole } from "store/constants";
 
 import { assertApprovedContractContext } from "./contract-context";
 
-interface ScenarioInput {
+export interface ScenarioInput {
   id: string;
   revisionId: string;
   title: string;
@@ -21,7 +21,7 @@ interface ScenarioInput {
   binding: TestScenarioBinding;
 }
 
-interface Parameters extends ActionParameters {
+export interface Parameters extends ActionParameters {
   design: BoundaryDesign;
   suite: ContractSuite;
   scenario: ScenarioInput;
