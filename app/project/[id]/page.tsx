@@ -11,6 +11,7 @@ import {
   ProviderActivity,
   PersistentAlert,
   RevisionHistoryDialog,
+  ThinkingOverlayDialog,
   Toolbar,
   ValidationErrorAlert,
 } from "components";
@@ -134,6 +135,7 @@ function Home() {
         <Factory activeProject={activeProject} />
       </Suspense>
       <ImpactConfirmationDialog projectId={activeProject.id} />
+      <ThinkingOverlayDialog />
       <RevisionHistoryDialog
         projectId={activeProject.id}
         open={historyOpen}

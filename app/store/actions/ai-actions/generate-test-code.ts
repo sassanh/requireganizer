@@ -1,11 +1,15 @@
 import { toGenerator } from "mobx-state-tree";
 
-import { generateTestCode as generateTestCodeAction } from "actions/ai/generate-test-code";
 import { UserFacingError } from "lib/errors";
 import { Step } from "store";
 import type { TestCase, TestScenario } from "store/models";
 
-import { applyTestCodeProposal, consumeHarnessResult, generator } from "./utilities";
+import {
+  applyTestCodeProposal,
+  consumeHarnessResult,
+  generator,
+  runAiOperation,
+} from "./utilities";
 
 export default generator(
   function* generateTestCode(
@@ -52,7 +56,7 @@ export default generator(
     const inputFingerprint = testCase.inputFingerprint;
     if (inputFingerprint == null) throw new UserFacingError("The test case has no structured definition.");
 
-    const result = yield* toGenerator(generateTestCodeAction({
+    const result = yield* toGenerator(runAiOperation(self, "generate-test-code", {
       project: {
         name,
         purpose,

@@ -15,7 +15,7 @@ import { EngineerRole } from "store/constants";
 
 import { artifactIds } from "./contract-context";
 
-interface Parameters extends ActionParameters {
+export interface Parameters extends ActionParameters {
   currentDesign?: BoundaryDesign;
   comment?: string;
 }

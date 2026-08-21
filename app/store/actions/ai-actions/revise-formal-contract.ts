@@ -1,9 +1,13 @@
 import { toGenerator } from "mobx-state-tree";
 
-import { generateInterfaceContracts as generateInterfaceContractsAction } from "actions/ai/generate-interface-contracts";
 import { Step } from "store";
 
-import { applyContractSuiteProposal, consumeHarnessResult, generator } from "./utilities";
+import {
+  applyContractSuiteProposal,
+  consumeHarnessResult,
+  generator,
+  runAiOperation,
+} from "./utilities";
 
 export default generator(
   function* reviseFormalContract(
@@ -11,7 +15,7 @@ export default generator(
     target: { kind: "interface" | "subject" | "verification"; id: string },
     comment: string,
   ) {
-    const result = yield* toGenerator(generateInterfaceContractsAction({
+    const result = yield* toGenerator(runAiOperation(self, "generate-interface-contracts", {
       state: self.json(Step.InterfaceContracts),
       design: self.boundaryDesign,
       profile: self.implementationProfile,

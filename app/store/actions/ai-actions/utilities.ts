@@ -27,6 +27,11 @@ import {
   validateContractSuite,
   validateProjectSetup,
 } from "contract-domain";
+import type {
+  AiTaskContract,
+  AiTaskName,
+} from "lib/ai-tasks";
+import { runAiTask } from "lib/ai-tasks";
 import { getUserFacingErrorMessage, UserFacingError } from "lib/errors";
 import { HarnessResult } from "lib/types";
 import { Priority, STEP_LABELS, Status, Step, StructuralFragment } from "store/constants";
@@ -503,6 +508,18 @@ export function applyProjectSetupProposal(
   );
 }
 
+export function runAiOperation<Task extends AiTaskName>(
+  store: FlatStore,
+  task: Task,
+  payload: AiTaskContract[Task]["params"],
+): Promise<AiTaskContract[Task]["result"]> {
+  return runAiTask(task, payload, {
+    signal: store.aiAbortController?.signal,
+    onSegment: () => store.beginThinkingSegment(),
+    onThinking: (delta) => store.appendThinking(delta),
+  });
+}
+
 export function generator<
   const U extends unknown[],
   Requirements extends string & keyof SnapshotOrInstance<FlatStore>,
@@ -532,6 +549,7 @@ export function generator<
     if (store.isBusy) return;
 
     let incrementedBusinessCounter = false;
+    let abortController: AbortController | null = null;
     try {
       store.resetValidationErrors();
 
@@ -572,6 +590,8 @@ export function generator<
 
       store.businessCounter += 1;
       incrementedBusinessCounter = true;
+      abortController = new AbortController();
+      store.beginAiOperation({ operation, controller: abortController });
       yield* function_(
         store as Omit<FlatStore, Requirements> & {
           [key in Requirements]: NonNullable<FlatStore[key]>;
@@ -579,6 +599,7 @@ export function generator<
         ...args,
       );
     } catch (error) {
+      if (abortController?.signal.aborted) return;
       console.error(`Unable to ${operation}.`, error);
       store.setValidationError({
         message: getUserFacingErrorMessage(
@@ -593,6 +614,9 @@ export function generator<
             : undefined,
       });
     } finally {
+      if (abortController != null) {
+        store.endAiOperation();
+      }
       if (incrementedBusinessCounter) {
         store.businessCounter = Math.max(0, store.businessCounter - 1);
       }
