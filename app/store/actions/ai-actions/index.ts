@@ -10,5 +10,4 @@ export { default as generateTestCases } from "./generate-test-cases";
 export { default as generateTestCode } from "./generate-test-code";
 export { default as generateTestScenarios } from "./generate-test-scenarios";
 export { default as generateUserStories } from "./generate-user-stories";
-export { default as reviseBoundaryDesign } from "./revise-boundary-design";
 export { default as reviseFormalContract } from "./revise-formal-contract";

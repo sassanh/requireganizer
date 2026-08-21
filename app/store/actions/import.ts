@@ -25,6 +25,11 @@ function array(value: unknown, label: string): unknown[] {
   return value;
 }
 
+function approvedBoundaryDesign(value: unknown): unknown {
+  if (!isRecord(value) || value.status === "approved") return value;
+  return { ...value, status: "approved", approvedAt: new Date().toISOString() };
+}
+
 function validateLocalDependencies(
   items: readonly { id: string; dependencies: readonly string[] }[],
   label: string,
@@ -76,7 +81,7 @@ const importProject = (self_: unknown, value: unknown): void => {
     userStories: array(value.userStories, "User stories"),
     requirements: array(value.requirements, "Requirements"),
     acceptanceCriteria: array(value.acceptanceCriteria, "Acceptance criteria"),
-    boundaryDesign: value.boundaryDesign ?? null,
+    boundaryDesign: approvedBoundaryDesign(value.boundaryDesign) ?? null,
     implementationProfile: value.implementationProfile ?? null,
     contractSuite: value.contractSuite ?? null,
     testScenarios: array(value.testScenarios, "Test scenarios"),
