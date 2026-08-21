@@ -58,7 +58,6 @@ import {
   generateUserStories,
   handleComment,
   import as import_,
-  reviseBoundaryDesign,
   reviseFormalContract,
 } from "./actions";
 import {
@@ -480,43 +479,13 @@ export const FlatStore = types
     setBoundaryDesign(design: BoundaryDesign) {
       self.boundaryDesign = cast(design);
     },
-    approveBoundaryDesign() {
-      if (self.boundaryDesign == null) return;
-      try {
-        validateBoundaryDesign(self.boundaryDesign, {
-          requirementIds: new Set(self.requirements.map(({ id }) => id)),
-          acceptanceCriteriaIds: new Set(
-            self.acceptanceCriteria.map(({ id }) => id),
-          ),
-          requirementsRevisionId: fingerprint(
-            self.requirements.map((item) => getSnapshot(item)),
-          ),
-          acceptanceCriteriaRevisionId: fingerprint(
-            self.acceptanceCriteria.map((item) => getSnapshot(item)),
-          ),
-        });
-      } catch (error) {
-        self.setValidationError({
-          message: `Boundary Design cannot be approved: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        });
-        return;
-      }
-      self.boundaryDesign = cast({
-        ...self.boundaryDesign,
-        status: "approved",
-        approvedAt: new Date().toISOString(),
-      });
-      self.markStageGenerated(Step.BoundaryDesign);
-    },
     updateBoundaryText(
       collection: "subjects" | "interfaces" | "interactions" | "verificationObligations",
       id: string,
       field: string,
       value: string,
     ) {
-      if (self.boundaryDesign == null || self.boundaryDesign.status === "approved") return;
+      if (self.boundaryDesign == null) return;
       self.boundaryDesign = cast({
         ...self.boundaryDesign,
         [collection]: self.boundaryDesign[collection].map((item) =>
@@ -851,8 +820,7 @@ export const FlatStore = types
           status = self.acceptanceCriteria.length > 0 ? Status.Completed : Status.Pending;
           break;
         case Step.BoundaryDesign:
-          status =
-            self.boundaryDesign?.status === "approved" ? Status.Completed : Status.Pending;
+          status = self.boundaryDesign != null ? Status.Completed : Status.Pending;
           break;
         case Step.InterfaceContracts:
           status = self.allContractsApproved ? Status.Completed : Status.Pending;
@@ -1001,7 +969,6 @@ export const Store = FlatStore.actions(
     generateRequirements,
     generateAcceptanceCriteria,
     generateBoundaryDesign,
-    reviseBoundaryDesign,
     generateImplementationProfile,
     generateInterfaceContracts,
     reviseFormalContract,

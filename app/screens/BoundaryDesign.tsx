@@ -1,7 +1,5 @@
-import { Check, Send } from "@mui/icons-material";
 import {
   Alert,
-  Button,
   Card,
   CardContent,
   Chip,
@@ -11,31 +9,19 @@ import {
   Typography,
 } from "@mui/material";
 import { observer } from "mobx-react-lite";
-import { useState } from "react";
 
-import { GenerationButton } from "components";
 import { useStore } from "store";
 
 const BoundaryDesignView = () => {
   const store = useStore();
-  const [comment, setComment] = useState("");
   const design = store.boundaryDesign;
 
   if (design == null) {
     return <Alert severity="info">Generate a boundary design to define test subjects, interfaces, interactions, and acceptance coverage.</Alert>;
   }
 
-  const editable = design.status === "draft" && !store.isBusy;
   return (
     <Stack spacing={3}>
-      <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center" }}>
-        <Stack>
-          <Typography variant="h6">Revision {design.revision}</Typography>
-          <Typography color="text.secondary">{design.revisionId}</Typography>
-        </Stack>
-        <Chip label={design.status} color={design.status === "approved" ? "success" : "warning"} />
-      </Stack>
-
       <Stack spacing={2}>
         <Typography variant="h5">Test subjects</Typography>
         {design.subjects.map((subject) => (
@@ -49,14 +35,14 @@ const BoundaryDesignView = () => {
               <TextField
                 label="Name"
                 value={subject.name}
-                disabled={!editable}
+                disabled={store.isBusy}
                 onChange={(event) => store.updateBoundaryText("subjects", subject.id, "name", event.target.value)}
               />
               <TextField
                 label="Purpose"
                 multiline
                 value={subject.purpose}
-                disabled={!editable}
+                disabled={store.isBusy}
                 onChange={(event) => store.updateBoundaryText("subjects", subject.id, "purpose", event.target.value)}
               />
               <Typography variant="body2"><strong>Responsibilities:</strong> {subject.responsibilities.join(" · ")}</Typography>
@@ -81,7 +67,7 @@ const BoundaryDesignView = () => {
               <TextField
                 label="Interface name"
                 value={semanticInterface.name}
-                disabled={!editable}
+                disabled={store.isBusy}
                 onChange={(event) => store.updateBoundaryText("interfaces", semanticInterface.id, "name", event.target.value)}
               />
               <Typography color="text.secondary">Peer: {semanticInterface.peer}</Typography>
@@ -116,31 +102,6 @@ const BoundaryDesignView = () => {
       <Alert severity="success">
         {new Set(design.coverage.map(({ acceptanceCriteriaId }) => acceptanceCriteriaId)).size} acceptance criteria have explicit coverage.
       </Alert>
-
-      <Stack direction={{ xs: "column", md: "row" }} spacing={1} sx={{ alignItems: "stretch" }}>
-        <TextField
-          fullWidth
-          label="Graph-level change request"
-          value={comment}
-          disabled={store.isBusy}
-          onChange={(event) => setComment(event.target.value)}
-        />
-        <GenerationButton
-          startIcon={<Send />}
-          disabled={store.isBusy || comment.trim().length === 0}
-          onGenerate={async () => {
-            await store.reviseBoundaryDesign(comment.trim());
-            setComment("");
-          }}
-        >
-          Reconcile draft
-        </GenerationButton>
-        {design.status === "draft" && (
-          <Button variant="contained" color="success" startIcon={<Check />} disabled={store.isBusy} onClick={store.approveBoundaryDesign}>
-            Approve boundary
-          </Button>
-        )}
-      </Stack>
     </Stack>
   );
 };

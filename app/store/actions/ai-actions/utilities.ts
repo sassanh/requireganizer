@@ -169,6 +169,8 @@ export function materializeBoundaryDesign(
     ...revisionMetadata(previous ?? undefined),
     ...sourceRevisions,
     ...proposal,
+    status: "approved",
+    approvedAt: new Date().toISOString(),
   };
 }
 
