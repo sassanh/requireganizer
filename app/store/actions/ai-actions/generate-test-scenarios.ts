@@ -2,24 +2,15 @@ import { toGenerator } from "mobx-state-tree";
 
 import { Step } from "store";
 
-import {
-  applyTestScenarioProposal,
-  consumeHarnessResult,
-  generator,
-  runAiOperation,
-} from "./utilities";
+import { generator } from "./utilities";
 
 export default generator(
   function* generateTestScenarios(self) {
-    const result = yield* toGenerator(runAiOperation(self, "generate-contract-test-scenarios", {
-      state: self.json(Step.TestScenarios),
-      design: self.boundaryDesign,
-      suite: self.contractSuite,
-      existingIds: self.testScenarios.map(({ id }) => id),
+    const { runAgentCommand } = yield* toGenerator(import("ai-agent/agent"));
+    yield* toGenerator(runAgentCommand(self, "generate test scenarios", {
+      kind: "generate",
+      stage: Step.TestScenarios,
     }));
-    const proposal = consumeHarnessResult(self, result);
-    if (proposal == null) return;
-    applyTestScenarioProposal(self, proposal);
     self.eventTarget.emit("stepUpdate", Step.TestScenarios);
   },
   {

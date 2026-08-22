@@ -4,9 +4,7 @@ import { Step } from "store";
 
 import {
   applyContractSuiteProposal,
-  consumeHarnessResult,
   generator,
-  runAiOperation,
 } from "./utilities";
 
 export default generator(
@@ -15,17 +13,14 @@ export default generator(
     target: { kind: "interface" | "subject" | "verification"; id: string },
     comment: string,
   ) {
-    const result = yield* toGenerator(runAiOperation(self, "generate-interface-contracts", {
-      state: self.json(Step.InterfaceContracts),
-      design: self.boundaryDesign,
-      profile: self.implementationProfile,
-      currentSuite: self.contractSuite,
-      revisionTarget: target,
+const { runAgentCommand } = yield* toGenerator(import("ai-agent/agent"));
+        yield* toGenerator(runAgentCommand(self, "revise formal contract", {
+      kind: "revise",
+      stage: Step.InterfaceContracts,
+      target,
       comment,
     }));
-    const proposal = consumeHarnessResult(self, result);
-    if (proposal == null) return;
-    applyContractSuiteProposal(self, proposal);
+    self.eventTarget.emit("stepUpdate", Step.InterfaceContracts);
   },
   {
     operation: "revise formal contract",

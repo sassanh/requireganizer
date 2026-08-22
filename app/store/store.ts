@@ -279,6 +279,7 @@ export const FlatStore = types
     scaffoldFiles: types.array(ScaffoldFileModel),
     stageInputFingerprints: types.map(types.string),
     systemMessage: types.maybeNull(types.string),
+    conversation: types.optional(types.frozen<unknown[]>(), []),
   })
   .volatile(() => ({
     validationErrorDetails: null as string | null,
@@ -288,6 +289,8 @@ export const FlatStore = types
     thinkingLabel: null as string | null,
     thinkingText: "",
     aiAbortController: null as AbortController | null,
+    activeAgent: null as { abort(): void } | null,
+    conversationSidebarOpen: false,
   }))
   .views(() => {
     const eventTarget = new StoreEventEmitter();
@@ -317,6 +320,8 @@ export const FlatStore = types
       self.thinkingLabel = null;
       self.thinkingText = "";
       self.aiAbortController = null;
+      self.activeAgent = null;
+      self.conversation = cast([]);
     },
     setDescription({ description }: { description: string }) {
       self.description = description;
@@ -385,7 +390,20 @@ export const FlatStore = types
       self.thinkingText = "";
       self.aiAbortController = null;
     },
+    setActiveAgent(agent: { abort(): void } | null) {
+      self.activeAgent = agent;
+    },
+    clearActiveAgent() {
+      self.activeAgent = null;
+    },
+    setConversation(messages: unknown[]) {
+      self.conversation = cast(messages);
+    },
+    setConversationSidebar(open: boolean) {
+      self.conversationSidebarOpen = open;
+    },
     abortAiOperation() {
+      self.activeAgent?.abort();
       self.aiAbortController?.abort();
     },
     cancelPendingImpactChange() {
@@ -507,7 +525,7 @@ export const FlatStore = types
         | "testEcosystem",
       value: string,
     ) {
-      if (self.implementationProfile == null || self.implementationProfile.status === "approved") {
+      if (self.implementationProfile == null) {
         return;
       }
       self.implementationProfile = cast({
@@ -516,10 +534,7 @@ export const FlatStore = types
       });
     },
     updateImplementationProfileConstraints(value: string) {
-      if (
-        self.implementationProfile == null ||
-        self.implementationProfile.status === "approved"
-      ) {
+      if (self.implementationProfile == null) {
         return;
       }
       self.implementationProfile = cast({
@@ -530,84 +545,8 @@ export const FlatStore = types
           .filter(Boolean),
       });
     },
-    approveImplementationProfile() {
-      if (self.implementationProfile == null) return;
-      try {
-        validateImplementationProfile(
-          self.implementationProfile,
-          self.boundaryDesign?.revisionId,
-        );
-      } catch (error) {
-        self.setValidationError({
-          message: `Implementation Profile cannot be approved: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        });
-        return;
-      }
-      self.implementationProfile = cast({
-        ...self.implementationProfile,
-        status: "approved",
-        approvedAt: new Date().toISOString(),
-      });
-    },
     setContractSuite(suite: ContractSuite) {
       self.contractSuite = cast(suite);
-    },
-    approveContract(
-      kind: "interface" | "subject" | "verification",
-      id: string,
-    ) {
-      if (self.contractSuite == null) return;
-      try {
-        if (self.boundaryDesign == null || self.implementationProfile == null) {
-          throw new Error(
-            "Boundary Design and Implementation Profile are required.",
-          );
-        }
-        validateContractSuite(
-          self.contractSuite,
-          self.boundaryDesign,
-          self.implementationProfile.revisionId,
-        );
-      } catch (error) {
-        self.setValidationError({
-          message: `Formal contract cannot be approved: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        });
-        return;
-      }
-      const suite = self.contractSuite;
-      const now = new Date().toISOString();
-      self.contractSuite = cast(kind === "interface"
-        ? {
-          ...suite,
-          interfaceContracts: suite.interfaceContracts.map((bundle) =>
-            bundle.id === id ? { ...bundle, status: "approved" as const, approvedAt: now } : bundle,
-          ),
-        }
-        : kind === "subject"
-          ? {
-            ...suite,
-            subjectContracts: suite.subjectContracts.map((bundle) =>
-              bundle.id === id ? { ...bundle, status: "approved" as const, approvedAt: now } : bundle,
-            ),
-          }
-          : {
-            ...suite,
-            verificationContracts: suite.verificationContracts.map((bundle) =>
-              bundle.id === id ? { ...bundle, status: "approved" as const, approvedAt: now } : bundle,
-            ),
-          });
-      const approvedSuite = self.contractSuite!;
-      if (
-        approvedSuite.interfaceContracts.every(({ status }) => status === "approved") &&
-        approvedSuite.subjectContracts.every(({ status }) => status === "approved") &&
-        approvedSuite.verificationContracts.every(({ status }) => status === "approved")
-      ) {
-        self.markStageGenerated(Step.InterfaceContracts);
-      }
     },
     setTestScenarios(scenarios: TestScenarioSnapshotInput[]) {
       self.testScenarios = cast(
@@ -713,13 +652,12 @@ export const FlatStore = types
     get hasGeneratedScaffold() {
       return self.projectSetup != null && self.scaffoldFiles.length > 0;
     },
-    get allContractsApproved() {
+    get contractsReady() {
       return (
-        self.implementationProfile?.status === "approved" &&
+        self.implementationProfile != null &&
         self.contractSuite != null &&
-        self.contractSuite.interfaceContracts.every(({ status }) => status === "approved") &&
-        self.contractSuite.subjectContracts.every(({ status }) => status === "approved") &&
-        self.contractSuite.verificationContracts.every(({ status }) => status === "approved")
+        self.contractSuite.interfaceContracts.length > 0 &&
+        self.contractSuite.subjectContracts.length > 0
       );
     },
     get testDesignFingerprint() {
@@ -823,7 +761,7 @@ export const FlatStore = types
           status = self.boundaryDesign != null ? Status.Completed : Status.Pending;
           break;
         case Step.InterfaceContracts:
-          status = self.allContractsApproved ? Status.Completed : Status.Pending;
+          status = self.contractsReady ? Status.Completed : Status.Pending;
           if (
             status === Status.Completed &&
             (

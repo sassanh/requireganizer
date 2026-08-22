@@ -25,9 +25,27 @@ function array(value: unknown, label: string): unknown[] {
   return value;
 }
 
-function approvedBoundaryDesign(value: unknown): unknown {
+// No manual approval flow exists: legacy snapshots may still carry draft
+// statuses, so normalize every revisioned artifact to approved on load.
+function approvedStatus(value: unknown): unknown {
   if (!isRecord(value) || value.status === "approved") return value;
-  return { ...value, status: "approved", approvedAt: new Date().toISOString() };
+  return {
+    ...value,
+    status: "approved",
+    approvedAt: value.approvedAt ?? new Date().toISOString(),
+  };
+}
+
+function approvedContractSuite(value: unknown): unknown {
+  if (!isRecord(value)) return value;
+  const stampBundles = (bundles: unknown): unknown =>
+    Array.isArray(bundles) ? bundles.map(approvedStatus) : bundles;
+  return {
+    ...value,
+    interfaceContracts: stampBundles(value.interfaceContracts),
+    subjectContracts: stampBundles(value.subjectContracts),
+    verificationContracts: stampBundles(value.verificationContracts),
+  };
 }
 
 function validateLocalDependencies(
@@ -81,15 +99,16 @@ const importProject = (self_: unknown, value: unknown): void => {
     userStories: array(value.userStories, "User stories"),
     requirements: array(value.requirements, "Requirements"),
     acceptanceCriteria: array(value.acceptanceCriteria, "Acceptance criteria"),
-    boundaryDesign: approvedBoundaryDesign(value.boundaryDesign) ?? null,
-    implementationProfile: value.implementationProfile ?? null,
-    contractSuite: value.contractSuite ?? null,
+    boundaryDesign: approvedStatus(value.boundaryDesign) ?? null,
+    implementationProfile: approvedStatus(value.implementationProfile) ?? null,
+    contractSuite: approvedContractSuite(value.contractSuite) ?? null,
     testScenarios: array(value.testScenarios, "Test scenarios"),
     projectSetup: value.projectSetup ?? null,
     scaffoldFiles: parseScaffoldFiles(value.scaffoldFiles ?? []),
     stageInputFingerprints: isRecord(value.stageInputFingerprints)
       ? value.stageInputFingerprints
       : {},
+    conversation: Array.isArray(value.conversation) ? value.conversation : [],
   };
 
   const candidate = getType(self).create(candidateSnapshot) as Store;
@@ -108,12 +127,7 @@ const importProject = (self_: unknown, value: unknown): void => {
   if (candidate.implementationProfile != null) {
     if (candidate.boundaryDesign == null) {
       throw new InvalidJsonError(
-        "Implementation profile requires an approved Boundary Design.",
-      );
-    }
-    if (candidate.boundaryDesign.status !== "approved") {
-      throw new InvalidJsonError(
-        "Implementation profile requires an approved Boundary Design.",
+        "Implementation profile requires a Boundary Design.",
       );
     }
     validateImplementationProfile(
@@ -125,20 +139,7 @@ const importProject = (self_: unknown, value: unknown): void => {
     if (candidate.boundaryDesign == null || candidate.implementationProfile == null) {
       throw new InvalidJsonError("Contract suite requires a boundary design and implementation profile.");
     }
-    if (candidate.implementationProfile.status !== "approved") {
-      throw new InvalidJsonError(
-        "Contract suite requires an approved Implementation Profile.",
-      );
-    }
     validateContractSuite(candidate.contractSuite, candidate.boundaryDesign, candidate.implementationProfile.revisionId);
-    if (
-      candidate.testScenarios.length > 0 &&
-      !candidate.allContractsApproved
-    ) {
-      throw new InvalidJsonError(
-        "Test scenarios require every formal contract bundle to be approved.",
-      );
-    }
     validateLocalDependencies(candidate.testScenarios, "Test scenarios");
     for (const scenario of candidate.testScenarios) {
       if (scenario.binding == null) throw new InvalidJsonError(`Scenario ${scenario.id} has no binding.`);

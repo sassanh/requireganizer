@@ -1,4 +1,4 @@
-import { Build, Check, Send } from "@mui/icons-material";
+import { Build, Send } from "@mui/icons-material";
 import {
   Accordion,
   AccordionDetails,
@@ -41,12 +41,12 @@ const InterfaceContractsView = () => {
     return (
       <Stack spacing={2} sx={{ alignItems: "center" }}>
         <Alert severity="info" sx={{ width: "100%" }}>
-          Generate an implementation profile after approving Boundary Design.
+          Generate an implementation profile to define the platform, runtime, and testing stack.
         </Alert>
         <GenerationButton
           startIcon={<Build />}
           variant="contained"
-          disabled={store.isBusy || store.boundaryDesign?.status !== "approved"}
+          disabled={store.isBusy || store.boundaryDesign == null}
           onGenerate={store.generateImplementationProfile}
         >
           Generate implementation profile
@@ -68,26 +68,21 @@ const InterfaceContractsView = () => {
         <CardContent component={Stack} spacing={2}>
           <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center" }}>
             <Typography variant="h5">Implementation Profile · revision {profile.revision}</Typography>
-            <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
-              <Chip label={profile.status} color={profile.status === "approved" ? "success" : "warning"} />
-              {profile.status === "approved" && (
-                <GenerationButton
-                  size="small"
-                  variant="outlined"
-                  disabled={store.isBusy}
-                  onGenerate={store.generateImplementationProfile}
-                >
-                  Generate new revision
-                </GenerationButton>
-              )}
-            </Stack>
+            <GenerationButton
+              size="small"
+              variant="outlined"
+              disabled={store.isBusy}
+              onGenerate={store.generateImplementationProfile}
+            >
+              Generate new revision
+            </GenerationButton>
           </Stack>
           {PROFILE_FIELDS.map(([field, label]) => (
             <TextField
               key={field}
               label={label}
               value={profile[field]}
-              disabled={profile.status === "approved" || store.isBusy}
+              disabled={store.isBusy}
               onChange={(event) => store.updateImplementationProfile(field, event.target.value)}
             />
           ))}
@@ -95,20 +90,15 @@ const InterfaceContractsView = () => {
             label="Constraints"
             value={profile.constraints.join("\n")}
             multiline
-            disabled={profile.status === "approved" || store.isBusy}
+            disabled={store.isBusy}
             onChange={(event) =>
               store.updateImplementationProfileConstraints(event.target.value)
             }
           />
-          {profile.status === "draft" && (
-            <Button sx={{ alignSelf: "flex-end" }} variant="contained" color="success" startIcon={<Check />} onClick={store.approveImplementationProfile} disabled={store.isBusy}>
-              Approve profile
-            </Button>
-          )}
         </CardContent>
       </Card>
 
-      {profile.status === "approved" && suite == null && (
+      {suite == null && (
         <GenerationButton startIcon={<Build />} variant="contained" disabled={store.isBusy} onGenerate={store.generateInterfaceContracts} sx={{ alignSelf: "center" }}>
           Generate formal interface contracts
         </GenerationButton>
@@ -133,7 +123,6 @@ const InterfaceContractsView = () => {
                 <Stack direction="row" spacing={1} sx={{ alignItems: "center", width: "100%" }}>
                   <Typography sx={{ flexGrow: 1 }}>{bundle.interfaceId}</Typography>
                   <Chip size="small" label={`adapter ${bundle.adapter.id}@${bundle.adapter.version}`} />
-                  <Chip size="small" label={bundle.status} color={bundle.status === "approved" ? "success" : "warning"} />
                 </Stack>
               </AccordionSummary>
               <AccordionDetails>
@@ -149,7 +138,6 @@ const InterfaceContractsView = () => {
                   <CodeBlock code={JSON.stringify(bundle.normalizedIndex, null, 2)} language="json" />
                   <Stack direction="row" spacing={1} sx={{ justifyContent: "flex-end" }}>
                     <Button startIcon={<Send />} onClick={() => setTarget({ kind: "interface", id: bundle.id })}>Request change</Button>
-                    {bundle.status === "draft" && <Button variant="contained" color="success" startIcon={<Check />} onClick={() => store.approveContract("interface", bundle.id)}>Approve</Button>}
                   </Stack>
                 </Stack>
               </AccordionDetails>
@@ -160,17 +148,13 @@ const InterfaceContractsView = () => {
           {suite.subjectContracts.map((bundle) => (
             <Accordion key={bundle.id} variant="outlined">
               <AccordionSummary>
-                <Stack direction="row" spacing={1} sx={{ alignItems: "center", width: "100%" }}>
-                  <Typography sx={{ flexGrow: 1 }}>{bundle.subjectId}</Typography>
-                  <Chip size="small" label={bundle.status} color={bundle.status === "approved" ? "success" : "warning"} />
-                </Stack>
+                <Typography sx={{ flexGrow: 1 }}>{bundle.subjectId}</Typography>
               </AccordionSummary>
               <AccordionDetails>
                 <Stack spacing={2}>
                   <CodeBlock code={JSON.stringify({ protocol: bundle.protocol, harness: bundle.harness }, null, 2)} language="json" />
                   <Stack direction="row" spacing={1} sx={{ justifyContent: "flex-end" }}>
                     <Button onClick={() => setTarget({ kind: "subject", id: bundle.id })}>Request change</Button>
-                    {bundle.status === "draft" && <Button variant="contained" color="success" onClick={() => store.approveContract("subject", bundle.id)}>Approve</Button>}
                   </Stack>
                 </Stack>
               </AccordionDetails>
@@ -182,13 +166,11 @@ const InterfaceContractsView = () => {
             <Accordion key={bundle.id} variant="outlined">
               <AccordionSummary>
                 <Typography sx={{ flexGrow: 1 }}>{bundle.verificationObligationId}</Typography>
-                <Chip size="small" label={bundle.status} color={bundle.status === "approved" ? "success" : "warning"} />
               </AccordionSummary>
               <AccordionDetails>
                 <CodeBlock code={JSON.stringify(bundle, null, 2)} language="json" />
                 <Stack direction="row" spacing={1} sx={{ justifyContent: "flex-end", mt: 2 }}>
                   <Button onClick={() => setTarget({ kind: "verification", id: bundle.id })}>Request change</Button>
-                  {bundle.status === "draft" && <Button variant="contained" color="success" onClick={() => store.approveContract("verification", bundle.id)}>Approve</Button>}
                 </Stack>
               </AccordionDetails>
             </Accordion>

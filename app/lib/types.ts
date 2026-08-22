@@ -1,5 +1,5 @@
-export const HARNESS_PROTOCOL_VERSION = 5 as const;
-export const PROMPT_VERSION = "2026-08-13.1" as const;
+export const HARNESS_PROTOCOL_VERSION = 6 as const;
+export const PROMPT_VERSION = "agent-conversation.1" as const;
 
 export type ProviderCallOutcome =
   | "success"

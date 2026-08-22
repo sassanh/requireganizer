@@ -6,7 +6,7 @@
 - pnpm 11
 - An OpenAI-compatible chat-completions endpoint and model that support formal function tools
 
-The default configuration uses the OpenCode Zen gateway and the `x-preview-f-free` model. Set provider credentials or override the endpoint and model in `.env.local` when needed.
+The default configuration uses the OpenCode Zen gateway and the `x-preview-f-free` model through a continuous agentic conversation. Set provider credentials or override the endpoint in `.env.local` when needed.
 
 ## Install and run
 

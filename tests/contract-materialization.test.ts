@@ -139,8 +139,8 @@ describe("contract-suite materialization", () => {
     }, design, profile, previous);
 
     assert.notEqual(result.interfaceContracts[0].revisionId, "interface-r1");
-    assert.equal(result.interfaceContracts[0].status, "draft");
+    assert.equal(result.interfaceContracts[0].status, "approved");
     assert.notEqual(result.subjectContracts[0].revisionId, "subject-r1");
-    assert.equal(result.subjectContracts[0].status, "draft");
+    assert.equal(result.subjectContracts[0].status, "approved");
   });
 });

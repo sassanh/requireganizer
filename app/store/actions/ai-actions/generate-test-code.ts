@@ -4,12 +4,7 @@ import { UserFacingError } from "lib/errors";
 import { Step } from "store";
 import type { TestCase, TestScenario } from "store/models";
 
-import {
-  applyTestCodeProposal,
-  consumeHarnessResult,
-  generator,
-  runAiOperation,
-} from "./utilities";
+import { generator } from "./utilities";
 
 export default generator(
   function* generateTestCode(
@@ -30,75 +25,18 @@ export default generator(
       ({ scenarioId }) => scenarioId === testScenario.id,
     );
     if (target == null) throw new UserFacingError("Project Setup has no test target for this scenario.");
-    const existing = self.scaffoldFiles.find(({ path }) => path === target.path) ?? null;
-    const name = self.productOverview.name;
-    const purpose = self.productOverview.purpose;
-    if (name == null || purpose == null) throw new UserFacingError("Complete Product Overview first.");
+    if (self.productOverview.name == null || self.productOverview.purpose == null) {
+      throw new UserFacingError("Complete Product Overview first.");
+    }
+    if (testCase.inputFingerprint == null) throw new UserFacingError("The test case has no structured definition.");
 
-    const binding = testScenario.binding;
-    const interfaceRevisionIds = binding.kind === "behavioral"
-      ? binding.interfaceContractRevisionIds
-      : [];
-    const subjectRevisionIds = binding.kind === "behavioral"
-      ? [binding.subjectContractRevisionId]
-      : [];
-    const interfaceContracts = self.contractSuite.interfaceContracts.filter(({ revisionId }) =>
-      interfaceRevisionIds.includes(revisionId),
-    );
-    const subjectContracts = self.contractSuite.subjectContracts.filter(({ revisionId }) =>
-      subjectRevisionIds.includes(revisionId),
-    );
-    const verificationContracts = binding.kind === "verification"
-      ? self.contractSuite.verificationContracts.filter(
-        ({ revisionId }) => revisionId === binding.verificationContractRevisionId,
-      )
-      : [];
-    const inputFingerprint = testCase.inputFingerprint;
-    if (inputFingerprint == null) throw new UserFacingError("The test case has no structured definition.");
-
-    const result = yield* toGenerator(runAiOperation(self, "generate-test-code", {
-      project: {
-        name,
-        purpose,
-        language: self.implementationProfile.language,
-        framework: self.implementationProfile.framework,
-      },
-      projectConfig: self.projectSetup.configuration as unknown as Record<string, unknown>,
-      contracts: {
-        boundaryRevisionId: self.boundaryDesign.revisionId,
-        interfaceContracts,
-        subjectContracts,
-        verificationContracts,
-      },
-      scaffoldManifest: self.projectSetup.manifest as unknown as Record<string, unknown>,
-      bindingMetadata: {
-        adapterIds: interfaceContracts.map(({ adapter }) => `${adapter.id}@${adapter.version}`),
-        interfaceContractRevisionIds: interfaceRevisionIds,
-        subjectContractRevisionIds: subjectRevisionIds,
-      },
-      scenario: {
-        id: testScenario.id,
-        revisionId: testScenario.revisionId,
-        code: testScenario.getCode(),
-        content: `${testScenario.content}\n${testScenario.description}`,
-        binding: testScenario.binding,
-      },
-      testCase: {
-        id: testCase.id,
-        revisionId: testCase.revisionId,
-        code: testCase.getCode(),
-        title: testCase.title,
-        definition: testCase.definition,
-        renderedSteps: testCase.steps,
-        renderedExpectedResult: testCase.expectedResult,
-      },
-      targetPath: target.path,
-      existingFile: existing == null ? null : { path: existing.path, content: existing.content },
+const { runAgentCommand } = yield* toGenerator(import("ai-agent/agent"));
+        yield* toGenerator(runAgentCommand(self, "generate automated test", {
+      kind: "test-code",
+      scenarioId: testScenario.id,
+      testCaseId: testCase.id,
       comment,
     }));
-    const proposal = consumeHarnessResult(self, result);
-    if (proposal == null) return;
-    applyTestCodeProposal(self, proposal, testCase.id, inputFingerprint);
     self.eventTarget.emit("stepUpdate", Step.AutomatedTests);
   },
   {

@@ -4,19 +4,17 @@ import { Step } from "store";
 
 import {
   applyImplementationProfileProposal,
-  consumeHarnessResult,
   generator,
-  runAiOperation,
 } from "./utilities";
 
 export default generator(
   function* generateImplementationProfile(self) {
-    const result = yield* toGenerator(runAiOperation(self, "generate-implementation-profile", {
-      state: self.json(Step.InterfaceContracts),
+    const { runAgentCommand } = yield* toGenerator(import("ai-agent/agent"));
+    yield* toGenerator(runAgentCommand(self, "generate implementation profile", {
+      kind: "generate",
+      stage: "implementation-profile",
     }));
-    const proposal = consumeHarnessResult(self, result);
-    if (proposal == null) return;
-    applyImplementationProfileProposal(self, proposal);
+    self.eventTarget.emit("stepUpdate", Step.InterfaceContracts);
   },
   {
     operation: "generate implementation profile",
