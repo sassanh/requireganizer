@@ -1,6 +1,14 @@
 "use client";
 import { ArrowBack, FolderOpen, Forum, History } from "@mui/icons-material";
-import { Box, Button, Divider, Stack, Typography } from "@mui/material";
+import {
+  AppBar,
+  Box,
+  Button,
+  Stack,
+  Toolbar,
+  Tooltip,
+  Typography,
+} from "@mui/material";
 import { observer } from "mobx-react-lite";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -8,12 +16,12 @@ import { Suspense, useEffect, useState } from "react";
 
 import {
   ConversationSidebar,
+  ProjectActionsMenu,
   ImpactConfirmationDialog,
   ProviderActivity,
   PersistentAlert,
   RevisionHistoryDialog,
   ThinkingOverlayDialog,
-  Toolbar,
   ValidationErrorAlert,
 } from "components";
 import { useProviderCallPersistence } from "hooks/useProviderCallPersistence";
@@ -84,80 +92,99 @@ function Home() {
           onClose={store.resetValidationErrors}
         />
       ) : null}
-      <Stack
-        direction="row"
-        sx={{
-          alignItems: "center",
-          gap: 2
-        }}>
-        <Button
-          component={Link}
-          href="/"
-          variant="text"
-          startIcon={<ArrowBack />}
-          onClick={backToProjects}
-          disabled={store.isBusy}
-        >
-          Projects
-        </Button>
+      <AppBar
+        position="fixed"
+        elevation={0}
+        color="inherit"
+        sx={{ borderBottom: 1, borderColor: "divider" }}
+      >
+        <Toolbar disableGutters sx={{ px: { xs: 2, md: 3 }, gap: 1.5 }}>
+          <Button
+            component={Link}
+            href="/"
+            variant="text"
+            startIcon={<ArrowBack />}
+            onClick={backToProjects}
+            disabled={store.isBusy}
+          >
+            Projects
+          </Button>
+        <ProjectActionsMenu />
         <Typography variant="h6" sx={{ flexGrow: 1 }}>
           {activeProject.name}
         </Typography>
-        <Button
+        <Tooltip title={store.hasGeneratedScaffold ? "Project files" : "Generate the project setup to enable source code"}>
+          <Button
           component={Link}
           href={`/project/${encodeURIComponent(activeProject.id)}/code`}
           target="_blank"
           rel="noopener noreferrer"
           variant="outlined"
-          startIcon={<FolderOpen />}
+          aria-label="Project files"
           disabled={!store.hasGeneratedScaffold}
+          sx={{ minWidth: 0, px: 1.25 }}
         >
-          Project files
+          <FolderOpen />
         </Button>
-        <Button
-          variant={conversationOpen ? "contained" : "outlined"}
-          startIcon={<Forum />}
-          onClick={() => store.setConversationSidebar(!conversationOpen)}
-        >
-          Conversation
-        </Button>
-        <Button variant="outlined" startIcon={<History />} onClick={() => setHistoryOpen(true)}>
-          Revisions
-        </Button>
+        </Tooltip>
+        <Tooltip title="Conversation">
+          <Button
+            variant={conversationOpen ? "contained" : "outlined"}
+            color={conversationOpen ? "primary" : "inherit"}
+            aria-label="Conversation"
+            onClick={() => store.setConversationSidebar(!conversationOpen)}
+            sx={{ minWidth: 0, px: 1.25 }}
+          >
+            <Forum />
+          </Button>
+        </Tooltip>
+        <Tooltip title="Revisions">
+          <Button
+            variant="outlined"
+            aria-label="Revisions"
+            onClick={() => setHistoryOpen(true)}
+            sx={{ minWidth: 0, px: 1.25 }}
+          >
+            <History />
+          </Button>
+        </Tooltip>
         <ProviderActivity
           calls={store.providerCalls}
           projectName={activeProject.name}
           onDelete={store.deleteProviderCall}
           onClear={store.clearProviderCalls}
         />
-      </Stack>
-      <Stack direction="row" sx={{ alignItems: "flex-start", gap: 2 }}>
+        </Toolbar>
+      </AppBar>
+      {/* Official fixed-AppBar spacer: reserves exactly the toolbar height. */}
+      <Toolbar />
+      <Stack
+        direction="row"
+        sx={{
+          alignItems: "flex-start",
+          gap: 2,
+          // Fills the remaining viewport below the fixed-AppBar spacer so the
+          // conversation sidebar can size itself to 100% of this row.
+          height: { xs: "calc(100% - 56px)", sm: "calc(100% - 64px)" },
+        }}
+      >
         <Box
           sx={{
             flexGrow: 1,
             minWidth: 0,
+            // The artifacts column is the page's scroll container: the row is
+            // exactly viewport-sized, so the sidebar stays fully visible
+            // without any sticky positioning while long content scrolls here.
+            height: "100%",
+            overflowY: "auto",
             ...(store.isBusy && { pointerEvents: "none", userSelect: "none" }),
           }}
         >
-          <Toolbar
-            disabled={store.isBusy}
-            exportCodeDisabled={!store.hasGeneratedScaffold}
-            onExportCode={store.exportCode}
-            onImport={store.import}
-            onExport={store.export}
-            onReset={store.reset}
-          />
-          <Divider sx={{ my: 2 }} />
           <Suspense fallback={null}>
             <Factory activeProject={activeProject} />
           </Suspense>
         </Box>
-        {conversationOpen && (
-          <ConversationSidebar
-            open
-            onClose={() => store.setConversationSidebar(false)}
-          />
-        )}
+        {conversationOpen && <ConversationSidebar />}
       </Stack>
       <ImpactConfirmationDialog projectId={activeProject.id} />
       <ThinkingOverlayDialog />

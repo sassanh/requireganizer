@@ -20,7 +20,6 @@ import {
   DialogTitle,
   IconButton,
   Paper,
-  Portal,
   Stack,
   Tooltip,
   Typography,
@@ -159,32 +158,18 @@ export default function ProviderActivity({
 
   return (
     <>
-      <Portal>
-        <Tooltip title="AI provider activity">
-          <IconButton
-            aria-label="Open AI provider activity"
-            color="primary"
-            onClick={() => setOpen(true)}
-            sx={(theme) => ({
-              position: "fixed",
-              bottom: "calc(env(safe-area-inset-bottom, 0px) + 16px)",
-              right: "calc(env(safe-area-inset-right, 0px) + 16px)",
-              zIndex: theme.zIndex.tooltip + 1,
-              bgcolor: "background.paper",
-              border: "1px solid",
-              borderColor: "divider",
-              boxShadow: 3,
-              "&:hover": {
-                bgcolor: "action.hover",
-              },
-            })}
-          >
-            <Badge badgeContent={calls.length} color="secondary" max={99}>
-              <InfoOutlined />
-            </Badge>
-          </IconButton>
-        </Tooltip>
-      </Portal>
+      <Tooltip title="AI provider activity">
+        <Button
+          variant="outlined"
+          aria-label="AI provider activity"
+          sx={{ minWidth: 0, px: 1.25 }}
+          onClick={() => setOpen(true)}
+        >
+          <Badge badgeContent={calls.length} color="secondary" max={99}>
+            <InfoOutlined />
+          </Badge>
+        </Button>
+      </Tooltip>
 
       <Dialog
         fullWidth

@@ -1,23 +1,19 @@
 "use client";
 
-import { ChevronRight, ExpandMore, Forum, Stop } from "@mui/icons-material";
+import { Forum, Stop } from "@mui/icons-material";
 import {
-  Accordion,
-  AccordionDetails,
-  AccordionSummary,
   Alert,
   Box,
   Button,
   Chip,
   CircularProgress,
-  IconButton,
+  Collapse,
   Paper,
   Stack,
-  Tooltip,
   Typography,
 } from "@mui/material";
 import { observer } from "mobx-react-lite";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useStore } from "store";
 
@@ -49,6 +45,66 @@ function blockText(blocks: ContentBlock[], kind: string): string {
     .join("");
 }
 
+function InlineThinking({ thinking }: { thinking: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <Chip
+        size="small"
+        label="✦ thinking"
+        variant={open ? "filled" : "outlined"}
+        onClick={() => setOpen((value) => !value)}
+        sx={{ height: 20 }}
+      />
+      <Collapse in={open} sx={{ width: "100%" }}>
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          sx={{ whiteSpace: "pre-wrap", pl: 1 }}
+        >
+          {thinking}
+        </Typography>
+      </Collapse>
+    </>
+  );
+}
+
+function InlineOutput({
+  output,
+  isError,
+}: {
+  output: string;
+  isError?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <Chip
+        size="small"
+        label={isError ? "✕ output" : "▸ output"}
+        color={isError ? "error" : "default"}
+        variant="outlined"
+        onClick={() => setOpen((value) => !value)}
+        sx={{ height: 20 }}
+      />
+      <Collapse in={open} sx={{ width: "100%" }}>
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          sx={{
+            whiteSpace: "pre-wrap",
+            pl: 1,
+            maxHeight: 240,
+            overflowY: "auto",
+          }}
+        >
+          {output}
+        </Typography>
+      </Collapse>
+    </>
+  );
+}
+
 function MessageView({ message }: { message: ConversationMessage }) {
   const blocks = toBlocks(message.content);
 
@@ -65,25 +121,11 @@ function MessageView({ message }: { message: ConversationMessage }) {
 
   if (message.role === "toolResult") {
     return (
-      <Stack spacing={0.5}>
-        <Chip
-          size="small"
-          label={`result: ${message.toolName}`}
-          color={message.isError ? "error" : "default"}
-          variant="outlined"
-          sx={{ alignSelf: "flex-start" }}
+      <Stack direction="row" sx={{ flexWrap: "wrap", rowGap: 0.5 }}>
+        <InlineOutput
+          output={blockText(blocks, "text")}
+          isError={message.isError}
         />
-        <Typography
-          variant="caption"
-          color="text.secondary"
-          sx={{
-            maxHeight: 96,
-            overflowY: "auto",
-            whiteSpace: "pre-wrap",
-          }}
-        >
-          {blockText(blocks, "text")}
-        </Typography>
       </Stack>
     );
   }
@@ -92,44 +134,37 @@ function MessageView({ message }: { message: ConversationMessage }) {
   const text = blockText(blocks, "text");
   const toolCalls = blocks.filter((block) => block.type === "toolCall");
 
+  if (text.trim().length === 0 && thinking.length === 0 && toolCalls.length === 0) {
+    return null;
+  }
+
   return (
-    <Paper variant="outlined" sx={{ p: 1.25 }}>
-      <Typography variant="caption" color="text.secondary">Assistant</Typography>
-      {thinking.length > 0 && (
-        <Accordion elevation={0} sx={{ "&:before": { display: "none" }, mt: 0.5 }}>
-          <AccordionSummary expandIcon={<ExpandMore />} sx={{ minHeight: 28, px: 1 }}>
-            <Typography variant="caption" color="text.secondary">Thinking</Typography>
-          </AccordionSummary>
-          <AccordionDetails sx={{ pt: 0 }}>
-            <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: "pre-wrap" }}>
-              {thinking}
-            </Typography>
-          </AccordionDetails>
-        </Accordion>
+    <Stack spacing={0.5}>
+      {(toolCalls.length > 0 || thinking.length > 0) && (
+        <Stack direction="row" spacing={0.75} sx={{ alignItems: "center", flexWrap: "wrap", rowGap: 0.5 }}>
+          {toolCalls.map((call, index) => (
+            <Chip
+              key={index}
+              size="small"
+              color="primary"
+              variant="outlined"
+              label={`→ ${call.name}`}
+              sx={{ height: 20 }}
+            />
+          ))}
+          {thinking.length > 0 && <InlineThinking thinking={thinking} />}
+        </Stack>
       )}
       {text.trim().length > 0 && (
-        <Typography variant="body2" sx={{ whiteSpace: "pre-wrap", mt: 0.5 }}>
+        <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
           {text}
         </Typography>
       )}
-      {toolCalls.length > 0 && (
-        <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", gap: 1, mt: 1 }}>
-          {toolCalls.map((call, index) => (
-            <Chip key={index} size="small" color="primary" variant="outlined" label={`→ ${call.name}`} />
-          ))}
-        </Stack>
-      )}
-    </Paper>
+    </Stack>
   );
 }
 
-function ConversationSidebar({
-  open,
-  onClose,
-}: {
-  open: boolean;
-  onClose: () => void;
-}) {
+function ConversationSidebar() {
   const store = useStore();
   const messages = (store.conversation ?? []) as unknown as ConversationMessage[];
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -146,10 +181,10 @@ function ConversationSidebar({
 
   useEffect(() => {
     const scroller = scrollRef.current;
-    if (open && scroller != null) {
+    if (store.conversationSidebarOpen && scroller != null) {
       scroller.scrollTop = scroller.scrollHeight;
     }
-  }, [open, messages.length, lastContentLength]);
+  }, [store.conversationSidebarOpen, messages.length, lastContentLength]);
 
   return (
     <Paper
@@ -159,9 +194,9 @@ function ConversationSidebar({
         width: { xs: "85vw", sm: 380 },
         maxWidth: "85vw",
         flexShrink: 0,
-        position: "sticky",
-        top: 16,
-        maxHeight: "calc(100vh - 32px)",
+        // The workspace row already fills the viewport below the top bar, so
+        // a plain 100% keeps the sidebar fully visible without stickiness.
+        height: "100%",
         display: "flex",
         flexDirection: "column",
         overflow: "hidden",
@@ -188,11 +223,6 @@ function ConversationSidebar({
             </Button>
           </>
         )}
-        <Tooltip title="Collapse">
-          <IconButton size="small" onClick={onClose} aria-label="Collapse conversation sidebar">
-            <ChevronRight />
-          </IconButton>
-        </Tooltip>
       </Stack>
       <Box ref={scrollRef} sx={{ flexGrow: 1, overflowY: "auto", p: 1.5 }}>
         {messages.length === 0 ? (
