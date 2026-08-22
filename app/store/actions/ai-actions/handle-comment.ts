@@ -3,30 +3,20 @@ import { toGenerator } from "mobx-state-tree";
 import { STEP_BY_STRUCTURAL_FRAGMENT } from "store";
 import { StructuralFragment } from "store/models";
 
-import {
-  applyFragmentRevisionProposal,
-  consumeHarnessResult,
-  generator,
-  runAiOperation,
-} from "./utilities";
+import { generator } from "./utilities";
 
 export default generator(
   function* (
     self,
     { fragment, comment }: { fragment: StructuralFragment; comment: string },
   ) {
-    const step = STEP_BY_STRUCTURAL_FRAGMENT[fragment.type];
-
-    const result = yield* toGenerator(runAiOperation(self, "handle-comment", {
-      state: self.json(step),
-      structuralFragment: fragment.type,
+    const { runAgentCommand } = yield* toGenerator(import("ai-agent/agent"));
+    yield* toGenerator(runAgentCommand(self, "apply the requested change", {
+      kind: "comment",
+      fragment: fragment.type,
       id: fragment.id,
       comment,
     }));
-
-    const proposal = consumeHarnessResult(self, result);
-    if (proposal == null) return;
-    applyFragmentRevisionProposal(self, proposal);
   },
   {
     operation: "apply the requested change",

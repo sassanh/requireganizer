@@ -27,11 +27,6 @@ import {
   validateContractSuite,
   validateProjectSetup,
 } from "contract-domain";
-import type {
-  AiTaskContract,
-  AiTaskName,
-} from "lib/ai-tasks";
-import { runAiTask } from "lib/ai-tasks";
 import { getUserFacingErrorMessage, UserFacingError } from "lib/errors";
 import { HarnessResult } from "lib/types";
 import { Priority, STEP_LABELS, Status, Step, StructuralFragment } from "store/constants";
@@ -73,25 +68,6 @@ export function applyAtomically(
     return;
   }
   applySnapshot(store, snapshot);
-}
-
-export function consumeHarnessResult<Value>(
-  store: FlatStore,
-  result: HarnessResult<Value>,
-): Value | null {
-  store.recordProviderCalls(result.metadata.providerCalls);
-  if (result.status === "needs_input") {
-    store.communicate({ description: result.message });
-    return null;
-  }
-  if (result.status === "error") {
-    store.setValidationError({
-      message: result.message,
-      details: result.details,
-    });
-    return null;
-  }
-  return result.value;
 }
 
 export function applyProductOverviewProposal(
@@ -152,8 +128,11 @@ function revisionMetadata(previous?: { id: string; revision: number }) {
     id: previous?.id ?? uuid(),
     revisionId: uuid(),
     revision: (previous?.revision ?? 0) + 1,
-    status: "draft" as const,
+    // No manual approval flow exists: generated artifacts are immediately
+    // considered final until a newer revision replaces them.
+    status: "approved" as const,
     createdAt: new Date().toISOString(),
+    approvedAt: new Date().toISOString(),
   };
 }
 
@@ -169,8 +148,6 @@ export function materializeBoundaryDesign(
     ...revisionMetadata(previous ?? undefined),
     ...sourceRevisions,
     ...proposal,
-    status: "approved",
-    approvedAt: new Date().toISOString(),
   };
 }
 
@@ -510,18 +487,6 @@ export function applyProjectSetupProposal(
   );
 }
 
-export function runAiOperation<Task extends AiTaskName>(
-  store: FlatStore,
-  task: Task,
-  payload: AiTaskContract[Task]["params"],
-): Promise<AiTaskContract[Task]["result"]> {
-  return runAiTask(task, payload, {
-    signal: store.aiAbortController?.signal,
-    onSegment: () => store.beginThinkingSegment(),
-    onThinking: (delta) => store.appendThinking(delta),
-  });
-}
-
 export function generator<
   const U extends unknown[],
   Requirements extends string & keyof SnapshotOrInstance<FlatStore>,
@@ -562,7 +527,7 @@ export function generator<
       }
 
       requirements.forEach((requirement) => {
-        const value = store[requirement];
+        const value: unknown = store[requirement];
         if (Array.isArray(value)) {
           if (value.length === 0) throwEmptyError(requirement);
         } else if (value instanceof Set || value instanceof Map) {

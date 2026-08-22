@@ -5,29 +5,22 @@ import { Step } from "store";
 
 import {
   applyContractSuiteProposal,
-  consumeHarnessResult,
   generator,
-  runAiOperation,
 } from "./utilities";
 
 export default generator(
   function* generateInterfaceContracts(self) {
-    if (self.implementationProfile.status !== "approved") {
-      throw new UserFacingError("Approve the implementation profile before generating interface contracts.");
-    }
+    const { runAgentCommand } = yield* toGenerator(import("ai-agent/agent"));
     if (self.implementationProfile.boundaryRevisionId !== self.boundaryDesign.revisionId) {
       throw new UserFacingError(
         "Regenerate the implementation profile for the current Boundary Design before generating interface contracts.",
       );
     }
-    const result = yield* toGenerator(runAiOperation(self, "generate-interface-contracts", {
-      state: self.json(Step.InterfaceContracts),
-      design: self.boundaryDesign,
-      profile: self.implementationProfile,
+    yield* toGenerator(runAgentCommand(self, "generate interface contracts", {
+      kind: "generate",
+      stage: Step.InterfaceContracts,
     }));
-    const proposal = consumeHarnessResult(self, result);
-    if (proposal == null) return;
-    applyContractSuiteProposal(self, proposal);
+    self.eventTarget.emit("stepUpdate", Step.InterfaceContracts);
   },
   {
     operation: "generate interface contracts",

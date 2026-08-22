@@ -1,6 +1,6 @@
 "use client";
 
-import { Psychology } from "@mui/icons-material";
+import { Forum, Psychology } from "@mui/icons-material";
 import {
   Box,
   Button,
@@ -24,7 +24,7 @@ function ThinkingOverlayDialog() {
   const label = store.thinkingLabel;
   const text = store.thinkingText;
   const contentRef = useRef<HTMLDivElement | null>(null);
-  const open = label != null;
+  const open = label != null && !store.conversationSidebarOpen;
 
   useEffect(() => {
     const content = contentRef.current;
@@ -63,6 +63,12 @@ function ThinkingOverlayDialog() {
         {text.length === 0 ? "Thinking…" : text}
       </DialogContent>
       <DialogActions>
+        <Button
+          startIcon={<Forum />}
+          onClick={() => store.setConversationSidebar(true)}
+        >
+          Open conversation pane
+        </Button>
         <Button onClick={store.abortAiOperation}>Stop</Button>
       </DialogActions>
     </Dialog>

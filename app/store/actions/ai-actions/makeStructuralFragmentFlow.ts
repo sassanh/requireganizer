@@ -3,12 +3,7 @@ import { SnapshotOrInstance, toGenerator } from "mobx-state-tree";
 import { Step, StructuralFragment } from "store";
 import { FlatStore } from "store/store";
 
-import {
-  applyArtifactListProposal,
-  consumeHarnessResult,
-  generator,
-  runAiOperation,
-} from "./utilities";
+import { generator } from "./utilities";
 
 export function makeStructuralFragmentFlow<
   Requirements extends string & keyof SnapshotOrInstance<FlatStore>,
@@ -25,15 +20,12 @@ export function makeStructuralFragmentFlow<
 }) {
   return generator(
     function* generateStructuralFragmentFlow(self) {
+    const { runAgentCommand } = yield* toGenerator(import("ai-agent/agent"));
       const store = self as FlatStore;
-      const result = yield* toGenerator(runAiOperation(store, "generate-structural-fragment", {
-        state: store.json(step),
-        structuralFragment,
+      yield* toGenerator(runAgentCommand(store, `generate ${structuralFragment.replaceAll("_", " ")} items`, {
+        kind: "generate",
+        stage: step as Exclude<Step, Step.Code>,
       }));
-
-      const proposal = consumeHarnessResult(store, result);
-      if (proposal == null) return;
-      applyArtifactListProposal(store, proposal);
       store.eventTarget.emit("stepUpdate", step);
     },
     {

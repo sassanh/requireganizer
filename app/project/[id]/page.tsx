@@ -1,12 +1,13 @@
 "use client";
-import { ArrowBack, FolderOpen, History } from "@mui/icons-material";
-import { Button, Divider, Stack, Typography } from "@mui/material";
+import { ArrowBack, FolderOpen, Forum, History } from "@mui/icons-material";
+import { Box, Button, Divider, Stack, Typography } from "@mui/material";
 import { observer } from "mobx-react-lite";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 
 import {
+  ConversationSidebar,
   ImpactConfirmationDialog,
   ProviderActivity,
   PersistentAlert,
@@ -23,6 +24,7 @@ import { Store, useStore } from "store";
 
 function Home() {
   const store = useStore();
+  const conversationOpen = store.conversationSidebarOpen;
   const {
     activeProject,
     persistenceError,
@@ -112,6 +114,13 @@ function Home() {
         >
           Project files
         </Button>
+        <Button
+          variant={conversationOpen ? "contained" : "outlined"}
+          startIcon={<Forum />}
+          onClick={() => store.setConversationSidebar(!conversationOpen)}
+        >
+          Conversation
+        </Button>
         <Button variant="outlined" startIcon={<History />} onClick={() => setHistoryOpen(true)}>
           Revisions
         </Button>
@@ -122,18 +131,34 @@ function Home() {
           onClear={store.clearProviderCalls}
         />
       </Stack>
-      <Toolbar
-        disabled={store.isBusy}
-        exportCodeDisabled={!store.hasGeneratedScaffold}
-        onExportCode={store.exportCode}
-        onImport={store.import}
-        onExport={store.export}
-        onReset={store.reset}
-      />
-      <Divider sx={{ my: 2 }} />
-      <Suspense fallback={null}>
-        <Factory activeProject={activeProject} />
-      </Suspense>
+      <Stack direction="row" sx={{ alignItems: "flex-start", gap: 2 }}>
+        <Box
+          sx={{
+            flexGrow: 1,
+            minWidth: 0,
+            ...(store.isBusy && { pointerEvents: "none", userSelect: "none" }),
+          }}
+        >
+          <Toolbar
+            disabled={store.isBusy}
+            exportCodeDisabled={!store.hasGeneratedScaffold}
+            onExportCode={store.exportCode}
+            onImport={store.import}
+            onExport={store.export}
+            onReset={store.reset}
+          />
+          <Divider sx={{ my: 2 }} />
+          <Suspense fallback={null}>
+            <Factory activeProject={activeProject} />
+          </Suspense>
+        </Box>
+        {conversationOpen && (
+          <ConversationSidebar
+            open
+            onClose={() => store.setConversationSidebar(false)}
+          />
+        )}
+      </Stack>
       <ImpactConfirmationDialog projectId={activeProject.id} />
       <ThinkingOverlayDialog />
       <RevisionHistoryDialog
