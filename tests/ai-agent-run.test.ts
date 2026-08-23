@@ -12,6 +12,7 @@ import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import { runAgentCommand } from "../app/ai-agent/agent";
 import { describeError } from "../app/store/actions/ai-actions/utilities";
 import { Step } from "../app/store/constants";
+import { branchTailPreview } from "../app/store/conversation-branches";
 import { Store } from "../app/store/store";
 import type { FlatStore, Store as StoreInstance } from "../app/store/store";
 
@@ -194,6 +195,59 @@ describe("conversation history", () => {
       "user: only question",
       "assistant: fresh answer",
     ]);
+  });
+
+  it("keeps a branched-off tail and switches back to it losslessly", async () => {
+    const store = Store.create({ productOverview: {} }) as unknown as StoreInstance;
+    store.setConversation([
+      userMessage("first question"),
+      assistantMessage([{ type: "text", text: "first answer" }]),
+      userMessage("second question"),
+      assistantMessage([{ type: "text", text: "second answer" }]),
+    ]);
+
+    await store.branchFromMessage(
+      { index: 2, message: "redo second" },
+      scriptedStreamFn([assistantMessage([{ type: "text", text: "redo answer" }])]),
+    );
+
+    const records = store.conversationBranches ?? [];
+    assert.equal(records.length, 1);
+    assert.equal(records[0].baseLength, 2);
+    assert.match(branchTailPreview(records[0]), /second question/);
+
+    await store.switchConversationBranch({ id: records[0].id });
+
+    assert.deepEqual(transcriptTexts(store), [
+      "user: first question",
+      "assistant: first answer",
+      "user: second question",
+      "assistant: second answer",
+    ]);
+    // The abandoned redo tail became its own sibling at the same fork.
+    assert.equal((store.conversationBranches ?? []).length, 2);
+  });
+
+  it("refuses to switch to a branch whose prefix has drifted", async () => {
+    const store = Store.create({ productOverview: {} }) as unknown as StoreInstance;
+    store.setConversation([
+      userMessage("only question"),
+      assistantMessage([{ type: "text", text: "stale answer" }]),
+    ]);
+
+    await store.regenerateLastReply(
+      scriptedStreamFn([assistantMessage([{ type: "text", text: "fresh answer" }])]),
+    );
+
+    const records = store.conversationBranches ?? [];
+    assert.equal(records.length, 1);
+    assert.equal(records[0].baseLength, 1);
+
+    // The transcript moves on; the kept tail's prefix no longer exists.
+    store.setConversation([userMessage("a different history")]);
+
+    await store.switchConversationBranch({ id: records[0].id });
+    assert.match(store.validationErrors ?? "", /diverged/);
   });
 
   it("refuses to regenerate an empty conversation through the validation path", async () => {

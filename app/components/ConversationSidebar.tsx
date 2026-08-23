@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  CallSplit,
   Close,
   Download,
   ExpandMore,
@@ -18,6 +19,8 @@ import {
   CircularProgress,
   Collapse,
   IconButton,
+  Menu,
+  MenuItem,
   Paper,
   Stack,
   TextField,
@@ -27,12 +30,18 @@ import {
 import { alpha } from "@mui/material/styles";
 import { saveAs } from "file-saver";
 import { observer } from "mobx-react-lite";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { describeCommand, parseCommandMessage } from "ai-agent/command";
 import { useStore } from "store";
+import {
+  branchForkIndex,
+  branchTailPreview,
+  isBranchAttachable,
+} from "store/conversation-branches";
+import type { ConversationBranchRecord } from "store/conversation-branches";
 
 type ContentBlock = {
   type: string;
@@ -354,6 +363,21 @@ function ConversationSidebar() {
   const entryRefs = useRef(new Map<number, HTMLDivElement | null>());
   const highlightTimerRef = useRef<number | null>(null);
   const [highlightedIndex, setHighlightedIndex] = useState<number | null>(null);
+  // Kept branch tails that can reattach to the live transcript, grouped by
+  // their fork position so each fork renders one divider listing siblings.
+  const attachableBranches = (store.conversationBranches ?? [])
+    .filter((record) => isBranchAttachable(record, messages));
+  const branchesByFork = new Map<number, ConversationBranchRecord[]>();
+  for (const record of attachableBranches) {
+    const forkIndex = branchForkIndex(record);
+    const siblings = branchesByFork.get(forkIndex) ?? [];
+    siblings.push(record);
+    branchesByFork.set(forkIndex, siblings);
+  }
+  const [branchMenu, setBranchMenu] = useState<{
+    anchor: HTMLElement;
+    forkIndex: number;
+  } | null>(null);
 
   useEffect(() => () => {
     if (highlightTimerRef.current != null) {
@@ -492,40 +516,61 @@ function ConversationSidebar() {
           </Alert>
         ) : (
           <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
-            {messages.slice(0, visibleCount).map((message, index) => (
-              <Box
-                key={index}
-                ref={(node: HTMLDivElement | null) => {
-                  if (node == null) entryRefs.current.delete(index);
-                  else entryRefs.current.set(index, node);
-                }}
-                sx={[
-                  { minWidth: 0 },
-                  // The flash targets the message bubble itself, not the
-                  // whole row container.
-                  index === highlightedIndex && {
-                    "& .message-bubble": {
-                      "@keyframes conversationBlink": {
-                        "0%, 100%": { boxShadow: "none" },
-                        "50%": {
-                          boxShadow: (theme) =>
-                            `0 0 0 4px ${alpha(theme.palette.primary.main, 0.45)}`,
+            {messages.slice(0, visibleCount).map((message, index) => {
+              // Fork dividers render above the message that follows the fork
+              // point; suppressed while rewinding because the anchor and a
+              // branch switch would fight over the same transcript.
+              const siblings = revertAnchor == null
+                ? branchesByFork.get(index)
+                : undefined;
+              return (
+              <Fragment key={index}>
+                {siblings != null && (
+                  <Chip
+                    size="small"
+                    icon={<CallSplit />}
+                    label={`branch · ${siblings.length} kept`}
+                    variant="outlined"
+                    disabled={busy}
+                    onClick={(event) =>
+                      setBranchMenu({ anchor: event.currentTarget, forkIndex: index })
+                    }
+                    sx={{ alignSelf: "flex-start", height: 20 }}
+                  />
+                )}
+                <Box
+                  ref={(node: HTMLDivElement | null) => {
+                    if (node == null) entryRefs.current.delete(index);
+                    else entryRefs.current.set(index, node);
+                  }}
+                  sx={[
+                    { minWidth: 0 },
+                    // The flash targets the message bubble itself, not the
+                    // whole row container.
+                    index === highlightedIndex && {
+                      "& .message-bubble": {
+                        "@keyframes conversationBlink": {
+                          "0%, 100%": { boxShadow: "none" },
+                          "50%": {
+                            boxShadow: (theme) =>
+                              `0 0 0 4px ${alpha(theme.palette.primary.main, 0.45)}`,
+                          },
                         },
+                        animation: "conversationBlink 600ms ease-in-out 2",
                       },
-                      animation: "conversationBlink 600ms ease-in-out 2",
                     },
-                  },
-                ]}
-              >
-                <MessageView
-                  key={index}
-                  message={message}
-                  index={index}
-                  busy={busy}
-                  onRevert={startRevert}
-                />
-              </Box>
-            ))}
+                  ]}
+                >
+                  <MessageView
+                    message={message}
+                    index={index}
+                    busy={busy}
+                    onRevert={startRevert}
+                  />
+                </Box>
+              </Fragment>
+              );
+            })}
             {!busy && revertAnchor == null && hasReply && (
               <Tooltip title="Regenerate — starts a new branch from the last reply">
                 <Button
@@ -541,6 +586,34 @@ function ConversationSidebar() {
           </Box>
         )}
       </Box>
+      <Menu
+        anchorEl={branchMenu?.anchor ?? null}
+        open={branchMenu != null}
+        onClose={() => setBranchMenu(null)}
+      >
+        {(branchMenu == null ? [] : branchesByFork.get(branchMenu.forkIndex) ?? []).map(
+          (record) => (
+            <MenuItem
+              key={record.id}
+              disabled={busy}
+              onClick={() => {
+                setBranchMenu(null);
+                void store.switchConversationBranch({ id: record.id });
+              }}
+              sx={{ maxWidth: 340 }}
+            >
+              <Stack sx={{ minWidth: 0 }}>
+                <Typography variant="caption" noWrap>
+                  {branchTailPreview(record)}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {new Date(record.createdAt).toLocaleString()}
+                </Typography>
+              </Stack>
+            </MenuItem>
+          ),
+        )}
+      </Menu>
       <ConversationComposer
         draft={composerDraft}
         onDraftChange={setComposerDraft}

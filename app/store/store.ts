@@ -40,6 +40,7 @@ import {
   parseScaffoldFiles,
 } from "lib/scaffold";
 import type { ProviderCallMetadata, ProviderCallRecord } from "lib/types";
+import type { ConversationBranchRecord } from "store/conversation-branches";
 import { uuid } from "utilities";
 
 import {
@@ -61,6 +62,7 @@ import {
   reviseFormalContract,
   sendConversationMessage,
   branchFromMessage,
+  switchConversationBranch,
   regenerateLastReply,
 } from "./actions";
 import {
@@ -283,6 +285,7 @@ export const FlatStore = types
     stageInputFingerprints: types.map(types.string),
     systemMessage: types.maybeNull(types.string),
     conversation: types.optional(types.frozen<unknown[]>(), []),
+    conversationBranches: types.optional(types.frozen<ConversationBranchRecord[]>(), []),
     conversationSidebarOpen: false,
   })
   .volatile(() => ({
@@ -401,6 +404,12 @@ export const FlatStore = types
     },
     setConversation(messages: unknown[]) {
       self.conversation = cast(messages);
+    },
+    putConversationBranch(record: ConversationBranchRecord) {
+      const others = (self.conversationBranches ?? []).filter(
+        (candidate) => candidate.id !== record.id,
+      );
+      self.conversationBranches = cast([...others, record]);
     },
     setConversationSidebar(open: boolean) {
       self.conversationSidebarOpen = open;
@@ -907,6 +916,7 @@ export const Store = FlatStore.actions(
     handleComment,
     sendConversationMessage,
     branchFromMessage,
+    switchConversationBranch,
     regenerateLastReply,
     generateProductOverview,
     generateUserStories,
