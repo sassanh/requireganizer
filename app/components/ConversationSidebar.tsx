@@ -200,6 +200,39 @@ function MessageView({
                 {children}
               </Typography>
             ),
+            // The app-wide CSS reset removes list indentation; without these
+            // overrides the outside-positioned markers overflow the pane.
+            ul: ({ children }) => (
+              <Box
+                component="ul"
+                sx={{ my: 0.5, pl: 3, listStyleType: "disc", minWidth: 0 }}
+              >
+                {children}
+              </Box>
+            ),
+            ol: ({ children }) => (
+              <Box
+                component="ol"
+                sx={{ my: 0.5, pl: 3, listStyleType: "decimal", minWidth: 0 }}
+              >
+                {children}
+              </Box>
+            ),
+            li: ({ children }) => (
+              <Typography
+                component="li"
+                variant="body2"
+                sx={{ whiteSpace: "pre-wrap", my: 0.25 }}
+              >
+                {children}
+              </Typography>
+            ),
+            hr: () => (
+              <Box
+                component="hr"
+                sx={{ my: 1, border: "none", borderTop: 1, borderColor: "divider" }}
+              />
+            ),
             code: ({ children }) => (
               <Box
                 component="code"
