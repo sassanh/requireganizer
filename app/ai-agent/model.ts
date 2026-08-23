@@ -33,5 +33,8 @@ export const zenGatewayModel: Model<"openai-completions"> = {
   maxTokens: 32_000,
   compat: {
     supportsStore: false,
+    // The Zen gateway hangs on stream_options:{include_usage:true}; it always
+    // reports usage on the final chunk anyway.
+    supportsUsageInStreaming: false,
   },
 };

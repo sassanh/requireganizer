@@ -4,6 +4,10 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  '@earendil-works/pi-agent-core': 2675a84fa29d80f2b0eff9f5edc69cd24e294ab2054dd9e7681936900f86659a
+  '@earendil-works/pi-ai': 98b243714c84ad8ae0ba63f21dfda7d7cc1cc0894a1803965097b0d1b6ef351c
+
 importers:
 
   .:
@@ -13,10 +17,10 @@ importers:
         version: 4.1.1
       '@earendil-works/pi-agent-core':
         specifier: 0.84.2
-        version: 0.84.2(supports-color@10.2.2)(ws@8.21.0)(zod@4.3.6)
+        version: 0.84.2(patch_hash=2675a84fa29d80f2b0eff9f5edc69cd24e294ab2054dd9e7681936900f86659a)(supports-color@10.2.2)(ws@8.21.0)(zod@4.3.6)
       '@earendil-works/pi-ai':
         specifier: 0.84.2
-        version: 0.84.2(supports-color@10.2.2)(ws@8.21.0)(zod@4.3.6)
+        version: 0.84.2(patch_hash=98b243714c84ad8ae0ba63f21dfda7d7cc1cc0894a1803965097b0d1b6ef351c)(supports-color@10.2.2)(ws@8.21.0)(zod@4.3.6)
       '@emotion/react':
         specifier: ^11.14.0
         version: 11.14.0(@types/react@19.2.18)(react@19.2.8)(supports-color@10.2.2)
@@ -6576,9 +6580,9 @@ snapshots:
       picomatch: 4.0.2
       which: 4.0.0
 
-  '@earendil-works/pi-agent-core@0.84.2(supports-color@10.2.2)(ws@8.21.0)(zod@4.3.6)':
+  '@earendil-works/pi-agent-core@0.84.2(patch_hash=2675a84fa29d80f2b0eff9f5edc69cd24e294ab2054dd9e7681936900f86659a)(supports-color@10.2.2)(ws@8.21.0)(zod@4.3.6)':
     dependencies:
-      '@earendil-works/pi-ai': 0.84.2(supports-color@10.2.2)(ws@8.21.0)(zod@4.3.6)
+      '@earendil-works/pi-ai': 0.84.2(patch_hash=98b243714c84ad8ae0ba63f21dfda7d7cc1cc0894a1803965097b0d1b6ef351c)(supports-color@10.2.2)(ws@8.21.0)(zod@4.3.6)
       '@earendil-works/pi-telemetry': 0.84.2
       diff: 8.0.4
       ignore: 7.0.5
@@ -6592,7 +6596,7 @@ snapshots:
       - ws
       - zod
 
-  '@earendil-works/pi-ai@0.84.2(supports-color@10.2.2)(ws@8.21.0)(zod@4.3.6)':
+  '@earendil-works/pi-ai@0.84.2(patch_hash=98b243714c84ad8ae0ba63f21dfda7d7cc1cc0894a1803965097b0d1b6ef351c)(supports-color@10.2.2)(ws@8.21.0)(zod@4.3.6)':
     dependencies:
       '@anthropic-ai/sdk': 0.91.1(zod@4.3.6)
       '@aws-sdk/client-bedrock-runtime': 3.1048.0

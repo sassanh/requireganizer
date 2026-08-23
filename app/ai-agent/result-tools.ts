@@ -1,4 +1,5 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
+import { Type } from "@earendil-works/pi-ai";
 
 import {
   assertValidGeneratedTestCode,
@@ -44,10 +45,9 @@ import {
 } from "contract-domain";
 import type {
   BoundaryDesign,
-  ContractSuiteProposal,
+  ContractSuite,
   ProjectSetup,
 } from "contract-domain";
-import { STEP_BY_STRUCTURAL_FRAGMENT } from "store";
 import {
   applyArtifactListProposal,
   applyBoundaryDesignProposal,
@@ -67,32 +67,33 @@ import { generateTestAnnotation } from "utilities/testParser";
 
 import type { AiCommand } from "./command";
 
-
-type RevisionTarget = NonNullable<
-  Extract<AiCommand, { kind: "revise" }>["target"]
->;
+type ToolArgs = Record<string, unknown>;
 
 function agentTool(
-  definition: ReturnType<typeof buildProductOverviewTool>,
-  execute: (args: Record<string, unknown>) => Promise<string>,
+  definition: {
+    name: string;
+    description?: string;
+    parameters?: unknown;
+  },
+  execute: (args: ToolArgs) => Promise<string>,
 ): AgentTool {
   return {
     name: definition.name,
     label: definition.name,
-    description: definition.description ?? "",
-    parameters: definition.parameters! as AgentTool["parameters"],
+    description: definition.description ?? definition.name,
+    parameters: (definition.parameters ?? Type.Object({})) as never,
     execute: async (_toolCallId, params) => {
-      const text = await execute(params as Record<string, unknown>);
+      const text = await execute(params as ToolArgs);
       return { content: [{ type: "text", text }], details: {} };
     },
   };
 }
 
 function assertRevisionIsolation(
-  proposal: ContractSuiteProposal,
-  current: NonNullable<FlatStore["contractSuite"]>,
+  proposal: Parameters<typeof validateContractSuiteProposal>[0],
+  current: ContractSuite,
   design: BoundaryDesign,
-  target: RevisionTarget,
+  target: { kind: "interface" | "subject" | "verification"; id: string },
 ): void {
   const targetSemanticId =
     target.kind === "interface"
@@ -220,10 +221,16 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
   const communicate: AgentTool = {
     name: COMMUNICATE_TOOL.name,
     label: "Ask the user",
-    description: COMMUNICATE_TOOL.description ?? "",
-    parameters: COMMUNICATE_TOOL.parameters! as AgentTool["parameters"],
+    description: COMMUNICATE_TOOL.description ?? COMMUNICATE_TOOL.name,
+    parameters: Type.Object({
+      message: Type.String({
+        description:
+          "A concise explanation of what is missing and what the user must clarify.",
+        minLength: 1,
+      }),
+    }),
     execute: async (_toolCallId, params) => {
-      const message = (params as { message?: unknown }).message;
+      const message = (params as ToolArgs).message;
       if (typeof message !== "string" || message.trim().length === 0) {
         throw new Error("A concise question is required.");
       }
@@ -238,202 +245,230 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
   const stageTools: AgentTool[] = [];
 
   if (command.kind === "generate" || command.kind === "revise") {
-    const stage = command.stage;
+    const reviseTarget = command.kind === "revise"
+      ? command.target ?? undefined
+      : undefined;
 
-    if (stage === Step.ProductOverview) {
-      stageTools.push(agentTool(buildProductOverviewTool(), async (args) => {
-        const proposal = parseProductOverviewProposal(args);
-        applyProductOverviewProposal(store, proposal);
-        return "Product overview applied.";
-      }));
-    } else if (
-      stage === Step.UserStories ||
-      stage === Step.Requirements ||
-      stage === Step.AcceptanceCriteria
-    ) {
-      const fragmentByStage = {
-        [Step.UserStories]: StructuralFragment.UserStory,
-        [Step.Requirements]: StructuralFragment.Requirement,
-        [Step.AcceptanceCriteria]: StructuralFragment.AcceptanceCriteria,
-      } as const;
-      const fragmentType = fragmentByStage[stage as keyof typeof fragmentByStage];
-      const definition = getArtifactStageDefinition(fragmentType);
-      const state = JSON.parse(store.json(definition.step)) as Record<string, unknown>;
-      stageTools.push(agentTool(
-        buildArtifactListTool({ definition, state }),
-        async (args) => {
-          const proposal = parseArtifactListProposal(args, {
-            expectedEntityType: fragmentType,
-            state,
-          });
-          applyArtifactListProposal(store, proposal);
-          return `${definition.entityType} list applied.`;
-        },
-      ));
-    } else if (stage === Step.BoundaryDesign) {
-      const requirementIds = store.requirements.map(({ id }) => id);
-      const acceptanceCriteriaIds = store.acceptanceCriteria.map(({ id }) => id);
-      stageTools.push(agentTool(
-        buildBoundaryDesignTool({ requirementIds, acceptanceCriteriaIds }),
-        async (args) => {
-          const proposal = parseBoundaryDesignProposal(args);
-          validateBoundaryDesign(proposal, {
-            requirementIds: new Set(requirementIds),
-            acceptanceCriteriaIds: new Set(acceptanceCriteriaIds),
-          });
-          applyBoundaryDesignProposal(store, proposal);
-          return "Boundary design applied.";
-        },
-      ));
-    } else if (stage === "implementation-profile") {
+    if (command.stage === "implementation-profile") {
       stageTools.push(agentTool(buildImplementationProfileTool(), async (args) => {
         const proposal = parseImplementationProfileProposal(args);
         applyImplementationProfileProposal(store, proposal);
         return "Implementation profile applied.";
       }));
-    } else if (stage === Step.InterfaceContracts) {
-      const design = store.boundaryDesign;
-      const profile = store.implementationProfile;
-      if (design == null || profile == null) {
-        throw new Error("An approved boundary design and implementation profile are required.");
+    }
+
+    switch (command.stage) {
+      case Step.ProductOverview: {
+        stageTools.push(agentTool(buildProductOverviewTool(), async (args) => {
+          const proposal = parseProductOverviewProposal(args);
+          applyProductOverviewProposal(store, proposal);
+          return "Product overview applied.";
+        }));
+        break;
       }
-      validateImplementationProfile(profile, design.revisionId);
-      const revising = command.kind === "revise";
-      const target = revising ? command.target : undefined;
-      const currentSuite = revising ? store.contractSuite : null;
-      if (currentSuite != null && target == null) {
-        throw new Error("A formal-contract revision requires one exact target.");
-      }
-      if (currentSuite != null) {
-        validateContractSuite(currentSuite, design, profile.revisionId);
-      }
-      stageTools.push(agentTool(buildContractSuiteTool(design), async (args) => {
-        const proposal = parseContractSuiteProposal(args);
-        validateContractSuiteProposal(proposal, design, profile.revisionId);
-        if (currentSuite != null && target != null) {
-          assertRevisionIsolation(proposal, currentSuite, design, target);
+      case Step.UserStories:
+      case Step.Requirements:
+      case Step.AcceptanceCriteria: {
+        const fragmentType = {
+          [Step.UserStories]: StructuralFragment.UserStory,
+          [Step.Requirements]: StructuralFragment.Requirement,
+          [Step.AcceptanceCriteria]: StructuralFragment.AcceptanceCriteria,
+        }[command.stage as Step.UserStories | Step.Requirements | Step.AcceptanceCriteria];
+        if (fragmentType == null) {
+          throw new Error(`No artifact stage for ${command.stage}.`);
         }
-        applyContractSuiteProposal(store, proposal);
-        return "Formal contracts applied.";
-      }));
-    } else if (stage === Step.TestScenarios) {
-      const design = store.boundaryDesign;
-      const suite = store.contractSuite;
-      if (design == null || suite == null) {
-        throw new Error("An approved boundary design and contract suite are required.");
+        const definition = getArtifactStageDefinition(fragmentType);
+        const state = JSON.parse(store.json(definition.step)) as Record<string, unknown>;
+        stageTools.push(agentTool(
+          buildArtifactListTool({ definition, state }),
+          async (args) => {
+            const proposal = parseArtifactListProposal(args, {
+              expectedEntityType: fragmentType,
+              state,
+            });
+            applyArtifactListProposal(store, proposal);
+            return `${definition.entityType} list applied.`;
+          },
+        ));
+        break;
       }
-      const acceptanceCriteriaIds = store.acceptanceCriteria.map(({ id }) => id);
-      const existingIds = store.testScenarios.map(({ id }) => id);
-      stageTools.push(agentTool(
-        buildTestScenarioListTool(design, suite, acceptanceCriteriaIds, existingIds),
-        async (args) => {
-          const proposal = parseTestScenarioListProposal(args, existingIds);
-          const allowedCriteria = new Set(acceptanceCriteriaIds);
-          for (const item of proposal.items) {
-            validateScenarioBinding(item.binding, design, suite);
-            validateScenarioAcceptanceCriteria(
-              item.acceptanceCriteriaIds,
-              item.binding,
-              design,
-            );
-            for (const id of item.acceptanceCriteriaIds) {
-              if (!allowedCriteria.has(id)) {
-                throw new Error(`Scenario ${item.key} references unknown acceptance criterion ${id}.`);
+      case Step.BoundaryDesign: {
+        const requirementIds = store.requirements.map(({ id }) => id);
+        const acceptanceCriteriaIds = store.acceptanceCriteria.map(({ id }) => id);
+        stageTools.push(agentTool(
+          buildBoundaryDesignTool({ requirementIds, acceptanceCriteriaIds }),
+          async (args) => {
+            const proposal = parseBoundaryDesignProposal(args);
+            validateBoundaryDesign(proposal, {
+              requirementIds: new Set(requirementIds),
+              acceptanceCriteriaIds: new Set(acceptanceCriteriaIds),
+            });
+            applyBoundaryDesignProposal(store, proposal);
+            store.eventTarget.emit("stepUpdate", Step.BoundaryDesign);
+            return "Boundary design applied.";
+          },
+        ));
+        break;
+      }
+      case Step.InterfaceContracts: {
+        const design = store.boundaryDesign;
+        const profile = store.implementationProfile;
+        if (design == null || profile == null) {
+          throw new Error("An approved boundary design and implementation profile are required.");
+        }
+        validateImplementationProfile(profile, design.revisionId);
+        const currentSuite = reviseTarget != null
+          ? store.contractSuite
+          : null;
+
+        if (currentSuite != null && reviseTarget == null) {
+          throw new Error("A formal-contract revision requires one exact target.");
+        }        if (currentSuite != null) {
+          validateContractSuite(currentSuite, design, profile.revisionId);
+        }
+        stageTools.push(agentTool(buildContractSuiteTool(design), async (args) => {
+          const proposal = parseContractSuiteProposal(args);
+          validateContractSuiteProposal(proposal, design, profile.revisionId);
+          if (currentSuite != null && reviseTarget != null) {
+            assertRevisionIsolation(proposal, currentSuite, design, reviseTarget);
+          }
+          applyContractSuiteProposal(store, proposal);          return "Formal contracts applied.";
+        }));
+        break;
+      }
+      case Step.TestScenarios: {
+        const design = store.boundaryDesign;
+        const suite = store.contractSuite;
+        if (design == null || suite == null) {
+          throw new Error("An approved boundary design and contract suite are required.");
+        }
+        const acceptanceCriteriaIds = store.acceptanceCriteria.map(({ id }) => id);
+        const existingIds = store.testScenarios.map(({ id }) => id);
+        stageTools.push(agentTool(
+          buildTestScenarioListTool(design, suite, acceptanceCriteriaIds, existingIds),
+          async (args) => {
+            const proposal = parseTestScenarioListProposal(args, existingIds);
+            const allowedCriteria = new Set(acceptanceCriteriaIds);
+            for (const item of proposal.items) {
+              validateScenarioBinding(item.binding, design, suite);
+              validateScenarioAcceptanceCriteria(
+                item.acceptanceCriteriaIds,
+                item.binding,
+                design,
+              );
+              for (const id of item.acceptanceCriteriaIds) {
+                if (!allowedCriteria.has(id)) {
+                  throw new Error(`Scenario ${item.key} references unknown acceptance criterion ${id}.`);
+                }
               }
             }
-          }
-          for (const id of acceptanceCriteriaIds) {
-            if (!proposal.items.some((item) => item.acceptanceCriteriaIds.includes(id))) {
-              throw new Error(`Test scenario proposal does not cover acceptance criterion ${id}.`);
-            }
-          }
-          applyTestScenarioProposal(store, proposal);
-          return "Test scenarios applied.";
-        },
-      ));
-    } else if (stage === Step.TestCases) {
-      const design = store.boundaryDesign;
-      const suite = store.contractSuite;
-      if (design == null || suite == null) {
-        throw new Error("An approved boundary design and contract suite are required.");
-      }
-      const scenario: TestScenario | undefined = command.scenarioId != null
-        ? store.testScenarios.find(({ id }) => id === command.scenarioId)
-        : store.testScenarios.find(({ binding }) => binding != null);
-      const binding = scenario?.binding ?? null;
-      if (scenario == null || binding == null) {
-        throw new Error("No test scenario with a contract binding is available.");
-      }
-      const snapshot = { ...scenarioSnapshot(scenario), binding };
-      const existingIds = scenario.testCases.map(({ id }) => id);
-      stageTools.push(agentTool(
-        buildTestCaseListTool({
-          design,
-          suite,
-          binding: snapshot.binding,
-          scenarioRevisionId: snapshot.revisionId,
-          acceptanceCriteriaIds: snapshot.acceptanceCriteriaIds,
-          existingIds,
-        }),
-        async (args) => {
-          const proposal = parseTestCaseListProposal(args, snapshot.id, existingIds);
-          const allowedCriteria = new Set(snapshot.acceptanceCriteriaIds);
-          for (const item of proposal.items) {
-            for (const id of item.acceptanceCriteriaIds) {
-              if (!allowedCriteria.has(id)) {
-                throw new Error(`Test case ${item.key} references acceptance criterion ${id} outside its scenario.`);
+            for (const id of acceptanceCriteriaIds) {
+              if (!proposal.items.some((item) => item.acceptanceCriteriaIds.includes(id))) {
+                throw new Error(`Test scenario proposal does not cover acceptance criterion ${id}.`);
               }
             }
-            validateTestCaseDefinition(
-              item.definition,
-              binding,
-              design,
-              suite,
-              snapshot.revisionId,
-            );
-          }
-          for (const id of snapshot.acceptanceCriteriaIds) {
-            if (!proposal.items.some((item) => item.acceptanceCriteriaIds.includes(id))) {
-              throw new Error(`Test case proposal does not cover acceptance criterion ${id}.`);
-            }
-          }
-          applyTestCaseProposal(store, proposal);
-          return "Test cases applied.";
-        },
-      ));
-    } else if (stage === Step.ProjectSetup) {
-      const design = store.boundaryDesign;
-      const profile = store.implementationProfile;
-      const suite = store.contractSuite;
-      if (design == null || profile == null || suite == null) {
-        throw new Error("Approved contracts and an implementation profile are required.");
+            applyTestScenarioProposal(store, proposal);
+            store.eventTarget.emit("stepUpdate", Step.TestScenarios);
+            return "Test scenarios applied.";
+          },
+        ));
+        break;
       }
-      const scenarioIds = store.testScenarios.map(({ id }) => id);
-      const testDesignFingerprint = store.testDesignFingerprint;
-      stageTools.push(agentTool(
-        buildProjectSetupTool({ design, profile, suite, scenarioIds, testDesignFingerprint }),
-        async (args) => {
-          const proposal = parseProjectSetupProposal(args);
-          const candidate: ProjectSetup = {
-            id: "project-setup-proposal",
-            revisionId: "project-setup-proposal-revision",
-            revision: 1,
-            status: "draft",
-            createdAt: "1970-01-01T00:00:00.000Z",
-            ...proposal,
-          };
-          validateProjectSetup(
-            candidate,
+      case Step.TestCases: {
+        const design = store.boundaryDesign;
+        const suite = store.contractSuite;
+        if (design == null || suite == null) {
+          throw new Error("An approved boundary design and contract suite are required.");
+        }
+        const requestedScenarioId = command.kind === "generate" ? command.scenarioId : undefined;
+        const scenario: TestScenario | undefined = requestedScenarioId != null
+          ? store.testScenarios.find(({ id }) => id === requestedScenarioId)
+          : store.testScenarios.find(({ binding }) => binding != null);
+        if (scenario == null || scenario.binding == null) {
+          throw new Error("No test scenario with a contract binding is available.");
+        }
+        const snapshot = scenarioSnapshot(scenario);
+        const scenarioBinding = snapshot.binding;
+        if (scenarioBinding == null) {
+          throw new Error(`Scenario ${scenario.id} has no contract binding.`);
+        }
+        const existingIds = scenario.testCases.map((testCase: TestCase) => testCase.id);
+        stageTools.push(agentTool(
+          buildTestCaseListTool({
             design,
-            profile,
             suite,
-            testDesignFingerprint,
-            new Set(scenarioIds),
-          );
-          applyProjectSetupProposal(store, proposal);
-          return "Project setup applied.";
-        },
-      ));
+            binding: scenarioBinding,
+            scenarioRevisionId: snapshot.revisionId,
+            acceptanceCriteriaIds: snapshot.acceptanceCriteriaIds,
+            existingIds,
+          }),
+          async (args) => {
+            const proposal = parseTestCaseListProposal(args, snapshot.id, existingIds);
+            const allowedCriteria = new Set(snapshot.acceptanceCriteriaIds);
+            for (const item of proposal.items) {
+              for (const id of item.acceptanceCriteriaIds) {
+                if (!allowedCriteria.has(id)) {
+                  throw new Error(`Test case ${item.key} references acceptance criterion ${id} outside its scenario.`);
+                }
+              }
+              validateTestCaseDefinition(
+                item.definition,
+                scenarioBinding,
+                design,
+                suite,
+                snapshot.revisionId,
+              );
+            }
+            for (const id of snapshot.acceptanceCriteriaIds) {
+              if (!proposal.items.some((item) => item.acceptanceCriteriaIds.includes(id))) {
+                throw new Error(`Test case proposal does not cover acceptance criterion ${id}.`);
+              }
+            }
+            applyTestCaseProposal(store, proposal);
+            store.eventTarget.emit("stepUpdate", Step.TestCases);
+            return "Test cases applied.";
+          },
+        ));
+        break;
+      }
+      case Step.ProjectSetup: {
+        const design = store.boundaryDesign;
+        const profile = store.implementationProfile;
+        const suite = store.contractSuite;
+        if (design == null || profile == null || suite == null) {
+          throw new Error("Approved contracts and an implementation profile are required.");
+        }
+        const scenarioIds = store.testScenarios.map(({ id }) => id);
+        const testDesignFingerprint = store.testDesignFingerprint;
+        stageTools.push(agentTool(
+          buildProjectSetupTool({ design, profile, suite, scenarioIds, testDesignFingerprint }),
+          async (args) => {
+            const proposal = parseProjectSetupProposal(args);
+            const candidate: ProjectSetup = {
+              id: "project-setup-proposal",
+              revisionId: "project-setup-proposal-revision",
+              revision: 1,
+              status: "draft",
+              createdAt: "1970-01-01T00:00:00.000Z",
+              ...proposal,
+            };
+            validateProjectSetup(
+              candidate,
+              design,
+              profile,
+              suite,
+              testDesignFingerprint,
+              new Set(scenarioIds),
+            );
+            applyProjectSetupProposal(store, proposal);
+            store.eventTarget.emit("stepUpdate", Step.ProjectSetup);
+            return "Project setup applied.";
+          },
+        ));
+        break;
+      }
+      default:
+        break;
     }
   }
 
@@ -441,15 +476,15 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
     stageTools.push(agentTool(
       buildFragmentRevisionTool(command.fragment),
       async (args) => {
+        const patch = args.patch;
         const proposal = parseFragmentRevisionProposal(
-          args,
+          { patch },
           { expectedEntityType: command.fragment, expectedId: command.id },
         );
         applyFragmentRevisionProposal(store, proposal);
         return "Fragment revision applied.";
       },
     ));
-    void STEP_BY_STRUCTURAL_FRAGMENT;
   }
 
   if (command.kind === "test-code") {
@@ -458,11 +493,13 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
       if (typeof code !== "string" || code.trim().length === 0) {
         throw new Error("The complete test file content is required.");
       }
-      const testScenario = store.testScenarios.find(({ id }) => id === command.scenarioId);
-      const testCase = (store.testScenarios
-        .flatMap(({ testCases }) => testCases)
-        .find(({ id }) => id === command.testCaseId)) as TestCase | undefined;
-      if (testCase == null || testScenario == null || testScenario.binding == null) {
+      const testScenario: TestScenario | undefined = store.testScenarios.find(
+        ({ id }) => id === command.scenarioId,
+      );
+      const testCase: TestCase | undefined = testScenario?.testCases.find(
+        ({ id }) => id === command.testCaseId,
+      );
+      if (testScenario == null || testCase == null || testScenario.binding == null) {
         throw new Error("The selected scenario or test case no longer exists.");
       }
       if (
@@ -472,6 +509,9 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
         store.boundaryDesign == null
       ) {
         throw new Error("Project setup, contracts, and an implementation profile are required.");
+      }
+      if (store.isProjectSetupOutdated) {
+        throw new Error("Project Setup is stale; regenerate it before generating tests.");
       }
       if (testCase.definition == null) {
         throw new Error("The selected case has no approved structured contract binding.");
@@ -547,25 +587,10 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
       const validatedRequest = parseTestCodeRequest(request);
       const targetPath = validatedRequest.targetPath;
       const language = validatedRequest.project.language;
-      const scenarioAnnotation = generateTestAnnotation(
-        language,
-        "",
-        validatedRequest.scenario.id,
-        "scenario",
-      );
+      const scenarioAnnotation = generateTestAnnotation(language, "", validatedRequest.scenario.id, "scenario");
       const codeAndTitle = `${validatedRequest.testCase.code} - ${validatedRequest.testCase.title}`;
-      const beginAnnotation = generateTestAnnotation(
-        language,
-        codeAndTitle,
-        validatedRequest.testCase.id,
-        "beginning",
-      );
-      const endAnnotation = generateTestAnnotation(
-        language,
-        codeAndTitle,
-        validatedRequest.testCase.id,
-        "end",
-      );
+      const beginAnnotation = generateTestAnnotation(language, codeAndTitle, validatedRequest.testCase.id, "beginning");
+      const endAnnotation = generateTestAnnotation(language, codeAndTitle, validatedRequest.testCase.id, "end");
       const protectedBlocks = collectProtectedTestBlocks(
         validatedRequest.existingFile?.content,
         validatedRequest.testCase.id,
@@ -579,6 +604,7 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
         protectedBlocks,
       });
       applyTestCodeProposal(store, proposal, testCase.id, inputFingerprint);
+      store.eventTarget.emit("stepUpdate", Step.AutomatedTests);
       return `Test code applied to ${targetPath}.`;
     }));
   }

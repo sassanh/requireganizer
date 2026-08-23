@@ -1,5 +1,10 @@
 import { Agent } from "@earendil-works/pi-agent-core";
-import type { AgentEvent, AgentMessage, AgentTool } from "@earendil-works/pi-agent-core";
+import type {
+  AgentEvent,
+  AgentMessage,
+  AgentOptions,
+  AgentTool,
+} from "@earendil-works/pi-agent-core";
 import type { Usage } from "@earendil-works/pi-ai";
 
 import type { ProviderCallMetadata } from "lib/types";
@@ -100,9 +105,13 @@ function recordedMetadata(
 
 /**
  * Create (or reuse) the per-project conversation agent. The transcript is
- * persisted on the store so the conversation survives reloads.
+ * persisted on the store so the conversation survives reloads. The stream
+ * function defaults to the server proxy and can be replaced in tests.
  */
-export function getProjectAgent(store: FlatStore): Agent {
+export function getProjectAgent(
+  store: FlatStore,
+  streamFn: AgentOptions["streamFn"] = proxyStreamFn(),
+): Agent {
   return new Agent({
     initialState: {
       systemPrompt: buildAgentSystemPrompt(),
@@ -111,7 +120,7 @@ export function getProjectAgent(store: FlatStore): Agent {
       tools: [],
       messages: (store.conversation ?? []) as AgentMessage[],
     },
-    streamFn: proxyStreamFn(),
+    streamFn,
   });
 }
 
@@ -124,8 +133,9 @@ export async function runAgentCommand(
   store: FlatStore,
   operation: string,
   command: AiCommand,
+  streamFn?: AgentOptions["streamFn"],
 ): Promise<void> {
-  const agent = getProjectAgent(store);
+  const agent = getProjectAgent(store, streamFn);
   store.setActiveAgent(agent);
 
   const collected = { usage: [], turns: 0 } as { usage: Usage[]; turns: number };
