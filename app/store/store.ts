@@ -280,6 +280,7 @@ export const FlatStore = types
     stageInputFingerprints: types.map(types.string),
     systemMessage: types.maybeNull(types.string),
     conversation: types.optional(types.frozen<unknown[]>(), []),
+    conversationSidebarOpen: false,
   })
   .volatile(() => ({
     validationErrorDetails: null as string | null,
@@ -290,7 +291,6 @@ export const FlatStore = types
     thinkingText: "",
     aiAbortController: null as AbortController | null,
     activeAgent: null as { abort(): void } | null,
-    conversationSidebarOpen: false,
   }))
   .views(() => {
     const eventTarget = new StoreEventEmitter();

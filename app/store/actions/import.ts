@@ -109,6 +109,7 @@ const importProject = (self_: unknown, value: unknown): void => {
       ? value.stageInputFingerprints
       : {},
     conversation: Array.isArray(value.conversation) ? value.conversation : [],
+    conversationSidebarOpen: value.conversationSidebarOpen === true,
   };
 
   const candidate = getType(self).create(candidateSnapshot) as Store;
