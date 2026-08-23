@@ -18,11 +18,43 @@ import {
 import { parseScaffoldFiles } from "lib/scaffold";
 import type { Store } from "store";
 import { StructuralFragment } from "store/constants";
+import type { ConversationBranchRecord } from "store/conversation-branches";
 import { testDesignFingerprint } from "store/store";
 
 function array(value: unknown, label: string): unknown[] {
   if (!Array.isArray(value)) throw new InvalidJsonError(`${label} must be an array.`);
   return value;
+}
+
+function parseConversationBranches(value: unknown): ConversationBranchRecord[] {
+  if (!Array.isArray(value)) throw new InvalidJsonError("Conversation branches must be an array.");
+  return value.map((entry): ConversationBranchRecord => {
+    if (!isRecord(entry)) throw new InvalidJsonError("Each conversation branch must be an object.");
+    if (typeof entry.id !== "string") throw new InvalidJsonError("A conversation branch is missing its id.");
+    if (typeof entry.createdAt !== "number" || !Number.isFinite(entry.createdAt)) {
+      throw new InvalidJsonError("A conversation branch has an invalid creation time.");
+    }
+    if (
+      typeof entry.baseLength !== "number" ||
+      !Number.isInteger(entry.baseLength) ||
+      entry.baseLength < 0
+    ) {
+      throw new InvalidJsonError("A conversation branch has an invalid fork position.");
+    }
+    if (typeof entry.baseFingerprint !== "string") {
+      throw new InvalidJsonError("A conversation branch is missing its anchor fingerprint.");
+    }
+    if (!Array.isArray(entry.messages)) {
+      throw new InvalidJsonError("A conversation branch must carry its kept messages.");
+    }
+    return {
+      id: entry.id,
+      createdAt: entry.createdAt,
+      baseLength: entry.baseLength,
+      baseFingerprint: entry.baseFingerprint,
+      messages: entry.messages,
+    };
+  });
 }
 
 // No manual approval flow exists: legacy snapshots may still carry draft
@@ -86,9 +118,7 @@ const importProject = (self_: unknown, value: unknown): void => {
   const self = self_ as Store;
   assertCurrentProjectSchema(value);
   if (typeof value.description !== "string") throw new InvalidJsonError("Project description must be text.");
-  if (!isRecord(value.productOverview)) throw new InvalidJsonError("Product overview must be an object.");
-
-  const candidateSnapshot = {
+  if (!isRecord(value.productOverview)) throw new InvalidJsonError("Product overview must be an object.");  const candidateSnapshot = {
     schemaVersion: PROJECT_SCHEMA_VERSION,
     isClean: false,
     businessCounter: 0,
@@ -109,6 +139,7 @@ const importProject = (self_: unknown, value: unknown): void => {
       ? value.stageInputFingerprints
       : {},
     conversation: Array.isArray(value.conversation) ? value.conversation : [],
+    conversationBranches: parseConversationBranches(value.conversationBranches ?? []),
     conversationSidebarOpen: value.conversationSidebarOpen === true,
   };
 
