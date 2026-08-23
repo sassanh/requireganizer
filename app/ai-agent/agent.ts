@@ -11,11 +11,11 @@ import type { ProviderCallMetadata } from "lib/types";
 import type { FlatStore } from "store/store";
 
 import type { AiCommand } from "./command";
-import { renderCommand } from "./command";
+import { parseCommandMessage, renderCommand } from "./command";
 import { zenGatewayModel } from "./model";
 import { proxyStreamFn } from "./proxy-stream";
 import { buildReadTools } from "./read-tools";
-import { buildResultTools } from "./result-tools";
+import { buildCommunicateTool, buildResultTools } from "./result-tools";
 import { buildAgentSystemPrompt } from "./system-prompt";
 
 function overlayBridge(
@@ -23,11 +23,21 @@ function overlayBridge(
   collected: { usage: Usage[]; turns: number },
   live: AgentMessage[],
 ): (event: AgentEvent) => void {
-  let lastLiveFlush = 0;
-  const flushLive = (force = false) => {
+  // Streaming delivers one event per token delta. Writing every delta into
+  // the store synchronously floods React with nested observer updates
+  // ("Maximum update depth exceeded") and re-serializes the project for
+  // autosave per token, so both stores share one throttled flush.
+  let lastFlush = 0;
+  let pendingThinking = "";
+
+  const flush = (force = false) => {
     const now = Date.now();
-    if (!force && now - lastLiveFlush < 80) return;
-    lastLiveFlush = now;
+    if (!force && now - lastFlush < 80) return;
+    lastFlush = now;
+    if (pendingThinking.length > 0) {
+      store.appendThinking(pendingThinking);
+      pendingThinking = "";
+    }
     store.setConversation([...live]);
   };
 
@@ -38,22 +48,20 @@ function overlayBridge(
         break;
       case "message_start":
         live.push(event.message as AgentMessage);
-        flushLive(true);
+        flush(true);
         break;
       case "message_update": {
         const inner = event.assistantMessageEvent;
-        if (inner.type === "thinking_delta") {
-          store.appendThinking(inner.delta);
-        } else if (inner.type === "text_delta") {
-          store.appendThinking(inner.delta);
+        if (inner.type === "thinking_delta" || inner.type === "text_delta") {
+          pendingThinking += inner.delta;
         }
         if (live.length > 0) live[live.length - 1] = event.message as AgentMessage;
-        flushLive();
+        flush();
         break;
       }
       case "message_end":
         if (live.length > 0) live[live.length - 1] = event.message as AgentMessage;
-        flushLive(true);
+        flush(true);
         break;
       case "tool_execution_start":
         store.appendThinking(`\n[tool: ${event.toolName}]\n`);
@@ -124,6 +132,67 @@ export function getProjectAgent(
   });
 }
 
+function userMessageText(message: AgentMessage): string | undefined {
+  if (message.role !== "user") return undefined;
+  // Some transcript entries in the message union carry no content at all.
+  const block = (message as { content?: unknown }).content;
+  if (!Array.isArray(block)) return undefined;
+  const first = block[0];
+  if (typeof first === "string") return first;
+  if (first != null && typeof first === "object" && "text" in first) {
+    return String((first as { text: unknown }).text);
+  }
+  return undefined;
+}
+
+/**
+ * The most recent command anywhere in the transcript, scanning past plain
+ * conversation turns. A stage keeps its result tools until a newer command
+ * supersedes it; otherwise an interrupted submission (provider error mid-
+ * turn) could never be retried once the user sends a plain message.
+ */
+function latestTranscriptCommand(
+  messages: readonly AgentMessage[],
+): AiCommand | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.role !== "user") continue;
+    const text = userMessageText(message);
+    const command = text == null ? null : parseCommandMessage(text);
+    if (command != null) return command;
+  }
+  return null;
+}
+
+/**
+ * Re-issuing a stage command after a failed attempt replaces the dead
+ * attempt instead of accumulating identical command copies. A duplicate is
+ * recognized by the exact same command text whose turn ended in an error.
+ */
+function discardFailedDuplicateCommand(
+  store: FlatStore,
+  commandText: string,
+): void {
+  const messages = [...(store.conversation ?? [])] as AgentMessage[];
+  let commandIndex = -1;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.role !== "user") continue;
+    if (userMessageText(message) === commandText) commandIndex = index;
+    break;
+  }
+  if (commandIndex < 0) return;
+  const tail = messages.slice(commandIndex + 1);
+  const onlyAttemptDebris = tail.every(
+    (message) => message.role === "assistant" || message.role === "toolResult",
+  );
+  const last = tail[tail.length - 1];
+  const endedInError = tail.length === 0 ||
+    (last?.role === "assistant" && last.stopReason === "error");
+  if (!onlyAttemptDebris || !endedInError) return;
+  store.setConversation(messages.slice(0, commandIndex));
+}
+
 /**
  * Run one user command through the conversation: refresh tools for the
  * command, prompt the agent, persist the transcript, and surface provider
@@ -135,6 +204,45 @@ export async function runAgentCommand(
   command: AiCommand,
   streamFn?: AgentOptions["streamFn"],
 ): Promise<void> {
+  discardFailedDuplicateCommand(store, renderCommand(command));
+  const tools = [
+    ...buildReadTools(store),
+    ...buildResultTools(store, command),
+  ];
+  await runAgentTurn(store, operation, renderCommand(command), tools, streamFn);
+}
+
+/**
+ * Run a free-form conversation turn (a plain user message, a regenerate, or
+ * an edited message). The tools are derived from the most recent command in
+ * the transcript so an unfinished stage keeps its result tool, while turns
+ * with no pending stage keep only reads and communicate.
+ */
+export async function runConversationTurn(
+  store: FlatStore,
+  operation: string,
+  prompt: string | undefined,
+  streamFn?: AgentOptions["streamFn"],
+): Promise<void> {
+  const command = latestTranscriptCommand(
+    (store.conversation ?? []) as AgentMessage[],
+  );
+  const tools = command == null
+    ? [...buildReadTools(store), buildCommunicateTool()]
+    : [
+        ...buildReadTools(store),
+        ...buildResultTools(store, command),
+      ];
+  await runAgentTurn(store, operation, prompt, tools, streamFn);
+}
+
+async function runAgentTurn(
+  store: FlatStore,
+  operation: string,
+  prompt: string | undefined,
+  tools: AgentTool[],
+  streamFn?: AgentOptions["streamFn"],
+): Promise<void> {
   const agent = getProjectAgent(store, streamFn);
   store.setActiveAgent(agent);
 
@@ -143,9 +251,14 @@ export async function runAgentCommand(
   const unsubscribe = agent.subscribe(overlayBridge(store, collected, live));
   const startedAt = Date.now();
   try {
-    const readTools: AgentTool[] = buildReadTools(store);
-    agent.state.tools = [...readTools, ...buildResultTools(store, command)];
-    await agent.prompt(renderCommand(command));
+    agent.state.tools = tools;
+    // An undefined prompt resumes the existing transcript (regenerate/edit
+    // flows); a string appends a new user message first.
+    if (prompt == null) {
+      await agent.continue();
+    } else {
+      await agent.prompt(prompt);
+    }
 
     // Persist the authoritative transcript on every outcome (success, error,
     // and abort) so the sidebar reflects partial work as well.

@@ -29,7 +29,6 @@ export function buildReadTools(store: FlatStore): AgentTool[] {
         }));
       return textResult(JSON.stringify({
         description: store.description,
-        isBusy: store.isBusy,
         stages,
       }));
     },

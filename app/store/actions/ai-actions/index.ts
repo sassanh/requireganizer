@@ -1,4 +1,9 @@
 export { default as handleComment } from "./handle-comment";
+export {
+  branchFromMessage,
+  regenerateLastReply,
+} from "./conversation-history";
+export { default as sendConversationMessage } from "./send-conversation-message";
 export { default as generateAcceptanceCriteria } from "./generate-acceptance-criteria";
 export { default as generateBoundaryDesign } from "./generate-boundary-design";
 export { default as generateImplementationProfile } from "./generate-implementation-profile";

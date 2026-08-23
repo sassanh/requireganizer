@@ -212,13 +212,8 @@ function scenarioSnapshot(scenario: TestScenario) {
   };
 }
 
-/**
- * Build the result tools for one conversation turn. The tools embed the live
- * store state (valid IDs, revisions) at call time and apply validated
- * proposals directly to the store.
- */
-export function buildResultTools(store: FlatStore, command: AiCommand): AgentTool[] {
-  const communicate: AgentTool = {
+export function buildCommunicateTool(store?: FlatStore): AgentTool {
+  return {
     name: COMMUNICATE_TOOL.name,
     label: "Ask the user",
     description: COMMUNICATE_TOOL.description ?? COMMUNICATE_TOOL.name,
@@ -234,13 +229,22 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
       if (typeof message !== "string" || message.trim().length === 0) {
         throw new Error("A concise question is required.");
       }
-      store.communicate({ description: message });
+      store?.communicate({ description: message });
       return {
         content: [{ type: "text", text: "Question delivered to the user." }],
         details: {},
       };
     },
   };
+}
+
+/**
+ * Build the result tools for one conversation turn. The tools embed the live
+ * store state (valid IDs, revisions) at call time and apply validated
+ * proposals directly to the store.
+ */
+export function buildResultTools(store: FlatStore, command: AiCommand): AgentTool[] {
+  const communicate = buildCommunicateTool(store);
 
   const stageTools: AgentTool[] = [];
 

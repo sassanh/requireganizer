@@ -48,7 +48,9 @@
     "openai": "^7.4.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "react-markdown": "^10.1.0",
     "react-textarea-autosize": "^8.5.9",
+    "remark-gfm": "^4.0.1",
     "shiki": "^4.4.3",
     "uuid": "^14.0.1"
   },

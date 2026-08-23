@@ -59,6 +59,9 @@ import {
   handleComment,
   import as import_,
   reviseFormalContract,
+  sendConversationMessage,
+  branchFromMessage,
+  regenerateLastReply,
 } from "./actions";
 import {
   GENERATION_PREREQUISITE_BY_STEP,
@@ -902,6 +905,9 @@ export const FlatStore = types
 export const Store = FlatStore.actions(
   withSelf({
     handleComment,
+    sendConversationMessage,
+    branchFromMessage,
+    regenerateLastReply,
     generateProductOverview,
     generateUserStories,
     generateRequirements,

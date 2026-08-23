@@ -487,6 +487,23 @@ export function applyProjectSetupProposal(
   );
 }
 
+/**
+ * Lead the error details with the actual failure reason (message plus any
+ * wrapped causes), then the raw stack. A bare stack trace names framework
+ * frames but hides what went wrong; the reason is what an operator needs.
+ */
+export function describeError(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  const lines = [`${error.name}: ${error.message}`];
+  let cause: unknown = error.cause;
+  while (cause instanceof Error && lines.length < 5) {
+    lines.push(`Caused by: ${cause.message}`);
+    cause = cause.cause;
+  }
+  const stack = error.stack ?? "";
+  return stack.length > 0 ? `${lines.join("\n")}\n\n${stack}` : lines.join("\n");
+}
+
 export function generator<
   const U extends unknown[],
   Requirements extends string & keyof SnapshotOrInstance<FlatStore>,
@@ -575,9 +592,7 @@ export function generator<
         ),
         details:
           process.env.NODE_ENV === "development"
-            ? error instanceof Error
-              ? error.stack ?? `${error.name}: ${error.message}`
-              : String(error)
+            ? describeError(error)
             : undefined,
       });
     } finally {

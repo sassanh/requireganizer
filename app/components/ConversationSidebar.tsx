@@ -1,6 +1,15 @@
 "use client";
 
-import { Forum, Stop } from "@mui/icons-material";
+import {
+  Close,
+  Download,
+  ExpandMore,
+  Forum,
+  Refresh,
+  Send,
+  Stop,
+  Undo,
+} from "@mui/icons-material";
 import {
   Alert,
   Box,
@@ -8,13 +17,21 @@ import {
   Chip,
   CircularProgress,
   Collapse,
+  IconButton,
   Paper,
   Stack,
+  TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
+import { alpha } from "@mui/material/styles";
+import { saveAs } from "file-saver";
 import { observer } from "mobx-react-lite";
 import { useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
+import { describeCommand, parseCommandMessage } from "ai-agent/command";
 import { useStore } from "store";
 
 type ContentBlock = {
@@ -105,17 +122,27 @@ function InlineOutput({
   );
 }
 
-function MessageView({ message }: { message: ConversationMessage }) {
+function MessageView({
+  message,
+  index,
+  busy,
+  onRevert,
+}: {
+  message: ConversationMessage;
+  index: number;
+  busy: boolean;
+  onRevert: (index: number) => void;
+}) {
   const blocks = toBlocks(message.content);
 
   if (message.role === "user") {
+    const text = blockText(blocks, "text");
+    const command = parseCommandMessage(text);
+    if (command != null) {
+      return <CommandBubble summary={describeCommand(command)} raw={text} />;
+    }
     return (
-      <Paper variant="outlined" sx={{ p: 1.25 }}>
-        <Typography variant="caption" color="text.secondary">You</Typography>
-        <Box component="pre" sx={{ m: 0, fontFamily: "monospace", fontSize: 11, whiteSpace: "pre-wrap" }}>
-          {blockText(blocks, "text")}
-        </Box>
-      </Paper>
+      <UserBubble text={text} index={index} busy={busy} onRevert={onRevert} />
     );
   }
 
@@ -156,11 +183,146 @@ function MessageView({ message }: { message: ConversationMessage }) {
         </Stack>
       )}
       {text.trim().length > 0 && (
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            p: ({ children }) => (
+              <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
+                {children}
+              </Typography>
+            ),
+            code: ({ children }) => (
+              <Box
+                component="code"
+                sx={{
+                  fontFamily: "monospace",
+                  fontSize: 12,
+                  px: 0.5,
+                  borderRadius: 0.5,
+                  bgcolor: (theme) => alpha(theme.palette.text.primary, 0.08),
+                }}
+              >
+                {children}
+              </Box>
+            ),
+            pre: ({ children }) => (
+              <Box
+                component="pre"
+                sx={{
+                  m: 0,
+                  p: 1,
+                  overflowX: "auto",
+                  borderRadius: 1,
+                  fontSize: 12,
+                  bgcolor: (theme) => alpha(theme.palette.text.primary, 0.06),
+                }}
+              >
+                {children}
+              </Box>
+            ),
+          }}
+        >
+          {text}
+        </ReactMarkdown>
+      )}
+    </Stack>
+  );
+}
+
+function UserBubble({
+  text,
+  index,
+  busy,
+  onRevert,
+}: {
+  text: string;
+  index: number;
+  busy: boolean;
+  onRevert: (index: number) => void;
+}) {
+  return (
+    <Box
+      sx={{
+        alignSelf: "flex-end",
+        ml: 8,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "flex-end",
+        gap: 0.25,
+        maxWidth: "100%",
+        // Chat-app convention: the reader's own bubbles sit flush to the
+        // right edge on a faint accent tint with an accent border, and their
+        // actions tuck underneath. Actions reveal on hover; touch devices
+        // keep them permanently visible.
+        "& .message-actions": {
+          opacity: { xs: 1, md: 0 },
+          "@media (hover: none)": { opacity: 1 },
+        },
+        "&:hover .message-actions": { opacity: 1 },
+      }}
+    >
+      <Paper
+        variant="outlined"
+        className="message-bubble"
+        sx={{
+          p: 1.25,
+          minWidth: 0,
+          bgcolor: (theme) => alpha(theme.palette.primary.main, 0.08),
+          borderColor: "primary.main",
+        }}
+      >
         <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
           {text}
         </Typography>
-      )}
-    </Stack>
+      </Paper>
+      <Stack
+        className="message-actions"
+        direction="row"
+        spacing={0}
+        sx={{ transition: "opacity 150ms ease" }}
+      >
+        <Tooltip title="Rewind here — continue from before this message">
+          <span>
+            <IconButton
+              size="small"
+              aria-label="Revert to before this message"
+              disabled={busy}
+              onClick={() => onRevert(index)}
+            >
+              <Undo fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
+      </Stack>
+    </Box>
+  );
+}
+
+/**
+ * Dev-only escape hatch: dump the raw conversation transcript to a JSON file
+ * so a failing conversation can be shared and investigated offline.
+ */
+function DevExportConversationButton({ messages }: { messages: ConversationMessage[] }) {
+  const exportConversation = () => {
+    saveAs(
+      new Blob([JSON.stringify(messages, null, 2)], { type: "application/json;charset=utf-8" }),
+      `requireganizer-conversation-${Date.now()}.json`,
+    );
+  };
+
+  return (
+    <Tooltip title="Export conversation JSON (dev only)">
+      <span>
+        <IconButton
+          size="small"
+          aria-label="Export conversation JSON"
+          disabled={messages.length === 0}
+          onClick={exportConversation}
+        >
+          <Download fontSize="small" />
+        </IconButton>
+      </span>
+    </Tooltip>
   );
 }
 
@@ -168,8 +330,89 @@ function ConversationSidebar() {
   const store = useStore();
   const messages = (store.conversation ?? []) as unknown as ConversationMessage[];
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  // Auto-scroll only while the reader keeps the viewport within the last 5%
+  // of the scroll course; scrolling up pauses following until they return.
+  const followsLatestRef = useRef(true);
+  const busy = store.isBusy;
+  // Rewind mode: the transcript is shown up to (excluding) this user message
+  // and the next composer send branches from here, discarding the turn and
+  // everything after it. Nothing is committed until that send; cancel simply
+  // clears the view back to the full transcript. The anchor only counts
+  // while it still points at a user message, so stale indices invalidate
+  // themselves.
+  const [revertAnchorIndex, setRevertAnchorIndex] = useState<number | null>(null);
+  const revertAnchor = revertAnchorIndex != null && messages[revertAnchorIndex]?.role === "user"
+    ? revertAnchorIndex
+    : null;
+  // The composer draft is lifted here so rewinding can prefill it with the
+  // message being rewritten and cancelling restores whatever was typed
+  // before the rewind started.
+  const [composerDraft, setComposerDraft] = useState("");
+  const [draftBeforeRewind, setDraftBeforeRewind] = useState("");
+  // Cancelling a rewind flashes the anchor message so the reader keeps their
+  // bearings inside the restored transcript instead of getting lost.
+  const entryRefs = useRef(new Map<number, HTMLDivElement | null>());
+  const highlightTimerRef = useRef<number | null>(null);
+  const [highlightedIndex, setHighlightedIndex] = useState<number | null>(null);
 
-  const last = messages[messages.length - 1];
+  useEffect(() => () => {
+    if (highlightTimerRef.current != null) {
+      window.clearTimeout(highlightTimerRef.current);
+    }
+  }, []);
+
+  const startRevert = (index: number) => {
+    if (busy) return;
+    // Prefill the composer with the message being rewritten. The first
+    // rewind also remembers the in-progress draft so cancelling can put it
+    // back; moving the anchor to another message keeps that original backup.
+    if (revertAnchorIndex == null) {
+      setDraftBeforeRewind(composerDraft);
+    }
+    setComposerDraft(blockText(toBlocks(messages[index]?.content), "text"));
+    setRevertAnchorIndex(index);
+  };
+
+  const cancelRevert = () => {
+    if (busy) return;
+    const index = revertAnchorIndex;
+    // Detach auto-follow first: the restored transcript is longer than the
+    // rewound view, and the follow effect would otherwise yank the pane to
+    // the bottom, cancelling the smooth reveal below.
+    followsLatestRef.current = false;
+    setRevertAnchorIndex(null);
+    setComposerDraft(draftBeforeRewind);
+    setDraftBeforeRewind("");
+    if (index == null) return;
+    // Runs after the restored transcript has painted, so the node exists.
+    setHighlightedIndex(index);
+  };
+
+  useEffect(() => {
+    if (highlightedIndex == null) return;
+    entryRefs.current.get(highlightedIndex)?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+    if (highlightTimerRef.current != null) {
+      window.clearTimeout(highlightTimerRef.current);
+    }
+    highlightTimerRef.current = window.setTimeout(() => {
+      setHighlightedIndex(null);
+    }, 1600);
+    return () => {
+      if (highlightTimerRef.current != null) {
+        window.clearTimeout(highlightTimerRef.current);
+      }
+    };
+  }, [highlightedIndex]);
+
+  // While rewinding, render the prefix before the anchor; indices stay
+  // aligned with the store transcript so actions keep addressing real
+  // entries.
+  const visibleCount = revertAnchor ?? messages.length;
+  const visibleMessages = messages.slice(0, visibleCount);
+  const last = visibleMessages[visibleMessages.length - 1];
   const lastContentLength = (() => {
     const blocks = toBlocks(last?.content);
     let size = 0;
@@ -179,12 +422,27 @@ function ConversationSidebar() {
     return size;
   })();
 
-  useEffect(() => {
+  const followLatestWhilePinned = () => {
     const scroller = scrollRef.current;
-    if (store.conversationSidebarOpen && scroller != null) {
-      scroller.scrollTop = scroller.scrollHeight;
-    }
-  }, [store.conversationSidebarOpen, messages.length, lastContentLength]);
+    if (!store.conversationSidebarOpen || scroller == null) return;
+    if (!followsLatestRef.current) return;
+    scroller.scrollTop = scroller.scrollHeight;
+  };
+
+  const handleScroll = () => {
+    const scroller = scrollRef.current;
+    if (scroller == null) return;
+    const course = scroller.scrollHeight - scroller.clientHeight;
+    followsLatestRef.current =
+      course <= 0 || scroller.scrollTop / course >= 0.95;
+  };
+
+  useEffect(() => {
+    followLatestWhilePinned();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- follow content changes only
+  }, [store.conversationSidebarOpen, visibleMessages.length, lastContentLength]);
+
+  const hasReply = visibleMessages.some((message) => message.role === "assistant");
 
   return (
     <Paper
@@ -210,6 +468,9 @@ function ConversationSidebar() {
         <Typography variant="subtitle1" sx={{ flexGrow: 1 }}>
           AI conversation
         </Typography>
+        {process.env.NODE_ENV === "development" && (
+          <DevExportConversationButton messages={messages} />
+        )}
         {store.thinkingLabel != null && (
           <>
             <CircularProgress size={16} disableShrink />
@@ -224,20 +485,204 @@ function ConversationSidebar() {
           </>
         )}
       </Stack>
-      <Box ref={scrollRef} sx={{ flexGrow: 1, overflowY: "auto", p: 1.5 }}>
+      <Box ref={scrollRef} onScroll={handleScroll} sx={{ flexGrow: 1, overflowY: "auto", p: 1.5 }}>
         {messages.length === 0 ? (
           <Alert severity="info">
             No conversation yet. Generate an artifact to start the agentic conversation.
           </Alert>
         ) : (
-          <Stack spacing={1.5}>
-            {messages.map((message, index) => (
-              <MessageView key={index} message={message} />
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+            {messages.slice(0, visibleCount).map((message, index) => (
+              <Box
+                key={index}
+                ref={(node: HTMLDivElement | null) => {
+                  if (node == null) entryRefs.current.delete(index);
+                  else entryRefs.current.set(index, node);
+                }}
+                sx={[
+                  { minWidth: 0 },
+                  // The flash targets the message bubble itself, not the
+                  // whole row container.
+                  index === highlightedIndex && {
+                    "& .message-bubble": {
+                      "@keyframes conversationBlink": {
+                        "0%, 100%": { boxShadow: "none" },
+                        "50%": {
+                          boxShadow: (theme) =>
+                            `0 0 0 4px ${alpha(theme.palette.primary.main, 0.45)}`,
+                        },
+                      },
+                      animation: "conversationBlink 600ms ease-in-out 2",
+                    },
+                  },
+                ]}
+              >
+                <MessageView
+                  key={index}
+                  message={message}
+                  index={index}
+                  busy={busy}
+                  onRevert={startRevert}
+                />
+              </Box>
             ))}
-          </Stack>
+            {!busy && revertAnchor == null && hasReply && (
+              <Tooltip title="Regenerate — starts a new branch from the last reply">
+                <Button
+                  size="small"
+                  startIcon={<Refresh />}
+                  onClick={() => void store.regenerateLastReply()}
+                  sx={{ alignSelf: "flex-start" }}
+                >
+                  Regenerate
+                </Button>
+              </Tooltip>
+            )}
+          </Box>
         )}
       </Box>
+      <ConversationComposer
+        draft={composerDraft}
+        onDraftChange={setComposerDraft}
+        rewindAnchor={revertAnchor}
+        onClearRewind={() => {
+          setRevertAnchorIndex(null);
+          setDraftBeforeRewind("");
+        }}
+        onCancelRewind={cancelRevert}
+      />
     </Paper>
+  );
+}
+
+function CommandBubble({ summary, raw }: { summary: string; raw: string }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <Paper
+      variant="outlined"
+      sx={{
+        p: 1.25,
+        // UI-initiated commands: dashed accent border marks them as generated
+        // by the interface rather than typed by the reader.
+        alignSelf: "flex-end",
+        ml: 8,
+        bgcolor: (theme) => alpha(theme.palette.primary.main, 0.08),
+        borderColor: "primary.main",
+        borderStyle: "dashed",
+      }}
+    >
+      <Stack
+        direction="row"
+        spacing={0.75}
+        onClick={() => setExpanded((open) => !open)}
+        sx={{ alignItems: "center", cursor: "pointer", userSelect: "none" }}
+      >
+        <ExpandMore
+          fontSize="small"
+          sx={{
+            transform: expanded ? "rotate(180deg)" : "none",
+            transition: "transform 150ms ease",
+          }}
+        />
+        <Typography variant="caption" sx={{ flexGrow: 1 }}>
+          {summary}
+        </Typography>
+      </Stack>
+      <Collapse in={expanded}>
+        <Box component="pre" sx={{ m: 0, mt: 1, fontFamily: "monospace", fontSize: 11, whiteSpace: "pre-wrap" }}>
+          {raw}
+        </Box>
+      </Collapse>
+    </Paper>
+  );
+}
+
+function ConversationComposer({
+  draft,
+  onDraftChange,
+  rewindAnchor,
+  onClearRewind,
+  onCancelRewind,
+}: {
+  draft: string;
+  onDraftChange: (draft: string) => void;
+  rewindAnchor: number | null;
+  onClearRewind: () => void;
+  onCancelRewind: () => void;
+}) {
+  const store = useStore();
+  const rewindActive = rewindAnchor != null;
+
+  const sendDraft = () => {
+    const trimmed = draft.trim();
+    if (trimmed.length === 0) return;
+    onDraftChange("");
+    if (rewindAnchor != null) {
+      // Committing a rewind branches from the anchor. Clear the pending
+      // rewind first so the view returns to normal regardless of how the
+      // operation ends.
+      const index = rewindAnchor;
+      onClearRewind();
+      void store.branchFromMessage({ index, message: trimmed });
+    } else {
+      void store.sendConversationMessage({ message: trimmed });
+    }
+  };
+
+  return (
+    <Box sx={{ borderTop: 1, borderColor: "divider" }}>
+      {rewindActive && (
+        <Stack
+          direction="row"
+          sx={{ alignItems: "center", gap: 1, px: 1.5, pt: 1 }}
+        >
+          <Undo fontSize="small" color="primary" />
+          <Typography variant="caption" sx={{ flexGrow: 1 }}>
+            Rewinding — your next message continues from this point.
+          </Typography>
+          <Tooltip title="Cancel rewind">
+            <IconButton
+            size="small"
+            aria-label="Cancel rewind"
+            disabled={store.isBusy}
+            onClick={onCancelRewind}
+          >
+            <Close fontSize="small" />
+          </IconButton>
+          </Tooltip>
+        </Stack>
+      )}
+      <Stack
+        direction="row"
+        sx={{ alignItems: "flex-end", gap: 1, p: 1.5, pt: rewindActive ? 0.5 : 1.5 }}
+      >
+        <TextField
+          value={draft}
+          onChange={(event) => onDraftChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+              event.preventDefault();
+              sendDraft();
+            }
+          }}
+          placeholder={rewindActive ? "Continue from here…" : "Ask the agent…"}
+          multiline
+          maxRows={6}
+          fullWidth
+          size="small"
+          disabled={store.isBusy}
+        />
+        <IconButton
+          aria-label="Send message"
+          color="primary"
+          disabled={store.isBusy || draft.trim().length === 0}
+          onClick={sendDraft}
+        >
+          <Send />
+        </IconButton>
+      </Stack>
+    </Box>
   );
 }
 
