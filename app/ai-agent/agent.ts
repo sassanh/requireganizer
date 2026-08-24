@@ -11,12 +11,26 @@ import type { ProviderCallMetadata } from "lib/types";
 import type { FlatStore } from "store/store";
 
 import type { AiCommand } from "./command";
-import { parseCommandMessage, renderCommand } from "./command";
+import { renderCommand } from "./command";
 import { zenGatewayModel } from "./model";
 import { proxyStreamFn } from "./proxy-stream";
 import { buildReadTools } from "./read-tools";
-import { buildCommunicateTool, buildResultTools } from "./result-tools";
+import {
+  buildAllStageResultTools,
+  buildCommunicateTool,
+  buildResultTools,
+  buildStageActivationTool,
+  consumePendingStageUnlock,
+} from "./result-tools";
 import { buildAgentSystemPrompt } from "./system-prompt";
+
+// Stable per-project session id: pi-ai turns it into prompt-cache affinity
+// (prompt_cache_key / session headers) where the provider supports it.
+let agentSessionId: string | null = null;
+
+export function setAgentSessionId(id: string | null): void {
+  agentSessionId = id;
+}
 
 function overlayBridge(
   store: FlatStore,
@@ -129,6 +143,22 @@ export function getProjectAgent(
       messages: (store.conversation ?? []) as AgentMessage[],
     },
     streamFn,
+    ...(agentSessionId != null && { sessionId: agentSessionId }),
+    // Mid-turn stage unlocks: when the model calls activate_stage_result_tool,
+    // the unlocked submission tools are merged into the very next request of
+    // the same turn.
+    prepareNextTurnWithContext: (context) => {
+      const unlocked = consumePendingStageUnlock();
+      if (unlocked == null) return undefined;
+      const current = context.context.tools ?? [];
+      const merged = [
+        ...current,
+        ...unlocked.filter(
+          (tool) => !current.some((existing) => existing.name === tool.name),
+        ),
+      ];
+      return { context: { ...context.context, tools: merged } };
+    },
   });
 }
 
@@ -143,25 +173,6 @@ function userMessageText(message: AgentMessage): string | undefined {
     return String((first as { text: unknown }).text);
   }
   return undefined;
-}
-
-/**
- * The most recent command anywhere in the transcript, scanning past plain
- * conversation turns. A stage keeps its result tools until a newer command
- * supersedes it; otherwise an interrupted submission (provider error mid-
- * turn) could never be retried once the user sends a plain message.
- */
-function latestTranscriptCommand(
-  messages: readonly AgentMessage[],
-): AiCommand | null {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (message.role !== "user") continue;
-    const text = userMessageText(message);
-    const command = text == null ? null : parseCommandMessage(text);
-    if (command != null) return command;
-  }
-  return null;
 }
 
 /**
@@ -194,9 +205,25 @@ function discardFailedDuplicateCommand(
 }
 
 /**
- * Run one user command through the conversation: refresh tools for the
- * command, prompt the agent, persist the transcript, and surface provider
- * metadata. Throws on provider failure so the caller's error handling applies.
+ * The full conversation toolset: read tools, every stage submission channel
+ * whose prerequisites currently hold, the stage activation escape hatch, and
+ * the communicate channel. Composition is stable across turns (it only
+ * changes when the workflow itself unlocks a stage), which keeps the
+ * provider-side prompt cache warm.
+ */
+function buildConversationTools(store: FlatStore): AgentTool[] {
+  return [
+    ...buildReadTools(store),
+    ...buildAllStageResultTools(store),
+    buildStageActivationTool(store),
+    buildCommunicateTool(),
+  ];
+}
+
+/**
+ * Run one user command through the conversation: refresh tools, prompt the
+ * agent, persist the transcript, and surface provider metadata. Throws on
+ * provider failure so the caller's error handling applies.
  */
 export async function runAgentCommand(
   store: FlatStore,
@@ -205,18 +232,26 @@ export async function runAgentCommand(
   streamFn?: AgentOptions["streamFn"],
 ): Promise<void> {
   discardFailedDuplicateCommand(store, renderCommand(command));
-  const tools = [
-    ...buildReadTools(store),
-    ...buildResultTools(store, command),
-  ];
-  await runAgentTurn(store, operation, renderCommand(command), tools, streamFn);
+  // The full toolset is always present; the command contributes only its
+  // own extras (revision targets, test-code channel), which construction
+  // validates against the command.
+  const allTools = buildConversationTools(store);
+  const commandTools = buildResultTools(store, command);
+  const extras = commandTools.filter(
+    (tool) => !allTools.some((existing) => existing.name === tool.name),
+  );
+  await runAgentTurn(
+    store,
+    operation,
+    renderCommand(command),
+    [...allTools, ...extras],
+    streamFn,
+  );
 }
 
 /**
  * Run a free-form conversation turn (a plain user message, a regenerate, or
- * an edited message). The tools are derived from the most recent command in
- * the transcript so an unfinished stage keeps its result tool, while turns
- * with no pending stage keep only reads and communicate.
+ * an edited message) with the full toolset.
  */
 export async function runConversationTurn(
   store: FlatStore,
@@ -224,16 +259,7 @@ export async function runConversationTurn(
   prompt: string | undefined,
   streamFn?: AgentOptions["streamFn"],
 ): Promise<void> {
-  const command = latestTranscriptCommand(
-    (store.conversation ?? []) as AgentMessage[],
-  );
-  const tools = command == null
-    ? [...buildReadTools(store), buildCommunicateTool()]
-    : [
-        ...buildReadTools(store),
-        ...buildResultTools(store, command),
-      ];
-  await runAgentTurn(store, operation, prompt, tools, streamFn);
+  await runAgentTurn(store, operation, prompt, buildConversationTools(store), streamFn);
 }
 
 async function runAgentTurn(

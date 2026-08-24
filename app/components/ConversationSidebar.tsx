@@ -6,8 +6,12 @@ import {
   Download,
   ExpandMore,
   Forum,
+  History,
+  Person,
+  Redo,
   Refresh,
   Send,
+  SmartToy,
   Stop,
   Undo,
 } from "@mui/icons-material";
@@ -19,6 +23,8 @@ import {
   CircularProgress,
   Collapse,
   IconButton,
+  List,
+  ListItemButton,
   Menu,
   MenuItem,
   Paper,
@@ -30,7 +36,13 @@ import {
 import { alpha } from "@mui/material/styles";
 import { saveAs } from "file-saver";
 import { observer } from "mobx-react-lite";
-import { Fragment, useEffect, useRef, useState } from "react";
+import {
+  Fragment,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -42,6 +54,17 @@ import {
   isBranchAttachable,
 } from "store/conversation-branches";
 import type { ConversationBranchRecord } from "store/conversation-branches";
+import {
+  canRedo,
+  canUndo,
+  commitTimelineSegment,
+  jumpToNode,
+  onTimelineChange,
+  redo,
+  timelineCursor,
+  timelineEntries,
+  undo,
+} from "store/timeline/controller";
 
 type ContentBlock = {
   type: string;
@@ -411,6 +434,41 @@ function ConversationSidebar() {
     anchor: HTMLElement;
     forkIndex: number;
   } | null>(null);
+  // Timeline (undo/redo) state lives outside mobx; subscribe to it
+  // externally so the pane re-renders when nodes are recorded or restored.
+  const timeline = useSyncExternalStore(
+    onTimelineChange,
+    timelineEntries,
+    timelineEntries,
+  );
+  const cursor = useSyncExternalStore(
+    onTimelineChange,
+    timelineCursor,
+    timelineCursor,
+  );
+  const [historyOpen, setHistoryOpen] = useState(false);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "z") {
+        return;
+      }
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      event.preventDefault();
+      if (event.shiftKey) redo();
+      else undo();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   useEffect(() => () => {
     if (highlightTimerRef.current != null) {
@@ -525,6 +583,42 @@ function ConversationSidebar() {
         <Typography variant="subtitle1" sx={{ flexGrow: 1 }}>
           AI conversation
         </Typography>
+        <Tooltip title="Undo (Cmd+Z)">
+          <span>
+            <IconButton
+              size="small"
+              aria-label="Undo"
+              disabled={busy || cursor <= 0}
+              onClick={undo}
+            >
+              <Undo fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
+        <Tooltip title="Redo (Cmd+Shift+Z)">
+          <span>
+            <IconButton
+              size="small"
+              aria-label="Redo"
+              disabled={busy || cursor >= timeline.length - 1}
+              onClick={redo}
+            >
+              <Redo fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
+        <Tooltip title="History">
+          <span>
+            <IconButton
+              size="small"
+              aria-label="Toggle history"
+              disabled={timeline.length === 0}
+              onClick={() => setHistoryOpen((open) => !open)}
+            >
+              <History fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
         {process.env.NODE_ENV === "development" && (
           <DevExportConversationButton messages={messages} />
         )}
@@ -542,6 +636,47 @@ function ConversationSidebar() {
           </>
         )}
       </Stack>
+      <Collapse in={historyOpen}>
+        <Box sx={{ maxHeight: 200, overflowY: "auto", borderBottom: 1, borderColor: "divider" }}>
+          <List dense disablePadding>
+            {timeline
+              .map((node, index) => ({ node, index }))
+              .reverse()
+              .map(({ node, index }) => (
+                <ListItemButton
+                  key={node.id}
+                  dense
+                  selected={index === cursor}
+                  disabled={busy}
+                  onClick={() => jumpToNode(index)}
+                  sx={{ py: 0.25 }}
+                >
+                  <Stack
+                    direction="row"
+                    spacing={0.75}
+                    sx={{ alignItems: "center", minWidth: 0, width: "100%" }}
+                  >
+                    {node.source === "ai" ? (
+                      <SmartToy fontSize="small" color="primary" sx={{ fontSize: 14 }} />
+                    ) : (
+                      <Person fontSize="small" sx={{ fontSize: 14 }} />
+                    )}
+                    <Typography
+                      variant="caption"
+                      noWrap
+                      sx={{ flexGrow: 1, fontWeight: index === cursor ? 700 : 400 }}
+                    >
+                      {node.label}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {new Date(node.createdAt).toLocaleTimeString()}
+                    </Typography>
+                  </Stack>
+                </ListItemButton>
+              ))}
+          </List>
+        </Box>
+      </Collapse>
       <Box ref={scrollRef} onScroll={handleScroll} sx={{ flexGrow: 1, overflowY: "auto", p: 1.5 }}>
         {messages.length === 0 ? (
           <Alert severity="info">

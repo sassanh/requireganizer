@@ -101,6 +101,38 @@ export function getProjectStorageKey(id: string): string {
   return `requireganizer:project:${id}`;
 }
 
+export function getTimelineStorageKey(id: string): string {
+  return `requireganizer:timeline:${id}`;
+}
+
+export function loadTimelineData(id: string): Record<string, unknown> | null {
+  const storage = getBrowserStorage();
+  if (storage == null) return null;
+
+  try {
+    const source = storage.getItem(getTimelineStorageKey(id));
+    if (source == null) return null;
+    const value = parseJson(source, "Stored timeline");
+    if (!isRecord(value) || value.version !== 1) return null;
+    return value;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Returns false when the write failed (e.g. quota exceeded) so the timeline
+ * controller can degrade by trimming history instead of surfacing an error.
+ */
+export function saveTimelineData(id: string, data: unknown): boolean {
+  try {
+    requireBrowserStorage().setItem(getTimelineStorageKey(id), JSON.stringify(data));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function loadProjectData(id: string): Record<string, unknown> | null {
   const storage = getBrowserStorage();
   if (storage == null) return null;
@@ -201,6 +233,7 @@ export function deleteProjectData(id: string): void {
     );
 
     storage.removeItem(projectKey);
+    storage.removeItem(getTimelineStorageKey(id));
     storage.setItem(PROJECTS_INDEX_KEY, JSON.stringify(projects));
     void deleteProjectSnapshots(id).catch((error) => {
       console.error("Could not delete project revision snapshots.", error);

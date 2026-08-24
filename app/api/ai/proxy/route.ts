@@ -22,6 +22,8 @@ const FORWARDABLE_OPTION_KEYS = [
   "maxTokens",
   "thinkingBudgets",
   "samplingParams",
+  "sessionId",
+  "cacheRetention",
 ] as const;
 
 function forwardableOptions(value: unknown): SimpleStreamOptions {

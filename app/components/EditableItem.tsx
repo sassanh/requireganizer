@@ -2,6 +2,7 @@ import { StackProps, TextField } from "@mui/material";
 import { observer } from "mobx-react-lite";
 
 import { StructuralFragment } from "store/models";
+import { commitTimelineSegment } from "store/timeline/controller";
 
 import FragmentShell from "./FragmentShell";
 
@@ -47,6 +48,7 @@ const EditableItem = <Type extends StructuralFragment>({
         multiline
         fullWidth
         onChange={handleChange}
+        onBlur={commitTimelineSegment}
         value={fragment.content}
         disabled={isDisabled}
         sx={{

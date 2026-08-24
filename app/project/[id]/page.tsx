@@ -1,6 +1,8 @@
 "use client";
 import { ArrowBack, FolderOpen, Forum, History } from "@mui/icons-material";
 import {
+  Alert,
+  AlertTitle,
   AppBar,
   Box,
   Button,
@@ -180,6 +182,15 @@ function Home() {
             ...(store.isBusy && { pointerEvents: "none", userSelect: "none" }),
           }}
         >
+          {store.systemMessage && (
+            <Alert
+              severity="success"
+              sx={{ position: "sticky", top: 0, zIndex: 2 }}
+            >
+              <AlertTitle>Needs Action!</AlertTitle>
+              <div>{store.systemMessage}</div>
+            </Alert>
+          )}
           <Suspense fallback={null}>
             <Factory activeProject={activeProject} />
           </Suspense>

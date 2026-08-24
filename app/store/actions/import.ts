@@ -124,7 +124,6 @@ const importProject = (self_: unknown, value: unknown): void => {
     businessCounter: 0,
     description: value.description,
     validationErrors: null,
-    systemMessage: null,
     productOverview: value.productOverview,
     userStories: array(value.userStories, "User stories"),
     requirements: array(value.requirements, "Requirements"),
@@ -141,6 +140,9 @@ const importProject = (self_: unknown, value: unknown): void => {
     conversation: Array.isArray(value.conversation) ? value.conversation : [],
     conversationBranches: parseConversationBranches(value.conversationBranches ?? []),
     conversationSidebarOpen: value.conversationSidebarOpen === true,
+    // The AI's pending question survives reloads; it only clears when the
+    // user or the app actively discards it.
+    systemMessage: typeof value.systemMessage === "string" ? value.systemMessage : null,
   };
 
   const candidate = getType(self).create(candidateSnapshot) as Store;

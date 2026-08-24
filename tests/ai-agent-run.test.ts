@@ -258,6 +258,43 @@ describe("conversation history", () => {
     assert.match(store.validationErrors ?? "", /nothing to regenerate/i);
   });
 
+  it("provides all constructible stage tools by default and dedupes activations", async () => {
+    const store = Store.create({ productOverview: {} }) as unknown as StoreInstance;
+    store.setDescription({ description: "A calculator." });
+
+    const scripted = scriptedStreamFn([
+      assistantMessage([
+        {
+          type: "toolCall",
+          id: "call-activate",
+          name: "activate_stage_result_tool",
+          arguments: { stage: "implementation-profile" },
+        },
+      ]),
+      assistantMessage([
+        { type: "text", text: "Submission channel confirmed ready." },
+      ]),
+    ]);
+
+    await store.sendConversationMessage(
+      { message: "prepare the implementation profile" },
+      scripted,
+    );
+
+    const firstName = scripted.seenToolNames[0];
+    // Every constructible submission channel is present from the start.
+    assert.ok(firstName.includes("submit_implementation_profile"));
+    assert.ok(firstName.includes("activate_stage_result_tool"));
+    // Stages with unmet prerequisites stay out of the toolset.
+    assert.ok(!firstName.includes("submit_test_scenario_list"));
+    // Activating an already-present stage must not duplicate it.
+    const lastName = scripted.seenToolNames.at(-1) ?? [];
+    assert.equal(
+      lastName.filter((name) => name === "submit_implementation_profile").length,
+      1,
+    );
+  });
+
   it("keeps an interrupted stage's result tool available across plain conversation turns", async () => {
     const store = Store.create({ productOverview: {} }) as unknown as StoreInstance;
     const commandText = JSON.stringify({ kind: "generate", stage: Step.ProductOverview });

@@ -31,6 +31,7 @@ import { getUserFacingErrorMessage, UserFacingError } from "lib/errors";
 import { HarnessResult } from "lib/types";
 import { Priority, STEP_LABELS, Status, Step, StructuralFragment } from "store/constants";
 import type { FlatStore, TestCaseSnapshotInput, TestScenarioSnapshotInput } from "store/store";
+import { setTimelineSource } from "store/timeline/controller";
 import { uuid } from "utilities";
 
 export function applyAtomically(
@@ -576,12 +577,17 @@ export function generator<
       incrementedBusinessCounter = true;
       abortController = new AbortController();
       store.beginAiOperation({ operation, controller: abortController });
-      yield* function_(
-        store as Omit<FlatStore, Requirements> & {
-          [key in Requirements]: NonNullable<FlatStore[key]>;
-        },
-        ...args,
-      );
+      setTimelineSource({ kind: "ai", label: operation });
+      try {
+        yield* function_(
+          store as Omit<FlatStore, Requirements> & {
+            [key in Requirements]: NonNullable<FlatStore[key]>;
+          },
+          ...args,
+        );
+      } finally {
+        setTimelineSource(null);
+      }
     } catch (error) {
       if (abortController?.signal.aborted) return;
       console.error(`Unable to ${operation}.`, error);

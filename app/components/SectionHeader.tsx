@@ -1,5 +1,5 @@
 import { ArrowRight, Refresh } from "@mui/icons-material";
-import { Alert, AlertTitle, Stack, Typography } from "@mui/material";
+import { Stack, Typography } from "@mui/material";
 import { observer } from "mobx-react-lite";
 import React, { useEffect } from "react";
 
@@ -62,12 +62,6 @@ const Header: React.FunctionComponent<HeaderProps> = ({
         gap: 2,
         mb: 2
       }}>
-      {store.systemMessage && (
-        <Alert>
-          <AlertTitle>Needs Action!</AlertTitle>
-          <div>{store.systemMessage}</div>
-        </Alert>
-      )}
       <Stack direction="row" sx={{
         justifyContent: "space-between"
       }}>

@@ -29,6 +29,7 @@ import {
   TestCaseFragments,
 } from "components";
 import { STEP_LABELS, Status, Step, StructuralFragment, useStore } from "store";
+import { commitTimelineSegment } from "store/timeline/controller";
 import { isEnumMember } from "utilities";
 
 import AutomatedTests from "./AutomatedTests";
@@ -133,6 +134,7 @@ const Factory: React.FunctionComponent<FactoryProps> = ({ activeProject }) => {
               placeholder="Provide a description of the software you'd like to develop..."
               multiline
               onChange={handleDescriptionChange}
+              onBlur={commitTimelineSegment}
             />
           </StyledTabPanel>
 

@@ -65,7 +65,7 @@ import type { TestCase, TestScenario } from "store/models";
 import type { FlatStore } from "store/store";
 import { generateTestAnnotation } from "utilities/testParser";
 
-import type { AiCommand } from "./command";
+import type { AiCommand, CommandStage } from "./command";
 
 type ToolArgs = Record<string, unknown>;
 
@@ -236,6 +236,90 @@ export function buildCommunicateTool(store?: FlatStore): AgentTool {
       };
     },
   };
+}
+
+let pendingStageUnlock: AgentTool[] | null = null;
+
+/** Consumed by the agent's prepareNextTurn hook to merge unlocked tools. */
+export function consumePendingStageUnlock(): AgentTool[] | null {
+  const unlocked = pendingStageUnlock;
+  pendingStageUnlock = null;
+  return unlocked;
+}
+
+const ACTIVATABLE_STAGES: CommandStage[] = [
+  "implementation-profile",
+  ...Object.values(Step).filter((step) => step !== Step.Code),
+];
+
+/**
+ * Free-form conversation turns cannot know which stage the model will work
+ * on, so this tool lets the model unlock a stage's submission channel
+ * mid-turn. Prerequisites are validated by the same construction path the
+ * stage command uses; the unlocked tools reach the next provider request
+ * through the agent's prepareNextTurn hook.
+ */
+export function buildStageActivationTool(store: FlatStore): AgentTool {
+  return agentTool(
+    {
+      name: "activate_stage_result_tool",
+      description:
+        "Unlock the result-submission tool for one workflow stage so you can submit that stage's artifacts in this conversation. Validates the stage prerequisites. Use it when you intend to submit artifacts and the stage's submit tool is not in your toolset.",
+      parameters: Type.Object({
+        stage: Type.Union(
+          ACTIVATABLE_STAGES.map((stage) => Type.Literal(stage)),
+          { description: "The workflow stage to unlock the submission tool for." },
+        ),
+      }),
+    },
+    async (params) => {
+      const { stage } = params as { stage: CommandStage };
+      let tools: AgentTool[];
+      try {
+        tools = buildResultTools(store, { kind: "generate", stage });
+      } catch (error) {
+        return `Cannot unlock ${stage}: ${
+          error instanceof Error ? error.message : String(error)
+        }`;
+      }
+      pendingStageUnlock = tools;
+      return `Unlocked: ${tools
+        .map((tool) => tool.name)
+        .join(", ")}. They are available from your next step — call the stage's submit tool now with the complete proposal.`;
+    },
+  );
+}
+
+const ALL_STAGE_COMMANDS: AiCommand[] = [
+  { kind: "generate", stage: "implementation-profile" },
+  ...Object.values(Step)
+    .filter((step) => step !== Step.Code)
+    .map((step) => ({ kind: "generate", stage: step }) as AiCommand),
+];
+
+/**
+ * Every stage submission channel whose prerequisites currently hold,
+ * deduplicated by name (the communicate tool appears in each stage set).
+ * Stages whose prerequisites are missing stay absent until the workflow
+ * unlocks them — construction is the gate.
+ */
+export function buildAllStageResultTools(store: FlatStore): AgentTool[] {
+  const merged: AgentTool[] = [];
+  const seen = new Set<string>();
+  for (const command of ALL_STAGE_COMMANDS) {
+    let tools: AgentTool[];
+    try {
+      tools = buildResultTools(store, command);
+    } catch {
+      continue; // this stage's prerequisites are not met yet
+    }
+    for (const tool of tools) {
+      if (seen.has(tool.name)) continue;
+      seen.add(tool.name);
+      merged.push(tool);
+    }
+  }
+  return merged;
 }
 
 /**

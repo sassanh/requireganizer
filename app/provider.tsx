@@ -5,14 +5,18 @@ import { AppRouterCacheProvider } from "@mui/material-nextjs/v15-appRouter";
 import { getSnapshot, onSnapshot } from "mobx-state-tree";
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 
+import { setAgentSessionId } from "ai-agent/agent";
 import Link from "components/Link";
 import {
   getProjectsIndex,
   loadProjectData,
+  loadTimelineData,
   saveProjectData,
   saveProjectsIndex,
+  saveTimelineData,
 } from "lib/projectStorage";
 import { Store, storeContext } from "store";
+import { attachTimeline, flushTimeline } from "store/timeline/controller";
 
 import { theme } from "./theme";
 
@@ -41,7 +45,9 @@ export default function Providers({ children }: { children: React.ReactNode }) {
   const [persistenceError, setPersistenceError] = useState<string | null>(null);
   const [store, setStore] = useState(() => {
     isStoreReloadNeeded = false;
-    return Store.create({ productOverview: {} });
+    const initialStore = Store.create({ productOverview: {} });
+    attachTimeline(initialStore);
+    return initialStore;
   });
 
   const disposerRef = useRef<(() => void) | null>(null);
@@ -88,29 +94,72 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     }
   }, [store]);
 
+  // Every store instance that becomes the active one gets the timeline.
+  // Instances tied to a project persist their timeline in that project's
+  // storage; the scratch store before a project is opened stays session-only.
+  const timelinePersistence = useCallback(
+    (projectId: string | null) => {
+      if (projectId == null) return undefined;
+      return {
+        load: () => loadTimelineData(projectId),
+        save: (data: unknown) => saveTimelineData(projectId, data),
+      };
+    },
+    [],
+  );
+
+  // A stable per-project session id gives the provider's prompt cache a
+  // consistent affinity key for every LLM request of this project.
+  useEffect(() => {
+    setAgentSessionId(activeProject?.id ?? null);
+  }, [activeProject]);
+
+  useEffect(() => {
+    attachTimeline(
+      store,
+      activeProject == null
+        ? undefined
+        : { persistence: timelinePersistence(activeProject.id) },
+    );
+  }, [store, activeProject, timelinePersistence]);
+
+  // Never leave recent timeline nodes unsaved when the tab goes away.
+  useEffect(() => {
+    const handleBeforeUnload = () => flushTimeline();
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () =>
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, []);
+
   const selectProject = useCallback(
     (id: string, name: string) => {
       const data = loadProjectData(id);
+      const openStore = (created: typeof store) => {
+        attachTimeline(created, {
+          persistence: timelinePersistence(id),
+        });
+        setStore(created);
+      };
       if (data) {
         try {
           const loadedStore = Store.create({ productOverview: {} });
           loadedStore.import(data);
-          setStore(loadedStore);
+          openStore(loadedStore);
           setPersistenceError(null);
         } catch (error) {
           console.error("Stored project data is invalid.", error);
-          setStore(Store.create({ productOverview: {} }));
+          openStore(Store.create({ productOverview: {} }));
           setPersistenceError(
             "The stored project was invalid, so a blank project was opened.",
           );
         }
       } else {
-        setStore(Store.create({ productOverview: {} }));
+        openStore(Store.create({ productOverview: {} }));
         setPersistenceError(null);
       }
       setActiveProject({ id, name });
     },
-    [],
+    [timelinePersistence],
   );
 
   const backToProjects = useCallback(() => {

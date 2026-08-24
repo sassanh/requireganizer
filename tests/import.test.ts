@@ -88,4 +88,21 @@ describe("project schema import", () => {
       /invalid creation time/,
     );
   });
+
+  it("keeps the pending system message through an import round trip", async () => {
+    const { Store } = await import("../app/store/store");
+    const message = "Which evaluation rule should I document?";
+    const payload = JSON.parse(JSON.stringify({
+      ...emptyProject,
+      systemMessage: message,
+    }));
+
+    const reloaded = Store.create({ productOverview: {} }) as unknown as {
+      import(value: unknown): void;
+      systemMessage: string | null;
+    };
+    reloaded.import(payload);
+
+    assert.equal(reloaded.systemMessage, message);
+  });
 });
