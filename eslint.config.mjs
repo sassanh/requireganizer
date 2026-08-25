@@ -11,6 +11,7 @@ const config = [
       "**/.vercel/**",
       "**/.next/**",
       "**/.test-dist/**",
+      "**/coverage/**",
       "**/docs/.vitepress/cache/**",
       "**/docs/.vitepress/dist/**",
     ],
