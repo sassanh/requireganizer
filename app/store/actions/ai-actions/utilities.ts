@@ -31,7 +31,6 @@ import { getUserFacingErrorMessage, UserFacingError } from "lib/errors";
 import { HarnessResult } from "lib/types";
 import { Priority, STEP_LABELS, Status, Step, StructuralFragment } from "store/constants";
 import type { FlatStore, TestCaseSnapshotInput, TestScenarioSnapshotInput } from "store/store";
-import { setTimelineSource } from "store/timeline/controller";
 import { uuid } from "utilities";
 
 export function applyAtomically(
@@ -527,7 +526,7 @@ export function generator<
     requiredSteps?: readonly Step[];
   },
 ) {
-  return flow(function* (
+  const flowFn = flow(function* (
     store: FlatStore,
     ...args: U
   ): Generator<Yield, void, Next> {
@@ -577,17 +576,12 @@ export function generator<
       incrementedBusinessCounter = true;
       abortController = new AbortController();
       store.beginAiOperation({ operation, controller: abortController });
-      setTimelineSource({ kind: "ai", label: operation });
-      try {
-        yield* function_(
-          store as Omit<FlatStore, Requirements> & {
-            [key in Requirements]: NonNullable<FlatStore[key]>;
-          },
-          ...args,
-        );
-      } finally {
-        setTimelineSource(null);
-      }
+      yield* function_(
+        store as Omit<FlatStore, Requirements> & {
+          [key in Requirements]: NonNullable<FlatStore[key]>;
+        },
+        ...args,
+      );
     } catch (error) {
       if (abortController?.signal.aborted) return;
       console.error(`Unable to ${operation}.`, error);
@@ -609,5 +603,12 @@ export function generator<
         store.businessCounter = Math.max(0, store.businessCounter - 1);
       }
     }
+  });
+
+  // Declare this operation as a timeline step. The tag carries the label;
+  // the store wiring supplies the action name it is assigned to (property
+  // keys survive minification, function names do not).
+  return Object.assign(flowFn, {
+    __timelineStep: { kind: "ai" as const, label: operation },
   });
 }

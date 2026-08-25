@@ -1,4 +1,4 @@
-import { cast, getParent, Instance, types } from "mobx-state-tree";
+import { cast, getParent, Instance, isAlive, types } from "mobx-state-tree";
 
 import { uuid } from "utilities";
 
@@ -74,6 +74,10 @@ const HalfStructuralFragmentModel = types
 export const StructuralFragmentModel = HalfStructuralFragmentModel.views(
   (self) => ({
     getIndex() {
+      // Undo/redo applies snapshots synchronously, which can destroy this
+      // node while a render still holds it. Keep the view dead-safe: the
+      // next render replaces the node with a live one.
+      if (!isAlive(self)) return 0;
       const StructuralFragmentArrayModel = types.array(
         HalfStructuralFragmentModel,
       );

@@ -40,6 +40,8 @@ export const useProject = () => useContext(projectContext);
 
 let isStoreReloadNeeded = true;
 
+const PROJECT_SAVE_DEBOUNCE_MS = 800;
+
 export default function Providers({ children }: { children: React.ReactNode }) {
   const [activeProject, setActiveProject] = useState<{ id: string, name: string } | null>(null);
   const [persistenceError, setPersistenceError] = useState<string | null>(null);
@@ -51,6 +53,8 @@ export default function Providers({ children }: { children: React.ReactNode }) {
   });
 
   const disposerRef = useRef<(() => void) | null>(null);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingSaveFlushRef = useRef<(() => void) | null>(null);
 
   // Auto-save store to localStorage whenever it changes
   useEffect(() => {
@@ -59,29 +63,55 @@ export default function Providers({ children }: { children: React.ReactNode }) {
 
     if (!activeProject) return;
 
-    disposerRef.current = onSnapshot(store, (snapshot) => {
-      try {
-        saveProjectData(activeProject.id, snapshot);
+    // Streaming mutates the store every ~80ms; a synchronous localStorage
+    // write per mutation drops frames and makes scrolling stutter. Coalesce
+    // the writes: each mutation replaces the pending write, and a timer
+    // flushes the latest one shortly after.
+    let pendingWrite: (() => void) | null = null;
+    const flushPendingWrite = () => {
+      if (saveTimerRef.current != null) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+      pendingWrite?.();
+      pendingWrite = null;
+    };
+    pendingSaveFlushRef.current = flushPendingWrite;
 
-        const projects = getProjectsIndex();
-        const index = projects.findIndex((project) => project.id === activeProject.id);
-        if (index >= 0) {
-          projects[index].description = snapshot.description.slice(0, 200);
-          projects[index].updatedAt = new Date().toISOString();
-          saveProjectsIndex(projects);
+    disposerRef.current = onSnapshot(store, (snapshot) => {
+      pendingWrite = () => {
+        try {
+          saveProjectData(activeProject.id, snapshot);
+
+          const projects = getProjectsIndex();
+          const index = projects.findIndex((project) => project.id === activeProject.id);
+          if (index >= 0) {
+            projects[index].description = snapshot.description.slice(0, 200);
+            projects[index].updatedAt = new Date().toISOString();
+            saveProjectsIndex(projects);
+          }
+          setPersistenceError(null);
+        } catch (error) {
+          console.error("Could not persist project changes.", error);
+          setPersistenceError(
+            "Changes could not be saved in browser storage. Export the project to avoid losing work.",
+          );
         }
-        setPersistenceError(null);
-      } catch (error) {
-        console.error("Could not persist project changes.", error);
-        setPersistenceError(
-          "Changes could not be saved in browser storage. Export the project to avoid losing work.",
-        );
+      };
+      if (saveTimerRef.current == null) {
+        saveTimerRef.current = setTimeout(() => {
+          saveTimerRef.current = null;
+          flushPendingWrite();
+        }, PROJECT_SAVE_DEBOUNCE_MS);
       }
     });
 
     return () => {
       disposerRef.current?.();
       disposerRef.current = null;
+      // Never drop unsaved changes when the store or project switches.
+      flushPendingWrite();
+      pendingSaveFlushRef.current = null;
     };
   }, [store, activeProject]);
 
@@ -123,9 +153,13 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     );
   }, [store, activeProject, timelinePersistence]);
 
-  // Never leave recent timeline nodes unsaved when the tab goes away.
+  // Never leave recent timeline nodes or project changes unsaved when the
+  // tab goes away.
   useEffect(() => {
-    const handleBeforeUnload = () => flushTimeline();
+    const handleBeforeUnload = () => {
+      pendingSaveFlushRef.current?.();
+      flushTimeline();
+    };
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () =>
       window.removeEventListener("beforeunload", handleBeforeUnload);

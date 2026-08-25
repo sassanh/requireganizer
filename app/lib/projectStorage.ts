@@ -113,7 +113,7 @@ export function loadTimelineData(id: string): Record<string, unknown> | null {
     const source = storage.getItem(getTimelineStorageKey(id));
     if (source == null) return null;
     const value = parseJson(source, "Stored timeline");
-    if (!isRecord(value) || value.version !== 1) return null;
+    if (!isRecord(value) || value.version !== 2) return null;
     return value;
   } catch {
     return null;

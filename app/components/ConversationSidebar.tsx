@@ -3,7 +3,6 @@
 import {
   CallSplit,
   Close,
-  Download,
   ExpandMore,
   Forum,
   History,
@@ -22,6 +21,7 @@ import {
   Chip,
   CircularProgress,
   Collapse,
+  Dialog,
   IconButton,
   List,
   ListItemButton,
@@ -34,11 +34,13 @@ import {
   Typography,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
-import { saveAs } from "file-saver";
 import { observer } from "mobx-react-lite";
 import {
   Fragment,
+  memo,
+  useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -49,34 +51,33 @@ import remarkGfm from "remark-gfm";
 import { describeCommand, parseCommandMessage } from "ai-agent/command";
 import { useStore } from "store";
 import {
-  branchForkIndex,
-  branchTailPreview,
-  isBranchAttachable,
-} from "store/conversation-branches";
-import type { ConversationBranchRecord } from "store/conversation-branches";
-import {
-  canRedo,
-  canUndo,
+  activateBranch,
+  beginRewind,
+  cancelRewind,
   commitTimelineSegment,
+  getTimelineMeta,
   jumpToNode,
   onTimelineChange,
   redo,
-  timelineCursor,
-  timelineEntries,
   undo,
 } from "store/timeline/controller";
+
+import { describeToolOutput } from "./toolOutputSummary";
 
 type ContentBlock = {
   type: string;
   text?: string;
   thinking?: string;
   name?: string;
+  id?: string;
+  arguments?: unknown;
 };
 
 type ConversationMessage = {
   role: string;
   content: unknown;
   toolName?: string;
+  toolCallId?: string;
   isError?: boolean;
 };
 
@@ -94,78 +95,285 @@ function blockText(blocks: ContentBlock[], kind: string): string {
     .join("");
 }
 
-function InlineThinking({ thinking }: { thinking: string }) {
-  const [open, setOpen] = useState(false);
+function ThinkingChip({ open, onClick }: { open: boolean; onClick: () => void }) {
   return (
-    <>
-      <Chip
-        size="small"
-        label="✦ thinking"
-        variant={open ? "filled" : "outlined"}
-        onClick={() => setOpen((value) => !value)}
-        sx={{ height: 20 }}
-      />
-      <Collapse in={open} sx={{ width: "100%" }}>
-        <Typography
-          variant="caption"
-          color="text.secondary"
-          sx={{ whiteSpace: "pre-wrap", pl: 1 }}
-        >
-          {thinking}
-        </Typography>
-      </Collapse>
-    </>
+    <Chip
+      size="small"
+      label="✦ thinking"
+      variant={open ? "filled" : "outlined"}
+      onClick={onClick}
+      sx={{ height: 20 }}
+    />
   );
 }
 
-function InlineOutput({
-  output,
-  isError,
-}: {
-  output: string;
-  isError?: boolean;
-}) {
-  const [open, setOpen] = useState(false);
+function ThinkingPanel({ thinking }: { thinking: string }) {
   return (
-    <>
-      <Chip
-        size="small"
-        label={isError ? "✕ output" : "▸ output"}
-        color={isError ? "error" : "default"}
-        variant="outlined"
-        onClick={() => setOpen((value) => !value)}
-        sx={{ height: 20 }}
-      />
-      <Collapse in={open} sx={{ width: "100%" }}>
-        <Typography
-          variant="caption"
-          color="text.secondary"
+    <Typography
+      variant="caption"
+      color="text.secondary"
+      sx={{ whiteSpace: "pre-wrap", pl: 1 }}
+    >
+      {thinking}
+    </Typography>
+  );
+}
+
+const JSON_MONO = {
+  fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+  wordBreak: "break-all",
+} as const;
+
+function JsonTree({ name, value }: { name?: string; value: unknown }) {
+  const [open, setOpen] = useState(false);
+
+  // The conventional JSON syntax palette (keys purple, strings green,
+  // numbers blue, booleans/null red) mapped onto theme roles so it adapts
+  // to light and dark color schemes.
+  const keyChip = name != null && (
+    <Box
+      component="span"
+      sx={{
+        bgcolor: "action.hover",
+        borderRadius: 0.5,
+        px: 0.5,
+        mr: 0.75,
+        color: "secondary.main",
+      }}
+    >
+      {name}
+    </Box>
+  );
+
+  if (value == null || typeof value !== "object") {
+    const isString = typeof value === "string";
+    const valueColor =
+      isString
+        ? "success.main"
+        : typeof value === "number"
+          ? "info.main"
+          : "error.main"; // boolean | null
+    return (
+      <Box sx={{ display: "flex", alignItems: "baseline", my: 0.5 }}>
+        {keyChip}
+        <Box
+          component="span"
           sx={{
-            whiteSpace: "pre-wrap",
-            pl: 1,
-            maxHeight: 240,
-            overflowY: "auto",
+            ...JSON_MONO,
+            color: valueColor,
+            ...(isString && {
+              bgcolor: (theme) => alpha(theme.palette.success.main, 0.07),
+              borderRadius: 0.5,
+              px: 0.5,
+            }),
           }}
         >
-          {output}
-        </Typography>
+          {JSON.stringify(value) ?? "null"}
+        </Box>
+      </Box>
+    );
+  }
+
+  const entries = Object.entries(value);
+  return (
+    <Box sx={{ my: 0.5 }}>
+      <Box
+        onClick={() => setOpen((current) => !current)}
+        sx={{ display: "flex", alignItems: "baseline", cursor: "pointer", userSelect: "none" }}
+      >
+        {keyChip}
+        <Box component="span" sx={{ ...JSON_MONO, color: "text.secondary", mr: 0.75 }}>
+          {open ? "▾" : "▸"} {Array.isArray(value) ? `[${entries.length}]` : `{${entries.length}}`}
+        </Box>
+      </Box>
+      <Collapse in={open}>
+        {/* Vertical guide line behind the indentation level. */}
+        <Box sx={{ ml: 1.5, pl: 1, borderLeft: 1, borderColor: "divider" }}>
+          {entries.map(([key, child]) => (
+            <JsonTree key={key} name={key} value={child} />
+          ))}
+        </Box>
       </Collapse>
-    </>
+    </Box>
   );
 }
 
-function MessageView({
+function jsonOrText(text: string) {
+  try {
+    return <JsonTree value={JSON.parse(text)} />;
+  } catch {
+    return (
+      <Typography variant="caption" sx={{ whiteSpace: "pre-wrap" }}>
+        {text}
+      </Typography>
+    );
+  }
+}
+
+function ToolCallChip({
+  toolName,
+  result,
+  open,
+  onClick,
+}: {
+  toolName: string;
+  result?: { text: string; isError: boolean };
+  open: boolean;
+  onClick: () => void;
+}) {
+  const isError = result?.isError === true;
+  return (
+    <Chip
+      size="small"
+      color={isError ? "error" : "primary"}
+      variant={open && !isError ? "filled" : "outlined"}
+      label={result == null ? toolName : describeToolOutput(toolName, result.text, isError)}
+      onClick={onClick}
+      sx={{ height: 20, maxWidth: "100%" }}
+    />
+  );
+}
+
+function ToolCallDialog({
+  toolName,
+  callId,
+  args,
+  result,
+  onClose,
+}: {
+  toolName: string;
+  callId: string;
+  args: unknown;
+  result?: { text: string; isError: boolean };
+  onClose: () => void;
+}) {
+  const isError = result?.isError === true;
+  const sectionLabel = {
+    display: "block",
+    fontWeight: 700,
+    fontSize: 10,
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+    mb: 0.5,
+  };
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      maxWidth={false}
+      slotProps={{
+        paper: {
+          sx: {
+            // Vertical window with a fixed size: two hard halves that
+            // scroll internally and never resize with their content.
+            width: "min(880px, 92vw)",
+            height: "82vh",
+            flex: "0 0 auto",
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
+          },
+        },
+      }}
+    >
+      <Box
+        sx={{
+          height: "50%",
+          flex: "0 0 auto",
+          minHeight: 0,
+          overflowY: "auto",
+          boxSizing: "border-box",
+          p: 2,
+          borderBottom: 1,
+          borderColor: "divider",
+        }}
+      >
+        <Box sx={{ display: "flex", alignItems: "center" }}>
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ ...sectionLabel, flexGrow: 1, mb: 0.5 }}
+          >
+            Call · {toolName}
+          </Typography>
+          <IconButton size="small" aria-label="Close" onClick={onClose}>
+            <Close fontSize="small" />
+          </IconButton>
+        </Box>
+        <JsonTree value={{ id: callId, arguments: args }} />
+      </Box>
+      <Box
+        sx={{
+          height: "50%",
+          flex: "0 0 auto",
+          minHeight: 0,
+          overflowY: "auto",
+          boxSizing: "border-box",
+          p: 2,
+        }}
+      >
+        <Typography variant="caption" color="text.secondary" sx={sectionLabel}>
+          Result
+        </Typography>
+        {result == null ? (
+          <Typography variant="caption" color="text.secondary">
+            Pending…
+          </Typography>
+        ) : isError ? (
+          <Typography variant="caption" color="error" sx={{ whiteSpace: "pre-wrap" }}>
+            {result.text}
+          </Typography>
+        ) : (
+          jsonOrText(result.text)
+        )}
+      </Box>
+    </Dialog>
+  );
+}
+
+const MessageView = memo(function MessageView({
   message,
   index,
   busy,
   onRevert,
+  toolCallsByCallId,
+  toolResultsByCallId,
 }: {
   message: ConversationMessage;
   index: number;
   busy: boolean;
   onRevert: (index: number) => void;
+  toolCallsByCallId: Map<string, { name: string; args: unknown }>;
+  toolResultsByCallId: Map<string, { text: string; isError: boolean }>;
 }) {
   const blocks = toBlocks(message.content);
+
+  // Tool/thinking activity units: chips render in one row; the expanded
+  // unit's panel renders below the row (never inside it — a full-width
+  // panel would force the row to wrap).
+  const units = blocks
+    .map((block, blockIndex) => {
+      if (block.type === "thinking") {
+        return {
+          key: `thinking-${blockIndex}`,
+          kind: "thinking" as const,
+          thinking: block.thinking ?? "",
+        };
+      }
+      if (block.type === "toolCall" && block.id != null) {
+        return {
+          key: `call-${blockIndex}`,
+          kind: "call" as const,
+          toolName: block.name ?? "",
+          callId: block.id,
+          args: block.arguments,
+          result: toolResultsByCallId.get(block.id),
+        };
+      }
+      return null;
+    })
+    .filter((unit) => unit != null);
+  const [openUnitKey, setOpenUnitKey] = useState<string | null>(null);
 
   if (message.role === "user") {
     const text = blockText(blocks, "text");
@@ -179,40 +387,71 @@ function MessageView({
   }
 
   if (message.role === "toolResult") {
+    // Merged into the call's chip at the assistant message; the map-level
+    // filter above normally skips these before we get here.
+    const callId = message.toolCallId;
+    if (callId != null && toolCallsByCallId.has(callId)) return null;
+    const text = blockText(blocks, "text");
+    const isError = message.isError === true;
     return (
       <Stack direction="row" sx={{ flexWrap: "wrap", rowGap: 0.5 }}>
-        <InlineOutput
-          output={blockText(blocks, "text")}
-          isError={message.isError}
+        <Chip
+          size="small"
+          color={isError ? "error" : "primary"}
+          variant="outlined"
+          label={describeToolOutput(message.toolName ?? "", text, isError)}
+          sx={{ height: 20, maxWidth: "100%" }}
         />
       </Stack>
     );
   }
 
-  const thinking = blockText(blocks, "thinking");
-  const text = blockText(blocks, "text");
+  const thinkingBlocks = blocks.filter((block) => block.type === "thinking");
   const toolCalls = blocks.filter((block) => block.type === "toolCall");
+  const text = blockText(blocks, "text");
 
-  if (text.trim().length === 0 && thinking.length === 0 && toolCalls.length === 0) {
+  if (text.trim().length === 0 && thinkingBlocks.length === 0 && toolCalls.length === 0) {
     return null;
   }
 
   return (
     <Stack spacing={0.5}>
-      {(toolCalls.length > 0 || thinking.length > 0) && (
+      {units.length > 0 && (
         <Stack direction="row" spacing={0.75} sx={{ alignItems: "center", flexWrap: "wrap", rowGap: 0.5 }}>
-          {toolCalls.map((call, index) => (
-            <Chip
-              key={index}
-              size="small"
-              color="primary"
-              variant="outlined"
-              label={`→ ${call.name}`}
-              sx={{ height: 20 }}
-            />
-          ))}
-          {thinking.length > 0 && <InlineThinking thinking={thinking} />}
+          {units.map((unit) =>
+            unit.kind === "thinking" ? (
+              <ThinkingChip
+                key={unit.key}
+                open={openUnitKey === unit.key}
+                onClick={() => setOpenUnitKey((current) => (current === unit.key ? null : unit.key))}
+              />
+            ) : (
+              <ToolCallChip
+                key={unit.key}
+                toolName={unit.toolName}
+                result={unit.result}
+                open={openUnitKey === unit.key}
+                onClick={() => setOpenUnitKey((current) => (current === unit.key ? null : unit.key))}
+              />
+            ),
+          )}
         </Stack>
+      )}
+      {units.map((unit) =>
+        openUnitKey === unit.key ? (
+          unit.kind === "thinking" ? (
+            <ThinkingPanel key={unit.key} thinking={unit.thinking} />
+          ) : (
+            <ToolCallDialog
+              key={unit.key}
+              toolName={unit.toolName}
+              callId={unit.callId}
+              args={unit.args}
+              result={unit.result}
+              onClose={() => setOpenUnitKey(null)}
+            />
+          )
+        ) : null,
       )}
       {text.trim().length > 0 && (
         <ReactMarkdown
@@ -292,7 +531,7 @@ function MessageView({
       )}
     </Stack>
   );
-}
+});
 
 function UserBubble({
   text,
@@ -363,90 +602,68 @@ function UserBubble({
   );
 }
 
-/**
- * Dev-only escape hatch: dump the raw conversation transcript to a JSON file
- * so a failing conversation can be shared and investigated offline.
- */
-function DevExportConversationButton({ messages }: { messages: ConversationMessage[] }) {
-  const exportConversation = () => {
-    saveAs(
-      new Blob([JSON.stringify(messages, null, 2)], { type: "application/json;charset=utf-8" }),
-      `requireganizer-conversation-${Date.now()}.json`,
-    );
-  };
-
-  return (
-    <Tooltip title="Export conversation JSON (dev only)">
-      <span>
-        <IconButton
-          size="small"
-          aria-label="Export conversation JSON"
-          disabled={messages.length === 0}
-          onClick={exportConversation}
-        >
-          <Download fontSize="small" />
-        </IconButton>
-      </span>
-    </Tooltip>
-  );
-}
-
 function ConversationSidebar() {
   const store = useStore();
-  const messages = (store.conversation ?? []) as unknown as ConversationMessage[];
+  const messages = useMemo(
+    () => (store.conversation ?? []) as unknown as ConversationMessage[],
+    [store.conversation],
+  );
+
+  // Join indexes for tool activity: each call chip (rendered at the
+  // assistant message, in block order) looks up its result by call id; each
+  // result message defers to its call's chip.
+  const { toolCallsByCallId, toolResultsByCallId } = useMemo(() => {
+    const calls = new Map<string, { name: string; args: unknown }>();
+    const results = new Map<string, { text: string; isError: boolean }>();
+    for (const message of messages) {
+      if (message.role === "assistant") {
+        for (const block of toBlocks(message.content)) {
+          if (block.type === "toolCall" && typeof block.id === "string") {
+            calls.set(block.id, { name: block.name ?? "", args: block.arguments });
+          }
+        }
+      } else if (message.role === "toolResult" && typeof message.toolCallId === "string") {
+        results.set(message.toolCallId, {
+          text: blockText(toBlocks(message.content), "text"),
+          isError: message.isError === true,
+        });
+      }
+    }
+    return { toolCallsByCallId: calls, toolResultsByCallId: results };
+  }, [messages]);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   // Auto-scroll only while the reader keeps the viewport within the last 5%
   // of the scroll course; scrolling up pauses following until they return.
   const followsLatestRef = useRef(true);
   const busy = store.isBusy;
-  // Rewind mode: the transcript is shown up to (excluding) this user message
-  // and the next composer send branches from here, discarding the turn and
-  // everything after it. Nothing is committed until that send; cancel simply
-  // clears the view back to the full transcript. The anchor only counts
-  // while it still points at a user message, so stale indices invalidate
-  // themselves.
-  const [revertAnchorIndex, setRevertAnchorIndex] = useState<number | null>(null);
-  const revertAnchor = revertAnchorIndex != null && messages[revertAnchorIndex]?.role === "user"
-    ? revertAnchorIndex
-    : null;
+  // Rewind mode: pressing rewind on a message jumps the timeline to the
+  // state before that message's turn — artifacts and conversation revert
+  // together. The composer is prefilled with the message being rewritten;
+  // cancel re-activates the saved leaf (exact pre-rewind state), and a
+  // composer send commits the branch: the new turn is grafted under the
+  // rewound node while the discarded path stays as a sibling branch.
+  const timelineMeta = useSyncExternalStore(
+    onTimelineChange,
+    getTimelineMeta,
+    getTimelineMeta,
+  );
+  const isRewinding = timelineMeta.isRewinding;
   // The composer draft is lifted here so rewinding can prefill it with the
   // message being rewritten and cancelling restores whatever was typed
   // before the rewind started.
   const [composerDraft, setComposerDraft] = useState("");
   const [draftBeforeRewind, setDraftBeforeRewind] = useState("");
+  const rewoundIndexRef = useRef<number | null>(null);
   // Cancelling a rewind flashes the anchor message so the reader keeps their
   // bearings inside the restored transcript instead of getting lost.
   const entryRefs = useRef(new Map<number, HTMLDivElement | null>());
   const highlightTimerRef = useRef<number | null>(null);
   const [highlightedIndex, setHighlightedIndex] = useState<number | null>(null);
-  // Kept branch tails that can reattach to the live transcript, grouped by
-  // their fork position so each fork renders one divider listing siblings.
-  const attachableBranches = (store.conversationBranches ?? [])
-    .filter((record) => isBranchAttachable(record, messages));
-  const branchesByFork = new Map<number, ConversationBranchRecord[]>();
-  for (const record of attachableBranches) {
-    const forkIndex = branchForkIndex(record);
-    const siblings = branchesByFork.get(forkIndex) ?? [];
-    siblings.push(record);
-    branchesByFork.set(forkIndex, siblings);
-  }
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [branchMenu, setBranchMenu] = useState<{
     anchor: HTMLElement;
-    forkIndex: number;
+    alternatives: { id: string; label: string; createdAt: number; preview: string }[];
   } | null>(null);
-  // Timeline (undo/redo) state lives outside mobx; subscribe to it
-  // externally so the pane re-renders when nodes are recorded or restored.
-  const timeline = useSyncExternalStore(
-    onTimelineChange,
-    timelineEntries,
-    timelineEntries,
-  );
-  const cursor = useSyncExternalStore(
-    onTimelineChange,
-    timelineCursor,
-    timelineCursor,
-  );
-  const [historyOpen, setHistoryOpen] = useState(false);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -476,32 +693,59 @@ function ConversationSidebar() {
     }
   }, []);
 
-  const startRevert = (index: number) => {
+  const startRewind = (index: number) => {
     if (busy) return;
-    // Prefill the composer with the message being rewritten. The first
-    // rewind also remembers the in-progress draft so cancelling can put it
-    // back; moving the anchor to another message keeps that original backup.
-    if (revertAnchorIndex == null) {
-      setDraftBeforeRewind(composerDraft);
+    // Prefill the composer with the message being rewritten, remember the
+    // in-progress draft for cancel, and jump the tree to the state before
+    // the message's turn.
+    const anchorText = blockText(toBlocks(messages[index]?.content), "text");
+    setDraftBeforeRewind(composerDraft);
+    setComposerDraft(anchorText);
+    rewoundIndexRef.current = index;
+    if (!beginRewind(index)) {
+      // Nothing to rewind to (message not bound to a timeline turn).
+      setDraftBeforeRewind("");
+      rewoundIndexRef.current = null;
     }
-    setComposerDraft(blockText(toBlocks(messages[index]?.content), "text"));
-    setRevertAnchorIndex(index);
   };
 
-  const cancelRevert = () => {
+  // A stable identity keeps the memoized message list from re-rendering
+  // whenever this handler's closures change.
+  const revertHandlerRef = useRef<(index: number) => void>(() => {});
+  useEffect(() => {
+    revertHandlerRef.current = startRewind;
+  });
+  const handleRevert = useCallback(
+    (index: number) => revertHandlerRef.current(index),
+    [],
+  );
+
+  const pinToLatest = useCallback(() => {
+    // Sending or regenerating is an explicit intent to follow the
+    // conversation — re-attach auto-scroll even if the reader had scrolled
+    // away (rewind reveal, reading history).
+    followsLatestRef.current = true;
+  }, []);
+
+  const cancelRewindHandler = useCallback(() => {
     if (busy) return;
-    const index = revertAnchorIndex;
     // Detach auto-follow first: the restored transcript is longer than the
     // rewound view, and the follow effect would otherwise yank the pane to
     // the bottom, cancelling the smooth reveal below.
     followsLatestRef.current = false;
-    setRevertAnchorIndex(null);
+    cancelRewind();
     setComposerDraft(draftBeforeRewind);
     setDraftBeforeRewind("");
+    const index = rewoundIndexRef.current;
+    rewoundIndexRef.current = null;
     if (index == null) return;
     // Runs after the restored transcript has painted, so the node exists.
     setHighlightedIndex(index);
-  };
+  }, [busy, draftBeforeRewind]);
+
+  const clearRewind = useCallback(() => {
+    setDraftBeforeRewind("");
+  }, []);
 
   useEffect(() => {
     if (highlightedIndex == null) return;
@@ -522,12 +766,7 @@ function ConversationSidebar() {
     };
   }, [highlightedIndex]);
 
-  // While rewinding, render the prefix before the anchor; indices stay
-  // aligned with the store transcript so actions keep addressing real
-  // entries.
-  const visibleCount = revertAnchor ?? messages.length;
-  const visibleMessages = messages.slice(0, visibleCount);
-  const last = visibleMessages[visibleMessages.length - 1];
+  const last = messages[messages.length - 1];
   const lastContentLength = (() => {
     const blocks = toBlocks(last?.content);
     let size = 0;
@@ -555,9 +794,11 @@ function ConversationSidebar() {
   useEffect(() => {
     followLatestWhilePinned();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- follow content changes only
-  }, [store.conversationSidebarOpen, visibleMessages.length, lastContentLength]);
+  }, [store.conversationSidebarOpen, messages.length, lastContentLength]);
 
-  const hasReply = visibleMessages.some((message) => message.role === "assistant");
+  // Regenerate replays the last user prompt, so any user message — with or
+  // without a reply — is enough to offer it.
+  const hasPrompt = messages.some((message) => message.role === "user");
 
   return (
     <Paper
@@ -588,7 +829,7 @@ function ConversationSidebar() {
             <IconButton
               size="small"
               aria-label="Undo"
-              disabled={busy || cursor <= 0}
+              disabled={busy || !timelineMeta.canUndo}
               onClick={undo}
             >
               <Undo fontSize="small" />
@@ -600,7 +841,7 @@ function ConversationSidebar() {
             <IconButton
               size="small"
               aria-label="Redo"
-              disabled={busy || cursor >= timeline.length - 1}
+              disabled={busy || !timelineMeta.canRedo}
               onClick={redo}
             >
               <Redo fontSize="small" />
@@ -612,16 +853,13 @@ function ConversationSidebar() {
             <IconButton
               size="small"
               aria-label="Toggle history"
-              disabled={timeline.length === 0}
+              disabled={timelineMeta.entries.length === 0}
               onClick={() => setHistoryOpen((open) => !open)}
             >
               <History fontSize="small" />
             </IconButton>
           </span>
         </Tooltip>
-        {process.env.NODE_ENV === "development" && (
-          <DevExportConversationButton messages={messages} />
-        )}
         {store.thinkingLabel != null && (
           <>
             <CircularProgress size={16} disableShrink />
@@ -639,16 +877,16 @@ function ConversationSidebar() {
       <Collapse in={historyOpen}>
         <Box sx={{ maxHeight: 200, overflowY: "auto", borderBottom: 1, borderColor: "divider" }}>
           <List dense disablePadding>
-            {timeline
-              .map((node, index) => ({ node, index }))
+            {timelineMeta.entries
+              .map((entry, index) => ({ entry, index }))
               .reverse()
-              .map(({ node, index }) => (
+              .map(({ entry, index }) => (
                 <ListItemButton
-                  key={node.id}
+                  key={entry.id}
                   dense
-                  selected={index === cursor}
+                  selected={index === timelineMeta.entries.length - 1}
                   disabled={busy}
-                  onClick={() => jumpToNode(index)}
+                  onClick={() => jumpToNode(entry.id)}
                   sx={{ py: 0.25 }}
                 >
                   <Stack
@@ -656,7 +894,7 @@ function ConversationSidebar() {
                     spacing={0.75}
                     sx={{ alignItems: "center", minWidth: 0, width: "100%" }}
                   >
-                    {node.source === "ai" ? (
+                    {entry.source === "ai" ? (
                       <SmartToy fontSize="small" color="primary" sx={{ fontSize: 14 }} />
                     ) : (
                       <Person fontSize="small" sx={{ fontSize: 14 }} />
@@ -664,12 +902,17 @@ function ConversationSidebar() {
                     <Typography
                       variant="caption"
                       noWrap
-                      sx={{ flexGrow: 1, fontWeight: index === cursor ? 700 : 400 }}
+                      sx={{
+                        flexGrow: 1,
+                        fontWeight:
+                          index === timelineMeta.entries.length - 1 ? 700 : 400,
+                        fontStyle: entry.stateOnly ? "italic" : "normal",
+                      }}
                     >
-                      {node.label}
+                      {entry.stateOnly ? `${entry.label} (state)` : entry.label}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
-                      {new Date(node.createdAt).toLocaleTimeString()}
+                      {new Date(entry.createdAt).toLocaleTimeString()}
                     </Typography>
                   </Stack>
                 </ListItemButton>
@@ -684,16 +927,28 @@ function ConversationSidebar() {
           </Alert>
         ) : (
           <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
-            {messages.slice(0, visibleCount).map((message, index) => {
-              // Fork dividers render above the message that follows the fork
-              // point; suppressed while rewinding because the anchor and a
-              // branch switch would fight over the same transcript.
-              const siblings = revertAnchor == null
-                ? branchesByFork.get(index)
-                : undefined;
+            {messages.map((message, index) => {
+              // Tool results whose call chip already carries them (joined
+              // by call id) render nothing — an empty row would still
+              // consume the container's gap and double the spacing.
+              const mergedIntoCall =
+                message.role === "toolResult" &&
+                message.toolCallId != null &&
+                toolCallsByCallId.has(message.toolCallId);
+              if (mergedIntoCall) return null;
+              // Fork dividers render after the fork node's own messages,
+              // offering its other children; suppressed while rewinding
+              // because the rewind and a branch switch would fight over
+              // the same tree.
+              const forkEntry = timelineMeta.entries.find(
+                (candidate) =>
+                  candidate.alternatives.length > 0 &&
+                  candidate.startIndex + candidate.messageCount === index,
+              );
+              const siblings = isRewinding ? null : forkEntry?.alternatives ?? null;
               return (
               <Fragment key={index}>
-                {siblings != null && (
+                {siblings != null && siblings.length > 0 && (
                   <Chip
                     size="small"
                     icon={<CallSplit />}
@@ -701,7 +956,7 @@ function ConversationSidebar() {
                     variant="outlined"
                     disabled={busy}
                     onClick={(event) =>
-                      setBranchMenu({ anchor: event.currentTarget, forkIndex: index })
+                      setBranchMenu({ anchor: event.currentTarget, alternatives: siblings })
                     }
                     sx={{ alignSelf: "flex-start", height: 20 }}
                   />
@@ -733,18 +988,23 @@ function ConversationSidebar() {
                     message={message}
                     index={index}
                     busy={busy}
-                    onRevert={startRevert}
+                    onRevert={handleRevert}
+                    toolCallsByCallId={toolCallsByCallId}
+                    toolResultsByCallId={toolResultsByCallId}
                   />
                 </Box>
               </Fragment>
               );
             })}
-            {!busy && revertAnchor == null && hasReply && (
-              <Tooltip title="Regenerate — starts a new branch from the last reply">
+            {!busy && !isRewinding && hasPrompt && (
+              <Tooltip title="Regenerate — replays the last prompt as a new branch">
                 <Button
                   size="small"
                   startIcon={<Refresh />}
-                  onClick={() => void store.regenerateLastReply()}
+                  onClick={() => {
+                    pinToLatest();
+                    void store.regenerateLastReply();
+                  }}
                   sx={{ alignSelf: "flex-start" }}
                 >
                   Regenerate
@@ -759,38 +1019,42 @@ function ConversationSidebar() {
         open={branchMenu != null}
         onClose={() => setBranchMenu(null)}
       >
-        {(branchMenu == null ? [] : branchesByFork.get(branchMenu.forkIndex) ?? []).map(
-          (record) => (
-            <MenuItem
-              key={record.id}
-              disabled={busy}
-              onClick={() => {
-                setBranchMenu(null);
-                void store.switchConversationBranch({ id: record.id });
-              }}
-              sx={{ maxWidth: 340 }}
-            >
-              <Stack sx={{ minWidth: 0 }}>
-                <Typography variant="caption" noWrap>
-                  {branchTailPreview(record)}
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  {new Date(record.createdAt).toLocaleString()}
-                </Typography>
-              </Stack>
-            </MenuItem>
-          ),
-        )}
+        {(branchMenu?.alternatives ?? []).map((alternative) => (
+          <MenuItem
+            key={alternative.id}
+            disabled={busy}
+            onClick={() => {
+              setBranchMenu(null);
+              activateBranch(alternative.id);
+            }}
+            sx={{ maxWidth: 340 }}
+          >
+            <Stack sx={{ minWidth: 0 }}>
+              <Typography variant="caption" noWrap>
+                {alternative.preview}
+              </Typography>
+              <Typography variant="caption" color="text.secondary" noWrap>
+                {alternative.label !== alternative.preview
+                  ? `${alternative.label} · `
+                  : ""}
+                {new Date(alternative.createdAt).toLocaleString(undefined, {
+                  month: "short",
+                  day: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </Typography>
+            </Stack>
+          </MenuItem>
+        ))}
       </Menu>
       <ConversationComposer
         draft={composerDraft}
         onDraftChange={setComposerDraft}
-        rewindAnchor={revertAnchor}
-        onClearRewind={() => {
-          setRevertAnchorIndex(null);
-          setDraftBeforeRewind("");
-        }}
-        onCancelRewind={cancelRevert}
+        rewinding={isRewinding}
+        onCommitRewind={clearRewind}
+        onCancelRewind={cancelRewindHandler}
+        onSendIntent={pinToLatest}
       />
     </Paper>
   );
@@ -839,36 +1103,36 @@ function CommandBubble({ summary, raw }: { summary: string; raw: string }) {
   );
 }
 
-function ConversationComposer({
+const ConversationComposer = memo(function ConversationComposer({
   draft,
   onDraftChange,
-  rewindAnchor,
-  onClearRewind,
+  rewinding,
+  onCommitRewind,
   onCancelRewind,
+  onSendIntent,
 }: {
   draft: string;
   onDraftChange: (draft: string) => void;
-  rewindAnchor: number | null;
-  onClearRewind: () => void;
+  rewinding: boolean;
+  onCommitRewind: () => void;
   onCancelRewind: () => void;
+  onSendIntent: () => void;
 }) {
   const store = useStore();
-  const rewindActive = rewindAnchor != null;
+  const rewindActive = rewinding;
 
   const sendDraft = () => {
     const trimmed = draft.trim();
     if (trimmed.length === 0) return;
     onDraftChange("");
-    if (rewindAnchor != null) {
-      // Committing a rewind branches from the anchor. Clear the pending
-      // rewind first so the view returns to normal regardless of how the
-      // operation ends.
-      const index = rewindAnchor;
-      onClearRewind();
-      void store.branchFromMessage({ index, message: trimmed });
-    } else {
-      void store.sendConversationMessage({ message: trimmed });
+    onSendIntent();
+    if (rewindActive) {
+      // Committing a rewind: the store conversation already ends at the
+      // rewound point, so a plain send branches from there. The discarded
+      // path stays as a sibling branch in the tree.
+      onCommitRewind();
     }
+    void store.sendConversationMessage({ message: trimmed });
   };
 
   return (
@@ -925,6 +1189,6 @@ function ConversationComposer({
       </Stack>
     </Box>
   );
-}
+});
 
 export default observer(ConversationSidebar);

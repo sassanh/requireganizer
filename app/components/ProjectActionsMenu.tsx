@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  BugReport,
   DataObject,
   FileDownload,
   FileUpload,
@@ -19,10 +20,12 @@ import {
   MenuItem,
   Typography,
 } from "@mui/material";
+import { saveAs } from "file-saver";
 import { useRef, useState, ChangeEvent } from "react";
 
 import { parseJson } from "lib/json";
 import { useStore } from "store";
+import { getTimelineSnapshot } from "store/timeline/controller";
 
 import PersistentAlert from "./PersistentAlert";
 
@@ -37,9 +40,33 @@ export default function ProjectActionsMenu() {
   const store = useStore();
   const inputRef = useRef<HTMLInputElement>(null);
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const [debugAnchor, setDebugAnchor] = useState<HTMLElement | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
 
-  const close = () => setAnchor(null);
+  const close = () => {
+    setAnchor(null);
+    setDebugAnchor(null);
+  };
+
+  const exportConversation = () => {
+    saveAs(
+      new Blob([JSON.stringify(store.conversation ?? [], null, 2)], {
+        type: "application/json;charset=utf-8",
+      }),
+      `requireganizer-conversation-${Date.now()}.json`,
+    );
+  };
+
+  const exportTimeline = () => {
+    const snapshot = getTimelineSnapshot();
+    if (snapshot == null) return;
+    saveAs(
+      new Blob([JSON.stringify(snapshot, null, 2)], {
+        type: "application/json;charset=utf-8",
+      }),
+      `requireganizer-timeline-${Date.now()}.json`,
+    );
+  };
 
   const handleImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -158,6 +185,47 @@ export default function ProjectActionsMenu() {
             <FolderZip fontSize="small" />
           </ListItemIcon>
           <ListItemText>.tar.bz2</ListItemText>
+        </MenuItem>
+        <Divider />
+        <MenuItem
+          onClick={(event) => setDebugAnchor(event.currentTarget)}
+        >
+          <ListItemIcon>
+            <BugReport fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>Debug</ListItemText>
+        </MenuItem>
+      </Menu>
+      <Menu
+        anchorEl={debugAnchor}
+        open={debugAnchor !== null}
+        onClose={() => setDebugAnchor(null)}
+        anchorOrigin={{ vertical: "top", horizontal: "right" }}
+        transformOrigin={{ vertical: "top", horizontal: "left" }}
+      >
+        <MenuItem
+          onClick={() => {
+            close();
+            exportConversation();
+          }}
+          disabled={(store.conversation?.length ?? 0) === 0}
+        >
+          <ListItemIcon>
+            <DataObject fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>Export conversation JSON</ListItemText>
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            close();
+            exportTimeline();
+          }}
+          disabled={getTimelineSnapshot() == null}
+        >
+          <ListItemIcon>
+            <FileDownload fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>Export timeline &amp; steps JSON</ListItemText>
         </MenuItem>
       </Menu>
 

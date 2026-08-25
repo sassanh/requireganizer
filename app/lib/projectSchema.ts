@@ -1,6 +1,6 @@
 import { InvalidJsonError, isRecord } from "./json";
 
-export const PROJECT_SCHEMA_VERSION = 2 as const;
+export const PROJECT_SCHEMA_VERSION = 3 as const;
 
 export function assertCurrentProjectSchema(
   value: unknown,

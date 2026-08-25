@@ -28,14 +28,18 @@ if (testFiles.length === 0) {
 }
 
 const existingNodePath = process.env.NODE_PATH;
-const tests = spawnSync(process.execPath, ["--test", ...testFiles], {
-  env: {
-    ...process.env,
-    NODE_PATH: [resolve(outputDirectory, "app"), existingNodePath]
-      .filter(Boolean)
-      .join(delimiter),
+const tests = spawnSync(
+  process.execPath,
+  ["--test", "--test-force-exit", ...testFiles],
+  {
+    env: {
+      ...process.env,
+      NODE_PATH: [resolve(outputDirectory, "app"), existingNodePath]
+        .filter(Boolean)
+        .join(delimiter),
+    },
+    stdio: "inherit",
   },
-  stdio: "inherit",
-});
+);
 
 process.exit(tests.status ?? 1);

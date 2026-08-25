@@ -40,8 +40,8 @@ import {
   parseScaffoldFiles,
 } from "lib/scaffold";
 import type { ProviderCallMetadata, ProviderCallRecord } from "lib/types";
-import type { ConversationBranchRecord } from "store/conversation-branches";
 import { uuid } from "utilities";
+
 
 import {
   export as export_,
@@ -61,8 +61,6 @@ import {
   import as import_,
   reviseFormalContract,
   sendConversationMessage,
-  branchFromMessage,
-  switchConversationBranch,
   regenerateLastReply,
 } from "./actions";
 import {
@@ -97,6 +95,7 @@ import {
   TargetUser,
   TargetUserModel,
 } from "./models/ProductOverview";
+import { declareTimelineStep } from "./timeline/controller";
 import { withSelf } from "./utilities";
 
 export { PROJECT_SCHEMA_VERSION } from "lib/projectSchema";
@@ -285,7 +284,6 @@ export const FlatStore = types
     stageInputFingerprints: types.map(types.string),
     systemMessage: types.maybeNull(types.string),
     conversation: types.optional(types.frozen<unknown[]>(), []),
-    conversationBranches: types.optional(types.frozen<ConversationBranchRecord[]>(), []),
     conversationSidebarOpen: false,
   })
   .volatile(() => ({
@@ -404,12 +402,6 @@ export const FlatStore = types
     },
     setConversation(messages: unknown[]) {
       self.conversation = cast(messages);
-    },
-    putConversationBranch(record: ConversationBranchRecord) {
-      const others = (self.conversationBranches ?? []).filter(
-        (candidate) => candidate.id !== record.id,
-      );
-      self.conversationBranches = cast([...others, record]);
     },
     setConversationSidebar(open: boolean) {
       self.conversationSidebarOpen = open;
@@ -911,27 +903,40 @@ export const FlatStore = types
     };
   });
 
+// Every AI flow, under the property name it is assigned on the store. The
+// timeline declares each of these as a step: the property name admits the
+// flow's root action (property keys survive minification), and the flow's
+// `__timelineStep` tag supplies the operation label.
+const aiFlows = {
+  handleComment,
+  sendConversationMessage,
+  regenerateLastReply,
+  generateProductOverview,
+  generateUserStories,
+  generateRequirements,
+  generateAcceptanceCriteria,
+  generateBoundaryDesign,
+  generateImplementationProfile,
+  generateInterfaceContracts,
+  reviseFormalContract,
+  generateTestScenarios,
+  generateTestCases,
+  generateProjectSetup,
+  generateTestCode,
+};
+
 export const Store = FlatStore.actions(
-  withSelf({
-    handleComment,
-    sendConversationMessage,
-    branchFromMessage,
-    switchConversationBranch,
-    regenerateLastReply,
-    generateProductOverview,
-    generateUserStories,
-    generateRequirements,
-    generateAcceptanceCriteria,
-    generateBoundaryDesign,
-    generateImplementationProfile,
-    generateInterfaceContracts,
-    reviseFormalContract,
-    generateTestScenarios,
-    generateTestCases,
-    generateProjectSetup,
-    generateTestCode,
-  }),
+  withSelf(aiFlows),
 ).actions(withSelf({ import: import_, export: export_, exportCode }));
+
+for (const [actionName, flow_] of Object.entries(aiFlows)) {
+  const step = (
+    flow_ as { __timelineStep?: { kind: "ai"; label: string } }
+  ).__timelineStep;
+  if (step != null) {
+    declareTimelineStep(actionName, step);
+  }
+}
 
 export type FlatStore = Instance<typeof FlatStore>;
 export type Store = Instance<typeof Store>;

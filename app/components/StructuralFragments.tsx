@@ -23,7 +23,9 @@ interface FragmentListProps<Type extends StructuralFragmentModel> {
   renderFragment: (fragment: Type) => ReactNode;
 }
 
-function FragmentList<Type extends StructuralFragmentModel>({
+const FragmentList = observer(function FragmentList<
+  Type extends StructuralFragmentModel,
+>({
   fragments,
   isDisabled,
   structuralFragment,
@@ -45,7 +47,7 @@ function FragmentList<Type extends StructuralFragmentModel>({
       )}
     </Stack>
   );
-}
+});
 
 interface StructuralFragmentsProps<Type extends StructuralFragmentModel> {
   fragments: Type[];
@@ -86,7 +88,7 @@ interface TestCaseFragmentsProps {
   isDisabled: boolean;
 }
 
-export const TestCaseFragments = observer(function TestCaseFragments({
+export const TestCaseFragments = function TestCaseFragments({
   fragments,
   isDisabled,
 }: TestCaseFragmentsProps) {
@@ -104,6 +106,10 @@ export const TestCaseFragments = observer(function TestCaseFragments({
       )}
     />
   );
-});
+};
 
-export default observer(StructuralFragments);
+// `FragmentList` above is the observer: it is the component that reads the
+// array (map), so it is the one that must track it. Wrapping these forwarders
+// instead tracks nothing — restores that keep the same array identity would
+// then never re-render this subtree.
+export default StructuralFragments;

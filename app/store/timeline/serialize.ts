@@ -9,7 +9,6 @@ export type Hash = string;
 /** The store snapshot shape the timeline grammar understands. */
 export type ProjectSnapshot = {
   schemaVersion: number;
-  isClean: boolean;
   businessCounter: number;
   description: string;
   productOverview: unknown;
@@ -24,17 +23,19 @@ export type ProjectSnapshot = {
   scaffoldFiles: unknown[];
   stageInputFingerprints: unknown;
   conversation: unknown[];
-  conversationBranches: unknown[];
   // Ephemeral fields the timeline excludes; preserved across restores.
+  // `isClean` is bookkeeping flipped by undeclared side paths (imports,
+  // artifact setters) — treating it as history would phantom-step on every
+  // reload.
   validationErrors?: string | null;
   systemMessage?: string | null;
   conversationSidebarOpen?: boolean;
+  isClean?: boolean;
 };
 
 /** The store's data-structure tree with artifact leaves replaced by hashes. */
-export type TimelineNodeState = {
+export type StateTree = {
   schemaVersion: number;
-  isClean: boolean;
   businessCounter: number;
   description: Hash;
   productOverview: Hash | null;
@@ -49,16 +50,6 @@ export type TimelineNodeState = {
   scaffoldFiles: Hash[];
   stageInputFingerprints: Hash;
   conversation: Hash[];
-  conversationBranches: Hash[];
-};
-
-export type TimelineNode = {
-  id: string;
-  label: string;
-  source: "user" | "ai";
-  createdAt: number;
-  state: TimelineNodeState;
-  conversation: { length: number; branchCount: number };
 };
 
 /**
@@ -99,7 +90,7 @@ function resolveArtifact(hash: Hash | null): unknown {
 
 /** Mark-and-sweep: drop artifacts unreachable from the surviving nodes. */
 export function collectArtifactGarbage(
-  nodes: readonly { state: TimelineNodeState }[],
+  states: readonly StateTree[],
 ): void {
   const reachable = new Set<Hash>();
   const visit = (value: unknown): void => {
@@ -115,17 +106,14 @@ export function collectArtifactGarbage(
       Object.values(value).forEach(visit);
     }
   };
-  nodes.forEach((node) => visit(node.state));
+  states.forEach((state) => visit(state));
   for (const hash of artifactStore.keys()) {
     if (!reachable.has(hash)) artifactStore.delete(hash);
   }
 }
 
-/** True when the two node states reference identical artifact sets. */
-export function sameNodeState(
-  left: TimelineNodeState,
-  right: TimelineNodeState,
-): boolean {
+/** True when the two state trees reference identical artifact sets. */
+export function sameState(left: StateTree, right: StateTree): boolean {
   return canonicalJson(left) === canonicalJson(right);
 }
 
@@ -133,14 +121,10 @@ function hashArray(values: readonly unknown[]): Hash[] {
   return values.map((value) => putArtifact(value));
 }
 
-/** Capture the store snapshot as a timeline node (hash-referencing tree). */
-export function captureNode(
-  snapshot: ProjectSnapshot,
-  meta: { id: string; label: string; source: "user" | "ai"; createdAt: number },
-): TimelineNode {
-  const state: TimelineNodeState = {
+/** Hash the store snapshot into a state tree, writing unseen artifacts. */
+export function captureState(snapshot: ProjectSnapshot): StateTree {
+  return {
     schemaVersion: snapshot.schemaVersion,
-    isClean: snapshot.isClean,
     businessCounter: snapshot.businessCounter,
     description: putArtifact(snapshot.description),
     productOverview: putArtifact(snapshot.productOverview),
@@ -163,117 +147,95 @@ export function captureNode(
     scaffoldFiles: hashArray(snapshot.scaffoldFiles),
     stageInputFingerprints: putArtifact(snapshot.stageInputFingerprints),
     conversation: hashArray(snapshot.conversation),
-    conversationBranches: hashArray(snapshot.conversationBranches),
-  };
-  return {
-    id: meta.id,
-    label: meta.label,
-    source: meta.source,
-    createdAt: meta.createdAt,
-    state,
-    conversation: {
-      length: snapshot.conversation.length,
-      branchCount: snapshot.conversationBranches.length,
-    },
   };
 }
 
 /**
- * Rebuild the original snapshot from a node. `current` supplies the
+ * Rebuild the original snapshot from a state tree. `current` supplies the
  * ephemeral UI fields the timeline excludes, so they survive undo/redo.
  */
-export function restoreNode(
-  node: TimelineNode,
+export function restoreSnapshot(
+  state: StateTree,
   current: ProjectSnapshot,
 ): ProjectSnapshot {
   return {
-    schemaVersion: node.state.schemaVersion,
-    isClean: node.state.isClean,
-    businessCounter: node.state.businessCounter,
-    description: resolveArtifact(node.state.description) as string,
-    productOverview: resolveArtifact(node.state.productOverview),
-    userStories: node.state.userStories.map(resolveArtifact),
-    requirements: node.state.requirements.map(resolveArtifact),
-    acceptanceCriteria: node.state.acceptanceCriteria.map(resolveArtifact),
-    boundaryDesign: resolveArtifact(node.state.boundaryDesign),
-    implementationProfile: resolveArtifact(node.state.implementationProfile),
-    contractSuite: resolveArtifact(node.state.contractSuite),
-    testScenarios: node.state.testScenarios.map(resolveArtifact),
-    projectSetup: resolveArtifact(node.state.projectSetup),
-    scaffoldFiles: node.state.scaffoldFiles.map(resolveArtifact),
-    stageInputFingerprints: resolveArtifact(node.state.stageInputFingerprints),
-    conversation: node.state.conversation.map(resolveArtifact),
-    conversationBranches: node.state.conversationBranches.map(resolveArtifact),
+    schemaVersion: state.schemaVersion,
+    isClean: current.isClean === true,
+    businessCounter: state.businessCounter,
+    description: resolveArtifact(state.description) as string,
+    productOverview: resolveArtifact(state.productOverview),
+    userStories: state.userStories.map(resolveArtifact),
+    requirements: state.requirements.map(resolveArtifact),
+    acceptanceCriteria: state.acceptanceCriteria.map(resolveArtifact),
+    boundaryDesign: resolveArtifact(state.boundaryDesign),
+    implementationProfile: resolveArtifact(state.implementationProfile),
+    contractSuite: resolveArtifact(state.contractSuite),
+    testScenarios: state.testScenarios.map(resolveArtifact),
+    projectSetup: resolveArtifact(state.projectSetup),
+    scaffoldFiles: state.scaffoldFiles.map(resolveArtifact),
+    stageInputFingerprints: resolveArtifact(state.stageInputFingerprints),
+    conversation: state.conversation.map(resolveArtifact),
     validationErrors: current.validationErrors ?? null,
     systemMessage: current.systemMessage ?? null,
     conversationSidebarOpen: current.conversationSidebarOpen === true,
   };
 }
+
 /** Test/inspection helper: number of distinct artifacts currently stored. */
 export function artifactCount(): number {
   return artifactStore.size;
 }
 
-/** The persisted form of a timeline: nodes + cursor + the artifact store. */
+/** The persisted form of the conversation tree + the artifact store. */
 export type PersistedTimeline = {
-  version: 1;
-  cursor: number;
-  nodes: TimelineNode[];
+  version: 2;
+  rootId: string;
+  activeLeafId: string;
+  nodes: unknown[];
   artifacts: [Hash, string][];
 };
 
 export function exportTimelineData(
-  nodes: readonly TimelineNode[],
-  cursor: number,
+  payload: Omit<PersistedTimeline, "version" | "artifacts">,
 ): PersistedTimeline {
   return {
-    version: 1,
-    cursor,
-    nodes: [...nodes],
+    version: 2,
+    ...payload,
     artifacts: [...artifactStore.entries()],
   };
 }
 
 /**
- * Replace the artifact store with the persisted one and return the restored
- * nodes and cursor. Throws on structurally malformed data — callers treat
- * that as "no timeline" and start fresh.
+ * Replace the artifact store with the persisted one and hand back the raw
+ * payload. Throws on structurally malformed data — callers treat that as
+ * "no timeline" and start fresh.
  */
 export function importTimelineData(
   data: PersistedTimeline,
-): { nodes: TimelineNode[]; cursor: number } {
+): { rootId: string; activeLeafId: string; nodes: unknown[] } {
   if (
+    typeof data.rootId !== "string" ||
+    typeof data.activeLeafId !== "string" ||
     !Array.isArray(data.nodes) ||
-    !Array.isArray(data.artifacts) ||
-    typeof data.cursor !== "number" ||
-    !Number.isInteger(data.cursor) ||
-    data.cursor < 0
+    data.nodes.length === 0 ||
+    !Array.isArray(data.artifacts)
   ) {
     throw new Error("Malformed timeline payload.");
   }
-  const validNode = (node: unknown): node is TimelineNode => {
-    if (node == null || typeof node !== "object") return false;
-    const candidate = node as Partial<TimelineNode>;
-    return (
-      typeof candidate.id === "string" &&
-      typeof candidate.label === "string" &&
-      (candidate.source === "user" || candidate.source === "ai") &&
-      typeof candidate.createdAt === "number" &&
-      candidate.state != null &&
-      typeof candidate.state === "object" &&
-      Array.isArray(candidate.state.conversation) &&
-      Array.isArray(candidate.state.conversationBranches)
-    );
-  };
-  const nodes = data.nodes.filter(validNode);
-  if (nodes.length === 0) throw new Error("Timeline payload has no nodes.");
-
   artifactStore.clear();
   for (const [hash, json] of data.artifacts) {
     if (typeof hash === "string" && typeof json === "string") {
       artifactStore.set(hash, json);
     }
   }
-  const cursor = Math.min(Math.max(data.cursor, 0), nodes.length - 1);
-  return { nodes, cursor };
+  // Earlier versions recorded ephemeral bookkeeping (`isClean`) inside node
+  // states; strip it so stored histories compare cleanly against fresh
+  // captures.
+  for (const node of data.nodes) {
+    const state = (node as { state?: unknown })?.state;
+    if (state != null && typeof state === "object") {
+      delete (state as Record<string, unknown>).isClean;
+    }
+  }
+  return { rootId: data.rootId, activeLeafId: data.activeLeafId, nodes: data.nodes };
 }

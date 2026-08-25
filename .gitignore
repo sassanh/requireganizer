@@ -44,3 +44,7 @@ next-env.d.ts
 # cloudflare / opennext
 .open-next/
 .wrangler/
+
+# Local debug exports
+requireganizer-timeline-*.json
+requireganizer-conversation-*.json
