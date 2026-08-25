@@ -48,3 +48,4 @@ next-env.d.ts
 # Local debug exports
 requireganizer-timeline-*.json
 requireganizer-conversation-*.json
+coverage/

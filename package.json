@@ -2,6 +2,9 @@
   "name": "requireganizer",
   "version": "0.1.0",
   "private": true,
+  "c8": {
+    "exclude": ["tests/**", ".test-dist/tests/**", "docs/**"]
+  },
   "packageManager": "pnpm@11.21.0",
   "engines": {
     "node": ">=22.13.0"
@@ -16,6 +19,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "node scripts/run-tests.mjs",
+    "coverage": "c8 --reporter=text-summary --reporter=html --reporter=lcov node scripts/run-tests.mjs",
     "check": "pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run build && pnpm run cf:build && pnpm run docs:build",
     "cf:build": "npx @opennextjs/cloudflare build",
     "cf:deploy": "wrangler deploy"
@@ -60,6 +64,7 @@
     "@eslint/js": "^9.39.5",
     "@next/eslint-plugin-next": "^16",
     "@opennextjs/cloudflare": "1.20.2",
+    "c8": "^12.0.0",
     "eslint": "^9.39.5",
     "eslint-config-next": "^16",
     "eslint-plugin-etc": "^2.0.3",

@@ -7,6 +7,7 @@
     "module": "commonjs",
     "moduleResolution": "node",
     "noEmit": false,
+    "sourceMap": true,
     "outDir": ".test-dist",
     "plugins": [],
     "rootDir": "."
