@@ -3,6 +3,7 @@ import {
   addMiddleware,
   applySnapshot,
   createActionTrackingMiddleware2,
+  getPropertyMembers,
   getSnapshot,
   getPath,
 } from "mobx-state-tree";
@@ -10,12 +11,14 @@ import {
 import { describeCommand, parseCommandMessage } from "ai-agent/command";
 import { uuid } from "utilities";
 
+
 import type { PersistedTimeline, StateTree } from "./serialize";
 import {
   captureState,
   collectArtifactGarbage,
   exportTimelineData,
   importTimelineData,
+  resolveStateValues,
   restoreSnapshot,
   sameState,
 } from "./serialize";
@@ -31,6 +34,7 @@ import {
   pruneTree,
   updateNodeState,
 } from "./tree";
+import { ProductOverviewModel } from "../models/ProductOverview";
 
 export type TimelinePersistence = {
   load: () => unknown;
@@ -62,6 +66,10 @@ export function declareTimelineStep(
   stepDeclarations.set(actionName, step);
 }
 
+export function getCurrentStepKind(): Source["kind"] | null {
+  return openTurn?.step.kind ?? null;
+}
+
 /** Declared step action names (introspection for diagnostics). */
 export function getDeclaredStepNames(): string[] {
   return [...stepDeclarations.keys()];
@@ -82,7 +90,11 @@ let attachedStore: AttachedStore | null = null;
 let restoring = false;
 // The currently open turn: bound to the one root action that declared it.
 // Every other root call made while it runs folds into it silently.
-let openTurn: { step: TimelineStep; rootCallId: number } | null = null;
+let openTurn: {
+  step: TimelineStep;
+  rootCallId: number;
+  beforeState: StateTree;
+} | null = null;
 let persistence: TimelinePersistence | null = null;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 const SAVE_DEBOUNCE_MS = 600;
@@ -136,6 +148,274 @@ export type TimelineMetaEntry = {
   startIndex: number;
   alternatives: { id: string; label: string; createdAt: number; preview: string }[];
 };
+
+// Change focus: where a non-human change landed, so the UI can navigate to
+// and highlight the subject. Human edits never emit — their author is
+// already looking at them.
+export type ChangeFocusOpKind = "add" | "remove" | "update";
+
+/**
+ * One changed subject, classified so the UI can react appropriately:
+ * additions and removals slide (animated by the owning list), updates are
+ * presented by the owning element through the change queue. `itemId`
+ * carries the affected item's snapshot id whenever one exists, so lists and
+ * items can recognize exactly the affected child.
+ */
+export type ChangeFocusOp = {
+  kind: ChangeFocusOpKind;
+  subject: string;
+  itemId?: string;
+  itemSnapshot?: unknown;
+  /** After-value of a scalar/artifact update. The presenter captures this
+   * at schedule time and animates it; it does not re-read the store. */
+  value?: unknown;
+};
+
+export type ChangeFocus = { ops: ChangeFocusOp[]; nonce: number };
+
+let changeFocus: ChangeFocus = { ops: [], nonce: 0 };
+const focusListeners = new Set<(focus: ChangeFocus) => void>();
+
+export function onChangeFocus(
+  listener: (focus: ChangeFocus) => void,
+): () => void {
+  focusListeners.add(listener);
+  return () => {
+    focusListeners.delete(listener);
+  };
+}
+
+export function getChangeFocus(): ChangeFocus {
+  return changeFocus;
+}
+
+/** State-tree keys that can be subjects; conversation follows itself. */
+const SUBJECT_KEYS = [
+  "description",
+  "productOverview",
+  "userStories",
+  "requirements",
+  "acceptanceCriteria",
+  "boundaryDesign",
+  "implementationProfile",
+  "contractSuite",
+  "testScenarios",
+  "testCases",
+  "projectSetup",
+  "scaffoldFiles",
+  "stageInputFingerprints",
+] as const;
+
+function snapshotItemId(snapshot: unknown): string | undefined {
+  return typeof (snapshot as { id?: unknown } | null)?.id === "string"
+    ? (snapshot as { id: string }).id
+    : undefined;
+}
+
+/**
+ * Field iteration order for artifact roots whose scalar fields render as
+ * distinct elements. Resolved values come out of the content-hash store
+ * with alphabetically ordered keys, but the change choreography must play
+ * in the layout's order — a field must never blink after a collection that
+ * renders below it. Derived from the model declarations: one source of
+ * truth, no drift.
+ */
+const FIELD_ORDER_BY_ROOT: Record<string, string[]> = {
+  productOverview: Object.keys(
+    getPropertyMembers(ProductOverviewModel).properties,
+  ),
+};
+
+/** Order an artifact's changed fields by model declaration order; fields
+ * unknown to the model keep deterministic alphabetical order at the end. */
+function orderedArtifactFields(root: string, fields: Set<string>): string[] {
+  const order = FIELD_ORDER_BY_ROOT[root];
+  if (order == null) return [...fields];
+  const rank = (field: string): number => {
+    const index = order.indexOf(field);
+    return index === -1 ? order.length : index;
+  };
+  return [...fields].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+}
+
+/** Push one op per identity that appeared, disappeared, or changed.
+ * Index-based diffs would treat a shift as updates of every later slot;
+ * lists queue add/remove of ids, so the log has to be about ids. */
+function diffArrayOps(
+  subjectPrefix: string,
+  beforeList: unknown[],
+  afterList: unknown[],
+  ops: ChangeFocusOp[],
+): void {
+  const beforeById = new Map<string, unknown>();
+  const afterById = new Map<string, unknown>();
+  for (const item of beforeList) {
+    const id = snapshotItemId(item);
+    if (id != null) beforeById.set(id, item);
+  }
+  for (const item of afterList) {
+    const id = snapshotItemId(item);
+    if (id != null) afterById.set(id, item);
+  }
+
+  for (const item of beforeList) {
+    const id = snapshotItemId(item);
+    if (id == null || afterById.has(id)) continue;
+    const op: ChangeFocusOp = {
+      kind: "remove",
+      subject: `${subjectPrefix}/${id}`,
+      itemId: id,
+      itemSnapshot: item,
+    };
+    ops.push(op);
+  }
+
+  for (const item of afterList) {
+    const id = snapshotItemId(item);
+    if (id == null) continue;
+    const beforeItem = beforeById.get(id);
+    if (beforeItem == null) {
+      ops.push({
+        kind: "add",
+        subject: `${subjectPrefix}/${id}`,
+        itemId: id,
+        itemSnapshot: item,
+      });
+      continue;
+    }
+    if (JSON.stringify(beforeItem) !== JSON.stringify(item)) {
+      ops.push({
+        kind: "update",
+        subject: `${subjectPrefix}/${id}`,
+        itemId: id,
+        itemSnapshot: item,
+      });
+    }
+  }
+}
+
+/** Collections nested inside identifiable items (scenario.testCases, ...). */
+function diffNestedIdentifiableArrays(
+  prefix: string,
+  beforeList: unknown[],
+  afterList: unknown[],
+  ops: ChangeFocusOp[],
+): void {
+  const beforeById = new Map<string, Record<string, unknown>>();
+  const afterById = new Map<string, Record<string, unknown>>();
+  for (const item of beforeList) {
+    const id = snapshotItemId(item);
+    if (id != null && item != null && typeof item === "object") {
+      beforeById.set(id, item as Record<string, unknown>);
+    }
+  }
+  for (const item of afterList) {
+    const id = snapshotItemId(item);
+    if (id != null && item != null && typeof item === "object") {
+      afterById.set(id, item as Record<string, unknown>);
+    }
+  }
+  const ids = new Set([...beforeById.keys(), ...afterById.keys()]);
+  for (const id of ids) {
+    const beforeItem = beforeById.get(id);
+    const afterItem = afterById.get(id);
+    const fields = new Set([
+      ...Object.keys(beforeItem ?? {}),
+      ...Object.keys(afterItem ?? {}),
+    ]);
+    for (const field of fields) {
+      const beforeField = beforeItem?.[field];
+      const afterField = afterItem?.[field];
+      if (!Array.isArray(beforeField) && !Array.isArray(afterField)) continue;
+      const beforeArr = Array.isArray(beforeField) ? beforeField : [];
+      const afterArr = Array.isArray(afterField) ? afterField : [];
+      if (
+        ![...beforeArr, ...afterArr].some(
+          (entry) => snapshotItemId(entry) != null,
+        )
+      ) {
+        continue;
+      }
+      diffArrayOps(`${prefix}/${id}/${field}`, beforeArr, afterArr, ops);
+    }
+  }
+}
+
+/**
+ * Diff two recorded state trees into change-focus ops: top-level artifact
+ * keys for whole-artifact changes, identity add/remove/update ops for
+ * collection items. The trees record content hashes, so they are resolved
+ * into artifact values first — item identities (ids) and embedded
+ * collections only exist there. Artifact objects are descended into: their
+ * embedded collections get item-level ops (so their lists can choreograph)
+ * and their scalar fields get per-field ops (so the pulse can target
+ * exactly the changed field). Additions and removals carry the affected
+ * item's snapshot id so lists can animate exactly that item.
+ */
+function diffOps(before: StateTree, after: StateTree): ChangeFocusOp[] {
+  const beforeTree = resolveStateValues(before) as Record<string, unknown>;
+  const afterTree = resolveStateValues(after) as Record<string, unknown>;
+  const ops: ChangeFocusOp[] = [];
+  for (const key of SUBJECT_KEYS) {
+    const beforeValue = beforeTree[key];
+    const afterValue = afterTree[key];
+    if (JSON.stringify(beforeValue) === JSON.stringify(afterValue)) continue;
+
+    if (Array.isArray(beforeValue) && Array.isArray(afterValue)) {
+      diffArrayOps(key, beforeValue, afterValue, ops);
+      diffNestedIdentifiableArrays(key, beforeValue, afterValue, ops);
+      continue;
+    }
+
+    // Artifact objects (e.g. productOverview) are descended into so their
+    // embedded collections produce item-level ops; scalar field changes
+    // collapse into a single whole-artifact update.
+    if (
+      beforeValue != null &&
+      afterValue != null &&
+      typeof beforeValue === "object" &&
+      typeof afterValue === "object"
+    ) {
+      const beforeFields = beforeValue as Record<string, unknown>;
+      const afterFields = afterValue as Record<string, unknown>;
+      const fields = new Set([
+        ...Object.keys(beforeFields),
+        ...Object.keys(afterFields),
+      ]);
+      for (const field of orderedArtifactFields(key, fields)) {
+        const beforeField = beforeFields[field];
+        const afterField = afterFields[field];
+        if (Array.isArray(beforeField) && Array.isArray(afterField)) {
+          diffArrayOps(`${key}/${field}`, beforeField, afterField, ops);
+          diffNestedIdentifiableArrays(
+            `${key}/${field}`,
+            beforeField,
+            afterField,
+            ops,
+          );
+          continue;
+        }
+        if (JSON.stringify(beforeField) !== JSON.stringify(afterField)) {
+          ops.push({
+            kind: "update",
+            subject: `${key}/${field}`,
+            value: afterField,
+          });
+        }
+      }
+      continue;
+    }
+
+    ops.push({ kind: "update", subject: key, value: afterValue });
+  }
+  return ops;
+}
+
+function emitChangeFocus(ops: ChangeFocusOp[]): void {
+  if (ops.length === 0) return;
+  changeFocus = { ops, nonce: changeFocus.nonce + 1 };
+  focusListeners.forEach((listener) => listener(changeFocus));
+}
 
 export type TimelineMeta = {
   entries: TimelineMetaEntry[];
@@ -254,6 +534,7 @@ function snapshotNow(): Record<string, unknown> {
 function restoreStateAt(nodeId: string): void {
   const node = tree.nodes.get(nodeId);
   if (node == null || attachedStore == null) return;
+  const fromNode = tree.nodes.get(tree.activeLeafId);
   restoring = true;
   try {
     // One explicit batch: every observer reaction (mobx or the timeline
@@ -268,6 +549,9 @@ function restoreStateAt(nodeId: string): void {
       activateNode(tree, nodeId);
       tailMarker = null;
       notify();
+      // Publish before this action ends so observers still see the
+      // recorded subjects when they first read the restored values.
+      emitChangeFocus(diffOps(fromNode?.state ?? node.state, node.state));
     });
   } finally {
     restoring = false;
@@ -386,13 +670,19 @@ export function attachTimeline(
           stepDeclarations.get(call.name) ??
           { kind: "user" as const, label: call.name },
         rootCallId: call.id,
+        beforeState: captureState(snapshotNow() as never),
       };
     },
     onFinish: (call, error) => {
       if (openTurn == null || call.id !== openTurn.rootCallId) return;
-      const { step } = openTurn;
+      const { step, beforeState } = openTurn;
       openTurn = null;
       closeOpenTurn(step, getPath(call.context), error != null);
+      // AI-driven turns are not human edits: publish where the change
+      // landed so the UI can navigate to the subject.
+      if (step.kind === "ai") {
+        emitChangeFocus(diffOps(beforeState, captureState(snapshotNow() as never)));
+      }
     },
   });
   disposer = addMiddleware(store as never, middleware);

@@ -16,8 +16,10 @@ import {
   beginRewind,
   cancelRewind,
   commitTimelineSegment,
+  declareTimelineStep,
   endRewind,
   flushTimeline,
+  getChangeFocus,
   getDeclaredStepNames,
   getTimelineMeta,
   getTimelineSnapshot,
@@ -702,6 +704,107 @@ describe("timeline controller", () => {
     release();
     await inFlight;
     assert.equal(getTimelineMeta().isRewinding, false);
+  });
+
+  it("publishes the subject of restores for navigation", () => {
+    const store = newStore();
+    const nonceBefore = getChangeFocus().nonce;
+    store.setDescription({ description: "first" });
+    commitTimelineSegment();
+    store.setDescription({ description: "second" });
+    commitTimelineSegment();
+
+    undo();
+
+    const focus = getChangeFocus();
+    assert.equal(focus.nonce, nonceBefore + 1);
+    assert.deepEqual(
+      focus.ops.map(({ kind, subject }) => ({ kind, subject })),
+      [{ kind: "update", subject: "description" }],
+    );
+    assert.equal(focus.ops[0].value, "first");
+  });
+
+  it("classifies restored collection changes as adds and removals with item ids", () => {
+    // The collection mutation is not an admitted step by default; declare
+    // it so the test's mutations open turns like any user action.
+    declareTimelineStep("setUserStories", {
+      kind: "user",
+      label: "setUserStories",
+    });
+    const store = newStore();
+    store.setUserStories({ userStories: [{ id: "us-1", content: "first" }] });
+    commitTimelineSegment();
+    store.setUserStories({
+      userStories: [
+        { id: "us-1", content: "first" },
+        { id: "us-2", content: "second" },
+      ],
+    });
+    commitTimelineSegment();
+
+    undo();
+
+    const focus = getChangeFocus();
+    assert.deepEqual(
+      focus.ops.map(({ kind, subject }) => ({ kind, subject })),
+      [{ kind: "remove", subject: "userStories/us-2" }],
+    );
+    // The removal names the removed item so its list can slide exactly that
+    // item out.
+    assert.ok((focus.ops[0].itemId ?? "").length > 0);
+
+    redo();
+
+    const redoFocus = getChangeFocus();
+    assert.deepEqual(
+      redoFocus.ops.map(({ kind, subject }) => ({ kind, subject })),
+      [{ kind: "add", subject: "userStories/us-2" }],
+    );
+    assert.equal(redoFocus.ops[0].itemId, focus.ops[0].itemId);
+  });
+
+  it("descends into artifact objects so embedded collections get item-level ops", () => {
+    declareTimelineStep("addPrimaryFeature", {
+      kind: "user",
+      label: "addPrimaryFeature",
+    });
+    const store = newStore();
+    store.productOverview.addPrimaryFeature();
+    commitTimelineSegment();
+
+    undo();
+
+    const focus = getChangeFocus();
+    assert.equal(focus.ops.length, 1);
+    assert.equal(focus.ops[0].kind, "remove");
+    assert.equal(
+      focus.ops[0].subject.startsWith("productOverview/primaryFeatures/"),
+      true,
+    );
+    // The removal names the removed item so its list can slide exactly that
+    // item out.
+    assert.ok((focus.ops[0].itemId ?? "").length > 0);
+  });
+
+  it("never publishes focus for human edits", () => {
+    const store = newStore();
+    const nonceBefore = getChangeFocus().nonce;
+    store.setDescription({ description: "typed" });
+    commitTimelineSegment();
+    assert.equal(getChangeFocus().nonce, nonceBefore);
+  });
+
+  it("excludes the conversation from change focus", async () => {
+    const store = newStore();
+    await store.sendConversationMessage(
+      { message: "hello" },
+      scriptedStreamFn([assistantMessage([{ type: "text", text: "hi" }])]),
+    );
+    assert.equal(
+      getChangeFocus().ops.some((op) => op.subject.startsWith("conversation")),
+      false,
+    );
   });
 
   it("exports the full timeline snapshot for debugging", () => {

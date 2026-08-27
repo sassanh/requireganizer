@@ -4,6 +4,7 @@ import {
   AccordionDetails,
   AccordionSummary,
   Alert,
+  Box,
   Button,
   Card,
   CardContent,
@@ -15,7 +16,13 @@ import {
 import { observer } from "mobx-react-lite";
 import { useState } from "react";
 
-import { CodeBlock, GenerationButton } from "components";
+import {
+  artifactElementId,
+  CodeBlock,
+  GenerationButton,
+} from "components";
+import { jsonEqual, useStagedContent } from "components/changeQueue";
+import { useShownStore } from "presentation";
 import { useStore } from "store";
 
 const PROFILE_FIELDS = [
@@ -34,8 +41,19 @@ const InterfaceContractsView = () => {
   const store = useStore();
   const [target, setTarget] = useState<Target | null>(null);
   const [comment, setComment] = useState("");
-  const profile = store.implementationProfile;
-  const suite = store.contractSuite;
+  const shown = useShownStore();
+  const profile = useStagedContent(
+    "implementationProfile",
+    artifactElementId("implementationProfile"),
+    shown.implementationProfile,
+    jsonEqual,
+  );
+  const suite = useStagedContent(
+    "contractSuite",
+    artifactElementId("contractSuite"),
+    shown.contractSuite,
+    jsonEqual,
+  );
 
   if (profile == null) {
     return (
@@ -64,7 +82,7 @@ const InterfaceContractsView = () => {
 
   return (
     <Stack spacing={3}>
-      <Card variant="outlined">
+      <Card variant="outlined" id={artifactElementId("implementationProfile")}>
         <CardContent component={Stack} spacing={2}>
           <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center" }}>
             <Typography variant="h5">Implementation Profile · revision {profile.revision}</Typography>
@@ -105,7 +123,7 @@ const InterfaceContractsView = () => {
       )}
 
       {suite != null && (
-        <>
+        <Box id={artifactElementId("contractSuite")}>
           {store.contractRevisionDiff != null && (
             <Accordion variant="outlined">
               <AccordionSummary>
@@ -175,7 +193,7 @@ const InterfaceContractsView = () => {
               </AccordionDetails>
             </Accordion>
           ))}
-        </>
+        </Box>
       )}
 
       {target != null && (

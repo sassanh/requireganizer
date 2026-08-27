@@ -2,11 +2,12 @@
 import DefaultPropsProvider from "@mui/material/DefaultPropsProvider";
 import { ThemeProvider } from "@mui/material/styles";
 import { AppRouterCacheProvider } from "@mui/material-nextjs/v15-appRouter";
-import { getSnapshot, onSnapshot } from "mobx-state-tree";
+import { applySnapshot, getSnapshot, onSnapshot } from "mobx-state-tree";
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 
 import { setAgentSessionId } from "ai-agent/agent";
 import Link from "components/Link";
+import { useUndoRedoKeyboardShortcuts } from "hooks/useUndoRedoKeyboardShortcuts";
 import {
   getProjectsIndex,
   loadProjectData,
@@ -15,6 +16,11 @@ import {
   saveProjectsIndex,
   saveTimelineData,
 } from "lib/projectStorage";
+import {
+  attachPresentation,
+  presentationStoreContext,
+  resetPresentation,
+} from "presentation";
 import { Store, storeContext } from "store";
 import { attachTimeline, flushTimeline } from "store/timeline/controller";
 
@@ -43,6 +49,7 @@ let isStoreReloadNeeded = true;
 const PROJECT_SAVE_DEBOUNCE_MS = 800;
 
 export default function Providers({ children }: { children: React.ReactNode }) {
+  useUndoRedoKeyboardShortcuts();
   const [activeProject, setActiveProject] = useState<{ id: string, name: string } | null>(null);
   const [persistenceError, setPersistenceError] = useState<string | null>(null);
   const [store, setStore] = useState(() => {
@@ -51,6 +58,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     attachTimeline(initialStore);
     return initialStore;
   });
+  const [shown] = useState(() => Store.create(getSnapshot(store)));
 
   const disposerRef = useRef<(() => void) | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -118,6 +126,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (isStoreReloadNeeded) {
       const snapshot = getSnapshot(store);
+      resetPresentation();
       // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional one-time store reload
       setStore(Store.create(snapshot));
       isStoreReloadNeeded = false;
@@ -153,6 +162,12 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     );
   }, [store, activeProject, timelinePersistence]);
 
+  useEffect(() => {
+    resetPresentation();
+    applySnapshot(shown, getSnapshot(store));
+    return attachPresentation(shown, store);
+  }, [store, shown]);
+
   // Never leave recent timeline nodes or project changes unsaved when the
   // tab goes away.
   useEffect(() => {
@@ -169,6 +184,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     (id: string, name: string) => {
       const data = loadProjectData(id);
       const openStore = (created: typeof store) => {
+        resetPresentation();
         attachTimeline(created, {
           persistence: timelinePersistence(id),
         });
@@ -216,19 +232,21 @@ export default function Providers({ children }: { children: React.ReactNode }) {
       }}
     >
       <storeContext.Provider value={store}>
-        <AppRouterCacheProvider options={{}}>
-          <ThemeProvider theme={theme}>
-            <DefaultPropsProvider
-              value={{
-                MuiLink: { component: Link },
-                MuiButtonBase: { LinkComponent: Link },
-                MuiTab: { LinkComponent: Link },
-              }}
-            >
-              {children}
-            </DefaultPropsProvider>
-          </ThemeProvider>
-        </AppRouterCacheProvider>
+        <presentationStoreContext.Provider value={shown}>
+          <AppRouterCacheProvider options={{}}>
+            <ThemeProvider theme={theme}>
+              <DefaultPropsProvider
+                value={{
+                  MuiLink: { component: Link },
+                  MuiButtonBase: { LinkComponent: Link },
+                  MuiTab: { LinkComponent: Link },
+                }}
+              >
+                {children}
+              </DefaultPropsProvider>
+            </ThemeProvider>
+          </AppRouterCacheProvider>
+        </presentationStoreContext.Provider>
       </storeContext.Provider>
     </projectContext.Provider>
   );

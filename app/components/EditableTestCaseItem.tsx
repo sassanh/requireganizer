@@ -1,22 +1,43 @@
 import { Stack, StackProps, TextField } from "@mui/material";
 import { observer } from "mobx-react-lite";
+import { isAlive } from "mobx-state-tree";
 
 import { TestCase } from "store/models";
 
+import { useStagedContent } from "./changeQueue";
 import FragmentShell from "./FragmentShell";
 
 interface EditableTestCaseItemProps extends StackProps {
   isDisabled: boolean;
   list: TestCase[];
   fragment: TestCase;
+  /** The item's identity; content updates animate prev→next. */
+  stageSubject?: string;
 }
 
-const EditableTestCaseItem = ({
+const EditableTestCaseItemContent = observer(function EditableTestCaseItemContent({
   isDisabled,
   list,
   fragment,
+  stageSubject,
   ...props
-}: EditableTestCaseItemProps) => {
+}: EditableTestCaseItemProps) {
+  const testStatus = fragment.testStatus;
+  // One item is one animated element: a single displayed copy covers every
+  // field of the card, and one turn swaps them together.
+  const displayed = useStagedContent(
+    stageSubject,
+    fragment.id,
+    {
+      title: fragment.title,
+      steps: fragment.steps,
+      expectedResult: fragment.expectedResult,
+    },
+    (left, right) =>
+      left.title === right.title &&
+      left.steps === right.steps &&
+      left.expectedResult === right.expectedResult,
+  );
   const handleKeyUp = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Escape") {
       event.currentTarget.blur();
@@ -35,11 +56,11 @@ const EditableTestCaseItem = ({
       sx={(theme) => ({
         py: 1,
         backgroundColor:
-          fragment.testStatus === "generated"
+          testStatus === "generated"
             ? theme.palette.mode === "dark"
               ? "rgba(46, 125, 50, 0.15)"
               : "rgba(46, 125, 50, 0.08)"
-            : fragment.testStatus === "out-of-sync"
+            : testStatus === "out-of-sync"
               ? theme.palette.mode === "dark"
                 ? "rgba(237, 108, 2, 0.15)"
                 : "rgba(237, 108, 2, 0.08)"
@@ -52,7 +73,7 @@ const EditableTestCaseItem = ({
         <TextField
           multiline
           fullWidth
-          value={fragment.title}
+          value={displayed.title}
           placeholder="Test Case Title"
           size="small"
           sx={{
@@ -69,7 +90,7 @@ const EditableTestCaseItem = ({
         <TextField
           multiline
           fullWidth
-          value={fragment.steps}
+          value={displayed.steps}
           placeholder="Test Steps"
           size="small"
           sx={{
@@ -86,7 +107,7 @@ const EditableTestCaseItem = ({
         <TextField
           multiline
           fullWidth
-          value={fragment.expectedResult}
+          value={displayed.expectedResult}
           placeholder="Expected Result"
           size="small"
           sx={{
@@ -103,6 +124,9 @@ const EditableTestCaseItem = ({
       </Stack>
     </FragmentShell>
   );
-};
+});
 
-export default observer(EditableTestCaseItem);
+const EditableTestCaseItem = (props: EditableTestCaseItemProps) =>
+  isAlive(props.fragment) ? <EditableTestCaseItemContent {...props} /> : null;
+
+export default EditableTestCaseItem;

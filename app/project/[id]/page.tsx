@@ -174,26 +174,28 @@ function Home() {
           sx={{
             flexGrow: 1,
             minWidth: 0,
-            // The artifacts column is the page's scroll container: the row is
-            // exactly viewport-sized, so the sidebar stays fully visible
-            // without any sticky positioning while long content scrolls here.
+            minHeight: 0,
             height: "100%",
-            overflowY: "auto",
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
             ...(store.isBusy && { pointerEvents: "none", userSelect: "none" }),
           }}
         >
           {store.systemMessage && (
             <Alert
               severity="success"
-              sx={{ position: "sticky", top: 0, zIndex: 2 }}
+              sx={{ flexShrink: 0, zIndex: 2 }}
             >
               <AlertTitle>Needs Action!</AlertTitle>
               <div>{store.systemMessage}</div>
             </Alert>
           )}
-          <Suspense fallback={null}>
-            <Factory activeProject={activeProject} />
-          </Suspense>
+          <Box sx={{ flexGrow: 1, minHeight: 0, minWidth: 0, display: "flex" }}>
+            <Suspense fallback={null}>
+              <Factory activeProject={activeProject} />
+            </Suspense>
+          </Box>
         </Box>
         {conversationOpen && <ConversationSidebar />}
       </Stack>

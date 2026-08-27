@@ -151,6 +151,17 @@ describe("product overview sync across restores", () => {
         "count=0",
         "observer must follow the restored store",
       );
+      // Removed items slide out; give the wave time to finish before
+      // asserting the DOM is empty.
+      const deadline = Date.now() + 3000;
+      while (dom.itemCount() > 0 && Date.now() < deadline) {
+        await React.act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        });
+        if (Date.now() % 500 < 60) {
+          console.error(`[t] remaining=${dom.itemCount()}`);
+        }
+      }
       assert.equal(
         dom.itemCount(),
         0,

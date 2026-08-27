@@ -150,17 +150,20 @@ export function captureState(snapshot: ProjectSnapshot): StateTree {
   };
 }
 
-/**
- * Rebuild the original snapshot from a state tree. `current` supplies the
- * ephemeral UI fields the timeline excludes, so they survive undo/redo.
- */
-export function restoreSnapshot(
-  state: StateTree,
-  current: ProjectSnapshot,
-): ProjectSnapshot {
+/** The recorded snapshot with artifacts resolved back to values — everything
+ * ProjectSnapshot carries except the ephemeral fields restores take from the
+ * live store. */
+export type ResolvedState = Omit<
+  ProjectSnapshot,
+  "isClean" | "validationErrors" | "systemMessage" | "conversationSidebarOpen"
+>;
+
+/** Resolve a recorded state tree into artifact values, collection item by
+ * collection item, so consumers can inspect identities (item ids) and
+ * embedded structures rather than content hashes. */
+export function resolveStateValues(state: StateTree): ResolvedState {
   return {
     schemaVersion: state.schemaVersion,
-    isClean: current.isClean === true,
     businessCounter: state.businessCounter,
     description: resolveArtifact(state.description) as string,
     productOverview: resolveArtifact(state.productOverview),
@@ -175,6 +178,20 @@ export function restoreSnapshot(
     scaffoldFiles: state.scaffoldFiles.map(resolveArtifact),
     stageInputFingerprints: resolveArtifact(state.stageInputFingerprints),
     conversation: state.conversation.map(resolveArtifact),
+  };
+}
+
+/**
+ * Rebuild the original snapshot from a state tree. `current` supplies the
+ * ephemeral UI fields the timeline excludes, so they survive undo/redo.
+ */
+export function restoreSnapshot(
+  state: StateTree,
+  current: ProjectSnapshot,
+): ProjectSnapshot {
+  return {
+    ...resolveStateValues(state),
+    isClean: current.isClean === true,
     validationErrors: current.validationErrors ?? null,
     systemMessage: current.systemMessage ?? null,
     conversationSidebarOpen: current.conversationSidebarOpen === true,

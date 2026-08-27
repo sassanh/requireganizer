@@ -8,3 +8,17 @@
   flex-direction: row-reverse;
   align-items: center;
 }
+
+.focus-blink {
+  animation: focus-blink 0.9s ease-in-out 2;
+}
+
+@keyframes focus-blink {
+  0%,
+  100% {
+    background-color: transparent;
+  }
+  50% {
+    background-color: rgba(46, 101, 89, 0.16);
+  }
+}

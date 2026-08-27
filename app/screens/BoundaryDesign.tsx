@@ -10,18 +10,27 @@ import {
 } from "@mui/material";
 import { observer } from "mobx-react-lite";
 
+import { artifactElementId } from "components";
+import { jsonEqual, useStagedContent } from "components/changeQueue";
+import { useShownStore } from "presentation";
 import { useStore } from "store";
 
 const BoundaryDesignView = () => {
   const store = useStore();
-  const design = store.boundaryDesign;
+  const shown = useShownStore();
+  const design = useStagedContent(
+    "boundaryDesign",
+    artifactElementId("boundaryDesign"),
+    shown.boundaryDesign,
+    jsonEqual,
+  );
 
   if (design == null) {
     return <Alert severity="info">Generate a boundary design to define test subjects, interfaces, interactions, and acceptance coverage.</Alert>;
   }
 
   return (
-    <Stack spacing={3}>
+    <Stack spacing={3} id={artifactElementId("boundaryDesign")}>
       <Stack spacing={2}>
         <Typography variant="h5">Test subjects</Typography>
         {design.subjects.map((subject) => (

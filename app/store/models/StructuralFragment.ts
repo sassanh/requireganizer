@@ -90,6 +90,7 @@ export const StructuralFragmentModel = HalfStructuralFragmentModel.views(
 )
   .views((self) => ({
     getCode() {
+      if (!isAlive(self)) return "";
       return `${FRAGMENT_CODES[self.type]}-${self.getIndex()}`;
     },
   }))

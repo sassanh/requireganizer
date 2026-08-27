@@ -1,45 +1,92 @@
 import { Add } from "@mui/icons-material";
 import { Button, Divider, Paper, Stack } from "@mui/material";
 import { observer } from "mobx-react-lite";
-import { Fragment, ReactElement, ReactNode } from "react";
+import { isAlive } from "mobx-state-tree";
+import { ReactElement, ReactNode } from "react";
 
 import {
   STRUCTURAL_FRAGMENT_LABEL,
   StructuralFragment as StructuralFragmentName,
 } from "store";
 import {
+  type TestCase,
   StructuralFragment as StructuralFragmentModel,
-  TestCase,
 } from "store/models";
 
 import EditableItem from "./EditableItem";
 import EditableTestCaseItem from "./EditableTestCaseItem";
+import { getFrozenFragment } from "./frozenFragment";
+import {
+  MembershipMotion,
+  useMembershipTurns,
+} from "./membershipPresentation";
 
 interface FragmentListProps<Type extends StructuralFragmentModel> {
   fragments: Type[];
   isDisabled: boolean;
   structuralFragment: Type["type"];
+  scenarioId?: string;
   onAddFragment?: () => void;
-  renderFragment: (fragment: Type) => ReactNode;
+  renderFragment: (
+    fragment: Type,
+    options?: { isDisabled?: boolean; list?: Type[] },
+  ) => ReactNode;
 }
 
+/**
+ * Membership follows the presentation replica. Each recorded add/remove
+ * is one replica frame; the list animates that one-id diff and reports
+ * done. Human edits have no frames and snap immediately.
+ */
 const FragmentList = observer(function FragmentList<
   Type extends StructuralFragmentModel,
 >({
   fragments,
   isDisabled,
   structuralFragment,
+  scenarioId,
   onAddFragment,
   renderFragment,
 }: FragmentListProps<Type>) {
+  const liveFragments = fragments.filter((fragment) => isAlive(fragment));
+  const liveIds = [
+    ...new Set(liveFragments.map((fragment) => fragment.id)),
+  ];
+
+  const { presentedIds, enteringIds, exitingIds, exitHeightFor, seqFor, itemRef } =
+    useMembershipTurns(liveIds);
+
+  const renderedChildFor = (id: string): ReactNode => {
+    const live = liveFragments.find((fragment) => fragment.id === id);
+    if (live != null) {
+      return renderFragment(live, { list: liveFragments });
+    }
+    return getFrozenFragment(id);
+  };
+
   return (
-    <Stack component={Paper} variant="outlined" sx={{ p: 1, gap: 1 }}>
-      {fragments.map((fragment) => (
-        <Fragment key={fragment.id}>
-          {renderFragment(fragment)}
-          <Divider />
-        </Fragment>
-      ))}
+    <Stack
+      component={Paper}
+      variant="outlined"
+      sx={{ p: 1, gap: 1 }}
+    >
+      {presentedIds.map((id, index) => {
+        const content = renderedChildFor(id);
+        if (content == null) return null;
+        return (
+          <MembershipMotion
+            key={`${id}:${seqFor(id)}:${index}`}
+            id={id}
+            entering={enteringIds.has(id)}
+            exiting={exitingIds.has(id)}
+            exitHeight={exitHeightFor(id)}
+            itemRef={itemRef}
+          >
+            {content}
+            <Divider />
+          </MembershipMotion>
+        );
+      })}
       {onAddFragment && (
         <Button disabled={isDisabled} endIcon={<Add />} onClick={onAddFragment}>
           Add {STRUCTURAL_FRAGMENT_LABEL[structuralFragment]}
@@ -71,11 +118,12 @@ const StructuralFragments = <Type extends StructuralFragmentModel>({
     isDisabled={isDisabled}
     structuralFragment={structuralFragment}
     onAddFragment={onAddFragment}
-    renderFragment={(fragment) => (
+    renderFragment={(fragment, options) => (
       <EditableItem<Type>
-        list={fragments}
+        list={options?.list ?? fragments}
         fragment={fragment}
-        isDisabled={isDisabled}
+        stageSubject={fragment.id}
+        isDisabled={options?.isDisabled ?? isDisabled}
         onComment={onComment}
         onRemove={onRemoveFragment}
       />
@@ -86,30 +134,30 @@ const StructuralFragments = <Type extends StructuralFragmentModel>({
 interface TestCaseFragmentsProps {
   fragments: TestCase[];
   isDisabled: boolean;
+  scenarioId?: string;
 }
 
 export const TestCaseFragments = function TestCaseFragments({
   fragments,
   isDisabled,
+  scenarioId,
 }: TestCaseFragmentsProps) {
   return (
     <FragmentList
       fragments={fragments}
       isDisabled={isDisabled}
       structuralFragment={StructuralFragmentName.TestCase}
-      renderFragment={(fragment) => (
+      scenarioId={scenarioId}
+      renderFragment={(fragment, options) => (
         <EditableTestCaseItem
-          list={fragments}
+          list={options?.list ?? fragments}
           fragment={fragment}
-          isDisabled={isDisabled}
+          stageSubject={fragment.id}
+          isDisabled={options?.isDisabled ?? isDisabled}
         />
       )}
     />
   );
 };
 
-// `FragmentList` above is the observer: it is the component that reads the
-// array (map), so it is the one that must track it. Wrapping these forwarders
-// instead tracks nothing — restores that keep the same array identity would
-// then never re-render this subtree.
 export default StructuralFragments;
