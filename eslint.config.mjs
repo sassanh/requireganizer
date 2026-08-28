@@ -16,6 +16,11 @@ const config = [
       "**/docs/.vitepress/dist/**",
     ],
   },
+  {
+    linterOptions: {
+      reportUnusedDisableDirectives: "error",
+    },
+  },
   ...nextCoreWebVitals,
   {
     plugins: {

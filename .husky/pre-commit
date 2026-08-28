@@ -1,0 +1,12 @@
+#!/bin/sh
+# Pre-commit: mirror CI quality gate so broken commits can't land.
+# CI runs `pnpm run check` (lint+typecheck+test+build). For speed, pre-commit
+# runs the fast checks; tests are still run in CI.
+
+echo "▶ pre-commit: lint"
+pnpm run lint || exit 1
+
+echo "▶ pre-commit: typecheck"
+pnpm run typecheck || exit 1
+
+echo "✓ pre-commit checks passed (lint+typecheck)"
