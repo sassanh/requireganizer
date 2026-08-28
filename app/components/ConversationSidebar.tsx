@@ -64,6 +64,24 @@ import {
 
 import { describeToolOutput } from "./toolOutputSummary";
 
+function formatHistoryTimestamp(createdAt: number): string {
+  const diffMs = Date.now() - createdAt;
+  const oneDay = 24 * 60 * 60 * 1000;
+  const threeDays = 3 * oneDay;
+  if (diffMs < oneDay) {
+    return new Date(createdAt).toLocaleTimeString();
+  }
+  if (diffMs < threeDays) {
+    const days = Math.floor(diffMs / oneDay);
+    return days === 1 ? "yesterday" : `${days} days ago`;
+  }
+  return new Date(createdAt).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    ...(diffMs > 365 * 24 * 60 * 60 * 1000 ? { year: "numeric" as const } : {}),
+  });
+}
+
 type ContentBlock = {
   type: string;
   text?: string;
@@ -810,6 +828,7 @@ function ConversationSidebar() {
         display: "flex",
         flexDirection: "column",
         overflow: "hidden",
+        position: "relative",
       }}
     >
       <Stack
@@ -870,8 +889,20 @@ function ConversationSidebar() {
           </>
         )}
       </Stack>
-      <Collapse in={historyOpen}>
-        <Box sx={{ maxHeight: 200, overflowY: "auto", borderBottom: 1, borderColor: "divider" }}>
+      <Collapse
+        in={historyOpen}
+        sx={{ position: "absolute", top: 48, left: 0, right: 0, zIndex: 2 }}
+      >
+        <Box
+          sx={{
+            maxHeight: 200,
+            overflowY: "auto",
+            borderBottom: 1,
+            borderColor: "divider",
+            bgcolor: "background.paper",
+            boxShadow: 1,
+          }}
+        >
           <List dense disablePadding>
             {timelineMeta.entries
               .map((entry, index) => ({ entry, index }))
@@ -908,7 +939,7 @@ function ConversationSidebar() {
                       {entry.stateOnly ? `${entry.label} (state)` : entry.label}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
-                      {new Date(entry.createdAt).toLocaleTimeString()}
+                      {formatHistoryTimestamp(entry.createdAt)}
                     </Typography>
                   </Stack>
                 </ListItemButton>
