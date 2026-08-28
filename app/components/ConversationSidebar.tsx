@@ -675,15 +675,33 @@ function ConversationSidebar() {
     if (busy) return;
     // Prefill the composer with the message being rewritten, remember the
     // in-progress draft for cancel, and jump the tree to the state before
-    // the message's turn.
+    // the message's turn. While already rewinding, keep the original
+    // `draftBeforeRewind`/`rewoundIndexRef` so cancel returns to the true
+    // pre-rewind leaf instead of the intermediate rewound state.
     const anchorText = blockText(toBlocks(messages[index]?.content), "text");
-    setDraftBeforeRewind(composerDraft);
+    const wasRewinding = isRewinding;
+    if (!wasRewinding) {
+      setDraftBeforeRewind(composerDraft);
+      rewoundIndexRef.current = index;
+    }
     setComposerDraft(anchorText);
-    rewoundIndexRef.current = index;
     if (!beginRewind(index)) {
       // Nothing to rewind to (message not bound to a timeline turn).
-      setDraftBeforeRewind("");
-      rewoundIndexRef.current = null;
+      // Only clear the save we just made; a nested failure must leave the
+      // original pre-rewind save intact so cancel still heals to the first
+      // leaf.
+      if (!wasRewinding) {
+        setDraftBeforeRewind("");
+        rewoundIndexRef.current = null;
+      }
+      // On a nested failure the composer now holds the new anchor text;
+      // keep it — the user explicitly asked to rewrite that older message.
+      // Cancel will still restore the original draft.
+    } else if (wasRewinding) {
+      // Successful nested rewind: keep the original `rewoundIndexRef` for
+      // the blink on cancel, but the tree's `rewindSavedLeafId` is already
+      // preserved by the controller. `draftBeforeRewind` stays the original
+      // draft, `composerDraft` is the latest anchor.
     }
   };
 

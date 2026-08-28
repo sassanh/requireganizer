@@ -117,10 +117,13 @@ const tree: ConversationTree = { nodes: new Map(), rootId: "", activeLeafId: "" 
 const attachedInstances = new WeakSet<object>();
 
 function seedRoot(label: string): void {
+  const snapshot = snapshotNow() as unknown as { conversation: unknown[] };
+  const state = captureState(snapshot as never);
+  const messages = [...(snapshot.conversation ?? [])];
   const created = createTree(uuid(), {
-    messages: [],
-    state: captureState(snapshotNow() as never),
-    stateOnly: true,
+    messages,
+    state,
+    stateOnly: messages.length === 0,
     source: "system",
     label,
     createdAt: Date.now(),
@@ -718,6 +721,13 @@ export function attachTimeline(
       tree.rootId = "";
     }
   }
+  if (restored) {
+    // Repair persisted histories corrupted by the pre-fix `reloaded` path
+    // (see `repairActivePathGaps` below). The persisted `reloaded` node
+    // was `messages:[]` while its `state` already held the gap, leaving
+    // `activePathRanges` sum < `leaf.state.conversation.length`.
+    repairActivePathGaps();
+  }
   if (!restored) {
     seedRoot("initial");
   } else {
@@ -727,11 +737,19 @@ export function attachTimeline(
     const state = captureState(snapshot as never);
     const leaf = tree.nodes.get(tree.activeLeafId);
     if (leaf == null || !sameState(leaf.state, state)) {
+      // Reconcile gaps (e.g. projectStorage saved more messages than the
+      // timeline persistence). Capture the conversation delta as the turn's
+      // messages so `nodeCoveringMessage` can locate every index; a pure
+      // state-only turn would leave those messages addressable in the state
+      // but invisible to the rewind index.
+      const parentLength = leaf?.state.conversation.length ?? 0;
+      const snapshotConversation = (snapshot as { conversation: unknown[] }).conversation;
+      const messages = snapshotConversation.slice(parentLength);
       graftTurn(tree, tree.activeLeafId, {
         id: uuid(),
-        messages: [],
+        messages: [...messages],
         state,
-        stateOnly: true,
+        stateOnly: messages.length === 0,
         source: "system",
         label: "reloaded",
         createdAt: Date.now(),
@@ -746,11 +764,52 @@ export function attachTimeline(
  * parent of the turn that posted it, reverting artifacts and conversation
  * together. Returns false when the message cannot be located.
  */
+function repairActivePathGaps(): boolean {
+  // Backfill any `reloaded` corruption where a turn's state holds more
+  // conversation messages than its `messages` array accounts for. Fixes
+  // already-loaded in-memory trees without requiring a full reload.
+  let repaired = false;
+  for (const node of activePath(tree)) {
+    const resolvedConversation = resolveStateValues(node.state).conversation as unknown[];
+    const parent = node.parent ? tree.nodes.get(node.parent) : null;
+    const parentLen = parent
+      ? (resolveStateValues(parent.state).conversation as unknown[]).length
+      : 0;
+    const expectedLen = resolvedConversation.length - parentLen;
+    if (node.messages.length !== expectedLen) {
+      node.messages = [...resolvedConversation.slice(parentLen)];
+      node.stateOnly = node.messages.length === 0;
+      repaired = true;
+    }
+  }
+  if (repaired) rebuildMetaCache();
+  return repaired;
+}
+
 export function beginRewind(messageIndex: number): boolean {
   if (attachedStore == null || attachedStore.isBusy === true) return false;
-  const turn = nodeCoveringMessage(tree, messageIndex);
+  let turn = nodeCoveringMessage(tree, messageIndex);
+  if (turn?.parent == null) {
+    // The in-memory tree may still be the pre-fix corrupted shape
+    // (persisted `reloaded` with `0` messages). Repair and retry once
+    // so the current session heals without a page reload.
+    const ranges = activePathRanges(tree);
+    const total = ranges.reduce((acc, r) => acc + r.count, 0);
+    const leaf = tree.nodes.get(tree.activeLeafId);
+    const leafLen = (leaf?.state as unknown as { conversation?: unknown[] })?.conversation?.length ?? 0;
+    const storeLen = (attachedStore as unknown as { conversation?: unknown[] })?.conversation?.length ?? 0;
+    if (messageIndex < storeLen && total !== leafLen && repairActivePathGaps()) {
+      // Persist the healed shape so the next load is already correct.
+      scheduleSave();
+      turn = nodeCoveringMessage(tree, messageIndex);
+    }
+  }
   if (turn?.parent == null) return false;
-  rewindSavedLeafId = tree.activeLeafId;
+  // Keep the original leaf for cancel: a nested rewind while already
+  // rewinding must not overwrite the "before-rewind" save, otherwise
+  // cancel would return to the intermediate rewound state instead of the
+  // true pre-rewind leaf and the user must manually redo.
+  if (rewindSavedLeafId == null) rewindSavedLeafId = tree.activeLeafId;
   restoreStateAt(turn.parent);
   return true;
 }
