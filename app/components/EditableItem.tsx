@@ -1,4 +1,4 @@
-import { StackProps, TextField } from "@mui/material";
+import { StackProps } from "@mui/material";
 import { observer } from "mobx-react-lite";
 import { isAlive } from "mobx-state-tree";
 
@@ -6,16 +6,14 @@ import { useStore } from "store";
 import { StructuralFragment } from "store/models";
 import { commitTimelineSegment } from "store/timeline/controller";
 
-import { useStagedContent } from "./changeQueue";
 import FragmentShell from "./FragmentShell";
+import { StagedTextField } from "./TextChange";
 
 interface EditableItemProps<Type extends StructuralFragment>
   extends StackProps {
   isDisabled: boolean;
   list: Type[];
   fragment: Type;
-  /** The item's identity; content updates animate prev→next. */
-  stageSubject?: string;
   onComment: (parameters: { fragment: Type; comment: string }) => void;
   onRemove: (parameters: { fragment: Type }) => void;
 }
@@ -26,12 +24,10 @@ const EditableItemContent = observer(function EditableItemContent<
   isDisabled,
   list,
   fragment,
-  stageSubject,
   onComment,
   onRemove,
   ...props
 }: EditableItemProps<Type>) {
-  const displayed = useStagedContent(stageSubject, fragment.id, fragment.content);
   const realStore = useStore();
   const handleChange = ({
     target: { value },
@@ -56,12 +52,13 @@ const EditableItemContent = observer(function EditableItemContent<
       onRemove={onRemove}
       {...props}
     >
-      <TextField
+      <StagedTextField
+        committed={fragment.content}
+        elementId={fragment.id}
         multiline
         fullWidth
         onChange={handleChange}
         onBlur={commitTimelineSegment}
-        value={displayed}
         disabled={isDisabled}
         sx={{
           "&:not(:focus-within) fieldset": { border: "none" },

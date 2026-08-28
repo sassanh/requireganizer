@@ -8,7 +8,6 @@ import {
   Box,
   Stack,
   Tab,
-  TextField,
   type TabProps,
 } from "@mui/material";
 import { keyframes } from "@mui/material/styles";
@@ -32,6 +31,7 @@ import {
 } from "components/changeQueue";
 import { ITEM_MOTION_SECONDS } from "components/itemMotion";
 import { scrollIntoViewWithMargin } from "components/scrollFollower";
+import { StagedTextField } from "components/TextChange";
 import {
   claim,
   complete,
@@ -222,16 +222,12 @@ const DescriptionField = observer(function DescriptionField({
   store: Store;
 }) {
   const shown = useShownStore();
-  const displayed = useStagedContent(
-    "description",
-    artifactElementId("description"),
-    shown.description || "",
-  );
   return (
     <Box id={artifactElementId("description")}>
-      <TextField
+      <StagedTextField
+        committed={shown.description || ""}
+        elementId={artifactElementId("description")}
         fullWidth
-        value={displayed}
         placeholder="Provide a description of the software you'd like to develop..."
         multiline
         onChange={(event) =>

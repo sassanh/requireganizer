@@ -1,43 +1,25 @@
-import { Stack, StackProps, TextField } from "@mui/material";
+import { Stack, StackProps } from "@mui/material";
 import { observer } from "mobx-react-lite";
 import { isAlive } from "mobx-state-tree";
 
 import { TestCase } from "store/models";
 
-import { useStagedContent } from "./changeQueue";
 import FragmentShell from "./FragmentShell";
+import { StagedTextField } from "./TextChange";
 
 interface EditableTestCaseItemProps extends StackProps {
   isDisabled: boolean;
   list: TestCase[];
   fragment: TestCase;
-  /** The item's identity; content updates animate prev→next. */
-  stageSubject?: string;
 }
 
 const EditableTestCaseItemContent = observer(function EditableTestCaseItemContent({
   isDisabled,
   list,
   fragment,
-  stageSubject,
   ...props
 }: EditableTestCaseItemProps) {
   const testStatus = fragment.testStatus;
-  // One item is one animated element: a single displayed copy covers every
-  // field of the card, and one turn swaps them together.
-  const displayed = useStagedContent(
-    stageSubject,
-    fragment.id,
-    {
-      title: fragment.title,
-      steps: fragment.steps,
-      expectedResult: fragment.expectedResult,
-    },
-    (left, right) =>
-      left.title === right.title &&
-      left.steps === right.steps &&
-      left.expectedResult === right.expectedResult,
-  );
   const handleKeyUp = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Escape") {
       event.currentTarget.blur();
@@ -70,10 +52,11 @@ const EditableTestCaseItemContent = observer(function EditableTestCaseItemConten
       {...props}
     >
       <Stack spacing={1} sx={{ flexGrow: 1 }}>
-        <TextField
+        <StagedTextField
+          committed={fragment.title}
+          elementId={fragment.id}
           multiline
           fullWidth
-          value={displayed.title}
           placeholder="Test Case Title"
           size="small"
           sx={{
@@ -87,10 +70,10 @@ const EditableTestCaseItemContent = observer(function EditableTestCaseItemConten
             },
           }}
         />
-        <TextField
+        <StagedTextField
+          committed={fragment.steps}
           multiline
           fullWidth
-          value={displayed.steps}
           placeholder="Test Steps"
           size="small"
           sx={{
@@ -104,10 +87,10 @@ const EditableTestCaseItemContent = observer(function EditableTestCaseItemConten
             },
           }}
         />
-        <TextField
+        <StagedTextField
+          committed={fragment.expectedResult}
           multiline
           fullWidth
-          value={displayed.expectedResult}
           placeholder="Expected Result"
           size="small"
           sx={{

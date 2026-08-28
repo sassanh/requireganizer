@@ -270,14 +270,12 @@ describe("change queue", () => {
     );
 
     await React.act(async () => {
-      finishHighlight["us-1"]?.();
-      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 900));
     });
     assert.deepEqual(itemTexts(), ["new one", "new two"]);
 
     await React.act(async () => {
-      finishHighlight["us-2"]?.();
-      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 900));
     });
 
     root.unmount();

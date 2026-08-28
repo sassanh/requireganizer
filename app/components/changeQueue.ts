@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 
 import {
   claim,
@@ -22,6 +22,58 @@ export const HIGHLIGHT_MILLISECONDS = 900;
 export const HIGHLIGHT_HOLD_MILLISECONDS = 300;
 
 /**
+ * Single gate for presentation turns. Every staged presenter that wants to
+ * animate prev→next must claim the current tick and later complete it. The
+ * helper owns scroll-into-view, session liveness, and the safety microtask
+ * so no caller can forget it and diverge.
+ */
+export function usePresentationTurn(elementId: string | undefined) {
+  const sessionRef = useRef({ tick: 0, completed: true, alive: false });
+
+  const claimTurn = useCallback((): number | null => {
+    if (!isPresenting()) return null;
+    const tick = getPresentationTick();
+    const session = sessionRef.current;
+    session.alive = true;
+    if (session.tick !== tick || session.completed) {
+      claim(tick);
+      session.tick = tick;
+      session.completed = false;
+    }
+    const node =
+      elementId != null ? document.getElementById(elementId) : null;
+    if (node != null) scrollIntoViewWithMargin(node);
+    return tick;
+  }, [elementId]);
+
+  const completeTurn = useCallback((tick: number) => {
+    const session = sessionRef.current;
+    if (session.completed || session.tick !== tick) return;
+    session.completed = true;
+    complete(tick);
+  }, []);
+
+  const createCleanup = useCallback(
+    (tick: number, clear: () => void) => {
+      return () => {
+        clear();
+        const session = sessionRef.current;
+        session.alive = false;
+        queueMicrotask(() => {
+          if (!session.alive && !session.completed && session.tick === tick) {
+            session.completed = true;
+            complete(tick);
+          }
+        });
+      };
+    },
+    [],
+  );
+
+  return { claimTurn, completeTurn, createCleanup };
+}
+
+/**
  * Show committed (from the presentation replica). When the sequencer is
  * applying a frame, claim, animate prev→next, complete. Idle updates paint
  * immediately. Presenters do not schedule turns and do not wait on a queue.
@@ -36,47 +88,29 @@ export function useStagedContent<Value>(
   const displayedRef = useRef(displayed);
   // eslint-disable-next-line react-hooks/refs -- sync ref for effect comparison
   displayedRef.current = displayed;
-  const sessionRef = useRef({
-    tick: 0,
-    completed: true,
-    alive: false,
-  });
+  const { claimTurn, completeTurn, createCleanup } =
+    usePresentationTurn(elementId);
 
   useLayoutEffect(() => {
     if (isEqual(committed, displayedRef.current)) return;
 
-    if (!isPresenting()) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- snap to committed when not presenting
+    const tick = claimTurn();
+    if (tick == null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- snap when idle
       setDisplayed(committed);
       return;
     }
 
-    const tick = getPresentationTick();
-    const session = sessionRef.current;
-    session.alive = true;
-    if (session.tick !== tick || session.completed) {
-      claim(tick);
-      session.tick = tick;
-      session.completed = false;
-    }
-
     const node =
       elementId != null ? document.getElementById(elementId) : null;
-    if (node != null) scrollIntoViewWithMargin(node);
     setDisplayed(committed);
     const anim = node != null ? pulseElement(node, HIGHLIGHT_MILLISECONDS) : null;
 
     let finished = false;
-    const finish = () => {
-      if (finished) return;
-      if (session.completed || session.tick !== tick) return;
-      finished = true;
-      session.completed = true;
-      complete(tick);
-    };
     const doFinish = () => {
       if (finished) return;
-      finish();
+      finished = true;
+      completeTurn(tick);
     };
     let hold: ReturnType<typeof setTimeout> | null = setTimeout(
       doFinish,
@@ -94,17 +128,10 @@ export function useStagedContent<Value>(
         });
     }
 
-    return () => {
+    return createCleanup(tick, () => {
       if (hold != null) clearTimeout(hold);
-      session.alive = false;
-      queueMicrotask(() => {
-        if (!session.alive && !session.completed && session.tick === tick) {
-          session.completed = true;
-          complete(tick);
-        }
-      });
-    };
-  }, [committed, elementId, isEqual]);
+    });
+  }, [committed, elementId, isEqual, claimTurn, completeTurn, createCleanup]);
 
   return displayed;
 }

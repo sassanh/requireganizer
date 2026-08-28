@@ -122,7 +122,6 @@ const StructuralFragments = <Type extends StructuralFragmentModel>({
       <EditableItem<Type>
         list={options?.list ?? fragments}
         fragment={fragment}
-        stageSubject={fragment.id}
         isDisabled={options?.isDisabled ?? isDisabled}
         onComment={onComment}
         onRemove={onRemoveFragment}
@@ -152,7 +151,6 @@ export const TestCaseFragments = function TestCaseFragments({
         <EditableTestCaseItem
           list={options?.list ?? fragments}
           fragment={fragment}
-          stageSubject={fragment.id}
           isDisabled={options?.isDisabled ?? isDisabled}
         />
       )}

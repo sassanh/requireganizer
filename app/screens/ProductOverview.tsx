@@ -1,25 +1,21 @@
-import { Box, Divider, Stack, TextField } from "@mui/material";
+import { Box, Divider, Stack } from "@mui/material";
 import { observer } from "mobx-react-lite";
 
 import { artifactElementId, StructuralFragments } from "components";
-import { useStagedContent } from "components/changeQueue";
+import { StagedTextField } from "components/TextChange";
 import { useShownStore } from "presentation";
 import { StructuralFragment, useStore } from "store";
 
 const NameField = observer(function NameField() {
   const store = useStore();
   const shown = useShownStore();
-  const displayed = useStagedContent(
-    "productOverview/name",
-    artifactElementId("productOverview-name"),
-    shown.productOverview.name || "",
-  );
   return (
     <Box id={artifactElementId("productOverview-name")}>
-      <TextField
+      <StagedTextField
+        committed={shown.productOverview.name || ""}
+        elementId={artifactElementId("productOverview-name")}
         fullWidth
         label="Name"
-        value={displayed}
         onChange={(event) => store.setName({ name: event.target.value })}
       />
     </Box>
@@ -29,15 +25,11 @@ const NameField = observer(function NameField() {
 const PurposeField = observer(function PurposeField() {
   const store = useStore();
   const shown = useShownStore();
-  const displayed = useStagedContent(
-    "productOverview/purpose",
-    artifactElementId("productOverview-purpose"),
-    shown.productOverview.purpose || "",
-  );
   return (
     <Box id={artifactElementId("productOverview-purpose")}>
-      <TextField
-        value={displayed}
+      <StagedTextField
+        committed={shown.productOverview.purpose || ""}
+        elementId={artifactElementId("productOverview-purpose")}
         fullWidth
         multiline
         label="Purpose"
