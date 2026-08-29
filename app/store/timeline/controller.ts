@@ -193,7 +193,7 @@ export function getChangeFocus(): ChangeFocus {
 }
 
 /** State-tree keys that can be subjects; conversation follows itself. */
-const SUBJECT_KEYS = [
+export const SUBJECT_KEYS = [
   "description",
   "productOverview",
   "userStories",
@@ -538,6 +538,7 @@ function restoreStateAt(nodeId: string): void {
   const node = tree.nodes.get(nodeId);
   if (node == null || attachedStore == null) return;
   const fromNode = tree.nodes.get(tree.activeLeafId);
+  const ops = diffOps(fromNode?.state ?? node.state, node.state);
   restoring = true;
   try {
     // One explicit batch: every observer reaction (mobx or the timeline
@@ -554,8 +555,17 @@ function restoreStateAt(nodeId: string): void {
       notify();
       // Publish before this action ends so observers still see the
       // recorded subjects when they first read the restored values.
-      emitChangeFocus(diffOps(fromNode?.state ?? node.state, node.state));
+      emitChangeFocus(ops);
     });
+    // A rewind inside an open AI turn (regenerate) moves the active leaf
+    // before the turn closes. The turn's beforeState was captured before
+    // the rewind, so a regenerate that restores and then re-creates the
+    // same content would net to zero and miss the LLM delta. Rebaseline
+    // the open turn to the post-rewind state so the final diff is
+    // post-rewind -> post-LLM and both halves animate.
+    if (openTurn != null) {
+      openTurn.beforeState = captureState(snapshotNow() as never);
+    }
   } finally {
     restoring = false;
   }
@@ -684,7 +694,9 @@ export function attachTimeline(
       // AI-driven turns are not human edits: publish where the change
       // landed so the UI can navigate to the subject.
       if (step.kind === "ai") {
-        emitChangeFocus(diffOps(beforeState, captureState(snapshotNow() as never)));
+        const afterState = captureState(snapshotNow() as never);
+        const ops = diffOps(beforeState, afterState);
+        emitChangeFocus(ops);
       }
     },
   });

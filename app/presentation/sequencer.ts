@@ -5,6 +5,7 @@ import type { Store } from "store/store";
 import {
   getCurrentStepKind,
   onChangeFocus,
+  SUBJECT_KEYS,
   type ChangeFocusOp,
 } from "store/timeline/controller";
 
@@ -84,6 +85,18 @@ function isIdle(): boolean {
     pendingNavigate == null &&
     presentingNavigate == null
   );
+}
+
+function hasSubjectDiff(): boolean {
+  if (replica == null || realStore == null) return false;
+  const replicaSnap = getSnapshot(replica) as Record<string, unknown>;
+  const realSnap = getSnapshot(realStore) as Record<string, unknown>;
+  for (const key of SUBJECT_KEYS) {
+    if (JSON.stringify(replicaSnap[key]) !== JSON.stringify(realSnap[key])) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function catchUpFromReal(): void {
@@ -300,6 +313,7 @@ export function attachPresentation(
       return;
     }
     queueMicrotask(() => {
+      if (kind === "ai" && hasSubjectDiff()) return;
       syncPresentationFrom(real);
     });
   });

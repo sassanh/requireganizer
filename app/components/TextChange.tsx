@@ -107,7 +107,8 @@ function TextChangeOverlay({
       overlay.style.left = `${inputRect.left - parentRect.left}px`;
       overlay.style.top = `${inputRect.top - parentRect.top}px`;
       overlay.style.width = `${input.clientWidth}px`;
-      overlay.style.height = `${input.clientHeight}px`;
+      overlay.style.minHeight = `${input.clientHeight}px`;
+      overlay.style.height = "auto";
       overlay.style.font = style.font;
       overlay.style.letterSpacing = style.letterSpacing;
       overlay.style.lineHeight = style.lineHeight;
@@ -115,7 +116,7 @@ function TextChangeOverlay({
       overlay.style.boxSizing = "border-box";
       overlay.style.whiteSpace =
         style.whiteSpace === "nowrap" ? "pre" : "pre-wrap";
-      overlay.style.overflow = "hidden";
+      overlay.style.overflow = "visible";
       overlay.style.wordWrap = "break-word";
       overlay.style.overflowWrap = "break-word";
     };
