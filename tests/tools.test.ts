@@ -17,7 +17,18 @@ function artifactItemSchema(tool: ReturnType<typeof buildArtifactListTool>) {
   const parameters = record(tool.parameters);
   const properties = record(parameters.properties);
   const items = record(properties.items);
-  return record(items.items);
+  const itemsItems = record(items.items);
+  const oneOf = (itemsItems as { oneOf?: unknown[] }).oneOf;
+  if (Array.isArray(oneOf)) {
+    const objectSchema = oneOf.find(
+      (candidate) =>
+        typeof candidate === "object" &&
+        candidate !== null &&
+        (candidate as Record<string, unknown>).type === "object",
+    ) as Record<string, unknown> | undefined;
+    if (objectSchema) return record(objectSchema);
+  }
+  return itemsItems;
 }
 
 describe("AI function-tool schemas", () => {

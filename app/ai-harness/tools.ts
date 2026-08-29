@@ -65,27 +65,76 @@ export const COMMUNICATE_TOOL: HarnessToolDefinition = {
   ),
 };
 
-export function buildProductOverviewTool(): HarnessToolDefinition {
+export function buildProductOverviewTool(
+  state?: Record<string, unknown>,
+): HarnessToolDefinition {
+  const primaryFeatureIds =
+    state != null ? [...getExistingTargetIds(state, StructuralFragment.PrimaryFeature)] : [];
+  const targetUserIds =
+    state != null ? [...getExistingTargetIds(state, StructuralFragment.TargetUser)] : [];
+  const patchString = (ids: string[], label: string) => ({
+    oneOf: [
+      ...(ids.length === 0
+        ? []
+        : [
+            {
+              type: "string",
+              enum: ids,
+              description: `Existing ${label} id to keep as-is at this position (reorder only).`,
+            },
+          ]),
+      {
+        type: "string",
+        minLength: 1,
+        ...(ids.length === 0 ? {} : { not: { enum: ids } }),
+        description: `New ${label} text (add) as a bare string.`,
+      },
+      {
+        type: "object",
+        additionalProperties: false,
+        required: ["content"],
+        properties: {
+          ...(ids.length === 0
+            ? {}
+            : {
+                id: {
+                  type: "string",
+                  enum: ids,
+                  description: `Existing ${label} id to move here and patch its content.`,
+                },
+              }),
+          content: nonEmptyString(
+            `Feature text; when id is present it replaces that ${label}'s content, otherwise it adds a new ${label}.`,
+          ),
+        },
+        description: `New ${label} or patch of existing ${label} as an object.`,
+      },
+    ],
+  });
   return {
     name: "submit_product_overview",
-    description: "Submit the complete product-overview proposal.",
+    description:
+      "Submit the complete product-overview proposal. Each list entry is either an existing id (keep as-is, reposition) or an object {id?, content} (add or move+patch).",
     parameters: objectSchema(
       {
         name: nonEmptyString("The product name."),
         purpose: nonEmptyString("A concise, outcome-oriented purpose."),
-        primaryFeatures: stringArray("Atomic primary feature descriptions.", {
+        primaryFeatures: {
+          type: "array",
           minItems: 1,
-        }),
-        targetUsers: stringArray("Specific target user groups.", {
+          description:
+            "Complete desired primary-feature list in display order (id strings keep, objects add/patch).",
+          items: patchString(primaryFeatureIds, "primary feature"),
+        },
+        targetUsers: {
+          type: "array",
           minItems: 1,
-        }),
+          description:
+            "Complete desired target-user list in display order (id strings keep, objects add/patch).",
+          items: patchString(targetUserIds, "target user"),
+        },
       },
-      [
-        "name",
-        "purpose",
-        "primaryFeatures",
-        "targetUsers",
-      ],
+      ["name", "purpose", "primaryFeatures", "targetUsers"],
     ),
   };
 }
@@ -171,14 +220,28 @@ export function buildArtifactListTool({
 
   return {
     name: `submit_${definition.entityType}_list`,
-    description: `Submit the complete desired ${definition.entityType} list for the requested target only.`,
+    description: `Submit the complete desired ${definition.entityType} list for the requested target only. Each entry is either an existing id (keep as-is, reposition) or a full object (add or move+patch).`,
     parameters: objectSchema(
       {
         items: {
           type: "array",
           minItems: 1,
-          description: "The complete desired target list, in display order.",
-          items: objectSchema(itemProperties, itemRequired),
+          description:
+            "The complete desired target list, in display order. Bare string = existing id to keep as-is at this position; object with id = move that id here and patch its content; object without id = add new item here.",
+          items: {
+            oneOf: [
+              objectSchema(itemProperties, itemRequired),
+              ...(existingIds.length === 0
+                ? []
+                : [
+                    {
+                      type: "string",
+                      enum: existingIds,
+                      description: "Existing id to keep as-is at this position (reorder only).",
+                    },
+                  ]),
+            ],
+          },
         },
       },
       ["items"],

@@ -2,6 +2,7 @@ import {
   ArtifactListProposal,
   ArtifactProposalItem,
   FragmentRevisionProposal,
+  ProductOverviewPatchItem,
   ProductOverviewProposal,
   TestCodeRequest,
   TestCodeProposal,
@@ -151,30 +152,76 @@ function enumValue<Value>(
 
 export function parseProductOverviewProposal(
   value: unknown,
+  state?: Record<string, unknown>,
 ): ProductOverviewProposal {
   if (!isRecord(value)) {
     throw new InvalidJsonError("Product overview result must be an object.");
   }
   assertAllowedKeys(
     value,
-    [
-      "name",
-      "purpose",
-      "primaryFeatures",
-      "targetUsers",
-    ],
+    ["name", "purpose", "primaryFeatures", "targetUsers"],
     "Product overview",
   );
+
+  const primaryFeatureIds =
+    state != null ? [...getExistingTargetIds(state, StructuralFragment.PrimaryFeature)] : [];
+  const targetUserIds =
+    state != null ? [...getExistingTargetIds(state, StructuralFragment.TargetUser)] : [];
+
+  const parsePatchList = (
+    raw: unknown[],
+    label: string,
+    existingIds: string[],
+  ): ProductOverviewPatchItem[] => {
+    return raw.map((item, index) => {
+      const itemLabel = `${label}[${index}]`;
+      if (typeof item === "string") {
+        const trimmed = item.trim();
+        if (trimmed.length === 0) {
+          throw new InvalidJsonError(`${itemLabel} must be non-empty text.`);
+        }
+        // Bare string: if it matches an existing id, keep as-is; otherwise treat as new content
+        // (backward compat for old string[] payloads where strings are new feature texts).
+        if (existingIds.length > 0 && existingIds.includes(trimmed)) {
+          return trimmed;
+        }
+        // New content via bare string — normalize to object for the apply layer
+        // (keeps proposal type uniform; apply will mint a new id).
+        return { content: trimmed };
+      }
+      if (!isRecord(item)) {
+        throw new InvalidJsonError(`${itemLabel} must be a string or an object.`);
+      }
+      assertAllowedKeys(item, ["id", "content"], itemLabel);
+      const content = requiredString(item, "content", itemLabel);
+      const id = optionalString(item, "id", itemLabel);
+      if (id !== undefined) {
+        if (id.trim().length === 0) {
+          throw new InvalidJsonError(`${itemLabel}.id must be non-empty.`);
+        }
+        if (existingIds.length > 0 && !existingIds.includes(id)) {
+          throw new InvalidJsonError(`${itemLabel}.id must be an existing id.`);
+        }
+        return { id: id.trim(), content };
+      }
+      return { content };
+    });
+  };
+
+  const primaryRaw = requiredArray(value, "primaryFeatures", "Product overview");
+  const targetRaw = requiredArray(value, "targetUsers", "Product overview");
+  if (primaryRaw.length === 0) {
+    throw new InvalidJsonError("Product overview.primaryFeatures must not be empty.");
+  }
+  if (targetRaw.length === 0) {
+    throw new InvalidJsonError("Product overview.targetUsers must not be empty.");
+  }
 
   return {
     name: requiredString(value, "name", "Product overview"),
     purpose: requiredString(value, "purpose", "Product overview"),
-    primaryFeatures: stringArray(value, "primaryFeatures", "Product overview", {
-      allowEmpty: false,
-    }),
-    targetUsers: stringArray(value, "targetUsers", "Product overview", {
-      allowEmpty: false,
-    }),
+    primaryFeatures: parsePatchList(primaryRaw, "Product overview.primaryFeatures", primaryFeatureIds),
+    targetUsers: parsePatchList(targetRaw, "Product overview.targetUsers", targetUserIds),
   };
 }
 
@@ -410,15 +457,71 @@ export function parseArtifactListProposal(
   if (rawItems.length === 0) {
     throw new InvalidJsonError("Artifact result.items must not be empty.");
   }
-  const items = rawItems.map((item, index) =>
-    parseArtifactItem(
+  const getListForType = (): unknown[] => {
+    const overview = isRecord(state.productOverview) ? state.productOverview : {};
+    switch (entityType) {
+      case StructuralFragment.PrimaryFeature:
+        return Array.isArray(overview.primaryFeatures) ? (overview.primaryFeatures as unknown[]) : [];
+      case StructuralFragment.TargetUser:
+        return Array.isArray(overview.targetUsers) ? (overview.targetUsers as unknown[]) : [];
+      case StructuralFragment.UserStory:
+        return Array.isArray(state.userStories) ? (state.userStories as unknown[]) : [];
+      case StructuralFragment.Requirement:
+        return Array.isArray(state.requirements) ? (state.requirements as unknown[]) : [];
+      case StructuralFragment.AcceptanceCriteria:
+        return Array.isArray(state.acceptanceCriteria)
+          ? (state.acceptanceCriteria as unknown[])
+          : [];
+      default:
+        return [];
+    }
+  };
+  const existingList = getListForType();
+  const findExisting = (id: string): Record<string, unknown> | undefined =>
+    existingList.find(
+      (candidate) => isRecord(candidate) && candidate.id === id,
+    ) as Record<string, unknown> | undefined;
+  const items = rawItems.map((item, index) => {
+    if (typeof item === "string") {
+      const id = item.trim();
+      if (id.length === 0) {
+        throw new InvalidJsonError(`Artifact result.items[${index}] must be non-empty text.`);
+      }
+      if (!existingTargetIds.has(id)) {
+        throw new InvalidJsonError(`Artifact result.items[${index}] must be an existing id.`);
+      }
+      const existing = findExisting(id);
+      if (existing == null) {
+        throw new InvalidJsonError(`Artifact result.items[${index}] does not match any existing ${entityType}.`);
+      }
+      const content = typeof existing.content === "string" ? existing.content : "";
+      const priority =
+        typeof existing.priority === "string" && isEnumMember(existing.priority, Priority)
+          ? (existing.priority as Priority)
+          : Priority.P1;
+      const references = Array.isArray(existing.references)
+        ? (existing.references as ArtifactProposalItem["references"])
+        : [];
+      const dependencies = Array.isArray(existing.dependencies)
+        ? (existing.dependencies as string[])
+        : [];
+      return {
+        key: id,
+        id,
+        content,
+        priority,
+        references,
+        dependencies,
+      } as ArtifactProposalItem;
+    }
+    return parseArtifactItem(
       item,
       index,
       definition,
       artifacts,
       existingTargetIds,
-    ),
-  );
+    );
+  });
 
   const ids = items.flatMap((item) => (item.id === undefined ? [] : [item.id]));
   if (new Set(ids).size !== ids.length) {

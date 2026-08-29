@@ -347,8 +347,9 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
 
     switch (command.stage) {
       case Step.ProductOverview: {
-        stageTools.push(agentTool(buildProductOverviewTool(), async (args) => {
-          const proposal = parseProductOverviewProposal(args);
+        const state = JSON.parse(store.json(Step.ProductOverview)) as Record<string, unknown>;
+        stageTools.push(agentTool(buildProductOverviewTool(state), async (args) => {
+          const proposal = parseProductOverviewProposal(args, state);
           applyProductOverviewProposal(store, proposal);
           return "Product overview applied.";
         }));

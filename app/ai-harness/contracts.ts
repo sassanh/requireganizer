@@ -8,11 +8,13 @@ import {
   StructuralFragment,
 } from "store/constants";
 
+export type ProductOverviewPatchItem = string | { id?: string; content: string };
+
 export interface ProductOverviewProposal {
   name: string;
   purpose: string;
-  primaryFeatures: string[];
-  targetUsers: string[];
+  primaryFeatures: ProductOverviewPatchItem[];
+  targetUsers: ProductOverviewPatchItem[];
 }
 
 export interface ArtifactReferenceProposal {

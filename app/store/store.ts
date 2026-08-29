@@ -14,6 +14,7 @@ import { createContext, useContext } from "react";
 import type {
   ArtifactListProposal,
   FragmentRevisionProposal,
+  ProductOverviewPatchItem,
   ProductOverviewProposal,
   TestCodeProposal,
 } from "ai-harness/contracts";
@@ -439,11 +440,17 @@ export const FlatStore = types
   }))
   .actions((self) => ({
     initialize(info: ProductOverviewProposal) {
+      const toSnapshot = (item: ProductOverviewPatchItem): SnapshotIn<PrimaryFeature | TargetUser> => {
+        const content = typeof item === "string" ? item : item.content;
+        // Bare string here is new content only during initial creation (no existing ids to keep);
+        // patch paths with existing ids are handled in applyProductOverviewProposal, not here.
+        return { content } as SnapshotIn<PrimaryFeature | TargetUser>;
+      };
       self.productOverview = ProductOverviewModel.create({
         name: info.name,
         purpose: info.purpose,
-        primaryFeatures: info.primaryFeatures.map((content) => ({ content })),
-        targetUsers: info.targetUsers.map((content) => ({ content })),
+        primaryFeatures: info.primaryFeatures.map(toSnapshot) as SnapshotIn<PrimaryFeature>[],
+        targetUsers: info.targetUsers.map(toSnapshot) as SnapshotIn<TargetUser>[],
       });
       self.eventTarget.emit("stepUpdate", Step.ProductOverview);
     },

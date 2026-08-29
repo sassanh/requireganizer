@@ -1,8 +1,15 @@
-import { SnapshotOrInstance, applySnapshot, clone, flow, getSnapshot } from "mobx-state-tree";
+import {
+  SnapshotOrInstance,
+  applySnapshot,
+  clone,
+  flow,
+  getSnapshot,
+} from "mobx-state-tree";
 
 import {
   ArtifactListProposal,
   FragmentRevisionProposal,
+  ProductOverviewPatchItem,
   ProductOverviewProposal,
   TestCodeProposal,
 } from "ai-harness/contracts";
@@ -75,7 +82,46 @@ export function applyProductOverviewProposal(
   proposal: ProductOverviewProposal,
 ): void {
   applyAtomically(store, (candidate) => {
-    candidate.initialize(proposal);
+    const existingFeatures = new Map(
+      candidate.productOverview.primaryFeatures.map((f) => [f.id, f] as const),
+    );
+    const existingUsers = new Map(
+      candidate.productOverview.targetUsers.map((u) => [u.id, u] as const),
+    );
+    const toFeatureSnapshot = (item: ProductOverviewPatchItem): unknown => {
+      if (typeof item === "string") {
+        const existing = existingFeatures.get(item);
+        if (existing == null) throw new Error(`Unknown primaryFeature id ${item}`);
+        return getSnapshot(existing);
+      }
+      if (item.id != null) {
+        const existing = existingFeatures.get(item.id);
+        if (existing == null) throw new Error(`Unknown primaryFeature id ${item.id}`);
+        return { ...getSnapshot(existing), content: item.content };
+      }
+      return { content: item.content };
+    };
+    const toUserSnapshot = (item: ProductOverviewPatchItem): unknown => {
+      if (typeof item === "string") {
+        const existing = existingUsers.get(item);
+        if (existing == null) throw new Error(`Unknown targetUser id ${item}`);
+        return getSnapshot(existing);
+      }
+      if (item.id != null) {
+        const existing = existingUsers.get(item.id);
+        if (existing == null) throw new Error(`Unknown targetUser id ${item.id}`);
+        return { ...getSnapshot(existing), content: item.content };
+      }
+      return { content: item.content };
+    };
+    candidate.setName({ name: proposal.name });
+    candidate.setPurpose({ purpose: proposal.purpose });
+    candidate.setPrimaryFeatures({
+      primaryFeatures: proposal.primaryFeatures.map(toFeatureSnapshot) as never,
+    });
+    candidate.setTargetUsers({
+      targetUsers: proposal.targetUsers.map(toUserSnapshot) as never,
+    });
     candidate.markStageGenerated(Step.ProductOverview);
   });
 }

@@ -476,16 +476,23 @@ const MessageView = memo(function MessageView({
           remarkPlugins={[remarkGfm]}
           components={{
             p: ({ children }) => (
-              <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
+              <Typography variant="body2">
                 {children}
               </Typography>
             ),
             // The app-wide CSS reset removes list indentation; without these
-            // overrides the outside-positioned markers overflow the pane.
+            // overrides the outside-positioned markers overflow or misalign.
             ul: ({ children }) => (
               <Box
                 component="ul"
-                sx={{ my: 0.5, pl: 3, listStyleType: "disc", minWidth: 0 }}
+                sx={{
+                  my: 0.5,
+                  pl: 3,
+                  ml: 0,
+                  listStyleType: "disc",
+                  listStylePosition: "outside",
+                  minWidth: 0,
+                }}
               >
                 {children}
               </Box>
@@ -493,7 +500,14 @@ const MessageView = memo(function MessageView({
             ol: ({ children }) => (
               <Box
                 component="ol"
-                sx={{ my: 0.5, pl: 3, listStyleType: "decimal", minWidth: 0 }}
+                sx={{
+                  my: 0.5,
+                  pl: 3,
+                  ml: 0,
+                  listStyleType: "decimal",
+                  listStylePosition: "outside",
+                  minWidth: 0,
+                }}
               >
                 {children}
               </Box>
@@ -502,7 +516,10 @@ const MessageView = memo(function MessageView({
               <Typography
                 component="li"
                 variant="body2"
-                sx={{ whiteSpace: "pre-wrap", my: 0.25 }}
+                sx={{
+                  display: "list-item",
+                  my: 1,
+                }}
               >
                 {children}
               </Typography>
@@ -974,53 +991,53 @@ function ConversationSidebar() {
               );
               const siblings = isRewinding ? null : forkEntry?.alternatives ?? null;
               return (
-              <Fragment key={index}>
-                {siblings != null && siblings.length > 0 && (
-                  <Chip
-                    size="small"
-                    icon={<CallSplit />}
-                    label={`branch · ${siblings.length} kept`}
-                    variant="outlined"
-                    disabled={busy}
-                    onClick={(event) =>
-                      setBranchMenu({ anchor: event.currentTarget, alternatives: siblings })
-                    }
-                    sx={{ alignSelf: "flex-start", height: 20 }}
-                  />
-                )}
-                <Box
-                  ref={(node: HTMLDivElement | null) => {
-                    if (node == null) entryRefs.current.delete(index);
-                    else entryRefs.current.set(index, node);
-                  }}
-                  sx={[
-                    { minWidth: 0 },
-                    // The flash targets the message bubble itself, not the
-                    // whole row container.
-                    index === highlightedIndex && {
-                      "& .message-bubble": {
-                        "@keyframes conversationBlink": {
-                          "0%, 100%": { boxShadow: "none" },
-                          "50%": {
-                            boxShadow: (theme) =>
-                              `0 0 0 4px ${alpha(theme.palette.primary.main, 0.45)}`,
+                <Fragment key={index}>
+                  {siblings != null && siblings.length > 0 && (
+                    <Chip
+                      size="small"
+                      icon={<CallSplit />}
+                      label={`branch · ${siblings.length} kept`}
+                      variant="outlined"
+                      disabled={busy}
+                      onClick={(event) =>
+                        setBranchMenu({ anchor: event.currentTarget, alternatives: siblings })
+                      }
+                      sx={{ alignSelf: "flex-start", height: 20 }}
+                    />
+                  )}
+                  <Box
+                    ref={(node: HTMLDivElement | null) => {
+                      if (node == null) entryRefs.current.delete(index);
+                      else entryRefs.current.set(index, node);
+                    }}
+                    sx={[
+                      { minWidth: 0 },
+                      // The flash targets the message bubble itself, not the
+                      // whole row container.
+                      index === highlightedIndex && {
+                        "& .message-bubble": {
+                          "@keyframes conversationBlink": {
+                            "0%, 100%": { boxShadow: "none" },
+                            "50%": {
+                              boxShadow: (theme) =>
+                                `0 0 0 4px ${alpha(theme.palette.primary.main, 0.45)}`,
+                            },
                           },
+                          animation: "conversationBlink 600ms ease-in-out 2",
                         },
-                        animation: "conversationBlink 600ms ease-in-out 2",
                       },
-                    },
-                  ]}
-                >
-                  <MessageView
-                    message={message}
-                    index={index}
-                    busy={busy}
-                    onRevert={handleRevert}
-                    toolCallsByCallId={toolCallsByCallId}
-                    toolResultsByCallId={toolResultsByCallId}
-                  />
-                </Box>
-              </Fragment>
+                    ]}
+                  >
+                    <MessageView
+                      message={message}
+                      index={index}
+                      busy={busy}
+                      onRevert={handleRevert}
+                      toolCallsByCallId={toolCallsByCallId}
+                      toolResultsByCallId={toolResultsByCallId}
+                    />
+                  </Box>
+                </Fragment>
               );
             })}
             {!busy && !isRewinding && hasPrompt && (
@@ -1175,13 +1192,13 @@ const ConversationComposer = memo(function ConversationComposer({
           </Typography>
           <Tooltip title="Cancel rewind">
             <IconButton
-            size="small"
-            aria-label="Cancel rewind"
-            disabled={store.isBusy}
-            onClick={onCancelRewind}
-          >
-            <Close fontSize="small" />
-          </IconButton>
+              size="small"
+              aria-label="Cancel rewind"
+              disabled={store.isBusy}
+              onClick={onCancelRewind}
+            >
+              <Close fontSize="small" />
+            </IconButton>
           </Tooltip>
         </Stack>
       )}
