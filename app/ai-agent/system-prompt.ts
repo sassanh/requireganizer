@@ -1,5 +1,5 @@
 import { CANONICAL_WORKFLOW } from "ai-harness/workflow";
-import { STEP_LABELS, Step } from "store/constants";
+import { WORKFLOW_STAGE_LABELS, WorkflowStage } from "store/constants";
 
 /**
  * The single system prompt for the continuous project conversation. It
@@ -7,8 +7,8 @@ import { STEP_LABELS, Step } from "store/constants";
  * structured commands, and all artifact content is read through tools.
  */
 export function buildAgentSystemPrompt(): string {
-  const stages = CANONICAL_WORKFLOW.filter((step) => step !== Step.Code)
-    .map((step) => `- ${STEP_LABELS[step]}`)
+  const stages = CANONICAL_WORKFLOW.filter((step) => step !== WorkflowStage.Code)
+    .map((step) => `- ${WORKFLOW_STAGE_LABELS[step]}`)
     .join("\n");
 
   return `You are Requireganizer's engineering agent. You drive a contract-first software specification workflow together with the user.

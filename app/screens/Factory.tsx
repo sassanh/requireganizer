@@ -44,7 +44,7 @@ import {
   subscribePresentation,
   useShownStore,
 } from "presentation";
-import { STEP_LABELS, Status, Step, StructuralFragment, useStore } from "store";
+import { WORKFLOW_STAGE_LABELS, Status, WorkflowStage, StructuralFragment, useStore } from "store";
 import { commitTimelineSegment } from "store/timeline/controller";
 import { isEnumMember } from "utilities";
 
@@ -118,7 +118,7 @@ function SlidingStatusIcon({
   );
 }
 
-function factoryTabNode(step: Step): HTMLElement | null {
+function factoryTabNode(step: WorkflowStage): HTMLElement | null {
   return document.querySelector(`[data-factory-tab="${step}"]`);
 }
 
@@ -128,7 +128,7 @@ const FactoryTab = observer(function FactoryTab({
   sx,
   ...tabProps
 }: {
-  tabStep: Step;
+  tabStep: WorkflowStage;
   navigatePulse: boolean;
 } & TabProps) {
   const shown = useShownStore();
@@ -160,7 +160,7 @@ const FactoryTab = observer(function FactoryTab({
       data-factory-tab={tabStep}
       href={`?step=${tabStep}`}
       value={tabStep}
-      label={STEP_LABELS[tabStep]}
+      label={WORKFLOW_STAGE_LABELS[tabStep]}
       icon={<SlidingStatusIcon status={status} />}
       iconPosition="end"
       sx={[
@@ -248,11 +248,11 @@ const Factory: React.FunctionComponent<FactoryProps> = ({ activeProject }) => {
   const router = useRouter();
 
   const step_ = searchParams.get("step");
-  const step = isEnumMember(step_, Step) ? step_ : Step.Description;
+  const step = isEnumMember(step_, WorkflowStage) ? step_ : WorkflowStage.Description;
   const stepRef = useRef(step);
 
   const handleStepUpdate = useCallback(
-    (next: Step) => {
+    (next: WorkflowStage) => {
       const params = new URLSearchParams(searchParams.toString());
       params.set("step", next);
       router.push(`${pathname}?${params.toString()}`);
@@ -337,7 +337,7 @@ const Factory: React.FunctionComponent<FactoryProps> = ({ activeProject }) => {
             }}
           >
             <TabList orientation="vertical" sx={{ minHeight: 0, overflow: "visible" }}>
-              {Object.values(Step).map((tabStep: Step) => (
+              {Object.values(WorkflowStage).map((tabStep: WorkflowStage) => (
                 <FactoryTab
                   key={tabStep}
                   tabStep={tabStep}
@@ -361,29 +361,29 @@ const Factory: React.FunctionComponent<FactoryProps> = ({ activeProject }) => {
           >
 
           <AnimatedTabPanel
-            step={Step.Description}
+            step={WorkflowStage.Description}
             activeStep={step}
             onStepChange={handleStepUpdate}
           >
-            <SectionHeader step={Step.Description} />
+            <SectionHeader step={WorkflowStage.Description} />
             <DescriptionField store={store} />
           </AnimatedTabPanel>
 
           <AnimatedTabPanel
-            step={Step.ProductOverview}
+            step={WorkflowStage.ProductOverview}
             activeStep={step}
             onStepChange={handleStepUpdate}
           >
-            <SectionHeader step={Step.ProductOverview} />
+            <SectionHeader step={WorkflowStage.ProductOverview} />
             <ProductOverview />
           </AnimatedTabPanel>
 
           <AnimatedTabPanel
-            step={Step.UserStories}
+            step={WorkflowStage.UserStories}
             activeStep={step}
             onStepChange={handleStepUpdate}
           >
-            <SectionHeader step={Step.UserStories} />
+            <SectionHeader step={WorkflowStage.UserStories} />
             <StructuralFragments
               fragments={shown.userStories}
               isDisabled={store.isBusy}
@@ -398,11 +398,11 @@ const Factory: React.FunctionComponent<FactoryProps> = ({ activeProject }) => {
           </AnimatedTabPanel>
 
           <AnimatedTabPanel
-            step={Step.Requirements}
+            step={WorkflowStage.Requirements}
             activeStep={step}
             onStepChange={handleStepUpdate}
           >
-            <SectionHeader step={Step.Requirements} />
+            <SectionHeader step={WorkflowStage.Requirements} />
             <StructuralFragments
               fragments={shown.requirements}
               isDisabled={store.isBusy}
@@ -417,11 +417,11 @@ const Factory: React.FunctionComponent<FactoryProps> = ({ activeProject }) => {
           </AnimatedTabPanel>
 
           <AnimatedTabPanel
-            step={Step.AcceptanceCriteria}
+            step={WorkflowStage.AcceptanceCriteria}
             activeStep={step}
             onStepChange={handleStepUpdate}
           >
-            <SectionHeader step={Step.AcceptanceCriteria} />
+            <SectionHeader step={WorkflowStage.AcceptanceCriteria} />
             <StructuralFragments
               fragments={shown.acceptanceCriteria}
               isDisabled={store.isBusy}
@@ -438,65 +438,65 @@ const Factory: React.FunctionComponent<FactoryProps> = ({ activeProject }) => {
           </AnimatedTabPanel>
 
           <AnimatedTabPanel
-            step={Step.BoundaryDesign}
+            step={WorkflowStage.BoundaryDesign}
             activeStep={step}
             onStepChange={handleStepUpdate}
           >
-            <SectionHeader step={Step.BoundaryDesign} />
+            <SectionHeader step={WorkflowStage.BoundaryDesign} />
             <BoundaryDesign />
           </AnimatedTabPanel>
 
           <AnimatedTabPanel
-            step={Step.InterfaceContracts}
+            step={WorkflowStage.InterfaceContracts}
             activeStep={step}
             onStepChange={handleStepUpdate}
           >
-            <SectionHeader step={Step.InterfaceContracts} />
+            <SectionHeader step={WorkflowStage.InterfaceContracts} />
             <InterfaceContracts />
           </AnimatedTabPanel>
 
           <AnimatedTabPanel
-            step={Step.TestScenarios}
+            step={WorkflowStage.TestScenarios}
             activeStep={step}
             onStepChange={handleStepUpdate}
           >
-            <SectionHeader step={Step.TestScenarios} />
+            <SectionHeader step={WorkflowStage.TestScenarios} />
             <TestScenarioList scenarios={shown.testScenarios} />
           </AnimatedTabPanel>
 
           <AnimatedTabPanel
-            step={Step.TestCases}
+            step={WorkflowStage.TestCases}
             activeStep={step}
             onStepChange={handleStepUpdate}
           >
-            <SectionHeader step={Step.TestCases} />
+            <SectionHeader step={WorkflowStage.TestCases} />
             <TestCaseScenarioAccordions scenarios={shown.testScenarios} />
           </AnimatedTabPanel>
 
           <AnimatedTabPanel
-            step={Step.ProjectSetup}
+            step={WorkflowStage.ProjectSetup}
             activeStep={step}
             onStepChange={handleStepUpdate}
           >
-            <SectionHeader step={Step.ProjectSetup} />
+            <SectionHeader step={WorkflowStage.ProjectSetup} />
             <ProjectSetup />
           </AnimatedTabPanel>
 
           <AnimatedTabPanel
-            step={Step.AutomatedTests}
+            step={WorkflowStage.AutomatedTests}
             activeStep={step}
             onStepChange={handleStepUpdate}
           >
-            <SectionHeader step={Step.AutomatedTests} />
+            <SectionHeader step={WorkflowStage.AutomatedTests} />
             <AutomatedTests />
           </AnimatedTabPanel>
 
           <AnimatedTabPanel
-            step={Step.Code}
+            step={WorkflowStage.Code}
             activeStep={step}
             onStepChange={handleStepUpdate}
           >
-            <SectionHeader step={Step.Code} />
+            <SectionHeader step={WorkflowStage.Code} />
             <CodePlaceholder />
           </AnimatedTabPanel>
           </Box>

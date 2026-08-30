@@ -1,6 +1,6 @@
 import { applySnapshot, getSnapshot, onSnapshot } from "mobx-state-tree";
 
-import { Step } from "store/constants";
+import { WorkflowStage } from "store/constants";
 import type { Store } from "store/store";
 import {
   getCurrentStepKind,
@@ -16,13 +16,13 @@ export const UNCLAIMED_MILLISECONDS = 100;
 export const SAFETY_MILLISECONDS = 5000;
 
 export type PresentationNav = {
-  getStep: () => Step;
-  requestStep: (step: Step) => void;
-  isVisible: (step: Step) => boolean;
+  getStep: () => WorkflowStage;
+  requestStep: (step: WorkflowStage) => void;
+  isVisible: (step: WorkflowStage) => boolean;
 };
 
 type ValueFrame = { kind: "value"; op: ChangeFocusOp };
-type NavigateFrame = { kind: "navigate"; step: Step };
+type NavigateFrame = { kind: "navigate"; step: WorkflowStage };
 type Frame = ValueFrame | NavigateFrame;
 
 type Latch = { tick: number; claims: number };
@@ -36,8 +36,8 @@ let unsubSnap: (() => void) | null = null;
 const queue: Frame[] = [];
 let latch: Latch = { tick: 0, claims: 0 };
 let presenting = false;
-let pendingNavigate: Step | null = null;
-let presentingNavigate: Step | null = null;
+let pendingNavigate: WorkflowStage | null = null;
+let presentingNavigate: WorkflowStage | null = null;
 let presentationVersion = 0;
 const presentationListeners = new Set<() => void>();
 let unclaimedTimer: ReturnType<typeof setTimeout> | null = null;
@@ -48,7 +48,7 @@ function bumpPresentation(): void {
   for (const listener of presentationListeners) listener();
 }
 
-function assignPresentingNavigate(step: Step | null): void {
+function assignPresentingNavigate(step: WorkflowStage | null): void {
   if (presentingNavigate === step) return;
   presentingNavigate = step;
   bumpPresentation();
@@ -104,7 +104,7 @@ function catchUpFromReal(): void {
   applySnapshot(replica, getSnapshot(realStore));
 }
 
-function plannedStep(): Step | null {
+function plannedStep(): WorkflowStage | null {
   if (nav == null) return null;
   let step = nav.getStep();
   for (const frame of queue) {
@@ -187,7 +187,7 @@ function advance(): void {
   applyHead();
 }
 
-function beginNavigatePresent(step: Step): void {
+function beginNavigatePresent(step: WorkflowStage): void {
   pendingNavigate = null;
   presenting = true;
   assignPresentingNavigate(step);
@@ -249,8 +249,8 @@ export function isPresenting(): boolean {
   return presenting;
 }
 
-/** Step whose tab is the presenter for the current navigate tick, if any. */
-export function getPresentingNavigate(): Step | null {
+/** WorkflowStage whose tab is the presenter for the current navigate tick, if any. */
+export function getPresentingNavigate(): WorkflowStage | null {
   return presentingNavigate;
 }
 
@@ -266,7 +266,7 @@ export function complete(tick: number): void {
   if (latch.claims === 0) advance();
 }
 
-export function noteVisibleStep(step: Step): void {
+export function noteVisibleStep(step: WorkflowStage): void {
   if (pendingNavigate == null) return;
   if (step !== pendingNavigate) return;
   if (nav?.isVisible(step) !== true) return;

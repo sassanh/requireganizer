@@ -60,7 +60,7 @@ import {
   applyTestCodeProposal,
   applyTestScenarioProposal,
 } from "store/actions/ai-actions/utilities";
-import { Step, StructuralFragment } from "store/constants";
+import { WorkflowStage, StructuralFragment } from "store/constants";
 import type { TestCase, TestScenario } from "store/models";
 import type { FlatStore } from "store/store";
 import { generateTestAnnotation } from "utilities/testParser";
@@ -249,7 +249,7 @@ export function consumePendingStageUnlock(): AgentTool[] | null {
 
 const ACTIVATABLE_STAGES: CommandStage[] = [
   "implementation-profile",
-  ...Object.values(Step).filter((step) => step !== Step.Code),
+  ...Object.values(WorkflowStage).filter((step) => step !== WorkflowStage.Code),
 ];
 
 /**
@@ -292,8 +292,8 @@ export function buildStageActivationTool(store: FlatStore): AgentTool {
 
 const ALL_STAGE_COMMANDS: AiCommand[] = [
   { kind: "generate", stage: "implementation-profile" },
-  ...Object.values(Step)
-    .filter((step) => step !== Step.Code)
+  ...Object.values(WorkflowStage)
+    .filter((step) => step !== WorkflowStage.Code)
     .map((step) => ({ kind: "generate", stage: step }) as AiCommand),
 ];
 
@@ -346,8 +346,8 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
     }
 
     switch (command.stage) {
-      case Step.ProductOverview: {
-        const state = JSON.parse(store.json(Step.ProductOverview)) as Record<string, unknown>;
+      case WorkflowStage.ProductOverview: {
+        const state = JSON.parse(store.json(WorkflowStage.ProductOverview)) as Record<string, unknown>;
         stageTools.push(agentTool(buildProductOverviewTool(state), async (args) => {
           const proposal = parseProductOverviewProposal(args, state);
           applyProductOverviewProposal(store, proposal);
@@ -355,14 +355,14 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
         }));
         break;
       }
-      case Step.UserStories:
-      case Step.Requirements:
-      case Step.AcceptanceCriteria: {
+      case WorkflowStage.UserStories:
+      case WorkflowStage.Requirements:
+      case WorkflowStage.AcceptanceCriteria: {
         const fragmentType = {
-          [Step.UserStories]: StructuralFragment.UserStory,
-          [Step.Requirements]: StructuralFragment.Requirement,
-          [Step.AcceptanceCriteria]: StructuralFragment.AcceptanceCriteria,
-        }[command.stage as Step.UserStories | Step.Requirements | Step.AcceptanceCriteria];
+          [WorkflowStage.UserStories]: StructuralFragment.UserStory,
+          [WorkflowStage.Requirements]: StructuralFragment.Requirement,
+          [WorkflowStage.AcceptanceCriteria]: StructuralFragment.AcceptanceCriteria,
+        }[command.stage as WorkflowStage.UserStories | WorkflowStage.Requirements | WorkflowStage.AcceptanceCriteria];
         if (fragmentType == null) {
           throw new Error(`No artifact stage for ${command.stage}.`);
         }
@@ -381,7 +381,7 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
         ));
         break;
       }
-      case Step.BoundaryDesign: {
+      case WorkflowStage.BoundaryDesign: {
         const requirementIds = store.requirements.map(({ id }) => id);
         const acceptanceCriteriaIds = store.acceptanceCriteria.map(({ id }) => id);
         stageTools.push(agentTool(
@@ -393,13 +393,13 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
               acceptanceCriteriaIds: new Set(acceptanceCriteriaIds),
             });
             applyBoundaryDesignProposal(store, proposal);
-            store.eventTarget.emit("stepUpdate", Step.BoundaryDesign);
+            store.eventTarget.emit("stepUpdate", WorkflowStage.BoundaryDesign);
             return "Boundary design applied.";
           },
         ));
         break;
       }
-      case Step.InterfaceContracts: {
+      case WorkflowStage.InterfaceContracts: {
         const design = store.boundaryDesign;
         const profile = store.implementationProfile;
         if (design == null || profile == null) {
@@ -425,7 +425,7 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
         }));
         break;
       }
-      case Step.TestScenarios: {
+      case WorkflowStage.TestScenarios: {
         const design = store.boundaryDesign;
         const suite = store.contractSuite;
         if (design == null || suite == null) {
@@ -457,13 +457,13 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
               }
             }
             applyTestScenarioProposal(store, proposal);
-            store.eventTarget.emit("stepUpdate", Step.TestScenarios);
+            store.eventTarget.emit("stepUpdate", WorkflowStage.TestScenarios);
             return "Test scenarios applied.";
           },
         ));
         break;
       }
-      case Step.TestCases: {
+      case WorkflowStage.TestCases: {
         const design = store.boundaryDesign;
         const suite = store.contractSuite;
         if (design == null || suite == null) {
@@ -514,13 +514,13 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
               }
             }
             applyTestCaseProposal(store, proposal);
-            store.eventTarget.emit("stepUpdate", Step.TestCases);
+            store.eventTarget.emit("stepUpdate", WorkflowStage.TestCases);
             return "Test cases applied.";
           },
         ));
         break;
       }
-      case Step.ProjectSetup: {
+      case WorkflowStage.ProjectSetup: {
         const design = store.boundaryDesign;
         const profile = store.implementationProfile;
         const suite = store.contractSuite;
@@ -550,7 +550,7 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
               new Set(scenarioIds),
             );
             applyProjectSetupProposal(store, proposal);
-            store.eventTarget.emit("stepUpdate", Step.ProjectSetup);
+            store.eventTarget.emit("stepUpdate", WorkflowStage.ProjectSetup);
             return "Project setup applied.";
           },
         ));
@@ -693,7 +693,7 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
         protectedBlocks,
       });
       applyTestCodeProposal(store, proposal, testCase.id, inputFingerprint);
-      store.eventTarget.emit("stepUpdate", Step.AutomatedTests);
+      store.eventTarget.emit("stepUpdate", WorkflowStage.AutomatedTests);
       return `Test code applied to ${targetPath}.`;
     }));
   }

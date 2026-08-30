@@ -4,11 +4,11 @@ import { observer } from "mobx-react-lite";
 import React, { useEffect } from "react";
 
 import {
-  GENERATOR_ACTION_BY_STEP,
-  STEPS,
-  STEP_LABELS,
+  GENERATOR_ACTION_BY_WORKFLOW_STAGE,
+  WORKFLOW_STAGES,
+  WORKFLOW_STAGE_LABELS,
   Status,
-  Step,
+  WorkflowStage,
   useStore,
 } from "store";
 
@@ -16,7 +16,7 @@ import GenerationButton from "./GenerationButton";
 import css from "./SectionHeader.module.css";
 
 export interface HeaderProps {
-  step: Step;
+  step: WorkflowStage;
 }
 
 const Header: React.FunctionComponent<HeaderProps> = ({
@@ -24,13 +24,13 @@ const Header: React.FunctionComponent<HeaderProps> = ({
 }: HeaderProps): React.ReactElement => {
   const store = useStore();
 
-  const stepIndex = STEPS.indexOf(step);
-  const nextStep = stepIndex < STEPS.length - 1 ? STEPS[stepIndex + 1] : null;
-  const currentStepGeneratorAction = step === Step.InterfaceContracts
+  const stepIndex = WORKFLOW_STAGES.indexOf(step);
+  const nextStep = stepIndex < WORKFLOW_STAGES.length - 1 ? WORKFLOW_STAGES[stepIndex + 1] : null;
+  const currentStepGeneratorAction = step === WorkflowStage.InterfaceContracts
     ? null
-    : GENERATOR_ACTION_BY_STEP[step];
+    : GENERATOR_ACTION_BY_WORKFLOW_STAGE[step];
   const nextStepGeneratorAction = nextStep
-    ? GENERATOR_ACTION_BY_STEP[nextStep]
+    ? GENERATOR_ACTION_BY_WORKFLOW_STAGE[nextStep]
     : null;
 
   useEffect(() => {
@@ -77,7 +77,7 @@ const Header: React.FunctionComponent<HeaderProps> = ({
               {store.getStepStatus(step) === Status.Pending
                 ? "Generate"
                 : "Regenerate"}{" "}
-              {STEP_LABELS[step]}
+              {WORKFLOW_STAGE_LABELS[step]}
             </GenerationButton>
           ) : null}
         </div>
@@ -91,7 +91,7 @@ const Header: React.FunctionComponent<HeaderProps> = ({
               endIcon={<ArrowRight />}
               onGenerate={() => store[nextStepGeneratorAction]()}
             >
-              {STEP_LABELS[nextStep]}
+              {WORKFLOW_STAGE_LABELS[nextStep]}
             </GenerationButton>
           ) : null}
         </div>
@@ -99,7 +99,7 @@ const Header: React.FunctionComponent<HeaderProps> = ({
       <Typography variant="h3" sx={{
         alignSelf: "center"
       }}>
-        {STEP_LABELS[step]}
+        {WORKFLOW_STAGE_LABELS[step]}
       </Typography>
     </Stack>
   );

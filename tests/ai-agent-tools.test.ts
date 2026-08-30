@@ -4,7 +4,7 @@ import { describe, it } from "node:test";
 import {
   buildResultTools,
 } from "../app/ai-agent/result-tools";
-import { Step, StructuralFragment } from "../app/store/constants";
+import { WorkflowStage, StructuralFragment } from "../app/store/constants";
 import { Store } from "../app/store/store";
 import type { FlatStore } from "../app/store/store";
 
@@ -15,7 +15,7 @@ function emptyStore(): FlatStore {
 function resultTool(store: FlatStore, name: string) {
   const tools = buildResultTools(store, {
     kind: "generate",
-    stage: Step.ProductOverview,
+    stage: WorkflowStage.ProductOverview,
   });
   const tool = tools.find(({ name: candidate }) => candidate === name);
   assert.ok(tool != null, `expected ${name} tool to be offered`);
@@ -27,7 +27,7 @@ describe("agent result tools", () => {
     const store = emptyStore();
     const tools = buildResultTools(store, {
       kind: "generate",
-      stage: Step.ProductOverview,
+      stage: WorkflowStage.ProductOverview,
     });
     const communicate = tools.find(({ name }) => name === "communicate");
     assert.ok(communicate != null);

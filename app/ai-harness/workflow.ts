@@ -1,11 +1,11 @@
 import {
   EngineerRole,
-  Step,
+  WorkflowStage,
   StructuralFragment,
 } from "store/constants";
 
 export interface ArtifactStageDefinition {
-  step: Step;
+  step: WorkflowStage;
   entityType: StructuralFragment;
   role: EngineerRole;
   requiredStoreFields: readonly string[];
@@ -16,19 +16,19 @@ export interface ArtifactStageDefinition {
   qualityRules: readonly string[];
 }
 
-export const CANONICAL_WORKFLOW: readonly Step[] = [
-  Step.Description,
-  Step.ProductOverview,
-  Step.UserStories,
-  Step.Requirements,
-  Step.AcceptanceCriteria,
-  Step.BoundaryDesign,
-  Step.InterfaceContracts,
-  Step.TestScenarios,
-  Step.TestCases,
-  Step.ProjectSetup,
-  Step.AutomatedTests,
-  Step.Code,
+export const CANONICAL_WORKFLOW: readonly WorkflowStage[] = [
+  WorkflowStage.Description,
+  WorkflowStage.ProductOverview,
+  WorkflowStage.UserStories,
+  WorkflowStage.Requirements,
+  WorkflowStage.AcceptanceCriteria,
+  WorkflowStage.BoundaryDesign,
+  WorkflowStage.InterfaceContracts,
+  WorkflowStage.TestScenarios,
+  WorkflowStage.TestCases,
+  WorkflowStage.ProjectSetup,
+  WorkflowStage.AutomatedTests,
+  WorkflowStage.Code,
 ];
 
 export const WORKFLOW_SUMMARY = CANONICAL_WORKFLOW.map(
@@ -42,7 +42,7 @@ export const ARTIFACT_STAGE_DEFINITIONS: Record<
   ArtifactStageDefinition
 > = {
   [StructuralFragment.UserStory]: {
-    step: Step.UserStories,
+    step: WorkflowStage.UserStories,
     entityType: StructuralFragment.UserStory,
     role: EngineerRole.RequirementsEngineer,
     requiredStoreFields: ["description", "productOverview"],
@@ -63,7 +63,7 @@ export const ARTIFACT_STAGE_DEFINITIONS: Record<
     ],
   },
   [StructuralFragment.Requirement]: {
-    step: Step.Requirements,
+    step: WorkflowStage.Requirements,
     entityType: StructuralFragment.Requirement,
     role: EngineerRole.RequirementsEngineer,
     requiredStoreFields: ["description", "productOverview", "userStories"],
@@ -84,7 +84,7 @@ export const ARTIFACT_STAGE_DEFINITIONS: Record<
     ],
   },
   [StructuralFragment.AcceptanceCriteria]: {
-    step: Step.AcceptanceCriteria,
+    step: WorkflowStage.AcceptanceCriteria,
     entityType: StructuralFragment.AcceptanceCriteria,
     role: EngineerRole.SoftwareTestEngineer,
     requiredStoreFields: [

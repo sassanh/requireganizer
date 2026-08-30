@@ -1,7 +1,7 @@
 import { toGenerator } from "mobx-state-tree";
 
 import { UserFacingError } from "lib/errors";
-import { Step } from "store";
+import { WorkflowStage } from "store";
 import type { TestCase, TestScenario } from "store/models";
 
 import { generator } from "./utilities";
@@ -37,7 +37,7 @@ const { runAgentCommand } = yield* toGenerator(import("ai-agent/agent"));
       testCaseId: testCase.id,
       comment,
     }));
-    self.eventTarget.emit("stepUpdate", Step.AutomatedTests);
+    self.eventTarget.emit("stepUpdate", WorkflowStage.AutomatedTests);
   },
   {
     operation: "generate automated test",
@@ -48,6 +48,6 @@ const { runAgentCommand } = yield* toGenerator(import("ai-agent/agent"));
       "projectSetup",
       "testScenarios",
     ],
-    requiredSteps: [Step.ProjectSetup],
+    requiredSteps: [WorkflowStage.ProjectSetup],
   },
 );

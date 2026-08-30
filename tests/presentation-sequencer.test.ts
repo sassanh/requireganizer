@@ -13,7 +13,7 @@ import {
   setPresentationNav,
   UNCLAIMED_MILLISECONDS,
 } from "../app/presentation/sequencer";
-import { Step } from "../app/store/constants";
+import { WorkflowStage } from "../app/store/constants";
 import { Store } from "../app/store/store";
 import {
   attachTimeline,
@@ -25,7 +25,7 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function attachPair(step: Step = Step.ProductOverview) {
+function attachPair(step: WorkflowStage = WorkflowStage.ProductOverview) {
   resetTimeline();
   resetPresentation();
   const real = Store.create({ productOverview: {} });
@@ -131,7 +131,7 @@ describe("presentation sequencer", () => {
       kind: "ai",
       label: "Generated user stories",
     });
-    const { real, shown } = attachPair(Step.UserStories);
+    const { real, shown } = attachPair(WorkflowStage.UserStories);
 
     real.setUserStories({
       userStories: [
@@ -188,8 +188,8 @@ describe("presentation sequencer", () => {
     const real = Store.create({ productOverview: {} });
     const shown = Store.create(getSnapshot(real));
     attachTimeline(real);
-    let step = Step.Requirements;
-    const requested: Step[] = [];
+    let step = WorkflowStage.Requirements;
+    const requested: WorkflowStage[] = [];
     setPresentationNav({
       getStep: () => step,
       requestStep: (next) => {
@@ -206,11 +206,11 @@ describe("presentation sequencer", () => {
       targetUsers: [],
     } as never);
 
-    assert.deepEqual(requested, [Step.ProductOverview]);
+    assert.deepEqual(requested, [WorkflowStage.ProductOverview]);
     assert.equal(shown.productOverview.name ?? "", "");
 
-    step = Step.ProductOverview;
-    noteVisibleStep(Step.ProductOverview);
+    step = WorkflowStage.ProductOverview;
+    noteVisibleStep(WorkflowStage.ProductOverview);
     assert.equal(shown.productOverview.name ?? "", "Acme");
     assert.equal(shown.productOverview.purpose ?? "", "");
   });

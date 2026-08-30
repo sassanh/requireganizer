@@ -1,33 +1,33 @@
-import { Step } from "store/constants";
+import { WorkflowStage } from "store/constants";
 
 /** Factory step that shows this change-focus subject, if any. */
-export function stepForSubject(subject: string): Step | null {
+export function stepForSubject(subject: string): WorkflowStage | null {
   const root = subject.split("/")[0];
   switch (root) {
     case "description":
-      return Step.Description;
+      return WorkflowStage.Description;
     case "productOverview":
-      return Step.ProductOverview;
+      return WorkflowStage.ProductOverview;
     case "userStories":
-      return Step.UserStories;
+      return WorkflowStage.UserStories;
     case "requirements":
-      return Step.Requirements;
+      return WorkflowStage.Requirements;
     case "acceptanceCriteria":
-      return Step.AcceptanceCriteria;
+      return WorkflowStage.AcceptanceCriteria;
     case "boundaryDesign":
-      return Step.BoundaryDesign;
+      return WorkflowStage.BoundaryDesign;
     case "implementationProfile":
     case "contractSuite":
-      return Step.InterfaceContracts;
+      return WorkflowStage.InterfaceContracts;
     case "testScenarios":
       return subject.includes("/testCases")
-        ? Step.TestCases
-        : Step.TestScenarios;
+        ? WorkflowStage.TestCases
+        : WorkflowStage.TestScenarios;
     case "testCases":
-      return Step.TestCases;
+      return WorkflowStage.TestCases;
     case "projectSetup":
     case "scaffoldFiles":
-      return Step.ProjectSetup;
+      return WorkflowStage.ProjectSetup;
     default:
       return null;
   }

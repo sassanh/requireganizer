@@ -1,6 +1,6 @@
 import { toGenerator } from "mobx-state-tree";
 
-import { Step } from "store";
+import { WorkflowStage } from "store";
 
 import { generator } from "./utilities";
 
@@ -9,13 +9,13 @@ export default generator(
     const { runAgentCommand } = yield* toGenerator(import("ai-agent/agent"));
     yield* toGenerator(runAgentCommand(self, "generate test scenarios", {
       kind: "generate",
-      stage: Step.TestScenarios,
+      stage: WorkflowStage.TestScenarios,
     }));
-    self.eventTarget.emit("stepUpdate", Step.TestScenarios);
+    self.eventTarget.emit("stepUpdate", WorkflowStage.TestScenarios);
   },
   {
     operation: "generate test scenarios",
     requirements: ["boundaryDesign", "contractSuite"],
-    requiredSteps: [Step.InterfaceContracts],
+    requiredSteps: [WorkflowStage.InterfaceContracts],
   },
 );

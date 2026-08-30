@@ -11,7 +11,7 @@ import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 
 import { runAgentCommand } from "../app/ai-agent/agent";
 import { describeError } from "../app/store/actions/ai-actions/utilities";
-import { Step } from "../app/store/constants";
+import { WorkflowStage } from "../app/store/constants";
 import { Store } from "../app/store/store";
 import type { FlatStore, Store as StoreInstance } from "../app/store/store";
 
@@ -86,7 +86,7 @@ describe("agent command run", () => {
     await runAgentCommand(
       store,
       "generate the product overview",
-      { kind: "generate", stage: Step.ProductOverview },
+      { kind: "generate", stage: WorkflowStage.ProductOverview },
       scriptedStreamFn([
         assistantMessage([toolCall]),
         assistantMessage([{ type: "text", text: "Product overview applied." }]),
@@ -112,7 +112,7 @@ describe("agent command run", () => {
       () => runAgentCommand(
         store,
         "generate the product overview",
-        { kind: "generate", stage: Step.ProductOverview },
+        { kind: "generate", stage: WorkflowStage.ProductOverview },
         scriptedStreamFn([failing]),
       ),
       /gateway is unavailable/,
@@ -221,7 +221,7 @@ describe("conversation history", () => {
 
   it("keeps an interrupted stage's result tool available across plain conversation turns", async () => {
     const store = Store.create({ productOverview: {} }) as unknown as StoreInstance;
-    const commandText = JSON.stringify({ kind: "generate", stage: Step.ProductOverview });
+    const commandText = JSON.stringify({ kind: "generate", stage: WorkflowStage.ProductOverview });
     const deadAttempt = assistantMessage([]);
     deadAttempt.stopReason = "error";
     store.setConversation([userMessage(commandText), deadAttempt]);
@@ -240,7 +240,7 @@ describe("conversation history", () => {
 
   it("replaces a failed duplicate command instead of appending another copy", async () => {
     const store = Store.create({ productOverview: {} }) as unknown as StoreInstance;
-    const command = { kind: "generate", stage: Step.ProductOverview } as const;
+    const command = { kind: "generate", stage: WorkflowStage.ProductOverview } as const;
     const commandText = JSON.stringify(command);
     const deadAttempt = assistantMessage([]);
     deadAttempt.stopReason = "error";

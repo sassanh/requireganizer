@@ -2,7 +2,7 @@ import { pdf } from "@react-pdf/renderer";
 import { saveAs } from "file-saver";
 
 import PDFDocument from "components/PDFDocument";
-import { LAST_STEP, Store } from "store";
+import { LAST_WORKFLOW_STAGE, Store } from "store";
 import { extractTestCaseCode } from "utilities/testParser";
 
 const export_ = async (self_: unknown, format: "pdf" | "txt" | "json") => {
@@ -53,7 +53,7 @@ ${testScenario.testCases.map((testCase) => {
           .join("\n")}
       `;
     } else if (format === "json") {
-      content = JSON.stringify(self.data(LAST_STEP, true), null, 2);
+      content = JSON.stringify(self.data(LAST_WORKFLOW_STAGE, true), null, 2);
     }
 
     const blob = new Blob([content], { type: "text/plain;charset=utf-8" });

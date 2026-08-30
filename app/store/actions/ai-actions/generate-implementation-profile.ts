@@ -1,6 +1,6 @@
 import { toGenerator } from "mobx-state-tree";
 
-import { Step } from "store";
+import { WorkflowStage } from "store";
 
 import {
   applyImplementationProfileProposal,
@@ -14,11 +14,11 @@ export default generator(
       kind: "generate",
       stage: "implementation-profile",
     }));
-    self.eventTarget.emit("stepUpdate", Step.InterfaceContracts);
+    self.eventTarget.emit("stepUpdate", WorkflowStage.InterfaceContracts);
   },
   {
     operation: "generate implementation profile",
     requirements: ["boundaryDesign"],
-    requiredSteps: [Step.BoundaryDesign],
+    requiredSteps: [WorkflowStage.BoundaryDesign],
   },
 );

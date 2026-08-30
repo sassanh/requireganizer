@@ -36,7 +36,7 @@ import {
 } from "contract-domain";
 import { getUserFacingErrorMessage, UserFacingError } from "lib/errors";
 import { HarnessResult } from "lib/types";
-import { Priority, STEP_LABELS, Status, Step, StructuralFragment } from "store/constants";
+import { Priority, WORKFLOW_STAGE_LABELS, Status, WorkflowStage, StructuralFragment } from "store/constants";
 import type { FlatStore, TestCaseSnapshotInput, TestScenarioSnapshotInput } from "store/store";
 import { uuid } from "utilities";
 
@@ -44,7 +44,7 @@ export function applyAtomically(
   store: FlatStore,
   update: (candidate: FlatStore) => void,
   impact?: {
-    sourceStep: Step;
+    sourceStep: WorkflowStage;
     sourceLabel?: string;
     summary: string;
     includeSourceStep?: boolean;
@@ -62,12 +62,12 @@ export function applyAtomically(
   if (impact != null && affectedSteps.length > 0) {
     store.queueImpactChange({
       sourceStep: impact.sourceStep,
-      sourceLabel: impact.sourceLabel ?? STEP_LABELS[impact.sourceStep],
+      sourceLabel: impact.sourceLabel ?? WORKFLOW_STAGE_LABELS[impact.sourceStep],
       affectedSteps,
       affectedArtifacts: affectedSteps.map((step) => ({
         step,
-        label: `${STEP_LABELS[step]} artifacts`,
-        reason: `These artifacts consume ${impact.sourceLabel ?? STEP_LABELS[impact.sourceStep]} and will remain viewable but stale until regenerated.`,
+        label: `${WORKFLOW_STAGE_LABELS[step]} artifacts`,
+        reason: `These artifacts consume ${impact.sourceLabel ?? WORKFLOW_STAGE_LABELS[impact.sourceStep]} and will remain viewable but stale until regenerated.`,
       })),
       summary: impact.summary,
       candidateSnapshot: snapshot,
@@ -122,7 +122,7 @@ export function applyProductOverviewProposal(
     candidate.setTargetUsers({
       targetUsers: proposal.targetUsers.map(toUserSnapshot) as never,
     });
-    candidate.markStageGenerated(Step.ProductOverview);
+    candidate.markStageGenerated(WorkflowStage.ProductOverview);
   });
 }
 
@@ -138,7 +138,7 @@ export function applyArtifactListProposals(
   proposals: ArtifactListProposal[],
 ): void {
   applyAtomically(store, (candidate) => {
-    const completedSteps = new Set<Step>();
+    const completedSteps = new Set<WorkflowStage>();
     proposals.forEach((proposal) => {
       const definition = getArtifactStageDefinition(proposal.entityType);
       candidate.replaceArtifactList(proposal);
@@ -224,7 +224,7 @@ export function applyBoundaryDesignProposal(
     (candidate) => candidate.setBoundaryDesign(design),
     store.boundaryDesign == null
       ? undefined
-      : { sourceStep: Step.BoundaryDesign, summary: "Apply the new boundary-design revision." },
+      : { sourceStep: WorkflowStage.BoundaryDesign, summary: "Apply the new boundary-design revision." },
   );
 }
 
@@ -258,7 +258,7 @@ export function applyImplementationProfileProposal(
     store.implementationProfile == null
       ? undefined
       : {
-        sourceStep: Step.InterfaceContracts,
+        sourceStep: WorkflowStage.InterfaceContracts,
         sourceLabel: "Implementation Profile",
         summary: "Apply the new implementation-profile revision.",
         includeSourceStep: true,
@@ -406,7 +406,7 @@ export function applyContractSuiteProposal(
     store.contractSuite == null
       ? undefined
       : {
-        sourceStep: Step.InterfaceContracts,
+        sourceStep: WorkflowStage.InterfaceContracts,
         sourceLabel: "Formal Contracts",
         summary: "Apply the reconciled formal-contract revision.",
         includeSourceStep: true,
@@ -458,11 +458,11 @@ export function applyTestScenarioProposal(
     store,
     (candidate) => {
       candidate.setTestScenarios(snapshots);
-      candidate.markStageGenerated(Step.TestScenarios);
+      candidate.markStageGenerated(WorkflowStage.TestScenarios);
     },
     store.testScenarios.length === 0
       ? undefined
-      : { sourceStep: Step.TestScenarios, summary: "Apply the new revision-bound scenario set." },
+      : { sourceStep: WorkflowStage.TestScenarios, summary: "Apply the new revision-bound scenario set." },
   );
 }
 
@@ -494,11 +494,11 @@ export function applyTestCaseProposal(store: FlatStore, proposal: TestCaseListPr
     store,
     (candidate) => {
       candidate.replaceTestCases(proposal.scenarioId, cases);
-      candidate.markStageGenerated(Step.TestCases);
+      candidate.markStageGenerated(WorkflowStage.TestCases);
     },
     scenario.testCases.length === 0
       ? undefined
-      : { sourceStep: Step.TestCases, summary: `Apply regenerated cases for ${scenario.content}.` },
+      : { sourceStep: WorkflowStage.TestCases, summary: `Apply regenerated cases for ${scenario.content}.` },
   );
 }
 
@@ -529,7 +529,7 @@ export function applyProjectSetupProposal(
     (candidate) => candidate.setProjectSetup(setup),
     store.projectSetup == null
       ? undefined
-      : { sourceStep: Step.ProjectSetup, summary: "Replace the project setup and scaffold manifest." },
+      : { sourceStep: WorkflowStage.ProjectSetup, summary: "Replace the project setup and scaffold manifest." },
   );
 }
 
@@ -569,7 +569,7 @@ export function generator<
   }: {
     operation: string;
     requirements?: readonly Requirements[];
-    requiredSteps?: readonly Step[];
+    requiredSteps?: readonly WorkflowStage[];
   },
 ) {
   const flowFn = flow(function* (
@@ -614,7 +614,7 @@ export function generator<
         if (status === Status.Completed) return;
         const action = status === Status.Outdated ? "Regenerate" : "Complete";
         throw new UserFacingError(
-          `${action} ${STEP_LABELS[step]} before trying to ${operation}.`,
+          `${action} ${WORKFLOW_STAGE_LABELS[step]} before trying to ${operation}.`,
         );
       });
 

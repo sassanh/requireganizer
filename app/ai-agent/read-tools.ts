@@ -2,7 +2,7 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Type } from "@earendil-works/pi-ai";
 
 import { CANONICAL_WORKFLOW } from "ai-harness/workflow";
-import { STEP_LABELS, Step } from "store/constants";
+import { WORKFLOW_STAGE_LABELS, WorkflowStage } from "store/constants";
 import type { FlatStore } from "store/store";
 
 function textResult(text: string): { content: [{ type: "text"; text: string }]; details: Record<string, never> } {
@@ -21,9 +21,9 @@ export function buildReadTools(store: FlatStore): AgentTool[] {
       "Get the project description plus the status of every workflow stage (pending, completed, outdated) and which artifacts exist.",
     parameters: Type.Object({}),
     execute: async () => {
-      const stages = CANONICAL_WORKFLOW.filter((step) => step !== Step.Code)
+      const stages = CANONICAL_WORKFLOW.filter((step) => step !== WorkflowStage.Code)
         .map((step) => ({
-          stage: STEP_LABELS[step],
+          stage: WORKFLOW_STAGE_LABELS[step],
           status: store.getStepStatus(step),
           hasArtifacts: store.hasStepArtifacts(step),
         }));
@@ -34,7 +34,7 @@ export function buildReadTools(store: FlatStore): AgentTool[] {
     },
   };
 
-  const validStages = CANONICAL_WORKFLOW.filter((step) => step !== Step.Code);
+  const validStages = CANONICAL_WORKFLOW.filter((step) => step !== WorkflowStage.Code);
 
   const stageArtifacts: AgentTool = {
     name: "get_stage_artifacts",

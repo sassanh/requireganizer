@@ -1,11 +1,11 @@
-import type { Step, StructuralFragment } from "store/constants";
-import { STEP_LABELS } from "store/constants";
+import type { WorkflowStage, StructuralFragment } from "store/constants";
+import { WORKFLOW_STAGE_LABELS } from "store/constants";
 
 /**
  * "implementation-profile" is an artifact stage inside the Interface Contracts
- * step, so commands address it directly even though it has no dedicated Step.
+ * step, so commands address it directly even though it has no dedicated WorkflowStage.
  */
-export type CommandStage = Exclude<Step, Step.Code> | "implementation-profile";
+export type CommandStage = Exclude<WorkflowStage, WorkflowStage.Code> | "implementation-profile";
 
 export type RevisionTarget = {
   kind: "interface" | "subject" | "verification";
@@ -28,7 +28,7 @@ export function renderCommand(command: AiCommand): string {
 
 function stageLabel(stage: CommandStage): string {
   if (stage === "implementation-profile") return "implementation profile";
-  return STEP_LABELS[stage];
+  return WORKFLOW_STAGE_LABELS[stage];
 }
 
 /**

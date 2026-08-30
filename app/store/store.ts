@@ -65,13 +65,13 @@ import {
   regenerateLastReply,
 } from "./actions";
 import {
-  GENERATION_PREREQUISITE_BY_STEP,
-  LAST_STEP,
+  GENERATION_PREREQUISITE_BY_WORKFLOW_STAGE,
+  LAST_WORKFLOW_STAGE,
   Priority,
-  STEP_BY_STRUCTURAL_FRAGMENT,
-  STEPS,
+  WORKFLOW_STAGE_BY_STRUCTURAL_FRAGMENT,
+  WORKFLOW_STAGES,
   Status,
-  Step,
+  WorkflowStage,
   StructuralFragment as StructuralFragmentName,
   isBefore,
 } from "./constants";
@@ -103,11 +103,11 @@ export { PROJECT_SCHEMA_VERSION } from "lib/projectSchema";
 const MAX_PROVIDER_CALL_HISTORY = 100;
 
 export interface PendingImpactChange {
-  sourceStep: Step;
+  sourceStep: WorkflowStage;
   sourceLabel: string;
-  affectedSteps: Step[];
+  affectedSteps: WorkflowStage[];
   affectedArtifacts: Array<{
-    step: Step;
+    step: WorkflowStage;
     label: string;
     reason: string;
   }>;
@@ -204,34 +204,34 @@ function scenarioDesign(scenarios: readonly TestScenario[]) {
 
 export function buildWorkflowInput(
   source: WorkflowInputSource,
-  step: Step,
+  step: WorkflowStage,
 ): Record<string, unknown> {
   const result: Record<string, unknown> = { description: source.description };
-  if (step === Step.ProductOverview) return result;
+  if (step === WorkflowStage.ProductOverview) return result;
   result.productOverview = source.productOverview;
-  if (step === Step.UserStories) return result;
+  if (step === WorkflowStage.UserStories) return result;
   result.userStories = source.userStories;
-  if (step === Step.Requirements) return result;
+  if (step === WorkflowStage.Requirements) return result;
   result.requirements = source.requirements;
-  if (step === Step.AcceptanceCriteria) return result;
+  if (step === WorkflowStage.AcceptanceCriteria) return result;
   result.acceptanceCriteria = source.acceptanceCriteria;
-  if (step === Step.BoundaryDesign) return result;
+  if (step === WorkflowStage.BoundaryDesign) return result;
   result.boundaryDesign = source.boundaryDesign;
-  if (step === Step.InterfaceContracts) return result;
+  if (step === WorkflowStage.InterfaceContracts) return result;
   result.implementationProfile = source.implementationProfile;
   result.contractSuite = source.contractSuite;
-  if (step === Step.TestScenarios) return result;
+  if (step === WorkflowStage.TestScenarios) return result;
   result.testScenarios = scenarioDesign(source.testScenarios).map(
     ({ testCases: _testCases, ...scenario }) => scenario,
   );
-  if (step === Step.TestCases) return result;
+  if (step === WorkflowStage.TestCases) return result;
   result.testScenarios = scenarioDesign(source.testScenarios);
-  if (step === Step.ProjectSetup) return result;
+  if (step === WorkflowStage.ProjectSetup) return result;
   result.projectSetup = source.projectSetup;
   return result;
 }
 
-export function workflowFingerprint(source: WorkflowInputSource, step: Step) {
+export function workflowFingerprint(source: WorkflowInputSource, step: WorkflowStage) {
   return fingerprint(buildWorkflowInput(source, step));
 }
 
@@ -245,17 +245,17 @@ export function testDesignFingerprint(source: WorkflowInputSource): string {
 }
 
 class StoreEventEmitter {
-  private readonly listeners = new Set<(step: Step) => void>();
+  private readonly listeners = new Set<(step: WorkflowStage) => void>();
 
-  emit(_event: "stepUpdate", step: Step): void {
+  emit(_event: "stepUpdate", step: WorkflowStage): void {
     this.listeners.forEach((listener) => listener(step));
   }
 
-  on(_event: "stepUpdate", listener: (step: Step) => void): void {
+  on(_event: "stepUpdate", listener: (step: WorkflowStage) => void): void {
     this.listeners.add(listener);
   }
 
-  off(_event: "stepUpdate", listener: (step: Step) => void): void {
+  off(_event: "stepUpdate", listener: (step: WorkflowStage) => void): void {
     this.listeners.delete(listener);
   }
 }
@@ -421,7 +421,7 @@ export const FlatStore = types
       self.pendingImpactChange = null;
       applySnapshot(self, snapshot as SnapshotIn<typeof FlatStore>);
     },
-    markStageGenerated(step: Step) {
+    markStageGenerated(step: WorkflowStage) {
       self.stageInputFingerprints.set(step, workflowFingerprint(self, step));
     },
     setScaffoldFiles(files: { path: string; content: string }[]) {
@@ -452,7 +452,7 @@ export const FlatStore = types
         primaryFeatures: info.primaryFeatures.map(toSnapshot) as SnapshotIn<PrimaryFeature>[],
         targetUsers: info.targetUsers.map(toSnapshot) as SnapshotIn<TargetUser>[],
       });
-      self.eventTarget.emit("stepUpdate", Step.ProductOverview);
+      self.eventTarget.emit("stepUpdate", WorkflowStage.ProductOverview);
     },
     setName({ name }: { name: string }) {
       self.productOverview.name = name;
@@ -602,7 +602,7 @@ export const FlatStore = types
       self.testScenarios.forEach((scenario) =>
         scenario.testCases.forEach((testCase) => testCase.clearGenerated()),
       );
-      self.markStageGenerated(Step.ProjectSetup);
+      self.markStageGenerated(WorkflowStage.ProjectSetup);
     },
     markTestGenerated(testCaseId: string, inputFingerprint: string) {
       for (const scenario of self.testScenarios) {
@@ -674,28 +674,28 @@ export const FlatStore = types
     get testDesignFingerprint() {
       return testDesignFingerprint(self);
     },
-    data(step: Step = LAST_STEP, includeBuildArtifacts = false) {
+    data(step: WorkflowStage = LAST_WORKFLOW_STAGE, includeBuildArtifacts = false) {
       return {
         schemaVersion: PROJECT_SCHEMA_VERSION,
-        ...(!isBefore(step, Step.Description) ? { description: self.description } : {}),
-        ...(!isBefore(step, Step.ProductOverview)
+        ...(!isBefore(step, WorkflowStage.Description) ? { description: self.description } : {}),
+        ...(!isBefore(step, WorkflowStage.ProductOverview)
           ? { productOverview: self.productOverview }
           : {}),
-        ...(!isBefore(step, Step.UserStories) ? { userStories: self.userStories } : {}),
-        ...(!isBefore(step, Step.Requirements) ? { requirements: self.requirements } : {}),
-        ...(!isBefore(step, Step.AcceptanceCriteria)
+        ...(!isBefore(step, WorkflowStage.UserStories) ? { userStories: self.userStories } : {}),
+        ...(!isBefore(step, WorkflowStage.Requirements) ? { requirements: self.requirements } : {}),
+        ...(!isBefore(step, WorkflowStage.AcceptanceCriteria)
           ? { acceptanceCriteria: self.acceptanceCriteria }
           : {}),
-        ...(!isBefore(step, Step.BoundaryDesign)
+        ...(!isBefore(step, WorkflowStage.BoundaryDesign)
           ? { boundaryDesign: self.boundaryDesign }
           : {}),
-        ...(!isBefore(step, Step.InterfaceContracts)
+        ...(!isBefore(step, WorkflowStage.InterfaceContracts)
           ? {
               implementationProfile: self.implementationProfile,
               contractSuite: self.contractSuite,
             }
           : {}),
-        ...(!isBefore(step, Step.TestScenarios)
+        ...(!isBefore(step, WorkflowStage.TestScenarios)
           ? { testScenarios: self.testScenarios }
           : {}),
         ...(includeBuildArtifacts
@@ -742,36 +742,36 @@ export const FlatStore = types
     getPath(id: string) {
       const fragment = self.structuralFragmentsCache[id];
       if (fragment == null) return undefined;
-      return `?step=${STEP_BY_STRUCTURAL_FRAGMENT[fragment.type]}#${fragment.getCode()}`;
+      return `?step=${WORKFLOW_STAGE_BY_STRUCTURAL_FRAGMENT[fragment.type]}#${fragment.getCode()}`;
     },
     get isProjectSetupOutdated() {
       return self.projectSetup != null && !self.projectSetupIsCurrent;
     },
-    getStepStatus(step: Step): Status {
+    getStepStatus(step: WorkflowStage): Status {
       const generated = self.stageInputFingerprints.get(step);
       const inputIsOutdated =
         generated != null && generated !== workflowFingerprint(self, step);
       let status: Status;
       switch (step) {
-        case Step.Description:
+        case WorkflowStage.Description:
           status = self.description.trim() ? Status.Completed : Status.Pending;
           break;
-        case Step.ProductOverview:
+        case WorkflowStage.ProductOverview:
           status = self.productOverview.isComplete ? Status.Completed : Status.Pending;
           break;
-        case Step.UserStories:
+        case WorkflowStage.UserStories:
           status = self.userStories.length > 0 ? Status.Completed : Status.Pending;
           break;
-        case Step.Requirements:
+        case WorkflowStage.Requirements:
           status = self.requirements.length > 0 ? Status.Completed : Status.Pending;
           break;
-        case Step.AcceptanceCriteria:
+        case WorkflowStage.AcceptanceCriteria:
           status = self.acceptanceCriteria.length > 0 ? Status.Completed : Status.Pending;
           break;
-        case Step.BoundaryDesign:
+        case WorkflowStage.BoundaryDesign:
           status = self.boundaryDesign != null ? Status.Completed : Status.Pending;
           break;
-        case Step.InterfaceContracts:
+        case WorkflowStage.InterfaceContracts:
           status = self.contractsReady ? Status.Completed : Status.Pending;
           if (
             status === Status.Completed &&
@@ -784,13 +784,13 @@ export const FlatStore = types
             status = Status.Outdated;
           }
           break;
-        case Step.TestScenarios:
+        case WorkflowStage.TestScenarios:
           status =
             self.testScenarios.length > 0 && self.testScenarios.every(({ binding }) => binding != null)
               ? Status.Completed
               : Status.Pending;
           break;
-        case Step.TestCases:
+        case WorkflowStage.TestCases:
           status =
             self.testScenarios.length > 0 &&
             self.testScenarios.every(
@@ -801,13 +801,13 @@ export const FlatStore = types
               ? Status.Completed
               : Status.Pending;
           break;
-        case Step.ProjectSetup:
+        case WorkflowStage.ProjectSetup:
           status = self.projectSetup == null ? Status.Pending : Status.Completed;
           if (status === Status.Completed && !self.projectSetupIsCurrent) {
             status = Status.Outdated;
           }
           break;
-        case Step.AutomatedTests: {
+        case WorkflowStage.AutomatedTests: {
           const hasGeneratedTests = self.testScenarios.some((scenario) =>
             scenario.testCases.some(
               ({ generatedInputFingerprint }) =>
@@ -837,7 +837,7 @@ export const FlatStore = types
           }
           break;
         }
-        case Step.Code:
+        case WorkflowStage.Code:
           status = Status.Pending;
           break;
       }
@@ -845,62 +845,62 @@ export const FlatStore = types
     },
   }))
   .views((self) => ({
-    canGenerateStep(step: Step): boolean {
-      const prerequisite = GENERATION_PREREQUISITE_BY_STEP[step];
+    canGenerateStep(step: WorkflowStage): boolean {
+      const prerequisite = GENERATION_PREREQUISITE_BY_WORKFLOW_STAGE[step];
       return prerequisite != null && self.getStepStatus(prerequisite) === Status.Completed;
     },
   }))
   .views((self) => {
-    const hasStepArtifacts = (step: Step): boolean => {
+    const hasStepArtifacts = (step: WorkflowStage): boolean => {
       switch (step) {
-        case Step.Description:
+        case WorkflowStage.Description:
           return self.description.trim().length > 0;
-        case Step.ProductOverview:
+        case WorkflowStage.ProductOverview:
           return !self.productOverview.isEmpty;
-        case Step.UserStories:
+        case WorkflowStage.UserStories:
           return self.userStories.length > 0;
-        case Step.Requirements:
+        case WorkflowStage.Requirements:
           return self.requirements.length > 0;
-        case Step.AcceptanceCriteria:
+        case WorkflowStage.AcceptanceCriteria:
           return self.acceptanceCriteria.length > 0;
-        case Step.BoundaryDesign:
+        case WorkflowStage.BoundaryDesign:
           return self.boundaryDesign != null;
-        case Step.InterfaceContracts:
+        case WorkflowStage.InterfaceContracts:
           return self.implementationProfile != null || self.contractSuite != null;
-        case Step.TestScenarios:
+        case WorkflowStage.TestScenarios:
           return self.testScenarios.length > 0;
-        case Step.TestCases:
+        case WorkflowStage.TestCases:
           return self.testScenarios.some(
             ({ testCases }) => testCases.length > 0,
           );
-        case Step.ProjectSetup:
+        case WorkflowStage.ProjectSetup:
           return self.projectSetup != null;
-        case Step.AutomatedTests:
+        case WorkflowStage.AutomatedTests:
           return self.testScenarios.some((scenario) =>
             scenario.testCases.some(
               ({ generatedInputFingerprint }) =>
                 generatedInputFingerprint != null,
             ),
           );
-        case Step.Code:
+        case WorkflowStage.Code:
           return false;
       }
     };
 
     return {
-      json(step: Step) {
+      json(step: WorkflowStage) {
         return JSON.stringify(self.data(step));
       },
       hasStepArtifacts,
       affectedDownstreamSteps(
-        sourceStep: Step,
+        sourceStep: WorkflowStage,
         includeSourceStep = false,
-      ): Step[] {
-        return STEPS.slice(
-          STEPS.indexOf(sourceStep) + (includeSourceStep ? 0 : 1),
+      ): WorkflowStage[] {
+        return WORKFLOW_STAGES.slice(
+          WORKFLOW_STAGES.indexOf(sourceStep) + (includeSourceStep ? 0 : 1),
         ).filter(
           (step) =>
-            step !== Step.Code &&
+            step !== WorkflowStage.Code &&
             (
               self.getStepStatus(step) !== Status.Pending ||
               hasStepArtifacts(step)

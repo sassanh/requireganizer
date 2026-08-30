@@ -1,6 +1,6 @@
 import { TabPanel, TabPanelProps } from "@mui/lab";
 
-import { Step } from "store";
+import { WorkflowStage } from "store";
 
 /**
  * Keep step content mounted so presenters can claim hidden ticks.
@@ -14,9 +14,9 @@ export default function AnimatedTabPanel({
   sx,
   ...rest
 }: {
-  step: Step;
-  activeStep: Step;
-  onStepChange: (step: Step) => void;
+  step: WorkflowStage;
+  activeStep: WorkflowStage;
+  onStepChange: (step: WorkflowStage) => void;
 } & Omit<TabPanelProps, "value">) {
   void activeStep;
   void onStepChange;

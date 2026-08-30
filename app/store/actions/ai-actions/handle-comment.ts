@@ -1,6 +1,6 @@
 import { toGenerator } from "mobx-state-tree";
 
-import { STEP_BY_STRUCTURAL_FRAGMENT } from "store";
+import { WORKFLOW_STAGE_BY_STRUCTURAL_FRAGMENT } from "store";
 import { StructuralFragment } from "store/models";
 
 import { generator } from "./utilities";

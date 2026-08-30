@@ -1,6 +1,6 @@
 import { toGenerator } from "mobx-state-tree";
 
-import { Step } from "store";
+import { WorkflowStage } from "store";
 
 import { generator } from "./utilities";
 
@@ -9,13 +9,13 @@ export default generator(
     const { runAgentCommand } = yield* toGenerator(import("ai-agent/agent"));
     yield* toGenerator(runAgentCommand(self, "generate the product overview", {
       kind: "generate",
-      stage: Step.ProductOverview,
+      stage: WorkflowStage.ProductOverview,
     }));
-    self.eventTarget.emit("stepUpdate", Step.ProductOverview);
+    self.eventTarget.emit("stepUpdate", WorkflowStage.ProductOverview);
   },
   {
     operation: "generate the product overview",
     requirements: ["description"],
-    requiredSteps: [Step.Description],
+    requiredSteps: [WorkflowStage.Description],
   },
 );

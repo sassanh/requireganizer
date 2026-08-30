@@ -1,6 +1,6 @@
 import { toGenerator } from "mobx-state-tree";
 
-import { Step } from "store";
+import { WorkflowStage } from "store";
 
 import { generator } from "./utilities";
 
@@ -9,13 +9,13 @@ export default generator(
     const { runAgentCommand } = yield* toGenerator(import("ai-agent/agent"));
     yield* toGenerator(runAgentCommand(self, "generate boundary design", {
       kind: "generate",
-      stage: Step.BoundaryDesign,
+      stage: WorkflowStage.BoundaryDesign,
     }));
-    self.eventTarget.emit("stepUpdate", Step.BoundaryDesign);
+    self.eventTarget.emit("stepUpdate", WorkflowStage.BoundaryDesign);
   },
   {
     operation: "generate boundary design",
     requirements: ["requirements", "acceptanceCriteria"],
-    requiredSteps: [Step.AcceptanceCriteria],
+    requiredSteps: [WorkflowStage.AcceptanceCriteria],
   },
 );

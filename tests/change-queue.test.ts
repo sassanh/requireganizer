@@ -44,11 +44,11 @@ async function attachShown(store: import("../app/store/store").Store) {
     resetPresentation,
     setPresentationNav,
   } = await import("../app/presentation");
-  const { Step } = await import("../app/store/constants");
+  const { WorkflowStage } = await import("../app/store/constants");
   resetPresentation();
   const shown = Store.create(getSnapshot(store));
   setPresentationNav({
-    getStep: () => Step.ProductOverview,
+    getStep: () => WorkflowStage.ProductOverview,
     requestStep: () => {},
     isVisible: () => true,
   });

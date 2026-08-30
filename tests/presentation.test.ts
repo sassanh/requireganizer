@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 
 import { applyOpToTree } from "../app/presentation/applyOp";
 import { stepForSubject } from "../app/presentation/steps";
-import { Step } from "../app/store/constants";
+import { WorkflowStage } from "../app/store/constants";
 
 describe("presentation applyOp", () => {
   it("sets a scalar path", () => {
@@ -75,14 +75,14 @@ describe("presentation applyOp", () => {
 
 describe("presentation steps", () => {
   it("maps subjects to factory steps", () => {
-    assert.equal(stepForSubject("description"), Step.Description);
-    assert.equal(stepForSubject("productOverview/name"), Step.ProductOverview);
-    assert.equal(stepForSubject("userStories/us-1"), Step.UserStories);
+    assert.equal(stepForSubject("description"), WorkflowStage.Description);
+    assert.equal(stepForSubject("productOverview/name"), WorkflowStage.ProductOverview);
+    assert.equal(stepForSubject("userStories/us-1"), WorkflowStage.UserStories);
     assert.equal(
       stepForSubject("testScenarios/sc-1/testCases/tc-1"),
-      Step.TestCases,
+      WorkflowStage.TestCases,
     );
-    assert.equal(stepForSubject("testScenarios/sc-1"), Step.TestScenarios);
-    assert.equal(stepForSubject("contractSuite"), Step.InterfaceContracts);
+    assert.equal(stepForSubject("testScenarios/sc-1"), WorkflowStage.TestScenarios);
+    assert.equal(stepForSubject("contractSuite"), WorkflowStage.InterfaceContracts);
   });
 });

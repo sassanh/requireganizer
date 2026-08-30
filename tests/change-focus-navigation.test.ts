@@ -9,7 +9,7 @@ import {
   resetPresentation,
   setPresentationNav,
 } from "../app/presentation/sequencer";
-import { Step } from "../app/store/constants";
+import { WorkflowStage } from "../app/store/constants";
 import { Store } from "../app/store/store";
 import {
   attachTimeline,
@@ -30,8 +30,8 @@ describe("change focus navigation", () => {
     const shown = Store.create(getSnapshot(real));
     attachTimeline(real);
 
-    let step = Step.Requirements;
-    const requested: Step[] = [];
+    let step = WorkflowStage.Requirements;
+    const requested: WorkflowStage[] = [];
     setPresentationNav({
       getStep: () => step,
       requestStep: (next) => {
@@ -48,15 +48,15 @@ describe("change focus navigation", () => {
       targetUsers: [],
     } as never);
 
-    assert.deepEqual(requested, [Step.ProductOverview]);
+    assert.deepEqual(requested, [WorkflowStage.ProductOverview]);
     assert.equal(
       shown.productOverview.name ?? "",
       "",
       "values wait until the navigate frame completes",
     );
 
-    step = Step.ProductOverview;
-    noteVisibleStep(Step.ProductOverview);
+    step = WorkflowStage.ProductOverview;
+    noteVisibleStep(WorkflowStage.ProductOverview);
 
     assert.equal(shown.productOverview.name ?? "", "Acme");
   });

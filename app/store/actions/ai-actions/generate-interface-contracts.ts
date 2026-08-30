@@ -1,7 +1,7 @@
 import { toGenerator } from "mobx-state-tree";
 
 import { UserFacingError } from "lib/errors";
-import { Step } from "store";
+import { WorkflowStage } from "store";
 
 import {
   applyContractSuiteProposal,
@@ -18,13 +18,13 @@ export default generator(
     }
     yield* toGenerator(runAgentCommand(self, "generate interface contracts", {
       kind: "generate",
-      stage: Step.InterfaceContracts,
+      stage: WorkflowStage.InterfaceContracts,
     }));
-    self.eventTarget.emit("stepUpdate", Step.InterfaceContracts);
+    self.eventTarget.emit("stepUpdate", WorkflowStage.InterfaceContracts);
   },
   {
     operation: "generate interface contracts",
     requirements: ["boundaryDesign", "implementationProfile"],
-    requiredSteps: [Step.BoundaryDesign],
+    requiredSteps: [WorkflowStage.BoundaryDesign],
   },
 );

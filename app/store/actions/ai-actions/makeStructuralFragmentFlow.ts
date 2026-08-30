@@ -1,6 +1,6 @@
 import { SnapshotOrInstance, toGenerator } from "mobx-state-tree";
 
-import { Step, StructuralFragment } from "store";
+import { WorkflowStage, StructuralFragment } from "store";
 import { FlatStore } from "store/store";
 
 import { generator } from "./utilities";
@@ -13,10 +13,10 @@ export function makeStructuralFragmentFlow<
   requirements,
   requiredSteps,
 }: {
-  step: Step;
+  step: WorkflowStage;
   structuralFragment: StructuralFragment;
   requirements: Requirements[];
-  requiredSteps: readonly Step[];
+  requiredSteps: readonly WorkflowStage[];
 }) {
   return generator(
     function* generateStructuralFragmentFlow(self) {
@@ -24,7 +24,7 @@ export function makeStructuralFragmentFlow<
       const store = self as FlatStore;
       yield* toGenerator(runAgentCommand(store, `generate ${structuralFragment.replaceAll("_", " ")} items`, {
         kind: "generate",
-        stage: step as Exclude<Step, Step.Code>,
+        stage: step as Exclude<WorkflowStage, WorkflowStage.Code>,
       }));
       store.eventTarget.emit("stepUpdate", step);
     },

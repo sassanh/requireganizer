@@ -1,4 +1,4 @@
-export enum Step {
+export enum WorkflowStage {
   Description = "description",
   ProductOverview = "product-overview",
   UserStories = "user-stories",
@@ -13,29 +13,29 @@ export enum Step {
   Code = "code",
 }
 
-export const STEPS = Object.values(Step);
-export const STEP_LABELS: Record<Step, string> = {
-  [Step.Description]: "Description",
-  [Step.ProductOverview]: "Product Overview",
-  [Step.UserStories]: "User Stories",
-  [Step.Requirements]: "Requirements",
-  [Step.AcceptanceCriteria]: "Acceptance Criteria",
-  [Step.BoundaryDesign]: "Boundary Design",
-  [Step.InterfaceContracts]: "Interface Contracts",
-  [Step.TestScenarios]: "Test Scenarios",
-  [Step.TestCases]: "Test Cases",
-  [Step.ProjectSetup]: "Project Setup",
-  [Step.AutomatedTests]: "Automated Tests",
-  [Step.Code]: "Code",
+export const WORKFLOW_STAGES = Object.values(WorkflowStage);
+export const WORKFLOW_STAGE_LABELS: Record<WorkflowStage, string> = {
+  [WorkflowStage.Description]: "Description",
+  [WorkflowStage.ProductOverview]: "Product Overview",
+  [WorkflowStage.UserStories]: "User Stories",
+  [WorkflowStage.Requirements]: "Requirements",
+  [WorkflowStage.AcceptanceCriteria]: "Acceptance Criteria",
+  [WorkflowStage.BoundaryDesign]: "Boundary Design",
+  [WorkflowStage.InterfaceContracts]: "Interface Contracts",
+  [WorkflowStage.TestScenarios]: "Test Scenarios",
+  [WorkflowStage.TestCases]: "Test Cases",
+  [WorkflowStage.ProjectSetup]: "Project Setup",
+  [WorkflowStage.AutomatedTests]: "Automated Tests",
+  [WorkflowStage.Code]: "Code",
 };
-export const LAST_STEP = Step.Code;
+export const LAST_WORKFLOW_STAGE = WorkflowStage.Code;
 
-export function isBefore(left: Step, right: Step) {
-  return STEPS.indexOf(left) < STEPS.indexOf(right);
+export function isBefore(left: WorkflowStage, right: WorkflowStage) {
+  return WORKFLOW_STAGES.indexOf(left) < WORKFLOW_STAGES.indexOf(right);
 }
 
-export function isAfter(left: Step, right: Step) {
-  return STEPS.indexOf(left) > STEPS.indexOf(right);
+export function isAfter(left: WorkflowStage, right: WorkflowStage) {
+  return WORKFLOW_STAGES.indexOf(left) > WORKFLOW_STAGES.indexOf(right);
 }
 
 export enum StructuralFragment {
@@ -60,27 +60,27 @@ export const STRUCTURAL_FRAGMENT_LABEL: Record<StructuralFragment, string> = {
   [StructuralFragment.TestCode]: "Automated Test",
 };
 
-export const STEP_BY_STRUCTURAL_FRAGMENT: Record<StructuralFragment, Step> = {
-  [StructuralFragment.PrimaryFeature]: Step.ProductOverview,
-  [StructuralFragment.TargetUser]: Step.ProductOverview,
-  [StructuralFragment.Requirement]: Step.Requirements,
-  [StructuralFragment.UserStory]: Step.UserStories,
-  [StructuralFragment.AcceptanceCriteria]: Step.AcceptanceCriteria,
-  [StructuralFragment.TestScenario]: Step.TestScenarios,
-  [StructuralFragment.TestCase]: Step.TestCases,
-  [StructuralFragment.TestCode]: Step.AutomatedTests,
+export const WORKFLOW_STAGE_BY_STRUCTURAL_FRAGMENT: Record<StructuralFragment, WorkflowStage> = {
+  [StructuralFragment.PrimaryFeature]: WorkflowStage.ProductOverview,
+  [StructuralFragment.TargetUser]: WorkflowStage.ProductOverview,
+  [StructuralFragment.Requirement]: WorkflowStage.Requirements,
+  [StructuralFragment.UserStory]: WorkflowStage.UserStories,
+  [StructuralFragment.AcceptanceCriteria]: WorkflowStage.AcceptanceCriteria,
+  [StructuralFragment.TestScenario]: WorkflowStage.TestScenarios,
+  [StructuralFragment.TestCase]: WorkflowStage.TestCases,
+  [StructuralFragment.TestCode]: WorkflowStage.AutomatedTests,
 };
 
-export const STRUCTURAL_FRAGMENT_BY_STEP: Partial<
-  Record<Step, StructuralFragment | StructuralFragment[]>
+export const STRUCTURAL_FRAGMENT_BY_WORKFLOW_STAGE: Partial<
+  Record<WorkflowStage, StructuralFragment | StructuralFragment[]>
 > = {
-  [Step.ProductOverview]: [StructuralFragment.PrimaryFeature, StructuralFragment.TargetUser],
-  [Step.Requirements]: StructuralFragment.Requirement,
-  [Step.UserStories]: StructuralFragment.UserStory,
-  [Step.AcceptanceCriteria]: StructuralFragment.AcceptanceCriteria,
-  [Step.TestScenarios]: StructuralFragment.TestScenario,
-  [Step.TestCases]: StructuralFragment.TestCase,
-  [Step.AutomatedTests]: StructuralFragment.TestCode,
+  [WorkflowStage.ProductOverview]: [StructuralFragment.PrimaryFeature, StructuralFragment.TargetUser],
+  [WorkflowStage.Requirements]: StructuralFragment.Requirement,
+  [WorkflowStage.UserStories]: StructuralFragment.UserStory,
+  [WorkflowStage.AcceptanceCriteria]: StructuralFragment.AcceptanceCriteria,
+  [WorkflowStage.TestScenarios]: StructuralFragment.TestScenario,
+  [WorkflowStage.TestCases]: StructuralFragment.TestCase,
+  [WorkflowStage.AutomatedTests]: StructuralFragment.TestCode,
 };
 
 export enum EngineerRole {
@@ -95,19 +95,19 @@ export const ENGINEER_ROLE_LABELS: Record<EngineerRole, string> = {
   [EngineerRole.SoftwareDeveloper]: "Software Developer",
 };
 
-export const ENGINEER_ROLE_BY_STEP: Record<Step, EngineerRole[]> = {
-  [Step.Description]: [EngineerRole.RequirementsEngineer],
-  [Step.ProductOverview]: [EngineerRole.RequirementsEngineer],
-  [Step.UserStories]: [EngineerRole.RequirementsEngineer],
-  [Step.Requirements]: [EngineerRole.RequirementsEngineer],
-  [Step.AcceptanceCriteria]: [EngineerRole.RequirementsEngineer, EngineerRole.SoftwareTestEngineer],
-  [Step.BoundaryDesign]: [EngineerRole.SoftwareDeveloper, EngineerRole.SoftwareTestEngineer],
-  [Step.InterfaceContracts]: [EngineerRole.SoftwareDeveloper, EngineerRole.SoftwareTestEngineer],
-  [Step.TestScenarios]: [EngineerRole.SoftwareTestEngineer],
-  [Step.TestCases]: [EngineerRole.SoftwareTestEngineer],
-  [Step.ProjectSetup]: [EngineerRole.SoftwareDeveloper],
-  [Step.AutomatedTests]: [EngineerRole.SoftwareDeveloper],
-  [Step.Code]: [EngineerRole.SoftwareDeveloper],
+export const ENGINEER_ROLE_BY_WORKFLOW_STAGE: Record<WorkflowStage, EngineerRole[]> = {
+  [WorkflowStage.Description]: [EngineerRole.RequirementsEngineer],
+  [WorkflowStage.ProductOverview]: [EngineerRole.RequirementsEngineer],
+  [WorkflowStage.UserStories]: [EngineerRole.RequirementsEngineer],
+  [WorkflowStage.Requirements]: [EngineerRole.RequirementsEngineer],
+  [WorkflowStage.AcceptanceCriteria]: [EngineerRole.RequirementsEngineer, EngineerRole.SoftwareTestEngineer],
+  [WorkflowStage.BoundaryDesign]: [EngineerRole.SoftwareDeveloper, EngineerRole.SoftwareTestEngineer],
+  [WorkflowStage.InterfaceContracts]: [EngineerRole.SoftwareDeveloper, EngineerRole.SoftwareTestEngineer],
+  [WorkflowStage.TestScenarios]: [EngineerRole.SoftwareTestEngineer],
+  [WorkflowStage.TestCases]: [EngineerRole.SoftwareTestEngineer],
+  [WorkflowStage.ProjectSetup]: [EngineerRole.SoftwareDeveloper],
+  [WorkflowStage.AutomatedTests]: [EngineerRole.SoftwareDeveloper],
+  [WorkflowStage.Code]: [EngineerRole.SoftwareDeveloper],
 };
 
 export type GeneratorActionName =
@@ -121,32 +121,32 @@ export type GeneratorActionName =
   | "generateTestCases"
   | "generateProjectSetup";
 
-export const GENERATOR_ACTION_BY_STEP: Record<Step, GeneratorActionName | null> = {
-  [Step.Description]: null,
-  [Step.ProductOverview]: "generateProductOverview",
-  [Step.UserStories]: "generateUserStories",
-  [Step.Requirements]: "generateRequirements",
-  [Step.AcceptanceCriteria]: "generateAcceptanceCriteria",
-  [Step.BoundaryDesign]: "generateBoundaryDesign",
-  [Step.InterfaceContracts]: "generateImplementationProfile",
-  [Step.TestScenarios]: "generateTestScenarios",
-  [Step.TestCases]: "generateTestCases",
-  [Step.ProjectSetup]: "generateProjectSetup",
-  [Step.AutomatedTests]: null,
-  [Step.Code]: null,
+export const GENERATOR_ACTION_BY_WORKFLOW_STAGE: Record<WorkflowStage, GeneratorActionName | null> = {
+  [WorkflowStage.Description]: null,
+  [WorkflowStage.ProductOverview]: "generateProductOverview",
+  [WorkflowStage.UserStories]: "generateUserStories",
+  [WorkflowStage.Requirements]: "generateRequirements",
+  [WorkflowStage.AcceptanceCriteria]: "generateAcceptanceCriteria",
+  [WorkflowStage.BoundaryDesign]: "generateBoundaryDesign",
+  [WorkflowStage.InterfaceContracts]: "generateImplementationProfile",
+  [WorkflowStage.TestScenarios]: "generateTestScenarios",
+  [WorkflowStage.TestCases]: "generateTestCases",
+  [WorkflowStage.ProjectSetup]: "generateProjectSetup",
+  [WorkflowStage.AutomatedTests]: null,
+  [WorkflowStage.Code]: null,
 };
 
-export const GENERATION_PREREQUISITE_BY_STEP: Partial<Record<Step, Step>> = {
-  [Step.ProductOverview]: Step.Description,
-  [Step.UserStories]: Step.ProductOverview,
-  [Step.Requirements]: Step.UserStories,
-  [Step.AcceptanceCriteria]: Step.Requirements,
-  [Step.BoundaryDesign]: Step.AcceptanceCriteria,
-  [Step.InterfaceContracts]: Step.BoundaryDesign,
-  [Step.TestScenarios]: Step.InterfaceContracts,
-  [Step.TestCases]: Step.TestScenarios,
-  [Step.ProjectSetup]: Step.TestCases,
-  [Step.AutomatedTests]: Step.ProjectSetup,
+export const GENERATION_PREREQUISITE_BY_WORKFLOW_STAGE: Partial<Record<WorkflowStage, WorkflowStage>> = {
+  [WorkflowStage.ProductOverview]: WorkflowStage.Description,
+  [WorkflowStage.UserStories]: WorkflowStage.ProductOverview,
+  [WorkflowStage.Requirements]: WorkflowStage.UserStories,
+  [WorkflowStage.AcceptanceCriteria]: WorkflowStage.Requirements,
+  [WorkflowStage.BoundaryDesign]: WorkflowStage.AcceptanceCriteria,
+  [WorkflowStage.InterfaceContracts]: WorkflowStage.BoundaryDesign,
+  [WorkflowStage.TestScenarios]: WorkflowStage.InterfaceContracts,
+  [WorkflowStage.TestCases]: WorkflowStage.TestScenarios,
+  [WorkflowStage.ProjectSetup]: WorkflowStage.TestCases,
+  [WorkflowStage.AutomatedTests]: WorkflowStage.ProjectSetup,
 };
 
 export const FRAGMENT_CODES: Record<StructuralFragment, string> = {

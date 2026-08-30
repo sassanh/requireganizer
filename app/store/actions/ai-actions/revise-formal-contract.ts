@@ -1,6 +1,6 @@
 import { toGenerator } from "mobx-state-tree";
 
-import { Step } from "store";
+import { WorkflowStage } from "store";
 
 import {
   applyContractSuiteProposal,
@@ -16,11 +16,11 @@ export default generator(
 const { runAgentCommand } = yield* toGenerator(import("ai-agent/agent"));
         yield* toGenerator(runAgentCommand(self, "revise formal contract", {
       kind: "revise",
-      stage: Step.InterfaceContracts,
+      stage: WorkflowStage.InterfaceContracts,
       target,
       comment,
     }));
-    self.eventTarget.emit("stepUpdate", Step.InterfaceContracts);
+    self.eventTarget.emit("stepUpdate", WorkflowStage.InterfaceContracts);
   },
   {
     operation: "revise formal contract",
