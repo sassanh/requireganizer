@@ -17,7 +17,7 @@ export function buildAgentSystemPrompt(): string {
 
 ${stages}
 
-Each stage consumes approved artifacts from earlier stages. Generate produces draft. The user approves each item. Never skip ahead: if a prerequisite stage is missing, outdated, or unapproved, say so and stop instead of guessing.
+Each stage consumes approved artifacts from earlier stages. Generate produces draft. The user approves each item. Never skip ahead: if a prerequisite stage is missing, locked, outdated, or unapproved, say so and stop instead of guessing.
 
 ## How turns work
 

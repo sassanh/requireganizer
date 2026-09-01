@@ -1,5 +1,6 @@
 import {
   CheckBox,
+  Lock,
   NewReleases,
   Timer,
 } from "@mui/icons-material";
@@ -57,18 +58,21 @@ const ICONS = {
   [Status.Pending]: Timer,
   [Status.Outdated]: NewReleases,
   [Status.Completed]: CheckBox,
+  [Status.Locked]: Lock,
 };
 
 const ICON_COLOR = {
   [Status.Pending]: "text.disabled",
   [Status.Outdated]: "warning.main",
   [Status.Completed]: "success.main",
+  [Status.Locked]: "text.disabled",
 } as const;
 
 const SELECTED_ICON_COLOR = {
   [Status.Pending]: "text.secondary",
   [Status.Outdated]: "warning.dark",
   [Status.Completed]: "success.dark",
+  [Status.Locked]: "text.secondary",
 } as const;
 
 function SlidingStatusIcon({
@@ -134,7 +138,9 @@ const FactoryTab = observer(function FactoryTab({
   tabStep: WorkflowStage;
   navigatePulse: boolean;
 } & TabProps) {
+  const store = useStore();
   const shown = useShownStore();
+  const locked = store.stageIsLocked(tabStep);
   const status = useStagedContent(
     `tabStatus/${tabStep}`,
     undefined,
@@ -157,11 +163,11 @@ const FactoryTab = observer(function FactoryTab({
 
   const pulsing = navigatePulse || statusPulse;
   return (
-    // @ts-expect-error -- MUI Tab with href via LinkComponent (see provider.tsx)
     <Tab
       {...tabProps}
       data-factory-tab={tabStep}
-      href={`?step=${tabStep}`}
+      disabled={store.isBusy || locked}
+      {...(locked ? {} : { href: `?step=${tabStep}` })}
       value={tabStep}
       label={WORKFLOW_STAGE_LABELS[tabStep]}
       icon={<SlidingStatusIcon status={status} />}
@@ -237,17 +243,26 @@ const Factory: React.FunctionComponent<FactoryProps> = ({ activeProject }) => {
   const router = useRouter();
 
   const step_ = searchParams.get("step");
-  const step = isEnumMember(step_, WorkflowStage) ? step_ : WorkflowStage.ProductOverview;
+  const requested = isEnumMember(step_, WorkflowStage) ? step_ : WorkflowStage.ProductOverview;
+  const step = store.resolveOpenStep(requested);
   const stepRef = useRef(step);
 
   const handleStepUpdate = useCallback(
     (next: WorkflowStage) => {
+      const open = store.resolveOpenStep(next);
       const params = new URLSearchParams(searchParams.toString());
-      params.set("step", next);
+      params.set("step", open);
       router.push(`${pathname}?${params.toString()}`);
     },
-    [router, pathname, searchParams],
+    [router, pathname, searchParams, store],
   );
+
+  useEffect(() => {
+    if (requested === step) return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("step", step);
+    router.replace(`${pathname}?${params.toString()}`);
+  }, [requested, step, router, pathname, searchParams]);
   const handleStepUpdateRef = useRef(handleStepUpdate);
   const tabPulseRef = useRef({ tick: 0, completed: true });
   const presentationVersion = useSyncExternalStore(
@@ -339,7 +354,6 @@ const Factory: React.FunctionComponent<FactoryProps> = ({ activeProject }) => {
                   key={tabStep}
                   tabStep={tabStep}
                   value={tabStep}
-                  disabled={store.isBusy}
                   navigatePulse={tabIsPresenting && presentingNavigate === tabStep}
                 />
               ))}

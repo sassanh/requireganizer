@@ -859,25 +859,42 @@ export const FlatStore = types
       );
     },
   }))
-  .views((self) => ({
-    getCode(id: string) {
-      return self.structuralFragmentsCache[id]?.getCode();
-    },
-    getPath(id: string) {
-      const fragment = self.structuralFragmentsCache[id];
-      if (fragment == null) return undefined;
-      return `?step=${WORKFLOW_STAGE_BY_STRUCTURAL_FRAGMENT[fragment.type]}#${fragment.getCode()}`;
-    },
-    get isProjectSetupOutdated() {
-      return self.projectSetup != null && !self.projectSetupIsCurrent;
-    },
-    mechanicalIssuesForStage(step: WorkflowStage): MechanicalIssue[] {
-      return self.mechanicalIssues.filter((issue) => issue.stage === step);
-    },
-    mechanicalIssuesForItem(id: string): MechanicalIssue[] {
-      return self.mechanicalIssues.filter((issue) => issue.itemId === id);
-    },
-    getStepStatus(step: WorkflowStage): Status {
+  .views((self) => {
+    function hasStepArtifacts(step: WorkflowStage): boolean {
+      switch (step) {
+        case WorkflowStage.ProductOverview:
+          return !self.productOverview.isEmpty;
+        case WorkflowStage.UserStories:
+          return self.userStories.length > 0;
+        case WorkflowStage.Requirements:
+          return self.requirements.length > 0;
+        case WorkflowStage.AcceptanceCriteria:
+          return self.acceptanceCriteria.length > 0;
+        case WorkflowStage.BoundaryDesign:
+          return self.boundaryDesign != null;
+        case WorkflowStage.InterfaceContracts:
+          return self.implementationProfile != null || self.contractSuite != null;
+        case WorkflowStage.TestScenarios:
+          return self.testScenarios.length > 0;
+        case WorkflowStage.TestCases:
+          return self.testScenarios.some(
+            ({ testCases }) => testCases.length > 0,
+          );
+        case WorkflowStage.ProjectSetup:
+          return self.projectSetup != null;
+        case WorkflowStage.AutomatedTests:
+          return self.testScenarios.some((scenario) =>
+            scenario.testCases.some(
+              ({ generatedInputFingerprint }) =>
+                generatedInputFingerprint != null,
+            ),
+          );
+        case WorkflowStage.Code:
+          return false;
+      }
+    }
+    function getStepStatus(step: WorkflowStage): Status {
+      if (stageIsLocked(step)) return Status.Locked;
       const generated = self.stageInputFingerprints.get(step);
       const inputIsOutdated =
         generated != null && generated !== workflowFingerprint(self, step);
@@ -1012,8 +1029,51 @@ export const FlatStore = types
         return Status.Outdated;
       }
       return status;
-    },
-  }))
+    }
+    function firstPendingPredecessor(step: WorkflowStage): WorkflowStage | null {
+      for (const previous of WORKFLOW_STAGES) {
+        if (previous === step) return null;
+        if (getStepStatus(previous) === Status.Pending) return previous;
+      }
+      return null;
+    }
+    function stageIsLocked(step: WorkflowStage): boolean {
+      if (hasStepArtifacts(step)) return false;
+      return firstPendingPredecessor(step) != null;
+    }
+    function resolveOpenStep(step: WorkflowStage): WorkflowStage {
+      if (!stageIsLocked(step)) return step;
+      const index = WORKFLOW_STAGES.indexOf(step);
+      for (let i = index - 1; i >= 0; i--) {
+        if (!stageIsLocked(WORKFLOW_STAGES[i])) return WORKFLOW_STAGES[i];
+      }
+      return WorkflowStage.ProductOverview;
+    }
+    return {
+      getCode(id: string) {
+        return self.structuralFragmentsCache[id]?.getCode();
+      },
+      getPath(id: string) {
+        const fragment = self.structuralFragmentsCache[id];
+        if (fragment == null) return undefined;
+        return `?step=${WORKFLOW_STAGE_BY_STRUCTURAL_FRAGMENT[fragment.type]}#${fragment.getCode()}`;
+      },
+      get isProjectSetupOutdated() {
+        return self.projectSetup != null && !self.projectSetupIsCurrent;
+      },
+      mechanicalIssuesForStage(step: WorkflowStage): MechanicalIssue[] {
+        return self.mechanicalIssues.filter((issue) => issue.stage === step);
+      },
+      mechanicalIssuesForItem(id: string): MechanicalIssue[] {
+        return self.mechanicalIssues.filter((issue) => issue.itemId === id);
+      },
+      hasStepArtifacts,
+      firstPendingPredecessor,
+      stageIsLocked,
+      resolveOpenStep,
+      getStepStatus,
+    };
+  })
   .views((self) => {
     const contractBundle = (id: string) => {
       const suite = self.contractSuite;
@@ -1088,8 +1148,9 @@ export const FlatStore = types
       const label = WORKFLOW_STAGE_LABELS[prerequisite];
       const target = WORKFLOW_STAGE_LABELS[step];
       const status = self.getStepStatus(prerequisite);
-      if (status === Status.Pending) {
-        return `Complete ${label} to generate ${target}.`;
+      if (status === Status.Pending || status === Status.Locked) {
+        const blocker = self.firstPendingPredecessor(step) ?? prerequisite;
+        return `Complete ${WORKFLOW_STAGE_LABELS[blocker]} to generate ${target}.`;
       }
       if (!stageIsApproved(prerequisite)) {
         return `Approve ${label} to generate ${target}.`;
@@ -1125,63 +1186,26 @@ export const FlatStore = types
       },
     };
   })
-  .views((self) => {
-    const hasStepArtifacts = (step: WorkflowStage): boolean => {
-      switch (step) {
-        case WorkflowStage.ProductOverview:
-          return !self.productOverview.isEmpty;
-        case WorkflowStage.UserStories:
-          return self.userStories.length > 0;
-        case WorkflowStage.Requirements:
-          return self.requirements.length > 0;
-        case WorkflowStage.AcceptanceCriteria:
-          return self.acceptanceCriteria.length > 0;
-        case WorkflowStage.BoundaryDesign:
-          return self.boundaryDesign != null;
-        case WorkflowStage.InterfaceContracts:
-          return self.implementationProfile != null || self.contractSuite != null;
-        case WorkflowStage.TestScenarios:
-          return self.testScenarios.length > 0;
-        case WorkflowStage.TestCases:
-          return self.testScenarios.some(
-            ({ testCases }) => testCases.length > 0,
-          );
-        case WorkflowStage.ProjectSetup:
-          return self.projectSetup != null;
-        case WorkflowStage.AutomatedTests:
-          return self.testScenarios.some((scenario) =>
-            scenario.testCases.some(
-              ({ generatedInputFingerprint }) =>
-                generatedInputFingerprint != null,
-            ),
-          );
-        case WorkflowStage.Code:
-          return false;
-      }
-    };
-
-    return {
-      json(step: WorkflowStage) {
-        return JSON.stringify(self.data(step));
-      },
-      hasStepArtifacts,
-      affectedDownstreamSteps(
-        sourceStep: WorkflowStage,
-        includeSourceStep = false,
-      ): WorkflowStage[] {
-        return WORKFLOW_STAGES.slice(
-          WORKFLOW_STAGES.indexOf(sourceStep) + (includeSourceStep ? 0 : 1),
-        ).filter(
-          (step) =>
-            step !== WorkflowStage.Code &&
-            (
-              self.getStepStatus(step) !== Status.Pending ||
-              hasStepArtifacts(step)
-            ),
-        );
-      },
-    };
-  })
+  .views((self) => ({
+    json(step: WorkflowStage) {
+      return JSON.stringify(self.data(step));
+    },
+    affectedDownstreamSteps(
+      sourceStep: WorkflowStage,
+      includeSourceStep = false,
+    ): WorkflowStage[] {
+      return WORKFLOW_STAGES.slice(
+        WORKFLOW_STAGES.indexOf(sourceStep) + (includeSourceStep ? 0 : 1),
+      ).filter(
+        (step) =>
+          step !== WorkflowStage.Code &&
+          (
+            self.getStepStatus(step) !== Status.Pending ||
+            self.hasStepArtifacts(step)
+          ),
+      );
+    },
+  }))
   .actions((self) => ({
     approve(id: string) {
       if (!self.canApprove(id)) {

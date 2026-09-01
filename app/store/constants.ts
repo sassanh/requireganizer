@@ -165,6 +165,7 @@ export enum Status {
   Pending = "pending",
   Completed = "completed",
   Outdated = "outdated",
+  Locked = "locked",
 }
 
 export const OVERVIEW_NAME_QUALITY_ID = "productOverview/name";

@@ -626,9 +626,14 @@ export function generator<
       requiredSteps.forEach((step) => {
         const status = store.getStepStatus(step);
         if (status !== Status.Completed) {
-          const action = status === Status.Outdated ? "Regenerate" : "Complete";
+          if (status === Status.Outdated) {
+            throw new UserFacingError(
+              `Regenerate ${WORKFLOW_STAGE_LABELS[step]} before trying to ${operation}.`,
+            );
+          }
+          const blocker = store.firstPendingPredecessor(step) ?? step;
           throw new UserFacingError(
-            `${action} ${WORKFLOW_STAGE_LABELS[step]} before trying to ${operation}.`,
+            `Complete ${WORKFLOW_STAGE_LABELS[blocker]} before trying to ${operation}.`,
           );
         }
         if (!store.stageIsApproved(step)) {

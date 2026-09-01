@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { buildResultTools } from "../app/ai-agent/result-tools";
 import { buildAgentSystemPrompt } from "../app/ai-agent/system-prompt";
 import {
   CANONICAL_WORKFLOW,
@@ -11,6 +12,8 @@ import {
 } from "../app/ai-harness/workflow";
 import {
   GENERATION_PREREQUISITE_BY_WORKFLOW_STAGE,
+  Priority,
+  Status,
   StructuralFragment,
   WorkflowStage,
 } from "../app/store/constants";
@@ -48,6 +51,70 @@ describe("canonical engineering workflow", () => {
     const store = StoreModel.create({ productOverview: {} });
     assert.equal(store.canGenerateStep(WorkflowStage.ProductOverview), true);
     assert.equal(store.canGenerateStep(WorkflowStage.UserStories), false);
+  });
+
+  it("locks empty later stages while an earlier stage is pending", async () => {
+    const { Store: StoreModel } = await import("../app/store/store");
+    const store = StoreModel.create({ productOverview: {} });
+    assert.equal(store.getStepStatus(WorkflowStage.ProductOverview), Status.Pending);
+    assert.equal(store.getStepStatus(WorkflowStage.UserStories), Status.Locked);
+    assert.equal(store.getStepStatus(WorkflowStage.Requirements), Status.Locked);
+    assert.equal(store.getStepStatus(WorkflowStage.AcceptanceCriteria), Status.Locked);
+    assert.equal(
+      store.resolveOpenStep(WorkflowStage.AcceptanceCriteria),
+      WorkflowStage.ProductOverview,
+    );
+    assert.equal(store.canGenerateStep(WorkflowStage.Requirements), false);
+    assert.match(
+      store.cannotGenerateReason(WorkflowStage.Requirements) ?? "",
+      /Product Overview/,
+    );
+    assert.throws(
+      () =>
+        buildResultTools(store, {
+          kind: "generate",
+          stage: WorkflowStage.Requirements,
+        }),
+      /Product Overview/,
+    );
+  });
+
+  it("does not lock the next empty stage when the previous is only unsigned", async () => {
+    const { Store: StoreModel } = await import("../app/store/store");
+    const store = StoreModel.create({
+      productOverview: {
+        name: "Plant Pal",
+        purpose: "Help people keep houseplants alive.",
+        primaryFeatures: [{ id: "feat-1", content: "Track watering" }],
+        targetUsers: [{ id: "user-1", content: "Busy plant owners" }],
+      },
+    });
+    assert.equal(store.getStepStatus(WorkflowStage.ProductOverview), Status.Outdated);
+    assert.equal(store.getStepStatus(WorkflowStage.UserStories), Status.Pending);
+    assert.equal(store.stageIsLocked(WorkflowStage.UserStories), false);
+    assert.equal(
+      store.resolveOpenStep(WorkflowStage.UserStories),
+      WorkflowStage.UserStories,
+    );
+  });
+
+  it("does not lock a later stage that already has artifacts", async () => {
+    const { Store: StoreModel } = await import("../app/store/store");
+    const store = StoreModel.create({ productOverview: {} });
+    store.setUserStories({
+      userStories: [
+        {
+          id: "story-1",
+          content:
+            "As a busy plant owner, I want watering reminders, so that plants stay alive.",
+          references: [],
+          priority: Priority.P1,
+        },
+      ],
+    });
+    assert.equal(store.hasStepArtifacts(WorkflowStage.UserStories), true);
+    assert.equal(store.stageIsLocked(WorkflowStage.UserStories), false);
+    assert.equal(store.getStepStatus(WorkflowStage.UserStories), Status.Pending);
   });
 
   it("system prompt labels project data untrusted and requires tool-based reads", () => {
