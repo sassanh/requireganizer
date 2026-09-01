@@ -4,9 +4,16 @@ import { describe, it } from "node:test";
 import {
   COMMUNICATE_TOOL,
   buildArtifactListTool,
+  buildFragmentRevisionTool,
+  buildProductOverviewTool,
 } from "../app/ai-harness/tools";
-import { getArtifactStageDefinition } from "../app/ai-harness/workflow";
-import { StructuralFragment } from "../app/store/constants";
+import {
+  formatQualityContract,
+  getArtifactStageDefinition,
+  qualityContractForFragment,
+  qualityContractForStage,
+} from "../app/ai-harness/workflow";
+import { StructuralFragment, WorkflowStage } from "../app/store/constants";
 
 function record(value: unknown): Record<string, unknown> {
   assert.ok(value != null && typeof value === "object" && !Array.isArray(value));
@@ -125,5 +132,32 @@ describe("AI function-tool schemas", () => {
       serialized.indexOf("story-dynamic") <
         serialized.indexOf("criterion-dynamic"),
     );
+  });
+
+  it("puts the stage quality contract on submit tools", () => {
+    const overview = buildProductOverviewTool();
+    const overviewContract = qualityContractForStage(WorkflowStage.ProductOverview);
+    assert.ok(overviewContract != null);
+    assert.ok(overview.description?.includes(formatQualityContract(overviewContract)));
+
+    const definition = getArtifactStageDefinition(StructuralFragment.UserStory);
+    const stories = buildArtifactListTool({
+      definition,
+      state: {
+        productOverview: {
+          primaryFeatures: [{ id: "feature-1", type: StructuralFragment.PrimaryFeature }],
+          targetUsers: [{ id: "user-1", type: StructuralFragment.TargetUser }],
+        },
+        userStories: [],
+      },
+    });
+    const storyContract = qualityContractForStage(WorkflowStage.UserStories);
+    assert.ok(storyContract != null);
+    assert.ok(stories.description?.includes(formatQualityContract(storyContract)));
+
+    const revision = buildFragmentRevisionTool(StructuralFragment.UserStory);
+    const fragmentContract = qualityContractForFragment(StructuralFragment.UserStory);
+    assert.ok(fragmentContract != null);
+    assert.ok(revision.description?.includes(formatQualityContract(fragmentContract)));
   });
 });

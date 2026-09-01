@@ -61,6 +61,28 @@ describe("artifact-list proposal parsing", () => {
     assert.equal(proposal.items[0].priority, "p0");
   });
 
+  it("does not reject writing quality in code", () => {
+    const domainLanguage = parseStories([
+      {
+        ...validStory,
+        content:
+          "As a teacher, I want materials that support intuitive education, so that students can learn at their own pace.",
+      },
+    ]);
+    assert.match(domainLanguage.items[0].content, /intuitive education/);
+
+    const freeForm = parseStories([
+      {
+        ...validStory,
+        content: "Teachers need materials that support intuitive education.",
+      },
+    ]);
+    assert.equal(
+      freeForm.items[0].content,
+      "Teachers need materials that support intuitive education.",
+    );
+  });
+
   it("rejects non-object results, missing items, and empty item lists", () => {
     assert.match(parseError(() => parseArtifactListProposal(null, { expectedEntityType: StructuralFragment.UserStory, state: userStoryState })), /must be an object/);
     assert.match(parseError(() => parseStories("nope")), /must be an array/);

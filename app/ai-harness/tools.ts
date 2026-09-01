@@ -4,7 +4,12 @@ import {
   collectArtifactIdentities,
   getExistingTargetIds,
 } from "ai-harness/validation";
-import type { ArtifactStageDefinition } from "ai-harness/workflow";
+import {
+  qualityContractForFragment,
+  qualityContractForStage,
+  withQualityContract,
+  type ArtifactStageDefinition,
+} from "ai-harness/workflow";
 import type {
   BoundaryDesign,
   ContractSuite,
@@ -15,6 +20,7 @@ import { projectProviderSchema } from "contract-domain";
 import {
   Priority,
   StructuralFragment,
+  WorkflowStage,
 } from "store/constants";
 
 export type HarnessToolDefinition = FunctionDefinition;
@@ -113,12 +119,14 @@ export function buildProductOverviewTool(
   });
   return {
     name: "submit_product_overview",
-    description:
+    description: withQualityContract(
       "Submit the complete product-overview proposal. Each list entry is either an existing id (keep as-is, reposition) or an object {id?, content} (add or move+patch).",
+      qualityContractForStage(WorkflowStage.ProductOverview),
+    ),
     parameters: objectSchema(
       {
         name: nonEmptyString("The product name."),
-        purpose: nonEmptyString("A concise, outcome-oriented purpose."),
+        purpose: nonEmptyString("The product purpose."),
         primaryFeatures: {
           type: "array",
           minItems: 1,
@@ -220,7 +228,10 @@ export function buildArtifactListTool({
 
   return {
     name: `submit_${definition.entityType}_list`,
-    description: `Submit the complete desired ${definition.entityType} list for the requested target only. Each entry is either an existing id (keep as-is, reposition) or a full object (add or move+patch).`,
+    description: withQualityContract(
+      `Submit the complete desired ${definition.entityType} list for the requested target only. Each entry is either an existing id (keep as-is, reposition) or a full object (add or move+patch).`,
+      qualityContractForStage(definition.step),
+    ),
     parameters: objectSchema(
       {
         items: {
@@ -266,7 +277,10 @@ export function buildFragmentRevisionTool(
 
   return {
     name: "submit_fragment_revision",
-    description: "Submit a patch for exactly the requested artifact.",
+    description: withQualityContract(
+      "Submit a patch for exactly the requested artifact.",
+      qualityContractForFragment(entityType),
+    ),
     parameters: objectSchema(
       {
         patch: {

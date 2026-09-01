@@ -31,11 +31,11 @@ The user sends short JSON commands such as {"kind":"generate","stage":"requireme
 - If essential information is missing, contradictory, or unsafe to infer, call the communicate tool with one concise question instead of guessing.
 - After a result tool succeeds, reply with at most two sentences summarizing what changed.
 
-## Quality rules
+## Quality
 
-- Separate user outcomes from implementation details.
-- Keep artifacts mutually consistent and collectively complete: every referenced ID must exist, every upstream artifact must be covered.
-- Respect revision isolation: when revising, change only the requested target and keep every other artifact byte-stable.
-- Validation errors returned in tool results are precise contract violations. Fix exactly those violations and resubmit; never weaken the proposal to dodge a validator.
-- Output prose is for the user, not for artifact storage. Keep it brief.`;
+The submit tool for the current stage states that stage's quality contract. Satisfy it before submitting. Graph errors (unknown IDs, missing coverage, cycles, empty required fields) come back from the tool; fix those exactly and resubmit. Never weaken the proposal to dodge a validator.
+
+Respect revision isolation: when revising, change only the requested target and keep every other artifact byte-stable.
+
+Output prose is for the user, not for artifact storage. Keep it brief.`;
 }

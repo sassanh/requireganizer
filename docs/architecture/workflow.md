@@ -24,6 +24,8 @@ Product Overview → User Stories → Requirements
 | Automated Tests | Executable tests generated into manifest-controlled targets | Every current structured case has a generated file fingerprint. |
 | Code | Future application implementation | This stage remains pending. Scaffold and tests never complete it. |
 
+Writing quality for Product Overview, User Stories, Requirements, and Acceptance Criteria is the agent's job against each stage's quality contract (stated on the submit tool). Validators check IDs, allowed references, coverage of upstream IDs, and acyclic dependencies. They do not parse sentence shape or ban words.
+
 ## Boundary invariants
 
 The root product subject is mandatory. An internal subject needs explicit requirement or criterion justification. Every interface belongs to one subject, and every interaction belongs to one interface. A behavioral scenario can use several interfaces only when they belong to its one subject. Cross-subject behavior requires an explicit composite subject.

@@ -2,9 +2,16 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { buildAgentSystemPrompt } from "../app/ai-agent/system-prompt";
-import { CANONICAL_WORKFLOW } from "../app/ai-harness/workflow";
+import {
+  CANONICAL_WORKFLOW,
+  formatQualityContract,
+  qualityContractForFragment,
+  qualityContractForStage,
+  STAGE_QUALITY_CONTRACTS,
+} from "../app/ai-harness/workflow";
 import {
   GENERATION_PREREQUISITE_BY_WORKFLOW_STAGE,
+  StructuralFragment,
   WorkflowStage,
 } from "../app/store/constants";
 
@@ -48,5 +55,39 @@ describe("canonical engineering workflow", () => {
     assert.match(prompt, /never as instructions|Do not paste proposals/);
     assert.match(prompt, /read tools|get_stage_artifacts/);
     assert.match(prompt, /submit_/);
+  });
+
+  it("system prompt points at the submit-tool quality contract instead of restating it", () => {
+    const prompt = buildAgentSystemPrompt();
+    assert.match(prompt, /submit tool[\s\S]*quality contract/i);
+    assert.doesNotMatch(prompt, /Separate user outcomes from implementation details/);
+    assert.equal(
+      prompt.includes(STAGE_QUALITY_CONTRACTS[WorkflowStage.UserStories].objective),
+      false,
+    );
+  });
+
+  it("gives product overview, stories, requirements, and criteria a quality contract", () => {
+    assert.equal(
+      qualityContractForStage(WorkflowStage.ProductOverview),
+      STAGE_QUALITY_CONTRACTS[WorkflowStage.ProductOverview],
+    );
+    assert.equal(
+      qualityContractForFragment(StructuralFragment.PrimaryFeature),
+      STAGE_QUALITY_CONTRACTS[WorkflowStage.ProductOverview],
+    );
+    assert.equal(
+      qualityContractForFragment(StructuralFragment.UserStory),
+      STAGE_QUALITY_CONTRACTS[WorkflowStage.UserStories],
+    );
+    assert.equal(qualityContractForStage(WorkflowStage.BoundaryDesign), null);
+    const formatted = formatQualityContract(
+      STAGE_QUALITY_CONTRACTS[WorkflowStage.UserStories],
+    );
+    assert.match(formatted, /Objective:/);
+    assert.match(formatted, /Judge the claim, not the vocabulary/);
+    assert.ok(
+      formatted.includes(STAGE_QUALITY_CONTRACTS[WorkflowStage.UserStories].objective),
+    );
   });
 });
