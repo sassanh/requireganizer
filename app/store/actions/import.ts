@@ -85,12 +85,10 @@ function validateLocalDependencies(
 const importProject = (self_: unknown, value: unknown): void => {
   const self = self_ as Store;
   assertCurrentProjectSchema(value);
-  if (typeof value.description !== "string") throw new InvalidJsonError("Project description must be text.");
   if (!isRecord(value.productOverview)) throw new InvalidJsonError("Product overview must be an object.");  const candidateSnapshot = {
     schemaVersion: PROJECT_SCHEMA_VERSION,
     isClean: false,
     businessCounter: 0,
-    description: value.description,
     validationErrors: null,
     productOverview: value.productOverview,
     userStories: array(value.userStories, "User stories"),

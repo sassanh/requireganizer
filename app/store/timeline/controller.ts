@@ -77,7 +77,6 @@ export function getDeclaredStepNames(): string[] {
 
 for (const actionName of [
   "setContent",
-  "setDescription",
   "setName",
   "setPurpose",
 ]) {
@@ -102,7 +101,6 @@ const SAVE_DEBOUNCE_MS = 600;
 // Text-edit actions coalesce into one turn until a semantic boundary.
 const TEXT_EDIT_ACTIONS = new Set([
   "setContent",
-  "setDescription",
   "setName",
   "setPurpose",
 ]);
@@ -194,7 +192,6 @@ export function getChangeFocus(): ChangeFocus {
 
 /** State-tree keys that can be subjects; conversation follows itself. */
 export const SUBJECT_KEYS = [
-  "description",
   "productOverview",
   "userStories",
   "requirements",
@@ -458,7 +455,6 @@ const LABEL_OVERRIDES: Record<string, string> = {
   initial: "Starting point",
   reloaded: "Restored from save",
   imported: "Imported project",
-  setDescription: "Edited description",
   setName: "Edited name",
   setPurpose: "Edited purpose",
   setContent: "Edited content",

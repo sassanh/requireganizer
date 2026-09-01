@@ -10,7 +10,6 @@ export type Hash = string;
 export type ProjectSnapshot = {
   schemaVersion: number;
   businessCounter: number;
-  description: string;
   productOverview: unknown;
   userStories: unknown[];
   requirements: unknown[];
@@ -37,7 +36,6 @@ export type ProjectSnapshot = {
 export type StateTree = {
   schemaVersion: number;
   businessCounter: number;
-  description: Hash;
   productOverview: Hash | null;
   userStories: Hash[];
   requirements: Hash[];
@@ -126,7 +124,6 @@ export function captureState(snapshot: ProjectSnapshot): StateTree {
   return {
     schemaVersion: snapshot.schemaVersion,
     businessCounter: snapshot.businessCounter,
-    description: putArtifact(snapshot.description),
     productOverview: putArtifact(snapshot.productOverview),
     userStories: hashArray(snapshot.userStories),
     requirements: hashArray(snapshot.requirements),
@@ -165,7 +162,6 @@ export function resolveStateValues(state: StateTree): ResolvedState {
   return {
     schemaVersion: state.schemaVersion,
     businessCounter: state.businessCounter,
-    description: resolveArtifact(state.description) as string,
     productOverview: resolveArtifact(state.productOverview),
     userStories: state.userStories.map(resolveArtifact),
     requirements: state.requirements.map(resolveArtifact),
@@ -252,6 +248,7 @@ export function importTimelineData(
     const state = (node as { state?: unknown })?.state;
     if (state != null && typeof state === "object") {
       delete (state as Record<string, unknown>).isClean;
+      delete (state as Record<string, unknown>).description;
     }
   }
   return { rootId: data.rootId, activeLeafId: data.activeLeafId, nodes: data.nodes };

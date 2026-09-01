@@ -6,7 +6,6 @@ export default makeStructuralFragmentFlow({
   step: WorkflowStage.AcceptanceCriteria,
   structuralFragment: StructuralFragment.AcceptanceCriteria,
   requirements: [
-    "description",
     "productOverview",
     "requirements",
     "userStories",

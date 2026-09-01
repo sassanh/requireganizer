@@ -23,7 +23,7 @@ import React, {
   useSyncExternalStore,
 } from "react";
 
-import { AnimatedTabPanel, artifactElementId, SectionHeader, StructuralFragments, TestCaseScenarioAccordions, TestScenarioList } from "components";
+import { AnimatedTabPanel, SectionHeader, StructuralFragments, TestCaseScenarioAccordions, TestScenarioList } from "components";
 import {
   HIGHLIGHT_HOLD_MILLISECONDS,
   HIGHLIGHT_MILLISECONDS,
@@ -31,7 +31,6 @@ import {
 } from "components/changeQueue";
 import { ITEM_MOTION_SECONDS } from "components/itemMotion";
 import { scrollIntoViewWithMargin } from "components/scrollFollower";
-import { StagedTextField } from "components/TextChange";
 import {
   claim,
   complete,
@@ -45,7 +44,6 @@ import {
   useShownStore,
 } from "presentation";
 import { WORKFLOW_STAGE_LABELS, Status, WorkflowStage, StructuralFragment, useStore } from "store";
-import { commitTimelineSegment } from "store/timeline/controller";
 import { isEnumMember } from "utilities";
 
 import AutomatedTests from "./AutomatedTests";
@@ -54,7 +52,6 @@ import CodePlaceholder from "./CodePlaceholder";
 import InterfaceContracts from "./InterfaceContracts";
 import ProductOverview from "./ProductOverview";
 import ProjectSetup from "./ProjectSetup";
-import type { Store } from "../store/store";
 
 const ICONS = {
   [Status.Pending]: Timer,
@@ -216,29 +213,6 @@ interface FactoryProps {
   activeProject?: { id: string } | null;
 }
 
-const DescriptionField = observer(function DescriptionField({
-  store,
-}: {
-  store: Store;
-}) {
-  const shown = useShownStore();
-  return (
-    <Box id={artifactElementId("description")}>
-      <StagedTextField
-        committed={shown.description || ""}
-        elementId={artifactElementId("description")}
-        fullWidth
-        placeholder="Provide a description of the software you'd like to develop..."
-        multiline
-        onChange={(event) =>
-          store.setDescription({ description: event.target.value })
-        }
-        onBlur={commitTimelineSegment}
-      />
-    </Box>
-  );
-});
-
 const Factory: React.FunctionComponent<FactoryProps> = ({ activeProject }) => {
   const store = useStore();
   const shown = useShownStore();
@@ -248,7 +222,7 @@ const Factory: React.FunctionComponent<FactoryProps> = ({ activeProject }) => {
   const router = useRouter();
 
   const step_ = searchParams.get("step");
-  const step = isEnumMember(step_, WorkflowStage) ? step_ : WorkflowStage.Description;
+  const step = isEnumMember(step_, WorkflowStage) ? step_ : WorkflowStage.ProductOverview;
   const stepRef = useRef(step);
 
   const handleStepUpdate = useCallback(
@@ -359,15 +333,6 @@ const Factory: React.FunctionComponent<FactoryProps> = ({ activeProject }) => {
               overflow: "hidden",
             }}
           >
-
-          <AnimatedTabPanel
-            step={WorkflowStage.Description}
-            activeStep={step}
-            onStepChange={handleStepUpdate}
-          >
-            <SectionHeader step={WorkflowStage.Description} />
-            <DescriptionField store={store} />
-          </AnimatedTabPanel>
 
           <AnimatedTabPanel
             step={WorkflowStage.ProductOverview}

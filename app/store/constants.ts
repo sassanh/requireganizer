@@ -1,5 +1,4 @@
 export enum WorkflowStage {
-  Description = "description",
   ProductOverview = "product-overview",
   UserStories = "user-stories",
   Requirements = "requirements",
@@ -15,7 +14,6 @@ export enum WorkflowStage {
 
 export const WORKFLOW_STAGES = Object.values(WorkflowStage);
 export const WORKFLOW_STAGE_LABELS: Record<WorkflowStage, string> = {
-  [WorkflowStage.Description]: "Description",
   [WorkflowStage.ProductOverview]: "Product Overview",
   [WorkflowStage.UserStories]: "User Stories",
   [WorkflowStage.Requirements]: "Requirements",
@@ -96,7 +94,6 @@ export const ENGINEER_ROLE_LABELS: Record<EngineerRole, string> = {
 };
 
 export const ENGINEER_ROLE_BY_WORKFLOW_STAGE: Record<WorkflowStage, EngineerRole[]> = {
-  [WorkflowStage.Description]: [EngineerRole.RequirementsEngineer],
   [WorkflowStage.ProductOverview]: [EngineerRole.RequirementsEngineer],
   [WorkflowStage.UserStories]: [EngineerRole.RequirementsEngineer],
   [WorkflowStage.Requirements]: [EngineerRole.RequirementsEngineer],
@@ -122,7 +119,6 @@ export type GeneratorActionName =
   | "generateProjectSetup";
 
 export const GENERATOR_ACTION_BY_WORKFLOW_STAGE: Record<WorkflowStage, GeneratorActionName | null> = {
-  [WorkflowStage.Description]: null,
   [WorkflowStage.ProductOverview]: "generateProductOverview",
   [WorkflowStage.UserStories]: "generateUserStories",
   [WorkflowStage.Requirements]: "generateRequirements",
@@ -137,7 +133,6 @@ export const GENERATOR_ACTION_BY_WORKFLOW_STAGE: Record<WorkflowStage, Generator
 };
 
 export const GENERATION_PREREQUISITE_BY_WORKFLOW_STAGE: Partial<Record<WorkflowStage, WorkflowStage>> = {
-  [WorkflowStage.ProductOverview]: WorkflowStage.Description,
   [WorkflowStage.UserStories]: WorkflowStage.ProductOverview,
   [WorkflowStage.Requirements]: WorkflowStage.UserStories,
   [WorkflowStage.AcceptanceCriteria]: WorkflowStage.Requirements,

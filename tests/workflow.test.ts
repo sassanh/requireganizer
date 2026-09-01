@@ -2,18 +2,15 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { buildAgentSystemPrompt } from "../app/ai-agent/system-prompt";
-import { CANONICAL_WORKFLOW, getArtifactStageDefinition } from "../app/ai-harness/workflow";
+import { CANONICAL_WORKFLOW } from "../app/ai-harness/workflow";
 import {
-  EngineerRole,
   GENERATION_PREREQUISITE_BY_WORKFLOW_STAGE,
   WorkflowStage,
-  StructuralFragment,
 } from "../app/store/constants";
 
 describe("canonical engineering workflow", () => {
   it("places user outcomes before system requirements", () => {
     assert.deepEqual(CANONICAL_WORKFLOW, [
-      WorkflowStage.Description,
       WorkflowStage.ProductOverview,
       WorkflowStage.UserStories,
       WorkflowStage.Requirements,
@@ -27,7 +24,6 @@ describe("canonical engineering workflow", () => {
       WorkflowStage.Code,
     ]);
     assert.deepEqual(GENERATION_PREREQUISITE_BY_WORKFLOW_STAGE, {
-      [WorkflowStage.ProductOverview]: WorkflowStage.Description,
       [WorkflowStage.UserStories]: WorkflowStage.ProductOverview,
       [WorkflowStage.Requirements]: WorkflowStage.UserStories,
       [WorkflowStage.AcceptanceCriteria]: WorkflowStage.Requirements,
@@ -38,6 +34,13 @@ describe("canonical engineering workflow", () => {
       [WorkflowStage.ProjectSetup]: WorkflowStage.TestCases,
       [WorkflowStage.AutomatedTests]: WorkflowStage.ProjectSetup,
     });
+  });
+
+  it("allows product-overview generation with no upstream stage", async () => {
+    const { Store: StoreModel } = await import("../app/store/store");
+    const store = StoreModel.create({ productOverview: {} });
+    assert.equal(store.canGenerateStep(WorkflowStage.ProductOverview), true);
+    assert.equal(store.canGenerateStep(WorkflowStage.UserStories), false);
   });
 
   it("system prompt labels project data untrusted and requires tool-based reads", () => {

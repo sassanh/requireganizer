@@ -5,17 +5,17 @@ import { WorkflowStage } from "store";
 import { generator } from "./utilities";
 
 export default generator(
-  function* (self) {
+  function* (self, seed?: string) {
     const { runAgentCommand } = yield* toGenerator(import("ai-agent/agent"));
+    const trimmedSeed = seed?.trim();
     yield* toGenerator(runAgentCommand(self, "generate the product overview", {
       kind: "generate",
       stage: WorkflowStage.ProductOverview,
+      ...(trimmedSeed != null && trimmedSeed.length > 0 ? { seed: trimmedSeed } : {}),
     }));
     self.eventTarget.emit("stepUpdate", WorkflowStage.ProductOverview);
   },
   {
     operation: "generate the product overview",
-    requirements: ["description"],
-    requiredSteps: [WorkflowStage.Description],
   },
 );

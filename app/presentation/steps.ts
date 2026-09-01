@@ -4,8 +4,6 @@ import { WorkflowStage } from "store/constants";
 export function stepForSubject(subject: string): WorkflowStage | null {
   const root = subject.split("/")[0];
   switch (root) {
-    case "description":
-      return WorkflowStage.Description;
     case "productOverview":
       return WorkflowStage.ProductOverview;
     case "userStories":

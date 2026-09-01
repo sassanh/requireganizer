@@ -13,7 +13,7 @@ export type RevisionTarget = {
 };
 
 export type AiCommand =
-  | { kind: "generate"; stage: CommandStage; scenarioId?: string }
+  | { kind: "generate"; stage: CommandStage; scenarioId?: string; seed?: string }
   | { kind: "revise"; stage: CommandStage; comment?: string; target?: RevisionTarget; scenarioId?: string }
   | { kind: "comment"; fragment: StructuralFragment; id: string; comment: string }
   | { kind: "test-code"; scenarioId: string; testCaseId: string; comment?: string };
@@ -39,6 +39,9 @@ export function describeCommand(command: AiCommand): string {
   switch (command.kind) {
     case "generate": {
       const scope = command.scenarioId != null ? ` for scenario ${command.scenarioId}` : "";
+      if (command.seed != null && command.seed.trim().length > 0) {
+        return `Generate ${stageLabel(command.stage)} from starting intent`;
+      }
       return `Generate ${stageLabel(command.stage)}${scope}`;
     }
     case "revise": {

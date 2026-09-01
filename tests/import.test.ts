@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { getSnapshot } from "mobx-state-tree";
-
 import {
   assertCurrentProjectSchema,
   PROJECT_SCHEMA_VERSION,
@@ -10,7 +8,6 @@ import {
 
 const emptyProject = {
   schemaVersion: PROJECT_SCHEMA_VERSION,
-  description: "A contract-first project.",
   productOverview: {
     name: null,
     purpose: null,
@@ -53,5 +50,17 @@ describe("project schema import", () => {
     reloaded.import(payload);
 
     assert.equal(reloaded.systemMessage, message);
+  });
+
+  it("ignores a leftover description field and does not persist it", async () => {
+    const { Store } = await import("../app/store/store");
+    const { getSnapshot } = await import("mobx-state-tree");
+    const reloaded = Store.create({ productOverview: {} });
+    reloaded.import({
+      ...emptyProject,
+      description: "A leftover seed. Must not become project state.",
+    });
+    const snapshot = getSnapshot(reloaded) as Record<string, unknown>;
+    assert.equal("description" in snapshot, false);
   });
 });

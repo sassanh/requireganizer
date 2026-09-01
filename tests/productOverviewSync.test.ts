@@ -130,7 +130,7 @@ describe("product overview sync across restores", () => {
         candidate.productOverview.addPrimaryFeature();
         candidate.productOverview.addPrimaryFeature();
         applySnapshot(store, getSnapshot(candidate));
-        store.setDescription({ description: "generated" });
+        store.setPurpose({ purpose: "generated" });
       });
 
       assert.equal(store.productOverview.primaryFeatures.length, 2);

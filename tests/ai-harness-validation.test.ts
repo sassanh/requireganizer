@@ -28,7 +28,6 @@ function parseError(run: () => unknown): string {
 // ---------------------------------------------------------------------------
 
 const userStoryState = {
-  description: "Calculator project",
   productOverview: {
     primaryFeatures: [{ id: "feat-1" }],
     targetUsers: [{ id: "user-1" }],

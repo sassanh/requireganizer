@@ -8,10 +8,10 @@ import { WorkflowStage } from "../app/store/constants";
 describe("presentation applyOp", () => {
   it("sets a scalar path", () => {
     const tree = applyOpToTree(
-      { description: "", productOverview: { name: "" } },
-      { kind: "update", subject: "description", value: "hello" },
+      { title: "" },
+      { kind: "update", subject: "title", value: "hello" },
     );
-    assert.equal(tree.description, "hello");
+    assert.equal(tree.title, "hello");
   });
 
   it("sets a nested scalar", () => {
@@ -46,10 +46,10 @@ describe("presentation applyOp", () => {
 
   it("drops undefined instead of writing it onto string fields", () => {
     const tree = applyOpToTree(
-      { stageInputFingerprints: { description: "abc" } },
+      { stageInputFingerprints: { "product-overview": "abc" } },
       {
         kind: "update",
-        subject: "stageInputFingerprints/description",
+        subject: "stageInputFingerprints/product-overview",
         value: undefined,
       },
     );
@@ -75,7 +75,6 @@ describe("presentation applyOp", () => {
 
 describe("presentation steps", () => {
   it("maps subjects to factory steps", () => {
-    assert.equal(stepForSubject("description"), WorkflowStage.Description);
     assert.equal(stepForSubject("productOverview/name"), WorkflowStage.ProductOverview);
     assert.equal(stepForSubject("userStories/us-1"), WorkflowStage.UserStories);
     assert.equal(

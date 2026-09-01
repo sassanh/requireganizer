@@ -39,6 +39,7 @@ function Home() {
     activeProject,
     persistenceError,
     selectProject,
+    consumeOverviewSeed,
     backToProjects,
     clearPersistenceError,
   } = useProject();
@@ -63,6 +64,13 @@ function Home() {
       }
     }
   }, [projectId, activeProject, selectProject, router]);
+
+  useEffect(() => {
+    if (activeProject?.id !== projectId) return;
+    const seed = consumeOverviewSeed(projectId);
+    if (seed == null) return;
+    void store.generateProductOverview(seed);
+  }, [activeProject, projectId, consumeOverviewSeed, store]);
 
   // For easier debugging store is saved under window.store variable in development environment
   useEffect(() => {

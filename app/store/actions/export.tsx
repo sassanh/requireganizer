@@ -18,9 +18,6 @@ const export_ = async (self_: unknown, format: "pdf" | "txt" | "json") => {
 
     if (format === "txt") {
       content = `
-Description:
-${self.description}
-
 Product Overview:
 ${self.productOverview}
 

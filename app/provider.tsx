@@ -29,7 +29,8 @@ import { theme } from "./theme";
 interface ProjectContextValue {
   activeProject: { id: string, name: string } | null;
   persistenceError: string | null;
-  selectProject: (id: string, name: string) => void;
+  selectProject: (id: string, name: string, options?: { overviewSeed?: string }) => void;
+  consumeOverviewSeed: (projectId: string) => string | null;
   backToProjects: () => void;
   clearPersistenceError: () => void;
 }
@@ -38,6 +39,7 @@ const projectContext = createContext<ProjectContextValue>({
   activeProject: null,
   persistenceError: null,
   selectProject: () => { },
+  consumeOverviewSeed: () => null,
   backToProjects: () => { },
   clearPersistenceError: () => { },
 });
@@ -63,6 +65,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
   const disposerRef = useRef<(() => void) | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingSaveFlushRef = useRef<(() => void) | null>(null);
+  const pendingOverviewSeedRef = useRef<{ projectId: string; seed: string } | null>(null);
 
   // Auto-save store to localStorage whenever it changes
   useEffect(() => {
@@ -94,7 +97,9 @@ export default function Providers({ children }: { children: React.ReactNode }) {
           const projects = getProjectsIndex();
           const index = projects.findIndex((project) => project.id === activeProject.id);
           if (index >= 0) {
-            projects[index].description = snapshot.description.slice(0, 200);
+            const purpose = snapshot.productOverview?.purpose;
+            projects[index].description =
+              typeof purpose === "string" ? purpose.slice(0, 200) : "";
             projects[index].updatedAt = new Date().toISOString();
             saveProjectsIndex(projects);
           }
@@ -180,8 +185,15 @@ export default function Providers({ children }: { children: React.ReactNode }) {
       window.removeEventListener("beforeunload", handleBeforeUnload);
   }, []);
 
+  const consumeOverviewSeed = useCallback((projectId: string): string | null => {
+    const pending = pendingOverviewSeedRef.current;
+    if (pending == null || pending.projectId !== projectId) return null;
+    pendingOverviewSeedRef.current = null;
+    return pending.seed;
+  }, []);
+
   const selectProject = useCallback(
-    (id: string, name: string) => {
+    (id: string, name: string, options?: { overviewSeed?: string }) => {
       const data = loadProjectData(id);
       const openStore = (created: typeof store) => {
         resetPresentation();
@@ -208,11 +220,16 @@ export default function Providers({ children }: { children: React.ReactNode }) {
         setPersistenceError(null);
       }
       setActiveProject({ id, name });
+      const seed = options?.overviewSeed?.trim();
+      if (seed != null && seed.length > 0) {
+        pendingOverviewSeedRef.current = { projectId: id, seed };
+      }
     },
     [timelinePersistence],
   );
 
   const backToProjects = useCallback(() => {
+    pendingOverviewSeedRef.current = null;
     setActiveProject(null);
     setPersistenceError(null);
   }, []);
@@ -227,6 +244,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
         activeProject,
         persistenceError,
         selectProject,
+        consumeOverviewSeed,
         backToProjects,
         clearPersistenceError,
       }}

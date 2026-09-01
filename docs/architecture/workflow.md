@@ -1,9 +1,9 @@
 # Engineering workflow
 
-Requireganizer uses this contract-first order:
+Requireganizer uses this contract-first order. A new project may optionally supply starting intent once to draft the Product Overview; that text is not a stage and is not stored.
 
 ```text
-Description → Product Overview → User Stories → Requirements
+Product Overview → User Stories → Requirements
 → Acceptance Criteria → Boundary Design → Interface Contracts
 → Test Scenarios → Test Cases → Project Setup → Automated Tests → Code
 ```

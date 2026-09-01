@@ -5,6 +5,6 @@ import { makeStructuralFragmentFlow } from "./makeStructuralFragmentFlow";
 export default makeStructuralFragmentFlow({
   step: WorkflowStage.UserStories,
   structuralFragment: StructuralFragment.UserStory,
-  requirements: ["description", "productOverview"],
+  requirements: ["productOverview"],
   requiredSteps: [WorkflowStage.ProductOverview],
 });

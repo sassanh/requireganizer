@@ -86,7 +86,6 @@ describe("agent result tools", () => {
 
   it("applies fragment revisions through the comment flow", async () => {
     const store = emptyStore();
-    store.setDescription({ description: "A calculator." });
     store.initialize({
       name: "Calc",
       purpose: "Compute sums.",

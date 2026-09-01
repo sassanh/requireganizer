@@ -66,6 +66,7 @@ import {
 } from "./actions";
 import {
   GENERATION_PREREQUISITE_BY_WORKFLOW_STAGE,
+  GENERATOR_ACTION_BY_WORKFLOW_STAGE,
   LAST_WORKFLOW_STAGE,
   Priority,
   WORKFLOW_STAGE_BY_STRUCTURAL_FRAGMENT,
@@ -165,7 +166,6 @@ function createFragment(
 }
 
 interface WorkflowInputSource {
-  description: string;
   productOverview: unknown;
   userStories: readonly unknown[];
   requirements: readonly unknown[];
@@ -206,7 +206,7 @@ export function buildWorkflowInput(
   source: WorkflowInputSource,
   step: WorkflowStage,
 ): Record<string, unknown> {
-  const result: Record<string, unknown> = { description: source.description };
+  const result: Record<string, unknown> = {};
   if (step === WorkflowStage.ProductOverview) return result;
   result.productOverview = source.productOverview;
   if (step === WorkflowStage.UserStories) return result;
@@ -270,7 +270,6 @@ export const FlatStore = types
     schemaVersion: types.optional(types.literal(PROJECT_SCHEMA_VERSION), PROJECT_SCHEMA_VERSION),
     isClean: types.optional(types.boolean, true),
     businessCounter: types.optional(types.number, 0),
-    description: types.optional(types.string, ""),
     validationErrors: types.maybeNull(types.string),
     productOverview: ProductOverviewModel,
     userStories: types.array(UserStoryModel),
@@ -305,7 +304,6 @@ export const FlatStore = types
     reset() {
       self.isClean = true;
       self.businessCounter = 0;
-      self.description = "";
       self.validationErrors = null;
       self.validationErrorDetails = null;
       self.productOverview = ProductOverviewModel.create({});
@@ -327,9 +325,6 @@ export const FlatStore = types
       self.aiAbortController = null;
       self.activeAgent = null;
       self.conversation = cast([]);
-    },
-    setDescription({ description }: { description: string }) {
-      self.description = description;
     },
     setValidationErrors({ validationErrors }: { validationErrors: string }) {
       self.validationErrors = validationErrors;
@@ -677,7 +672,6 @@ export const FlatStore = types
     data(step: WorkflowStage = LAST_WORKFLOW_STAGE, includeBuildArtifacts = false) {
       return {
         schemaVersion: PROJECT_SCHEMA_VERSION,
-        ...(!isBefore(step, WorkflowStage.Description) ? { description: self.description } : {}),
         ...(!isBefore(step, WorkflowStage.ProductOverview)
           ? { productOverview: self.productOverview }
           : {}),
@@ -753,9 +747,6 @@ export const FlatStore = types
         generated != null && generated !== workflowFingerprint(self, step);
       let status: Status;
       switch (step) {
-        case WorkflowStage.Description:
-          status = self.description.trim() ? Status.Completed : Status.Pending;
-          break;
         case WorkflowStage.ProductOverview:
           status = self.productOverview.isComplete ? Status.Completed : Status.Pending;
           break;
@@ -846,15 +837,14 @@ export const FlatStore = types
   }))
   .views((self) => ({
     canGenerateStep(step: WorkflowStage): boolean {
+      if (GENERATOR_ACTION_BY_WORKFLOW_STAGE[step] == null) return false;
       const prerequisite = GENERATION_PREREQUISITE_BY_WORKFLOW_STAGE[step];
-      return prerequisite != null && self.getStepStatus(prerequisite) === Status.Completed;
+      return prerequisite == null || self.getStepStatus(prerequisite) === Status.Completed;
     },
   }))
   .views((self) => {
     const hasStepArtifacts = (step: WorkflowStage): boolean => {
       switch (step) {
-        case WorkflowStage.Description:
-          return self.description.trim().length > 0;
         case WorkflowStage.ProductOverview:
           return !self.productOverview.isEmpty;
         case WorkflowStage.UserStories:

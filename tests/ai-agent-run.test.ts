@@ -69,7 +69,6 @@ function scriptedStreamFn(responses: AssistantMessage[]) {
 describe("agent command run", () => {
   it("applies a tool-call proposal to the store and persists the transcript", async () => {
     const store = Store.create({ productOverview: {} }) as unknown as FlatStore;
-    store.setDescription({ description: "A houseplant companion." });
 
     const toolCall: ToolCall = {
       type: "toolCall",
@@ -86,13 +85,18 @@ describe("agent command run", () => {
     await runAgentCommand(
       store,
       "generate the product overview",
-      { kind: "generate", stage: WorkflowStage.ProductOverview },
+      {
+        kind: "generate",
+        stage: WorkflowStage.ProductOverview,
+        seed: "A houseplant companion.",
+      },
       scriptedStreamFn([
         assistantMessage([toolCall]),
         assistantMessage([{ type: "text", text: "Product overview applied." }]),
       ]),
     );
 
+    assert.match(JSON.stringify(store.conversation), /A houseplant companion/);
     assert.equal(store.productOverview.name, "Plant Pal");
     assert.equal(store.productOverview.purpose, "Help people keep houseplants alive.");
     assert.ok(store.conversation.length >= 4);
@@ -184,7 +188,6 @@ describe("conversation history", () => {
 
   it("provides all constructible stage tools by default and dedupes activations", async () => {
     const store = Store.create({ productOverview: {} }) as unknown as StoreInstance;
-    store.setDescription({ description: "A calculator." });
 
     const scripted = scriptedStreamFn([
       assistantMessage([

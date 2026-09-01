@@ -1,6 +1,6 @@
 # Requireganizer
 
-Requireganizer is an AI-assisted requirements and test-design workspace. It turns a project description into a traceable chain of product overview, user stories, requirements, acceptance criteria, test scenarios, test cases, executable tests, and a deterministic project scaffold.
+Requireganizer is an AI-assisted requirements and test-design workspace. It turns product intent into a traceable chain of product overview, user stories, requirements, acceptance criteria, test scenarios, test cases, executable tests, and a deterministic project scaffold.
 
 The AI harness is contract-first: each operation exposes one scoped OpenAI-compatible function, validates its arguments and engineering relationships, and applies successful proposals atomically.
 

@@ -35,7 +35,7 @@ import { deleteProviderCallsForProject } from "lib/providerCallStorage";
 import { Store } from "store";
 
 interface ProjectSelectorProps {
-  onSelect: (id: string, name: string) => void;
+  onSelect: (id: string, name: string, options?: { overviewSeed?: string }) => void;
 }
 
 function hasProjectName(projects: ProjectMeta[], name: string): boolean {
@@ -48,6 +48,7 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
   const [projects, setProjects] = useState<ProjectMeta[] | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newName, setNewName] = useState("");
+  const [overviewSeed, setOverviewSeed] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [projectToDelete, setProjectToDelete] = useState<ProjectMeta | null>(
     null,
@@ -62,9 +63,11 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
     setProjects(getProjectsIndex());
   }, []);
 
-  const handleCreate = () => {
+  const handleCreate = (draftOverview: boolean) => {
     const name = newName.trim();
     if (!name || projects == null || hasProjectName(projectList, name)) return;
+    const seed = overviewSeed.trim();
+    if (draftOverview && seed.length === 0) return;
 
     const id = crypto.randomUUID();
     const meta: ProjectMeta = {
@@ -80,8 +83,9 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
       setProjects(updatedProjects);
       setDialogOpen(false);
       setNewName("");
+      setOverviewSeed("");
       setError(null);
-      onSelect(id, name);
+      onSelect(id, name, draftOverview ? { overviewSeed: seed } : undefined);
     } catch (storageError) {
       console.error("Could not create project.", storageError);
       setError("The project could not be saved in browser storage.");
@@ -136,7 +140,7 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
       const meta: ProjectMeta = {
         id,
         name,
-        description: importedStore.description.slice(0, 200),
+        description: importedStore.productOverview.purpose?.slice(0, 200) ?? "",
         updatedAt: new Date().toISOString(),
       };
 
@@ -265,33 +269,58 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
         />
       </Stack>
 
-      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)}>
+      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>New Project</DialogTitle>
         <DialogContent>
-          <TextField
-            autoFocus
-            fullWidth
-            error={newName.trim().length > 0 && hasProjectName(projectList, newName.trim())}
-            helperText={
-              newName.trim().length > 0 && hasProjectName(projectList, newName.trim())
-                ? "A project with this name already exists."
-                : undefined
-            }
-            label="Project Name"
-            value={newName}
-            onChange={(event) => setNewName(event.target.value)}
-            onKeyDown={(event) => event.key === "Enter" && handleCreate()}
-            sx={{ mt: 1 }}
-          />
+          <Stack sx={{ gap: 2, mt: 1 }}>
+            <TextField
+              autoFocus
+              fullWidth
+              error={newName.trim().length > 0 && hasProjectName(projectList, newName.trim())}
+              helperText={
+                newName.trim().length > 0 && hasProjectName(projectList, newName.trim())
+                  ? "A project with this name already exists."
+                  : undefined
+              }
+              label="Project name"
+              value={newName}
+              onChange={(event) => setNewName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter") return;
+                event.preventDefault();
+                if (overviewSeed.trim().length > 0) handleCreate(true);
+                else handleCreate(false);
+              }}
+            />
+            <TextField
+              fullWidth
+              multiline
+              minRows={3}
+              label="Starting intent"
+              helperText="Optional. Drafts the product overview once, then is discarded."
+              value={overviewSeed}
+              onChange={(event) => setOverviewSeed(event.target.value)}
+            />
+          </Stack>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
           <Button
-            variant="contained"
-            onClick={handleCreate}
+            onClick={() => handleCreate(false)}
             disabled={!newName.trim() || hasProjectName(projectList, newName.trim())}
           >
-            Create
+            Skip
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => handleCreate(true)}
+            disabled={
+              !newName.trim() ||
+              hasProjectName(projectList, newName.trim()) ||
+              overviewSeed.trim().length === 0
+            }
+          >
+            Draft product overview
           </Button>
         </DialogActions>
       </Dialog>

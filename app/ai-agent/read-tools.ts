@@ -18,7 +18,7 @@ export function buildReadTools(store: FlatStore): AgentTool[] {
     name: "get_workflow_state",
     label: "Get workflow state",
     description:
-      "Get the project description plus the status of every workflow stage (pending, completed, outdated) and which artifacts exist.",
+      "Get the status of every workflow stage (pending, completed, outdated) and which artifacts exist.",
     parameters: Type.Object({}),
     execute: async () => {
       const stages = CANONICAL_WORKFLOW.filter((step) => step !== WorkflowStage.Code)
@@ -28,7 +28,6 @@ export function buildReadTools(store: FlatStore): AgentTool[] {
           hasArtifacts: store.hasStepArtifacts(step),
         }));
       return textResult(JSON.stringify({
-        description: store.description,
         stages,
       }));
     },

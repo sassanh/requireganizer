@@ -38,11 +38,6 @@ const PDFDocument: React.FunctionComponent<PDFDocumentProps> = ({ store }) => {
     <Document>
       <Page size="A4" style={styles.page}>
         <View style={styles.section}>
-          <Text style={styles.title}>Description</Text>
-          <Text style={styles.item}>{store.description}</Text>
-        </View>
-
-        <View style={styles.section}>
           <Text style={styles.title}>Name</Text>
           <Text style={styles.item}>{store.productOverview.name}</Text>
         </View>

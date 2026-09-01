@@ -9,8 +9,12 @@ function LandingPage() {
     const router = useRouter();
     const { selectProject } = useProject();
 
-    const handleSelectProject = (id: string, name: string) => {
-        selectProject(id, name);
+    const handleSelectProject = (
+        id: string,
+        name: string,
+        options?: { overviewSeed?: string },
+    ) => {
+        selectProject(id, name, options);
         router.push(`/project/${id}`);
     };
 

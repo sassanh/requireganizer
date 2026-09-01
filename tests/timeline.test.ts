@@ -84,7 +84,6 @@ function snapshotOf(store: StoreInstance): Record<string, unknown> {
         schemaVersion: store.schemaVersion,
         isClean: store.isClean,
         businessCounter: store.businessCounter,
-        description: store.description,
         productOverview: store.productOverview,
         userStories: store.userStories,
         requirements: store.requirements,
@@ -108,7 +107,7 @@ function snapshotOf(store: StoreInstance): Record<string, unknown> {
 describe("timeline serialization", () => {
   it("round-trips a store snapshot through capture/restore", () => {
     const store = Store.create({ productOverview: {} }) as unknown as StoreInstance;
-    store.setDescription({ description: "A calculator." });
+    store.setPurpose({ purpose: "A calculator." });
     store.setConversation([
       { role: "user", content: [{ type: "text", text: "hello" }], timestamp: 1 },
       { role: "assistant", content: [{ type: "text", text: "hi" }], timestamp: 2 },
@@ -123,7 +122,7 @@ describe("timeline serialization", () => {
       isClean: false,
     } as never) as Record<string, unknown>;
 
-    assert.equal(restored.description, before.description);
+    assert.deepEqual(restored.productOverview, before.productOverview);
     assert.deepEqual(restored.conversation, before.conversation);
     assert.deepEqual(restored.requirements, before.requirements);
     // Ephemeral fields survive restores from the current snapshot.
@@ -139,8 +138,7 @@ describe("timeline serialization", () => {
       schemaVersion: 3,
       isClean: true,
       businessCounter: 0,
-      description: "same description",
-      productOverview: { name: "App", purpose: null, primaryFeatures: [], targetUsers: [] },
+      productOverview: { name: "App", purpose: "same purpose", primaryFeatures: [], targetUsers: [] },
       userStories: [{ id: "us-1", content: "story" }],
       requirements: [] as unknown[],
       acceptanceCriteria: [] as unknown[],
@@ -159,23 +157,25 @@ describe("timeline serialization", () => {
     const stateA = captureState(snapshot as never);
     const countAfterA = artifactCount();
 
-    // A changed description only: every other hash is shared with state A.
-    const changed = { ...snapshot, description: "same description v2" };
+    // A changed purpose only: every other hash is shared with state A.
+    const changed = {
+      ...snapshot,
+      productOverview: { name: "App", purpose: "same purpose v2", primaryFeatures: [], targetUsers: [] },
+    };
     const stateB = captureState(changed as never);
 
-    assert.notEqual(stateA.description, stateB.description);
+    assert.notEqual(stateA.productOverview, stateB.productOverview);
     assert.deepEqual(stateB.userStories, stateA.userStories);
     assert.deepEqual(stateB.conversation, stateA.conversation);
-    // Exactly one new artifact (the changed description) was stored.
+    // Exactly one new artifact (the changed product overview) was stored.
     assert.equal(artifactCount() - countAfterA, 1);
-    assert.ok(stateB.description.length <= 20);
+    assert.ok((stateB.productOverview ?? "").length <= 20);
   });
 
   it("strips legacy ephemeral fields from imported node states", () => {
     const state = captureState({
       schemaVersion: 3,
       businessCounter: 0,
-      description: "x",
       productOverview: null,
       userStories: [],
       requirements: [],
@@ -193,7 +193,7 @@ describe("timeline serialization", () => {
       version: 2 as const,
       rootId: "r",
       activeLeafId: "n",
-      nodes: [{ id: "n", parent: "r", state: { ...state, isClean: false } }],
+      nodes: [{ id: "n", parent: "r", state: { ...state, isClean: false, description: "legacy" } }],
       artifacts: [] as [string, string][],
     };
 
@@ -202,6 +202,7 @@ describe("timeline serialization", () => {
     );
     const importedState = (nodes[0] as { state: Record<string, unknown> }).state;
     assert.ok(!("isClean" in importedState));
+    assert.ok(!("description" in importedState));
   });
 });
 
@@ -217,26 +218,26 @@ describe("timeline controller", () => {
     assert.equal(getTimelineMeta().entries.length, 1);
     assert.equal(getTimelineMeta().canUndo, false);
 
-    store.setDescription({ description: "first" });
+    store.setPurpose({ purpose: "first" });
     commitTimelineSegment();
     assert.equal(getTimelineMeta().entries.length, 2);
     assert.equal(getTimelineMeta().canUndo, true);
 
-    store.setDescription({ description: "second" });
+    store.setPurpose({ purpose: "second" });
     commitTimelineSegment();
     assert.equal(getTimelineMeta().entries.length, 3);
 
     undo();
-    assert.equal(store.description, "first");
+    assert.equal(store.productOverview.purpose, "first");
     assert.equal(getTimelineMeta().canRedo, true);
 
     redo();
-    assert.equal(store.description, "second");
+    assert.equal(store.productOverview.purpose, "second");
     assert.equal(getTimelineMeta().canRedo, false);
 
     undo();
     undo();
-    assert.equal(store.description, "");
+    assert.equal(store.productOverview.purpose, null);
     assert.equal(getTimelineMeta().canUndo, false);
   });
 
@@ -244,18 +245,18 @@ describe("timeline controller", () => {
     const store = newStore();
     const base = getTimelineMeta().entries.length;
 
-    store.setDescription({ description: "a" });
-    store.setDescription({ description: "ab" });
-    store.setDescription({ description: "abc" });
+    store.setPurpose({ purpose: "a" });
+    store.setPurpose({ purpose: "ab" });
+    store.setPurpose({ purpose: "abc" });
     assert.equal(getTimelineMeta().entries.length, base + 1);
-    assert.equal(store.description, "abc");
+    assert.equal(store.productOverview.purpose, "abc");
 
     commitTimelineSegment();
-    store.setDescription({ description: "abcd" });
+    store.setPurpose({ purpose: "abcd" });
     assert.equal(getTimelineMeta().entries.length, base + 2);
 
     undo();
-    assert.equal(store.description, "abc");
+    assert.equal(store.productOverview.purpose, "abc");
   });
 
   it("records an AI flow as a single turn and undo reverts its conversation", async () => {
@@ -351,27 +352,26 @@ describe("timeline controller", () => {
 
     const store = Store.create({ productOverview: {} }) as unknown as StoreInstance;
     attachTimeline(store, { persistence });
-    store.setDescription({ description: "v1" });
+    store.setPurpose({ purpose: "v1" });
     commitTimelineSegment();
-    store.setDescription({ description: "v2" });
+    store.setPurpose({ purpose: "v2" });
     commitTimelineSegment();
     flushTimeline();
 
     // Simulate a reload: fresh store hydrated from the project autosave.
     const reloaded = Store.create({
-      productOverview: {},
-      description: "v2",
+      productOverview: { purpose: "v2" },
     }) as unknown as StoreInstance;
     attachTimeline(reloaded, { persistence });
 
-    assert.equal(reloaded.description, "v2");
+    assert.equal(reloaded.productOverview.purpose, "v2");
     assert.equal(getTimelineMeta().canUndo, true);
 
     // Undo reaches across the reload boundary into pre-reload history.
     undo();
-    assert.equal(reloaded.description, "v1");
+    assert.equal(reloaded.productOverview.purpose, "v1");
     redo();
-    assert.equal(reloaded.description, "v2");
+    assert.equal(reloaded.productOverview.purpose, "v2");
   });
 
   it("starts fresh when the persisted timeline is malformed", () => {
@@ -396,7 +396,7 @@ describe("timeline controller", () => {
     const store = Store.create({ productOverview: {} }) as unknown as StoreInstance;
     attachTimeline(store, { persistence });
     for (let index = 0; index < 30; index += 1) {
-      store.setDescription({ description: `value ${index}` });
+      store.setPurpose({ purpose: `value ${index}` });
       commitTimelineSegment();
     }
 
@@ -411,19 +411,19 @@ describe("timeline controller", () => {
 
   it("jumps to an arbitrary turn", () => {
     const store = newStore();
-    store.setDescription({ description: "one" });
+    store.setPurpose({ purpose: "one" });
     commitTimelineSegment();
-    store.setDescription({ description: "two" });
+    store.setPurpose({ purpose: "two" });
     commitTimelineSegment();
-    store.setDescription({ description: "three" });
+    store.setPurpose({ purpose: "three" });
     commitTimelineSegment();
 
     const entries = getTimelineMeta().entries;
     jumpToNode(entries[1].id);
-    assert.equal(store.description, "one");
+    assert.equal(store.productOverview.purpose, "one");
 
     jumpToNode(entries[2].id);
-    assert.equal(store.description, "two");
+    assert.equal(store.productOverview.purpose, "two");
   });
 
   it("keeps fragment view helpers dead-safe across undo", () => {
@@ -431,7 +431,7 @@ describe("timeline controller", () => {
     store.productOverview.addPrimaryFeature();
     // A declared step records the artifact mutation so undo has a turn to
     // walk back to.
-    store.setDescription({ description: "with feature" });
+    store.setPurpose({ purpose: "with feature" });
     commitTimelineSegment();
     // Hold the node reference the way a mounted component does.
     const fragment = store.productOverview.primaryFeatures[0];
@@ -461,14 +461,14 @@ describe("timeline controller", () => {
 
   it("does not record a turn whose state equals its parent", () => {
     const store = newStore();
-    store.setDescription({ description: "same" });
+    store.setPurpose({ purpose: "same" });
     commitTimelineSegment();
     const entriesBefore = getTimelineMeta().entries.length;
     assert.ok(entriesBefore >= 2);
 
     // A separate attempt that ends exactly where the last turn ended is a
     // non-event: no clone node, nothing to undo through.
-    store.setDescription({ description: "same" });
+    store.setPurpose({ purpose: "same" });
     commitTimelineSegment();
 
     assert.equal(getTimelineMeta().entries.length, entriesBefore);
@@ -496,7 +496,7 @@ describe("timeline controller", () => {
     // before mutating anything, closes cleanly (the wrapper routes the
     // error into a validation alert), and records nothing: a non-event,
     // not a clone node.
-    await store.generateProductOverview();
+    await store.generateUserStories();
 
     assert.equal(getTimelineMeta().entries.length, entriesBefore);
     assert.equal(getTimelineMeta().canUndo, false);
@@ -504,7 +504,7 @@ describe("timeline controller", () => {
 
   it("reloading after an ephemeral-only change records no step", () => {
     const store = newStore();
-    store.setDescription({ description: "d" });
+    store.setPurpose({ purpose: "d" });
     commitTimelineSegment();
     const payload = getTimelineSnapshot();
     assert.ok(payload != null);
@@ -527,10 +527,10 @@ describe("timeline controller", () => {
   });
 
   it("sweeps artifacts that no surviving node references", () => {    const store = newStore();
-    // One coalescing run: the first capture's description artifact dangles
+    // One coalescing run: the first capture's purpose artifact dangles
     // once the run's node updates to the final text.
-    store.setDescription({ description: "first draft" });
-    store.setDescription({ description: "second draft" });
+    store.setPurpose({ purpose: "first draft" });
+    store.setPurpose({ purpose: "second draft" });
     commitTimelineSegment();
 
     const snapshot = getTimelineSnapshot();
@@ -600,7 +600,7 @@ describe("timeline controller", () => {
 
     // A declared attempt that ends where the rewind already stands records
     // nothing — but it must still clear the pending-rewind banner.
-    store.setDescription({ description: store.description ?? "" });
+    await store.generateUserStories();
     commitTimelineSegment();
 
     assert.equal(getTimelineMeta().isRewinding, false);
@@ -608,8 +608,6 @@ describe("timeline controller", () => {
 
   it("describes command branches as actions, not raw JSON", async () => {
     const store = newStore();
-    store.setDescription({ description: "A calculator." });
-    commitTimelineSegment();
     // First attempt fails (no provider in tests) but records the command.
     await store.generateProductOverview();
     // Regenerate replays the command onto a sibling branch.
@@ -709,9 +707,9 @@ describe("timeline controller", () => {
   it("publishes the subject of restores for navigation", () => {
     const store = newStore();
     const nonceBefore = getChangeFocus().nonce;
-    store.setDescription({ description: "first" });
+    store.setPurpose({ purpose: "first" });
     commitTimelineSegment();
-    store.setDescription({ description: "second" });
+    store.setPurpose({ purpose: "second" });
     commitTimelineSegment();
 
     undo();
@@ -720,7 +718,7 @@ describe("timeline controller", () => {
     assert.equal(focus.nonce, nonceBefore + 1);
     assert.deepEqual(
       focus.ops.map(({ kind, subject }) => ({ kind, subject })),
-      [{ kind: "update", subject: "description" }],
+      [{ kind: "update", subject: "productOverview/purpose" }],
     );
     assert.equal(focus.ops[0].value, "first");
   });
@@ -790,7 +788,7 @@ describe("timeline controller", () => {
   it("never publishes focus for human edits", () => {
     const store = newStore();
     const nonceBefore = getChangeFocus().nonce;
-    store.setDescription({ description: "typed" });
+    store.setPurpose({ purpose: "typed" });
     commitTimelineSegment();
     assert.equal(getChangeFocus().nonce, nonceBefore);
   });
@@ -809,7 +807,7 @@ describe("timeline controller", () => {
 
   it("exports the full timeline snapshot for debugging", () => {
     const store = newStore();
-    store.setDescription({ description: "hello" });
+    store.setPurpose({ purpose: "hello" });
     commitTimelineSegment();
     store.productOverview.addPrimaryFeature();
 

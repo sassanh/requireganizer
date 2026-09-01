@@ -17,7 +17,6 @@ export interface ArtifactStageDefinition {
 }
 
 export const CANONICAL_WORKFLOW: readonly WorkflowStage[] = [
-  WorkflowStage.Description,
   WorkflowStage.ProductOverview,
   WorkflowStage.UserStories,
   WorkflowStage.Requirements,
@@ -45,7 +44,7 @@ export const ARTIFACT_STAGE_DEFINITIONS: Record<
     step: WorkflowStage.UserStories,
     entityType: StructuralFragment.UserStory,
     role: EngineerRole.RequirementsEngineer,
-    requiredStoreFields: ["description", "productOverview"],
+    requiredStoreFields: ["productOverview"],
     allowedReferenceTypes: [
       StructuralFragment.PrimaryFeature,
       StructuralFragment.TargetUser,
@@ -66,7 +65,7 @@ export const ARTIFACT_STAGE_DEFINITIONS: Record<
     step: WorkflowStage.Requirements,
     entityType: StructuralFragment.Requirement,
     role: EngineerRole.RequirementsEngineer,
-    requiredStoreFields: ["description", "productOverview", "userStories"],
+    requiredStoreFields: ["productOverview", "userStories"],
     allowedReferenceTypes: [
       StructuralFragment.UserStory,
       StructuralFragment.PrimaryFeature,
@@ -79,7 +78,7 @@ export const ARTIFACT_STAGE_DEFINITIONS: Record<
     qualityRules: [
       "Cover every user story with at least one requirement.",
       "Keep one independently verifiable obligation per item.",
-      "Avoid implementation details unless the project description explicitly mandates them.",
+      "Avoid implementation details unless the product overview explicitly mandates them.",
       "Use dependencies only for genuine ordering or technical prerequisites within this requirement list.",
     ],
   },
@@ -88,7 +87,6 @@ export const ARTIFACT_STAGE_DEFINITIONS: Record<
     entityType: StructuralFragment.AcceptanceCriteria,
     role: EngineerRole.SoftwareTestEngineer,
     requiredStoreFields: [
-      "description",
       "productOverview",
       "userStories",
       "requirements",
