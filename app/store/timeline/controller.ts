@@ -79,6 +79,7 @@ for (const actionName of [
   "setContent",
   "setName",
   "setPurpose",
+  "approve",
 ]) {
   declareTimelineStep(actionName, { kind: "user", label: actionName });
 }
@@ -150,9 +151,10 @@ export type TimelineMetaEntry = {
   alternatives: { id: string; label: string; createdAt: number; preview: string }[];
 };
 
-// Change focus: where a non-human change landed, so the UI can navigate to
-// and highlight the subject. Human edits never emit — their author is
-// already looking at them.
+// Change focus: where a change landed, so the UI can navigate to and
+// highlight the subject. Human text edits never emit — their author is
+// already looking at the field. Approve does emit so the approval bar
+// can present through the sequencer.
 export type ChangeFocusOpKind = "add" | "remove" | "update";
 
 /**
@@ -458,6 +460,7 @@ const LABEL_OVERRIDES: Record<string, string> = {
   setName: "Edited name",
   setPurpose: "Edited purpose",
   setContent: "Edited content",
+  approve: "Approved an item",
 };
 
 function humanizeTurnLabel(label: string): string {
@@ -687,9 +690,10 @@ export function attachTimeline(
       const { step, beforeState } = openTurn;
       openTurn = null;
       closeOpenTurn(step, getPath(call.context), error != null);
-      // AI-driven turns are not human edits: publish where the change
-      // landed so the UI can navigate to the subject.
-      if (step.kind === "ai") {
+      // AI-driven turns, and Approve: publish where the change landed so
+      // the presentation sequencer can play it. Human text edits do not
+      // emit — their author is already looking at the field.
+      if (step.kind === "ai" || step.label === "approve") {
         const afterState = captureState(snapshotNow() as never);
         const ops = diffOps(beforeState, afterState);
         emitChangeFocus(ops);

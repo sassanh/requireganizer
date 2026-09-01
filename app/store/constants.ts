@@ -167,11 +167,5 @@ export enum Status {
   Outdated = "outdated",
 }
 
-export enum Quality {
-  Unchecked = "unchecked",
-  Good = "good",
-  Bad = "bad",
-}
-
 export const OVERVIEW_NAME_QUALITY_ID = "productOverview/name";
 export const OVERVIEW_PURPOSE_QUALITY_ID = "productOverview/purpose";

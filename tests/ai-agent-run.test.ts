@@ -195,7 +195,7 @@ describe("conversation history", () => {
           type: "toolCall",
           id: "call-activate",
           name: "activate_stage_result_tool",
-          arguments: { stage: "implementation-profile" },
+          arguments: { stage: "product-overview" },
         },
       ]),
       assistantMessage([
@@ -209,15 +209,15 @@ describe("conversation history", () => {
     );
 
     const firstName = scripted.seenToolNames[0];
-    // Every constructible submission channel is present from the start.
-    assert.ok(firstName.includes("submit_implementation_profile"));
+    // Only stages whose prerequisites currently hold are constructible.
+    assert.ok(firstName.includes("submit_product_overview"));
     assert.ok(firstName.includes("activate_stage_result_tool"));
-    // Stages with unmet prerequisites stay out of the toolset.
+    assert.ok(!firstName.includes("submit_implementation_profile"));
     assert.ok(!firstName.includes("submit_test_scenario_list"));
     // Activating an already-present stage must not duplicate it.
     const lastName = scripted.seenToolNames.at(-1) ?? [];
     assert.equal(
-      lastName.filter((name) => name === "submit_implementation_profile").length,
+      lastName.filter((name) => name === "submit_product_overview").length,
       1,
     );
   });

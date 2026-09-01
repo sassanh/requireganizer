@@ -1,6 +1,8 @@
 # Using the workflow
 
-Generate and review each stage in order. Approval is a deliberate gate at Boundary Design, the Implementation Profile, every interface bundle, every subject protocol/binding, and every verification contract.
+Generate and review each stage in order. Generated work is draft. Approve each item after you review it. Quality-good is not approval. The next stage generates only from a fully approved set.
+
+Approval is the same gate at Product Overview, stories, requirements, and criteria, then at Boundary Design, the Implementation Profile, every interface bundle, every subject protocol/binding, and every verification contract.
 
 ## Boundary Design
 

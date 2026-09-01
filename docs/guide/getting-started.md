@@ -39,9 +39,9 @@ The documentation uses the GitHub Pages base path `/requireganizer/`. VitePress 
 ## First project
 
 1. Create a project. Optionally give a starting intent to draft the product overview once; skip to write the overview yourself. The intent is not stored.
-2. Review the product overview.
-3. Continue through each stage in order. Do not treat generated output as approved merely because it passed structural validation.
-4. Approve Boundary Design, the Implementation Profile, and each formal contract bundle after review.
+2. Review the product overview. Approve each item; generated output is draft until you do.
+3. Continue through each stage in order. Request change or Approve each item; the left bar is the signature.
+4. Approve Boundary Design, the Implementation Profile, and each formal contract bundle after review, the same way: item by item.
 5. Review any downstream impact before applying a new approved-artifact revision.
 6. Generate Project Setup and then generate each automated test from its structured case.
 

@@ -1,5 +1,6 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 
+import type { ApprovalStatus } from "contract-domain";
 import {
   claim,
   complete,
@@ -8,7 +9,11 @@ import {
   resetPresentation,
 } from "presentation";
 
-import { pulseElement } from "./attention";
+import {
+  animateApprovalBar,
+  pulseElement,
+  settleApprovalBar,
+} from "./attention";
 import { scrollIntoViewWithMargin } from "./scrollFollower";
 
 /**
@@ -132,6 +137,75 @@ export function useStagedContent<Value>(
       if (hold != null) clearTimeout(hold);
     });
   }, [committed, elementId, isEqual, claimTurn, completeTurn, createCleanup]);
+
+  return displayed;
+}
+
+/**
+ * Stage the approval stamp the same way fields stage their values: snap
+ * when idle, claim the current tick while presenting, sweep the bar, then
+ * complete so the sequencer can move on.
+ */
+export function useStagedApproval(
+  elementId: string,
+  committed: ApprovalStatus,
+): ApprovalStatus {
+  const [displayed, setDisplayed] = useState(committed);
+  const displayedRef = useRef(displayed);
+  // eslint-disable-next-line react-hooks/refs -- sync for next effect
+  displayedRef.current = displayed;
+  const { claimTurn, completeTurn, createCleanup } =
+    usePresentationTurn(elementId);
+
+  useLayoutEffect(() => {
+    if (committed === displayed) {
+      settleApprovalBar(document.getElementById(elementId));
+    }
+  }, [committed, displayed, elementId]);
+
+  useLayoutEffect(() => {
+    if (committed === displayedRef.current) return;
+
+    const tick = claimTurn();
+    if (tick == null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- snap when idle
+      setDisplayed(committed);
+      return;
+    }
+
+    const node = document.getElementById(elementId);
+    const anim =
+      node != null
+        ? animateApprovalBar(node, committed, HIGHLIGHT_MILLISECONDS)
+        : null;
+
+    let finished = false;
+    const doFinish = () => {
+      if (finished) return;
+      finished = true;
+      setDisplayed(committed);
+      completeTurn(tick);
+    };
+    let hold: ReturnType<typeof setTimeout> | null = setTimeout(
+      doFinish,
+      HIGHLIGHT_MILLISECONDS,
+    );
+    if (anim?.finished != null) {
+      anim.finished
+        .then(() => {
+          if (hold != null) clearTimeout(hold);
+          doFinish();
+        })
+        .catch(() => {
+          if (hold != null) clearTimeout(hold);
+          doFinish();
+        });
+    }
+
+    return createCleanup(tick, () => {
+      if (hold != null) clearTimeout(hold);
+    });
+  }, [committed, elementId, claimTurn, completeTurn, createCleanup]);
 
   return displayed;
 }

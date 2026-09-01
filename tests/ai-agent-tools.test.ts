@@ -113,4 +113,35 @@ describe("agent result tools", () => {
       "Add two numbers",
     );
   });
+
+  it("drops an artifact through the comment flow", async () => {
+    const store = emptyStore();
+    store.initialize({
+      name: "Calc",
+      purpose: "Compute sums.",
+      primaryFeatures: ["Add numbers", "Subtract numbers"],
+      targetUsers: [],
+    });
+    const featureId = store.productOverview.primaryFeatures[0]?.id;
+    assert.ok(featureId != null);
+
+    const commentTools = buildResultTools(store, {
+      kind: "comment",
+      fragment: "primary_feature" as never,
+      id: featureId,
+      comment: "Drop this feature.",
+    });
+    const revise = commentTools.find(({ name }) => name === "submit_fragment_revision");
+    assert.ok(revise != null);
+
+    await revise.execute!("call-2", {
+      patch: { remove: true },
+    } as never);
+
+    assert.equal(store.productOverview.primaryFeatures.length, 1);
+    assert.equal(
+      store.productOverview.primaryFeatures[0]?.content,
+      "Subtract numbers",
+    );
+  });
 });

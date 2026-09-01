@@ -16,15 +16,14 @@ import type {
   FragmentRevisionProposal,
   ProductOverviewPatchItem,
   ProductOverviewProposal,
-  QualityCheckProposal,
   TestCodeProposal,
 } from "ai-harness/contracts";
 import {
   materializeArtifactItems,
   type PersistedArtifactItem,
 } from "ai-harness/reconciliation";
-import { qualityContractForStage } from "ai-harness/workflow";
 import {
+  type ApprovalStatus,
   type BoundaryDesign,
   type ContractSuite,
   type ImplementationProfile,
@@ -61,13 +60,14 @@ import {
   generateTestScenarios,
   generateUserStories,
   handleComment,
+  handleOverviewFieldComment,
   import as import_,
+  requestStageChange,
   reviseFormalContract,
   sendConversationMessage,
   regenerateLastReply,
-  checkStageQuality,
-  fixStageQuality,
 } from "./actions";
+import { asApprovedRevision, asDraftRevision, isApproved } from "./approval";
 import {
   GENERATION_PREREQUISITE_BY_WORKFLOW_STAGE,
   GENERATOR_ACTION_BY_WORKFLOW_STAGE,
@@ -75,18 +75,16 @@ import {
   Priority,
   WORKFLOW_STAGE_BY_STRUCTURAL_FRAGMENT,
   WORKFLOW_STAGES,
+  WORKFLOW_STAGE_LABELS,
   OVERVIEW_NAME_QUALITY_ID,
   OVERVIEW_PURPOSE_QUALITY_ID,
-  Quality,
   Status,
   WorkflowStage,
   StructuralFragment as StructuralFragmentName,
   isBefore,
 } from "./constants";
 import {
-  aggregateQuality,
   collectMechanicalIssues,
-  qualityItemIdsForStage,
   type IntegrityGraph,
   type IntegrityItem,
   type MechanicalIssue,
@@ -211,34 +209,6 @@ function integrityGraphFromStore(source: {
   };
 }
 
-function qualitiesForStage(
-  source: {
-    productOverview: ProductOverview;
-    userStories: readonly UserStory[];
-    requirements: readonly Requirement[];
-    acceptanceCriteria: readonly AcceptanceCriteria[];
-  },
-  step: WorkflowStage,
-): Quality[] | null {
-  switch (step) {
-    case WorkflowStage.ProductOverview:
-      return [
-        source.productOverview.nameQuality,
-        source.productOverview.purposeQuality,
-        ...source.productOverview.primaryFeatures.map(({ quality }) => quality),
-        ...source.productOverview.targetUsers.map(({ quality }) => quality),
-      ];
-    case WorkflowStage.UserStories:
-      return source.userStories.map(({ quality }) => quality);
-    case WorkflowStage.Requirements:
-      return source.requirements.map(({ quality }) => quality);
-    case WorkflowStage.AcceptanceCriteria:
-      return source.acceptanceCriteria.map(({ quality }) => quality);
-    default:
-      return null;
-  }
-}
-
 function createFragment(
   entityType: StructuralFragmentName,
   data: PersistedArtifactItem,
@@ -299,22 +269,27 @@ function scenarioDesign(scenarios: readonly TestScenario[]) {
   }));
 }
 
-const QUALITY_FINGERPRINT_KEYS = new Set([
+const NON_INPUT_FINGERPRINT_KEYS = new Set([
   "quality",
   "qualityIssues",
   "nameQuality",
   "purposeQuality",
   "nameIssues",
   "purposeIssues",
+  "approval",
+  "nameApproval",
+  "purposeApproval",
+  "status",
+  "approvedAt",
 ]);
 
-function omitQualityFields(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(omitQualityFields);
+function omitNonInputFields(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(omitNonInputFields);
   if (value == null || typeof value !== "object") return value;
   return Object.fromEntries(
     Object.entries(value as Record<string, unknown>)
-      .filter(([key]) => !QUALITY_FINGERPRINT_KEYS.has(key))
-      .map(([key, item]) => [key, omitQualityFields(item)]),
+      .filter(([key]) => !NON_INPUT_FINGERPRINT_KEYS.has(key))
+      .map(([key, item]) => [key, omitNonInputFields(item)]),
   );
 }
 
@@ -324,18 +299,18 @@ export function buildWorkflowInput(
 ): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   if (step === WorkflowStage.ProductOverview) return result;
-  result.productOverview = omitQualityFields(source.productOverview);
+  result.productOverview = omitNonInputFields(source.productOverview);
   if (step === WorkflowStage.UserStories) return result;
-  result.userStories = omitQualityFields(source.userStories);
+  result.userStories = omitNonInputFields(source.userStories);
   if (step === WorkflowStage.Requirements) return result;
-  result.requirements = omitQualityFields(source.requirements);
+  result.requirements = omitNonInputFields(source.requirements);
   if (step === WorkflowStage.AcceptanceCriteria) return result;
-  result.acceptanceCriteria = omitQualityFields(source.acceptanceCriteria);
+  result.acceptanceCriteria = omitNonInputFields(source.acceptanceCriteria);
   if (step === WorkflowStage.BoundaryDesign) return result;
-  result.boundaryDesign = source.boundaryDesign;
+  result.boundaryDesign = omitNonInputFields(source.boundaryDesign);
   if (step === WorkflowStage.InterfaceContracts) return result;
-  result.implementationProfile = source.implementationProfile;
-  result.contractSuite = source.contractSuite;
+  result.implementationProfile = omitNonInputFields(source.implementationProfile);
+  result.contractSuite = omitNonInputFields(source.contractSuite);
   if (step === WorkflowStage.TestScenarios) return result;
   result.testScenarios = scenarioDesign(source.testScenarios).map(
     ({ testCases: _testCases, ...scenario }) => scenario,
@@ -343,7 +318,7 @@ export function buildWorkflowInput(
   if (step === WorkflowStage.TestCases) return result;
   result.testScenarios = scenarioDesign(source.testScenarios);
   if (step === WorkflowStage.ProjectSetup) return result;
-  result.projectSetup = source.projectSetup;
+  result.projectSetup = omitNonInputFields(source.projectSetup);
   return result;
 }
 
@@ -535,60 +510,6 @@ export const FlatStore = types
     markStageGenerated(step: WorkflowStage) {
       self.stageInputFingerprints.set(step, workflowFingerprint(self, step));
     },
-    markStageQuality(step: WorkflowStage, quality: Quality.Good | Quality.Bad) {
-      const issues: string[] = [];
-      switch (step) {
-        case WorkflowStage.ProductOverview:
-          self.productOverview.nameQuality = quality;
-          self.productOverview.purposeQuality = quality;
-          self.productOverview.nameIssues = cast(issues);
-          self.productOverview.purposeIssues = cast(issues);
-          self.productOverview.primaryFeatures.forEach((item) =>
-            item.setQuality(quality, issues),
-          );
-          self.productOverview.targetUsers.forEach((item) =>
-            item.setQuality(quality, issues),
-          );
-          break;
-        case WorkflowStage.UserStories:
-          self.userStories.forEach((item) => item.setQuality(quality, issues));
-          break;
-        case WorkflowStage.Requirements:
-          self.requirements.forEach((item) => item.setQuality(quality, issues));
-          break;
-        case WorkflowStage.AcceptanceCriteria:
-          self.acceptanceCriteria.forEach((item) => item.setQuality(quality, issues));
-          break;
-        default:
-          break;
-      }
-    },
-    applyQualityCheck(proposal: QualityCheckProposal) {
-      for (const verdict of proposal.items) {
-        const quality = verdict.quality === "good" ? Quality.Good : Quality.Bad;
-        if (verdict.id === OVERVIEW_NAME_QUALITY_ID) {
-          self.productOverview.nameQuality = quality;
-          self.productOverview.nameIssues = cast(verdict.issues);
-          continue;
-        }
-        if (verdict.id === OVERVIEW_PURPOSE_QUALITY_ID) {
-          self.productOverview.purposeQuality = quality;
-          self.productOverview.purposeIssues = cast(verdict.issues);
-          continue;
-        }
-        const fragment = [
-          ...self.productOverview.primaryFeatures,
-          ...self.productOverview.targetUsers,
-          ...self.userStories,
-          ...self.requirements,
-          ...self.acceptanceCriteria,
-        ].find((item) => item.id === verdict.id);
-        if (fragment == null) {
-          throw new Error(`Cannot apply quality for unknown item ${verdict.id}.`);
-        }
-        fragment.setQuality(quality, verdict.issues);
-      }
-    },
     setScaffoldFiles(files: { path: string; content: string }[]) {
       self.scaffoldFiles = cast(parseScaffoldFiles(files));
     },
@@ -622,14 +543,12 @@ export const FlatStore = types
     setName({ name }: { name: string }) {
       if (self.productOverview.name === name) return;
       self.productOverview.name = name;
-      self.productOverview.nameQuality = Quality.Unchecked;
-      self.productOverview.nameIssues = cast([]);
+      self.productOverview.uncheckName();
     },
     setPurpose({ purpose }: { purpose: string }) {
       if (self.productOverview.purpose === purpose) return;
       self.productOverview.purpose = purpose;
-      self.productOverview.purposeQuality = Quality.Unchecked;
-      self.productOverview.purposeIssues = cast([]);
+      self.productOverview.uncheckPurpose();
     },
     setPrimaryFeatures({ primaryFeatures }: { primaryFeatures: SnapshotIn<PrimaryFeature>[] }) {
       self.productOverview.primaryFeatures = cast(primaryFeatures);
@@ -686,12 +605,12 @@ export const FlatStore = types
       value: string,
     ) {
       if (self.boundaryDesign == null) return;
-      self.boundaryDesign = cast({
+      self.boundaryDesign = cast(asDraftRevision({
         ...self.boundaryDesign,
         [collection]: self.boundaryDesign[collection].map((item) =>
           item.id === id ? { ...item, [field]: value } : item,
         ),
-      });
+      }));
     },
     setImplementationProfile(profile: ImplementationProfile) {
       self.implementationProfile = cast(profile);
@@ -710,22 +629,22 @@ export const FlatStore = types
       if (self.implementationProfile == null) {
         return;
       }
-      self.implementationProfile = cast({
+      self.implementationProfile = cast(asDraftRevision({
         ...self.implementationProfile,
         [field]: value,
-      });
+      }));
     },
     updateImplementationProfileConstraints(value: string) {
       if (self.implementationProfile == null) {
         return;
       }
-      self.implementationProfile = cast({
+      self.implementationProfile = cast(asDraftRevision({
         ...self.implementationProfile,
         constraints: value
           .split(/\r?\n/)
           .map((item) => item.trim())
           .filter(Boolean),
-      });
+      }));
     },
     setContractSuite(suite: ContractSuite) {
       self.contractSuite = cast(suite);
@@ -810,18 +729,47 @@ export const FlatStore = types
       list.replace(snapshots as never[]);
     },
     reviseFragment({ entityType, id, patch }: FragmentRevisionProposal) {
-      const fragments: StructuralFragment[] = [
+      const fragment = [
         ...self.productOverview.primaryFeatures,
         ...self.productOverview.targetUsers,
         ...self.userStories,
         ...self.requirements,
         ...self.acceptanceCriteria,
-      ];
-      const fragment = fragments.find((candidate) => candidate.id === id);
+      ].find((candidate) => candidate.id === id);
       if (fragment == null || fragment.type !== entityType) {
         throw new Error(`Cannot revise missing ${entityType} fragment ${id}.`);
       }
-      fragment.setData(patch);
+      if (patch.remove === true) {
+        switch (fragment.type) {
+          case StructuralFragmentName.PrimaryFeature:
+            self.productOverview.removePrimaryFeature({
+              fragment: fragment as PrimaryFeature,
+            });
+            return;
+          case StructuralFragmentName.TargetUser:
+            self.productOverview.removeTargetUser({
+              fragment: fragment as TargetUser,
+            });
+            return;
+          case StructuralFragmentName.UserStory:
+            self.removeUserStory({ fragment: fragment as UserStory });
+            return;
+          case StructuralFragmentName.Requirement:
+            self.removeRequirement({ fragment: fragment as Requirement });
+            return;
+          case StructuralFragmentName.AcceptanceCriteria:
+            self.removeAcceptanceCriteria({
+              fragment: fragment as AcceptanceCriteria,
+            });
+            return;
+          default:
+            throw new Error(`Cannot drop ${entityType} fragment ${id}.`);
+        }
+      }
+      fragment.setData({
+        content: patch.content,
+        priority: patch.priority,
+      });
     },
   }))
   .views((self) => ({
@@ -929,56 +877,39 @@ export const FlatStore = types
     mechanicalIssuesForItem(id: string): MechanicalIssue[] {
       return self.mechanicalIssues.filter((issue) => issue.itemId === id);
     },
-    stageQuality(step: WorkflowStage): Quality | null {
-      const qualities = qualitiesForStage(self, step);
-      if (qualities == null) return null;
-      return aggregateQuality(qualities);
-    },
-    qualityItemIds(step: WorkflowStage): string[] | null {
-      return qualityItemIdsForStage(step, integrityGraphFromStore(self));
-    },
     getStepStatus(step: WorkflowStage): Status {
       const generated = self.stageInputFingerprints.get(step);
       const inputIsOutdated =
         generated != null && generated !== workflowFingerprint(self, step);
       const stageIssues = self.mechanicalIssues.filter((issue) => issue.stage === step);
-      const quality = qualitiesForStage(self, step);
-      const qualityReady =
-        quality == null || aggregateQuality(quality) === Quality.Good;
       let status: Status;
       let hasArtifacts: boolean;
-      let mechanicallyComplete = false;
       switch (step) {
         case WorkflowStage.ProductOverview:
           hasArtifacts = !self.productOverview.isEmpty;
-          mechanicallyComplete =
-            self.productOverview.isComplete && stageIssues.length === 0;
           status =
-            mechanicallyComplete && qualityReady
+            self.productOverview.isComplete && stageIssues.length === 0
               ? Status.Completed
               : Status.Pending;
           break;
         case WorkflowStage.UserStories:
           hasArtifacts = self.userStories.length > 0;
-          mechanicallyComplete = hasArtifacts && stageIssues.length === 0;
           status =
-            mechanicallyComplete && qualityReady
+            hasArtifacts && stageIssues.length === 0
               ? Status.Completed
               : Status.Pending;
           break;
         case WorkflowStage.Requirements:
           hasArtifacts = self.requirements.length > 0;
-          mechanicallyComplete = hasArtifacts && stageIssues.length === 0;
           status =
-            mechanicallyComplete && qualityReady
+            hasArtifacts && stageIssues.length === 0
               ? Status.Completed
               : Status.Pending;
           break;
         case WorkflowStage.AcceptanceCriteria:
           hasArtifacts = self.acceptanceCriteria.length > 0;
-          mechanicallyComplete = hasArtifacts && stageIssues.length === 0;
           status =
-            mechanicallyComplete && qualityReady
+            hasArtifacts && stageIssues.length === 0
               ? Status.Completed
               : Status.Pending;
           break;
@@ -1072,17 +1003,128 @@ export const FlatStore = types
           break;
       }
       if (hasArtifacts && inputIsOutdated) return Status.Outdated;
-      if (mechanicallyComplete && !qualityReady) return Status.Outdated;
+      if (
+        status === Status.Completed &&
+        step !== WorkflowStage.AutomatedTests &&
+        step !== WorkflowStage.Code &&
+        !(self as unknown as { stageIsApproved: (stage: WorkflowStage) => boolean }).stageIsApproved(step)
+      ) {
+        return Status.Outdated;
+      }
       return status;
     },
   }))
-  .views((self) => ({
-    canGenerateStep(step: WorkflowStage): boolean {
-      if (GENERATOR_ACTION_BY_WORKFLOW_STAGE[step] == null) return false;
+  .views((self) => {
+    const contractBundle = (id: string) => {
+      const suite = self.contractSuite;
+      if (suite == null) return null;
+      return (
+        suite.interfaceContracts.find((item) => item.id === id) ??
+        suite.subjectContracts.find((item) => item.id === id) ??
+        suite.verificationContracts.find((item) => item.id === id) ??
+        null
+      );
+    };
+    const allApproved = (values: readonly ApprovalStatus[]): boolean =>
+      values.length > 0 && values.every(isApproved);
+    const approvalOf = (id: string): ApprovalStatus | null => {
+      if (id === OVERVIEW_NAME_QUALITY_ID) return self.productOverview.nameApproval;
+      if (id === OVERVIEW_PURPOSE_QUALITY_ID) return self.productOverview.purposeApproval;
+      const fragment = self.structuralFragmentsCache[id];
+      if (fragment != null) return fragment.approval;
+      if (self.boundaryDesign?.id === id) return self.boundaryDesign.status;
+      if (self.implementationProfile?.id === id) return self.implementationProfile.status;
+      if (self.projectSetup?.id === id) return self.projectSetup.status;
+      return contractBundle(id)?.status ?? null;
+    };
+    const stageIsApproved = (step: WorkflowStage): boolean => {
+      switch (step) {
+        case WorkflowStage.ProductOverview:
+          return (
+            isApproved(self.productOverview.nameApproval) &&
+            isApproved(self.productOverview.purposeApproval) &&
+            allApproved(self.productOverview.primaryFeatures.map((item) => item.approval)) &&
+            allApproved(self.productOverview.targetUsers.map((item) => item.approval))
+          );
+        case WorkflowStage.UserStories:
+          return allApproved(self.userStories.map((item) => item.approval));
+        case WorkflowStage.Requirements:
+          return allApproved(self.requirements.map((item) => item.approval));
+        case WorkflowStage.AcceptanceCriteria:
+          return allApproved(self.acceptanceCriteria.map((item) => item.approval));
+        case WorkflowStage.BoundaryDesign:
+          return isApproved(self.boundaryDesign?.status);
+        case WorkflowStage.InterfaceContracts:
+          return (
+            self.contractsReady &&
+            isApproved(self.implementationProfile?.status) &&
+            allApproved([
+              ...(self.contractSuite?.interfaceContracts.map((item) => item.status) ?? []),
+              ...(self.contractSuite?.subjectContracts.map((item) => item.status) ?? []),
+              ...(self.contractSuite?.verificationContracts.map((item) => item.status) ?? []),
+            ])
+          );
+        case WorkflowStage.TestScenarios:
+          return allApproved(self.testScenarios.map((item) => item.approval));
+        case WorkflowStage.TestCases:
+          return allApproved(
+            self.testScenarios.flatMap((scenario) =>
+              scenario.testCases.map((item) => item.approval),
+            ),
+          );
+        case WorkflowStage.ProjectSetup:
+          return isApproved(self.projectSetup?.status);
+        case WorkflowStage.AutomatedTests:
+        case WorkflowStage.Code:
+          return false;
+      }
+    };
+    const cannotGenerateReason = (step: WorkflowStage): string | null => {
+      if (GENERATOR_ACTION_BY_WORKFLOW_STAGE[step] == null) {
+        return "This stage has no generate action.";
+      }
       const prerequisite = GENERATION_PREREQUISITE_BY_WORKFLOW_STAGE[step];
-      return prerequisite == null || self.getStepStatus(prerequisite) === Status.Completed;
-    },
-  }))
+      if (prerequisite == null) return null;
+      const label = WORKFLOW_STAGE_LABELS[prerequisite];
+      const target = WORKFLOW_STAGE_LABELS[step];
+      const status = self.getStepStatus(prerequisite);
+      if (status === Status.Pending) {
+        return `Complete ${label} to generate ${target}.`;
+      }
+      if (!stageIsApproved(prerequisite)) {
+        return `Approve ${label} to generate ${target}.`;
+      }
+      if (status === Status.Outdated) {
+        return `Regenerate ${label} to generate ${target}.`;
+      }
+      return null;
+    };
+
+    return {
+      approvalOf,
+      stageIsApproved,
+      cannotGenerateReason,
+      canApprove(id: string): boolean {
+        if (self.isBusy) return false;
+        const status = approvalOf(id);
+        if (status == null || status === "approved") return false;
+        if (id === OVERVIEW_NAME_QUALITY_ID) {
+          return (self.productOverview.name?.trim().length ?? 0) > 0;
+        }
+        if (id === OVERVIEW_PURPOSE_QUALITY_ID) {
+          return (self.productOverview.purpose?.trim().length ?? 0) > 0;
+        }
+        const fragment = self.structuralFragmentsCache[id];
+        if (fragment != null) {
+          return fragment.content.trim().length > 0;
+        }
+        return true;
+      },
+      canGenerateStep(step: WorkflowStage): boolean {
+        return cannotGenerateReason(step) == null;
+      },
+    };
+  })
   .views((self) => {
     const hasStepArtifacts = (step: WorkflowStage): boolean => {
       switch (step) {
@@ -1123,16 +1165,6 @@ export const FlatStore = types
         return JSON.stringify(self.data(step));
       },
       hasStepArtifacts,
-      canCheckStep(step: WorkflowStage): boolean {
-        return qualityContractForStage(step) != null && hasStepArtifacts(step);
-      },
-      canFixStep(step: WorkflowStage): boolean {
-        return (
-          qualityContractForStage(step) != null &&
-          hasStepArtifacts(step) &&
-          self.stageQuality(step) === Quality.Bad
-        );
-      },
       affectedDownstreamSteps(
         sourceStep: WorkflowStage,
         includeSourceStep = false,
@@ -1149,7 +1181,53 @@ export const FlatStore = types
         );
       },
     };
-  });
+  })
+  .actions((self) => ({
+    approve(id: string) {
+      if (!self.canApprove(id)) {
+        throw new Error(`Cannot approve ${id}.`);
+      }
+      if (id === OVERVIEW_NAME_QUALITY_ID) {
+        self.productOverview.approveName();
+        return;
+      }
+      if (id === OVERVIEW_PURPOSE_QUALITY_ID) {
+        self.productOverview.approvePurpose();
+        return;
+      }
+      const fragment = self.structuralFragmentsCache[id];
+      if (fragment != null) {
+        fragment.approve();
+        return;
+      }
+      if (self.boundaryDesign?.id === id) {
+        self.boundaryDesign = cast(asApprovedRevision(self.boundaryDesign));
+        return;
+      }
+      if (self.implementationProfile?.id === id) {
+        self.implementationProfile = cast(asApprovedRevision(self.implementationProfile));
+        return;
+      }
+      if (self.projectSetup?.id === id) {
+        self.projectSetup = cast(asApprovedRevision(self.projectSetup));
+        return;
+      }
+      if (self.contractSuite != null) {
+        self.contractSuite = cast({
+          ...self.contractSuite,
+          interfaceContracts: self.contractSuite.interfaceContracts.map((item) =>
+            item.id === id ? asApprovedRevision(item) : item,
+          ),
+          subjectContracts: self.contractSuite.subjectContracts.map((item) =>
+            item.id === id ? asApprovedRevision(item) : item,
+          ),
+          verificationContracts: self.contractSuite.verificationContracts.map((item) =>
+            item.id === id ? asApprovedRevision(item) : item,
+          ),
+        });
+      }
+    },
+  }));
 
 // Every AI flow, under the property name it is assigned on the store. The
 // timeline declares each of these as a step: the property name admits the
@@ -1171,8 +1249,8 @@ const aiFlows = {
   generateTestCases,
   generateProjectSetup,
   generateTestCode,
-  checkStageQuality,
-  fixStageQuality,
+  handleOverviewFieldComment,
+  requestStageChange,
 };
 
 export const Store = FlatStore.actions(

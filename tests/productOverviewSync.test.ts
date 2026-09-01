@@ -97,9 +97,7 @@ describe("product overview sync across restores", () => {
             fragments: store.productOverview.primaryFeatures,
             isDisabled: false,
             structuralFragment: "primary_feature",
-            onAddFragment: () => {},
             onComment: () => {},
-            onRemoveFragment: () => {},
           }),
         ),
       );

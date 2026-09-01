@@ -2,6 +2,7 @@ import { Alert, Box, Card, CardContent, Chip, Stack, Typography } from "@mui/mat
 import { observer } from "mobx-react-lite";
 
 import { artifactElementId, CodeBlock } from "components";
+import ApprovalMark from "components/ApprovalMark";
 import { jsonEqual, useStagedContent } from "components/changeQueue";
 import { useShownStore } from "presentation";
 import { useStore } from "store";
@@ -31,7 +32,10 @@ const ProjectSetupView = () => {
         <CardContent component={Stack} spacing={1}>
           <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center" }}>
             <Typography variant="h5">Build configuration</Typography>
-            <Chip label={`revision ${setup.revision}`} />
+            <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+              <ApprovalMark id={setup.id} />
+              <Chip label={`revision ${setup.revision}`} />
+            </Stack>
           </Stack>
           <Typography><strong>Package manager:</strong> {setup.configuration.packageManager}</Typography>
           <Typography><strong>Test framework:</strong> {setup.configuration.testFramework}</Typography>

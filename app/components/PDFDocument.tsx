@@ -70,7 +70,7 @@ const PDFDocument: React.FunctionComponent<PDFDocumentProps> = ({ store }) => {
         <View style={styles.section}>
           <Text style={styles.title}>Implementation Profile</Text>
           <Text style={styles.item}>
-            {store.implementationProfile == null
+            {store.implementationProfile == null || store.implementationProfile.status !== "approved"
               ? "Not approved"
               : `${store.implementationProfile.language} - ${store.implementationProfile.framework}`}
           </Text>

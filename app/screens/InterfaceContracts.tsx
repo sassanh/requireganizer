@@ -21,6 +21,7 @@ import {
   CodeBlock,
   GenerationButton,
 } from "components";
+import ApprovalMark from "components/ApprovalMark";
 import { jsonEqual, useStagedContent } from "components/changeQueue";
 import { useShownStore } from "presentation";
 import { useStore } from "store";
@@ -86,38 +87,43 @@ const InterfaceContractsView = () => {
         <CardContent component={Stack} spacing={2}>
           <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center" }}>
             <Typography variant="h5">Implementation Profile · revision {profile.revision}</Typography>
-            <GenerationButton
-              size="small"
-              variant="outlined"
-              disabled={store.isBusy}
-              onGenerate={store.generateImplementationProfile}
-            >
-              Generate new revision
-            </GenerationButton>
+            <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+              <ApprovalMark id={profile.id} />
+              <GenerationButton
+                size="small"
+                variant="outlined"
+                disabled={store.isBusy}
+                onGenerate={store.generateImplementationProfile}
+              >
+                Generate new revision
+              </GenerationButton>
+            </Stack>
           </Stack>
           {PROFILE_FIELDS.map(([field, label]) => (
             <TextField
               key={field}
               label={label}
               value={profile[field]}
-              disabled={store.isBusy}
-              onChange={(event) => store.updateImplementationProfile(field, event.target.value)}
+              slotProps={{ input: { readOnly: true } }}
             />
           ))}
           <TextField
             label="Constraints"
             value={profile.constraints.join("\n")}
             multiline
-            disabled={store.isBusy}
-            onChange={(event) =>
-              store.updateImplementationProfileConstraints(event.target.value)
-            }
+            slotProps={{ input: { readOnly: true } }}
           />
         </CardContent>
       </Card>
 
       {suite == null && (
-        <GenerationButton startIcon={<Build />} variant="contained" disabled={store.isBusy} onGenerate={store.generateInterfaceContracts} sx={{ alignSelf: "center" }}>
+        <GenerationButton
+          startIcon={<Build />}
+          variant="contained"
+          disabled={store.isBusy || profile.status !== "approved"}
+          onGenerate={store.generateInterfaceContracts}
+          sx={{ alignSelf: "center" }}
+        >
           Generate formal interface contracts
         </GenerationButton>
       )}
@@ -140,6 +146,7 @@ const InterfaceContractsView = () => {
               <AccordionSummary>
                 <Stack direction="row" spacing={1} sx={{ alignItems: "center", width: "100%" }}>
                   <Typography sx={{ flexGrow: 1 }}>{bundle.interfaceId}</Typography>
+                  <ApprovalMark id={bundle.id} />
                   <Chip size="small" label={`adapter ${bundle.adapter.id}@${bundle.adapter.version}`} />
                 </Stack>
               </AccordionSummary>
@@ -166,7 +173,10 @@ const InterfaceContractsView = () => {
           {suite.subjectContracts.map((bundle) => (
             <Accordion key={bundle.id} variant="outlined">
               <AccordionSummary>
-                <Typography sx={{ flexGrow: 1 }}>{bundle.subjectId}</Typography>
+                <Stack direction="row" spacing={1} sx={{ alignItems: "center", width: "100%" }}>
+                  <Typography sx={{ flexGrow: 1 }}>{bundle.subjectId}</Typography>
+                  <ApprovalMark id={bundle.id} />
+                </Stack>
               </AccordionSummary>
               <AccordionDetails>
                 <Stack spacing={2}>
@@ -183,7 +193,10 @@ const InterfaceContractsView = () => {
           {suite.verificationContracts.map((bundle) => (
             <Accordion key={bundle.id} variant="outlined">
               <AccordionSummary>
-                <Typography sx={{ flexGrow: 1 }}>{bundle.verificationObligationId}</Typography>
+                <Stack direction="row" spacing={1} sx={{ alignItems: "center", width: "100%" }}>
+                  <Typography sx={{ flexGrow: 1 }}>{bundle.verificationObligationId}</Typography>
+                  <ApprovalMark id={bundle.id} />
+                </Stack>
               </AccordionSummary>
               <AccordionDetails>
                 <CodeBlock code={JSON.stringify(bundle, null, 2)} language="json" />

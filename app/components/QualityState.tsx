@@ -1,18 +1,53 @@
-import { Stack, Typography } from "@mui/material";
+import { Box, Stack, Typography } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material/styles";
 
-import { Quality } from "store";
+import type { ApprovalStatus } from "contract-domain";
 
-export function qualityBarSx(quality: Quality): SxProps<Theme> {
+export function approvalBarSx(): SxProps<Theme> {
   return {
-    borderLeft: "4px solid",
-    borderColor: {
-      [Quality.Unchecked]: "action.disabled",
-      [Quality.Good]: "success.main",
-      [Quality.Bad]: "error.main",
-    }[quality],
+    position: "relative",
     pl: 1,
   };
+}
+
+export function ApprovalBar({ status }: { status: ApprovalStatus }) {
+  return (
+    <Box
+      aria-hidden
+      data-approval-bar
+      sx={{
+        position: "absolute",
+        left: 0,
+        top: 0,
+        bottom: 0,
+        width: "4px",
+        bgcolor: status === "approved" ? "success.main" : "action.disabled",
+        overflow: "hidden",
+        pointerEvents: "none",
+      }}
+    >
+      <Box
+        data-approval-bar-fill
+        sx={{
+          position: "absolute",
+          inset: 0,
+          transform: "scaleY(0)",
+          transformOrigin: "top",
+        }}
+      />
+      <Box
+        data-approval-bar-sweep
+        sx={{
+          position: "absolute",
+          inset: 0,
+          bgcolor: "common.white",
+          opacity: 0.4,
+          transform: "scaleY(0)",
+          transformOrigin: "top",
+        }}
+      />
+    </Box>
+  );
 }
 
 export function QualityIssues({

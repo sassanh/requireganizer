@@ -1,7 +1,7 @@
 import { cast, Instance, SnapshotIn, types } from "mobx-state-tree";
 
+import type { ApprovalStatus } from "contract-domain";
 import {
-  Quality,
   StructuralFragment,
 } from "store/constants";
 
@@ -27,20 +27,42 @@ export const ProductOverviewModel = types
   .model("ProductOverview", {
     name: types.maybeNull(types.string),
     purpose: types.maybeNull(types.string),
-    nameQuality: types.optional(
-      types.enumeration(Object.values(Quality)),
-      Quality.Unchecked,
+    nameApproval: types.optional(
+      types.enumeration<ApprovalStatus>(["draft", "approved"]),
+      "draft",
     ),
-    purposeQuality: types.optional(
-      types.enumeration(Object.values(Quality)),
-      Quality.Unchecked,
+    purposeApproval: types.optional(
+      types.enumeration<ApprovalStatus>(["draft", "approved"]),
+      "draft",
     ),
-    nameIssues: types.optional(types.array(types.string), []),
-    purposeIssues: types.optional(types.array(types.string), []),
     primaryFeatures: types.array(PrimaryFeatureModel),
     targetUsers: types.array(TargetUserModel),
   })
+  .preProcessSnapshot((snapshot) => {
+    if (snapshot == null || typeof snapshot !== "object") return snapshot;
+    const record = snapshot as Record<string, unknown>;
+    const {
+      nameQuality: _nameQuality,
+      purposeQuality: _purposeQuality,
+      nameIssues: _nameIssues,
+      purposeIssues: _purposeIssues,
+      ...rest
+    } = record;
+    return rest as typeof snapshot;
+  })
   .actions((self) => ({
+    uncheckName() {
+      self.nameApproval = "draft";
+    },
+    uncheckPurpose() {
+      self.purposeApproval = "draft";
+    },
+    approveName() {
+      self.nameApproval = "approved";
+    },
+    approvePurpose() {
+      self.purposeApproval = "approved";
+    },
     setPrimaryFeatures({
       primaryFeatures,
     }: {

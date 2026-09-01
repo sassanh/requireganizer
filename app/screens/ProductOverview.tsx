@@ -2,27 +2,52 @@ import { Box, Divider, Stack } from "@mui/material";
 import { observer } from "mobx-react-lite";
 
 import { artifactElementId, StructuralFragments } from "components";
-import { QualityIssues, qualityBarSx } from "components/QualityState";
+import ApprovalMark from "components/ApprovalMark";
+import { useStagedApproval } from "components/changeQueue";
+import { ApprovalBar, QualityIssues, approvalBarSx } from "components/QualityState";
 import { StagedTextField } from "components/TextChange";
 import { useShownStore } from "presentation";
-import { StructuralFragment, useStore } from "store";
+import {
+  OVERVIEW_NAME_QUALITY_ID,
+  OVERVIEW_PURPOSE_QUALITY_ID,
+  StructuralFragment,
+  useStore,
+} from "store";
 
 const NameField = observer(function NameField() {
   const store = useStore();
   const shown = useShownStore();
+  const nameElementId = artifactElementId("productOverview-name");
+  const nameApproval = useStagedApproval(
+    nameElementId,
+    shown.productOverview.nameApproval,
+  );
   return (
     <Box
-      id={artifactElementId("productOverview-name")}
-      sx={qualityBarSx(shown.productOverview.nameQuality)}
+      id={nameElementId}
+      sx={approvalBarSx()}
     >
+      <ApprovalBar status={nameApproval} />
       <StagedTextField
         committed={shown.productOverview.name || ""}
         elementId={artifactElementId("productOverview-name")}
         fullWidth
         label="Name"
-        onChange={(event) => store.setName({ name: event.target.value })}
+        slotProps={{ input: { readOnly: true } }}
       />
-      <QualityIssues issues={shown.productOverview.nameIssues} inset={false} />
+      <Stack sx={{ position: "absolute", right: 8, bottom: 8 }}>
+        <ApprovalMark
+          id={OVERVIEW_NAME_QUALITY_ID}
+          onRequestChange={(comment) =>
+            store.handleOverviewFieldComment({ field: "name", comment })
+          }
+          requestChangeDisabled={store.isBusy}
+        />
+      </Stack>
+      <QualityIssues
+        issues={store.mechanicalIssuesForItem(OVERVIEW_NAME_QUALITY_ID).map(({ message }) => message)}
+        inset={false}
+      />
     </Box>
   );
 });
@@ -30,11 +55,17 @@ const NameField = observer(function NameField() {
 const PurposeField = observer(function PurposeField() {
   const store = useStore();
   const shown = useShownStore();
+  const purposeElementId = artifactElementId("productOverview-purpose");
+  const purposeApproval = useStagedApproval(
+    purposeElementId,
+    shown.productOverview.purposeApproval,
+  );
   return (
     <Box
-      id={artifactElementId("productOverview-purpose")}
-      sx={qualityBarSx(shown.productOverview.purposeQuality)}
+      id={purposeElementId}
+      sx={approvalBarSx()}
     >
+      <ApprovalBar status={purposeApproval} />
       <StagedTextField
         committed={shown.productOverview.purpose || ""}
         elementId={artifactElementId("productOverview-purpose")}
@@ -42,11 +73,21 @@ const PurposeField = observer(function PurposeField() {
         multiline
         label="Purpose"
         placeholder="Summarize the key features and objectives of the software in a comprehensive overview..."
-        onChange={(event) =>
-          store.setPurpose({ purpose: event.target.value })
-        }
+        slotProps={{ input: { readOnly: true } }}
       />
-      <QualityIssues issues={shown.productOverview.purposeIssues} inset={false} />
+      <Stack sx={{ position: "absolute", right: 8, bottom: 8 }}>
+        <ApprovalMark
+          id={OVERVIEW_PURPOSE_QUALITY_ID}
+          onRequestChange={(comment) =>
+            store.handleOverviewFieldComment({ field: "purpose", comment })
+          }
+          requestChangeDisabled={store.isBusy}
+        />
+      </Stack>
+      <QualityIssues
+        issues={store.mechanicalIssuesForItem(OVERVIEW_PURPOSE_QUALITY_ID).map(({ message }) => message)}
+        inset={false}
+      />
     </Box>
   );
 });
@@ -66,31 +107,15 @@ const ProductOverview = observer(function ProductOverview() {
         fragments={shown.productOverview.primaryFeatures}
         isDisabled={store.isBusy}
         structuralFragment={StructuralFragment.PrimaryFeature}
-        onAddFragment={store.productOverview.addPrimaryFeature}
+        title="Primary Features"
         onComment={store.handleComment}
-        onRemoveFragment={({ fragment }) => {
-          const real = store.productOverview.primaryFeatures.find(
-            (item) => item.id === fragment.id,
-          );
-          if (real != null) {
-            store.productOverview.removePrimaryFeature({ fragment: real });
-          }
-        }}
       />
       <StructuralFragments
         fragments={shown.productOverview.targetUsers}
         isDisabled={store.isBusy}
         structuralFragment={StructuralFragment.TargetUser}
-        onAddFragment={store.productOverview.addTargetUser}
+        title="Target Users"
         onComment={store.handleComment}
-        onRemoveFragment={({ fragment }) => {
-          const real = store.productOverview.targetUsers.find(
-            (item) => item.id === fragment.id,
-          );
-          if (real != null) {
-            store.productOverview.removeTargetUser({ fragment: real });
-          }
-        }}
       />
     </Stack>
   );

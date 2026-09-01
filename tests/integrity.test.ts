@@ -6,30 +6,26 @@ import {
   OVERVIEW_NAME_QUALITY_ID,
   OVERVIEW_PURPOSE_QUALITY_ID,
   Priority,
-  Quality,
   Status,
   StructuralFragment,
   WorkflowStage,
 } from "../app/store/constants";
 import {
-  aggregateQuality,
   collectMechanicalIssues,
   uncoveredIds,
 } from "../app/store/integrity";
 import { Store, workflowFingerprint } from "../app/store/store";
 import type { FlatStore } from "../app/store/store";
 
-function storeWithOverview(quality: Quality = Quality.Good): FlatStore {
+function storeWithOverview(): FlatStore {
   return Store.create({
     productOverview: {
       name: "Plant Pal",
       purpose: "Help people keep houseplants alive.",
-      nameQuality: quality,
-      purposeQuality: quality,
       primaryFeatures: [
-        { id: "feat-1", content: "Track watering", quality },
+        { id: "feat-1", content: "Track watering" },
       ],
-      targetUsers: [{ id: "user-1", content: "Busy plant owners", quality }],
+      targetUsers: [{ id: "user-1", content: "Busy plant owners" }],
     },
   }) as unknown as FlatStore;
 }
@@ -42,7 +38,6 @@ function storeWithStories(): FlatStore {
         id: "story-1",
         content:
           "As a busy plant owner, I want watering reminders, so that plants stay alive.",
-        quality: Quality.Good,
         references: [
           { id: "feat-1", type: StructuralFragment.PrimaryFeature },
           { id: "user-1", type: StructuralFragment.TargetUser },
@@ -99,47 +94,41 @@ describe("mechanical coverage", () => {
     );
   });
 
-  it("aggregates quality with bad winning over unchecked", () => {
-    assert.equal(aggregateQuality([]), Quality.Unchecked);
-    assert.equal(
-      aggregateQuality([Quality.Good, Quality.Unchecked]),
-      Quality.Unchecked,
-    );
-    assert.equal(
-      aggregateQuality([Quality.Good, Quality.Bad, Quality.Unchecked]),
-      Quality.Bad,
-    );
-    assert.equal(aggregateQuality([Quality.Good, Quality.Good]), Quality.Good);
-  });
 });
 
-describe("standing quality and coverage on the store", () => {
-  it("yellows a filled overview until quality is good", () => {
-    const store = storeWithOverview(Quality.Unchecked);
+describe("standing approval and coverage on the store", () => {
+  it("yellows a filled overview until every item is approved", () => {
+    const store = storeWithOverview();
     assert.equal(store.getStepStatus(WorkflowStage.ProductOverview), Status.Outdated);
-    store.markStageQuality(WorkflowStage.ProductOverview, Quality.Good);
+    store.approve(OVERVIEW_NAME_QUALITY_ID);
+    store.approve(OVERVIEW_PURPOSE_QUALITY_ID);
+    store.approve("feat-1");
+    store.approve("user-1");
     assert.equal(
       store.getStepStatus(WorkflowStage.ProductOverview),
       Status.Completed,
     );
   });
 
-  it("unchecks an item when the user edits content", () => {
+  it("returns an item to draft when its content is rewritten", () => {
     const store = storeWithStories();
-    assert.equal(store.userStories[0].quality, Quality.Good);
+    store.approve("story-1");
+    assert.equal(store.userStories[0].approval, "approved");
     store.userStories[0].setContent(
       "As a busy plant owner, I want a rewritten outcome, so that plants stay alive.",
     );
-    assert.equal(store.userStories[0].quality, Quality.Unchecked);
+    assert.equal(store.userStories[0].approval, "draft");
     assert.equal(store.getStepStatus(WorkflowStage.UserStories), Status.Outdated);
   });
 
-  it("unchecks name and purpose on edit", () => {
+  it("returns name and purpose to draft when they are rewritten", () => {
     const store = storeWithOverview();
+    store.approve(OVERVIEW_NAME_QUALITY_ID);
+    store.approve(OVERVIEW_PURPOSE_QUALITY_ID);
     store.setName({ name: "Garden Pal" });
-    assert.equal(store.productOverview.nameQuality, Quality.Unchecked);
+    assert.equal(store.productOverview.nameApproval, "draft");
     store.setPurpose({ purpose: "Help gardeners too." });
-    assert.equal(store.productOverview.purposeQuality, Quality.Unchecked);
+    assert.equal(store.productOverview.purposeApproval, "draft");
   });
 
   it("does not complete stories that miss a primary feature", () => {
@@ -149,7 +138,6 @@ describe("standing quality and coverage on the store", () => {
         {
           id: "story-1",
           content: "As an owner, I want a journal, so that I remember care.",
-          quality: Quality.Good,
           references: [{ id: "user-1", type: StructuralFragment.TargetUser }],
           priority: Priority.P1,
         },
@@ -170,7 +158,6 @@ describe("standing quality and coverage on the store", () => {
         {
           id: "req-1",
           content: "The system must remind the owner on the watering due date.",
-          quality: Quality.Good,
           references: [{ id: "story-1", type: StructuralFragment.UserStory }],
           priority: Priority.P1,
         },
@@ -181,7 +168,6 @@ describe("standing quality and coverage on the store", () => {
         {
           id: "ac-1",
           content: "Given a due date, when it arrives, the owner is notified.",
-          quality: Quality.Good,
           references: [{ id: "story-1", type: StructuralFragment.UserStory }],
           priority: Priority.P1,
         },
@@ -193,23 +179,23 @@ describe("standing quality and coverage on the store", () => {
     );
   });
 
-  it("does not yellow a downstream stage when only quality changes", () => {
+  it("does not yellow a downstream stage when only approval changes", () => {
     const store = storeWithStories();
     store.setRequirements({
       requirements: [
         {
           id: "req-1",
           content: "The system must remind the owner on the watering due date.",
-          quality: Quality.Good,
           references: [{ id: "story-1", type: StructuralFragment.UserStory }],
           priority: Priority.P1,
         },
       ],
     });
+    store.approve("req-1");
     store.markStageGenerated(WorkflowStage.Requirements);
     assert.equal(store.getStepStatus(WorkflowStage.Requirements), Status.Completed);
     const before = workflowFingerprint(store, WorkflowStage.Requirements);
-    store.userStories[0].setQuality(Quality.Bad, ["Not independently valuable."]);
+    store.approve("story-1");
     assert.equal(
       workflowFingerprint(store, WorkflowStage.Requirements),
       before,
@@ -219,6 +205,7 @@ describe("standing quality and coverage on the store", () => {
 
   it("yellows a stage when upstream content changes", () => {
     const store = storeWithStories();
+    store.approve("story-1");
     store.markStageGenerated(WorkflowStage.UserStories);
     assert.equal(store.getStepStatus(WorkflowStage.UserStories), Status.Completed);
     store.setName({ name: "Garden Pal" });
@@ -226,8 +213,8 @@ describe("standing quality and coverage on the store", () => {
   });
 });
 
-describe("quality check and generate apply", () => {
-  it("marks generated overview items quality-good", async () => {
+describe("generate apply", () => {
+  it("keeps generated overview items draft until approved", async () => {
     const store = Store.create({ productOverview: {} }) as unknown as FlatStore;
     const tools = buildResultTools(store, {
       kind: "generate",
@@ -241,79 +228,12 @@ describe("quality check and generate apply", () => {
       primaryFeatures: ["Track watering schedules"],
       targetUsers: ["Busy plant owners"],
     } as never);
-    assert.equal(store.productOverview.nameQuality, Quality.Good);
-    assert.equal(store.productOverview.purposeQuality, Quality.Good);
-    assert.ok(
-      store.productOverview.primaryFeatures.every(
-        (item) => item.quality === Quality.Good,
-      ),
-    );
     assert.equal(
       store.getStepStatus(WorkflowStage.ProductOverview),
-      Status.Completed,
+      Status.Outdated,
     );
-  });
-
-  it("records check verdicts without rewriting", async () => {
-    const store = storeWithOverview();
-    const name = store.productOverview.name;
-    const tools = buildResultTools(store, {
-      kind: "check",
-      stage: WorkflowStage.ProductOverview,
-    });
-    const check = tools.find(({ name: toolName }) => toolName === "submit_quality_check");
-    assert.ok(check != null);
-    assert.equal(
-      tools.some(({ name: toolName }) => toolName === "submit_product_overview"),
-      false,
-    );
-    await check.execute!("call-1", {
-      items: [
-        {
-          id: OVERVIEW_NAME_QUALITY_ID,
-          quality: "bad",
-          issues: ["Name names a library, not the product."],
-        },
-        { id: OVERVIEW_PURPOSE_QUALITY_ID, quality: "good", issues: [] },
-        { id: "feat-1", quality: "good", issues: [] },
-        { id: "user-1", quality: "good", issues: [] },
-      ],
-    } as never);
-    assert.equal(store.productOverview.name, name);
-    assert.equal(store.productOverview.nameQuality, Quality.Bad);
-    assert.equal(store.canFixStep(WorkflowStage.ProductOverview), true);
-    assert.equal(store.getStepStatus(WorkflowStage.ProductOverview), Status.Outdated);
-  });
-
-  it("leaves rewritten fix items unchecked and does not clear outdated", async () => {
-    const store = storeWithStories();
-    store.markStageGenerated(WorkflowStage.UserStories);
-    store.setName({ name: "Garden Pal" });
-    store.userStories[0].setQuality(Quality.Bad, ["Not independently valuable."]);
-    assert.equal(store.getStepStatus(WorkflowStage.UserStories), Status.Outdated);
-    const tools = buildResultTools(store, {
-      kind: "fix",
-      stage: WorkflowStage.UserStories,
-    });
-    const submit = tools.find(({ name }) => name === "submit_user_story_list");
-    assert.ok(submit != null);
-    await submit.execute!("call-1", {
-      items: [
-        {
-          key: "story-1",
-          id: "story-1",
-          content:
-            "As a busy plant owner, I want a watering reminder on the due date, so that plants stay alive.",
-          priority: Priority.P1,
-          references: [
-            { id: "feat-1", type: StructuralFragment.PrimaryFeature },
-            { id: "user-1", type: StructuralFragment.TargetUser },
-          ],
-          dependencies: [],
-        },
-      ],
-    } as never);
-    assert.equal(store.userStories[0].quality, Quality.Unchecked);
-    assert.equal(store.getStepStatus(WorkflowStage.UserStories), Status.Outdated);
+    assert.equal(store.productOverview.nameApproval, "draft");
+    assert.equal(store.stageIsApproved(WorkflowStage.ProductOverview), false);
+    assert.equal(store.canGenerateStep(WorkflowStage.UserStories), false);
   });
 });

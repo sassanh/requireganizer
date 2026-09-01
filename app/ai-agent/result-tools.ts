@@ -13,7 +13,7 @@ import {
   buildImplementationProfileTool,
   buildProductOverviewTool,
   buildProjectSetupTool,
-  buildQualityCheckTool,
+  buildOverviewFieldRevisionTool,
   buildTestCaseListTool,
   buildTestCodeTool,
   buildTestScenarioListTool,
@@ -23,11 +23,10 @@ import {
   parseArtifactListProposal,
   parseFragmentRevisionProposal,
   parseProductOverviewProposal,
-  parseQualityCheckProposal,
   parseTestCodeProposal,
   parseTestCodeRequest,
 } from "ai-harness/validation";
-import { getArtifactStageDefinition, qualityContractForStage } from "ai-harness/workflow";
+import { getArtifactStageDefinition } from "ai-harness/workflow";
 import {
   fingerprint,
   parseBoundaryDesignProposal,
@@ -62,7 +61,12 @@ import {
   applyTestCodeProposal,
   applyTestScenarioProposal,
 } from "store/actions/ai-actions/utilities";
-import { WorkflowStage, StructuralFragment } from "store/constants";
+import {
+  OVERVIEW_NAME_QUALITY_ID,
+  OVERVIEW_PURPOSE_QUALITY_ID,
+  WorkflowStage,
+  StructuralFragment,
+} from "store/constants";
 import { uncoveredIds } from "store/integrity";
 import type { TestCase, TestScenario } from "store/models";
 import type { FlatStore } from "store/store";
@@ -335,27 +339,21 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
 
   const stageTools: AgentTool[] = [];
 
-  if (command.kind === "check") {
-    const contract = qualityContractForStage(command.stage);
-    const expectedIds = store.qualityItemIds(command.stage);
-    if (contract == null || expectedIds == null || expectedIds.length === 0) {
-      throw new Error(`${command.stage} has no writing-quality contract.`);
+  if (command.kind === "generate" || command.kind === "revise") {
+    if (command.kind === "generate") {
+      const generateStage = command.stage === "implementation-profile"
+        ? WorkflowStage.InterfaceContracts
+        : command.stage;
+      const reason = store.cannotGenerateReason(generateStage);
+      if (reason != null) throw new Error(reason);
+      if (
+        command.stage === WorkflowStage.InterfaceContracts &&
+        store.implementationProfile?.status !== "approved"
+      ) {
+        throw new Error("Approve the implementation profile first.");
+      }
     }
-    stageTools.push(agentTool(buildQualityCheckTool(expectedIds, contract), async (args) => {
-      const proposal = parseQualityCheckProposal(args, { expectedIds });
-      store.applyQualityCheck(proposal);
-      return "Quality check recorded.";
-    }));
-    return [communicate, ...stageTools];
-  }
-
-  if (command.kind === "generate" || command.kind === "revise" || command.kind === "fix") {
-    const applyOptions = command.kind === "fix"
-      ? { markGenerated: false, markQualityGood: false }
-      : { markGenerated: true, markQualityGood: true };
-    if (command.kind === "fix" && qualityContractForStage(command.stage) == null) {
-      throw new Error(`${command.stage} has no writing-quality contract.`);
-    }
+    const applyOptions = { markGenerated: true };
     const reviseTarget = command.kind === "revise"
       ? command.target ?? undefined
       : undefined;
@@ -503,6 +501,9 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
         if (scenario == null || scenario.binding == null) {
           throw new Error("No test scenario with a contract binding is available.");
         }
+        if (command.kind === "generate" && scenario.approval !== "approved") {
+          throw new Error("Approve this scenario before generating its cases.");
+        }
         const snapshot = scenarioSnapshot(scenario);
         const scenarioBinding = snapshot.binding;
         if (scenarioBinding == null) {
@@ -593,18 +594,37 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
   }
 
   if (command.kind === "comment") {
-    stageTools.push(agentTool(
-      buildFragmentRevisionTool(command.fragment),
-      async (args) => {
-        const patch = args.patch;
-        const proposal = parseFragmentRevisionProposal(
-          { patch },
-          { expectedEntityType: command.fragment, expectedId: command.id },
-        );
-        applyFragmentRevisionProposal(store, proposal);
-        return "Fragment revision applied.";
-      },
-    ));
+    if (
+      command.id === OVERVIEW_NAME_QUALITY_ID ||
+      command.id === OVERVIEW_PURPOSE_QUALITY_ID
+    ) {
+      const field = command.id === OVERVIEW_NAME_QUALITY_ID ? "name" : "purpose";
+      stageTools.push(agentTool(
+        buildOverviewFieldRevisionTool(field),
+        async (args) => {
+          const content = args.content;
+          if (typeof content !== "string" || content.trim().length === 0) {
+            throw new Error("Replacement content is required.");
+          }
+          if (field === "name") store.setName({ name: content });
+          else store.setPurpose({ purpose: content });
+          return "Overview field applied.";
+        },
+      ));
+    } else if (command.fragment != null) {
+      stageTools.push(agentTool(
+        buildFragmentRevisionTool(command.fragment),
+        async (args) => {
+          const patch = args.patch;
+          const proposal = parseFragmentRevisionProposal(
+            { patch },
+            { expectedEntityType: command.fragment!, expectedId: command.id },
+          );
+          applyFragmentRevisionProposal(store, proposal);
+          return "Fragment revision applied.";
+        },
+      ));
+    }
   }
 
   if (command.kind === "test-code") {
@@ -632,6 +652,9 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
       }
       if (store.isProjectSetupOutdated) {
         throw new Error("Project Setup is stale; regenerate it before generating tests.");
+      }
+      if (testCase.approval !== "approved") {
+        throw new Error("Approve this test case before generating the automated test.");
       }
       if (testCase.definition == null) {
         throw new Error("The selected case has no approved structured contract binding.");

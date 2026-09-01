@@ -11,9 +11,10 @@ import {
 import { observer } from "mobx-react-lite";
 
 import { artifactElementId } from "components";
+import ApprovalMark from "components/ApprovalMark";
 import { jsonEqual, useStagedContent } from "components/changeQueue";
 import { useShownStore } from "presentation";
-import { useStore } from "store";
+import { WorkflowStage, useStore } from "store";
 
 const BoundaryDesignView = () => {
   const store = useStore();
@@ -31,6 +32,15 @@ const BoundaryDesignView = () => {
 
   return (
     <Stack spacing={3} id={artifactElementId("boundaryDesign")}>
+      <Stack direction="row" sx={{ justifyContent: "flex-end" }}>
+        <ApprovalMark
+          id={design.id}
+          onRequestChange={(comment) =>
+            store.requestStageChange(WorkflowStage.BoundaryDesign, comment)
+          }
+          requestChangeDisabled={store.isBusy}
+        />
+      </Stack>
       <Stack spacing={2}>
         <Typography variant="h5">Test subjects</Typography>
         {design.subjects.map((subject) => (
@@ -44,15 +54,13 @@ const BoundaryDesignView = () => {
               <TextField
                 label="Name"
                 value={subject.name}
-                disabled={store.isBusy}
-                onChange={(event) => store.updateBoundaryText("subjects", subject.id, "name", event.target.value)}
+                slotProps={{ input: { readOnly: true } }}
               />
               <TextField
                 label="Purpose"
                 multiline
                 value={subject.purpose}
-                disabled={store.isBusy}
-                onChange={(event) => store.updateBoundaryText("subjects", subject.id, "purpose", event.target.value)}
+                slotProps={{ input: { readOnly: true } }}
               />
               <Typography variant="body2"><strong>Responsibilities:</strong> {subject.responsibilities.join(" · ")}</Typography>
               <Typography variant="body2"><strong>Exclusions:</strong> {subject.exclusions.join(" · ") || "None declared"}</Typography>
@@ -76,8 +84,7 @@ const BoundaryDesignView = () => {
               <TextField
                 label="Interface name"
                 value={semanticInterface.name}
-                disabled={store.isBusy}
-                onChange={(event) => store.updateBoundaryText("interfaces", semanticInterface.id, "name", event.target.value)}
+                slotProps={{ input: { readOnly: true } }}
               />
               <Typography color="text.secondary">Peer: {semanticInterface.peer}</Typography>
               <Divider />

@@ -4,6 +4,7 @@ import { observer } from "mobx-react-lite";
 import { isAlive } from "mobx-state-tree";
 
 import { GenerationButton } from "components";
+import ApprovalMark from "components/ApprovalMark";
 import {
   MembershipMotion,
   useMembershipTurns,
@@ -74,6 +75,7 @@ function TestCaseRow({
           revision {testCase.revision} · {testCase.definition?.kind}
         </Typography>
       </Stack>
+      <ApprovalMark id={testCase.id} />
       <Chip
         size="small"
         label={testCase.testStatus}
@@ -88,7 +90,7 @@ function TestCaseRow({
       <GenerationButton
         size="small"
         variant="outlined"
-        disabled={busy}
+        disabled={busy || testCase.approval !== "approved"}
         onGenerate={() => {
           const realScenario = store.testScenarios.find(
             (entry) => entry.id === scenario.id,

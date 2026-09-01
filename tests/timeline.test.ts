@@ -793,6 +793,20 @@ describe("timeline controller", () => {
     assert.equal(getChangeFocus().nonce, nonceBefore);
   });
 
+  it("publishes focus for approve so the approval bar can present", () => {
+    const store = newStore();
+    store.setName({ name: "Acme" });
+    commitTimelineSegment();
+    const nonceBefore = getChangeFocus().nonce;
+    store.approve("productOverview/name");
+    assert.notEqual(getChangeFocus().nonce, nonceBefore);
+    assert.ok(
+      getChangeFocus().ops.some(
+        (op) => op.subject === "productOverview/nameApproval",
+      ),
+    );
+  });
+
   it("excludes the conversation from change focus", async () => {
     const store = newStore();
     await store.sendConversationMessage(

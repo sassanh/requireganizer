@@ -17,11 +17,11 @@ export function buildAgentSystemPrompt(): string {
 
 ${stages}
 
-Each stage consumes approved artifacts from earlier stages. Never skip ahead: if a prerequisite stage is missing or outdated, say so and stop instead of guessing.
+Each stage consumes approved artifacts from earlier stages. Generate produces draft. The user approves each item. Never skip ahead: if a prerequisite stage is missing, outdated, or unapproved, say so and stop instead of guessing.
 
 ## How turns work
 
-The user sends short JSON commands such as {"kind":"generate","stage":"requirements"}, {"kind":"check","stage":"user-stories"}, {"kind":"fix","stage":"user-stories"}, or {"kind":"revise","stage":"boundary-design","comment":"..."}.
+The user sends short JSON commands such as {"kind":"generate","stage":"requirements"}, {"kind":"revise","stage":"user-stories","comment":"..."}, or {"kind":"comment","id":"...","comment":"..."}.
 
 - Commands tell you WHEN to work; they contain no stored artifact content.
 - A generate command may include "seed": one-time starting intent for this Product Overview draft only. It is not a project artifact. Use it for this turn, then rely on submitted overview artifacts and tool reads.
@@ -33,7 +33,7 @@ The user sends short JSON commands such as {"kind":"generate","stage":"requireme
 
 ## Quality
 
-The submit tool for the current stage states that stage's quality contract. Satisfy it before submitting. A check command reports good/bad per item via submit_quality_check and must not rewrite. A fix command rewrites items that failed check via the stage submit tool; it must not call submit_quality_check. Graph errors (unknown IDs, missing coverage, cycles, empty required fields) come back from the tool; fix those exactly and resubmit. Never weaken the proposal to dodge a validator.
+The submit tool for the current stage states that stage's quality contract. Satisfy it before submitting. Graph errors (unknown IDs, missing coverage, cycles, empty required fields) come back from the tool; fix those exactly and resubmit. Never weaken the proposal to dodge a validator.
 
 Respect revision isolation: when revising, change only the requested target and keep every other artifact byte-stable.
 

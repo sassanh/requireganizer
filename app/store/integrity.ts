@@ -1,9 +1,6 @@
 import { ARTIFACT_STAGE_DEFINITIONS } from "ai-harness/workflow";
 import type { BoundaryDesign } from "contract-domain";
 import {
-  OVERVIEW_NAME_QUALITY_ID,
-  OVERVIEW_PURPOSE_QUALITY_ID,
-  Quality,
   StructuralFragment,
   WorkflowStage,
 } from "store/constants";
@@ -53,36 +50,6 @@ export function uncoveredIds(
 ): string[] {
   const covered = new Set(coveringIds);
   return requiredIds.filter((id) => !covered.has(id));
-}
-
-export function aggregateQuality(qualities: readonly Quality[]): Quality {
-  if (qualities.length === 0) return Quality.Unchecked;
-  if (qualities.some((item) => item === Quality.Bad)) return Quality.Bad;
-  if (qualities.some((item) => item === Quality.Unchecked)) return Quality.Unchecked;
-  return Quality.Good;
-}
-
-export function qualityItemIdsForStage(
-  stage: WorkflowStage,
-  graph: IntegrityGraph,
-): string[] | null {
-  switch (stage) {
-    case WorkflowStage.ProductOverview:
-      return [
-        OVERVIEW_NAME_QUALITY_ID,
-        OVERVIEW_PURPOSE_QUALITY_ID,
-        ...graph.productOverview.primaryFeatures.map(({ id }) => id),
-        ...graph.productOverview.targetUsers.map(({ id }) => id),
-      ];
-    case WorkflowStage.UserStories:
-      return graph.userStories.map(({ id }) => id);
-    case WorkflowStage.Requirements:
-      return graph.requirements.map(({ id }) => id);
-    case WorkflowStage.AcceptanceCriteria:
-      return graph.acceptanceCriteria.map(({ id }) => id);
-    default:
-      return null;
-  }
 }
 
 function coveringReferenceIds(items: readonly IntegrityItem[]): string[] {

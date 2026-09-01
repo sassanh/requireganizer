@@ -23,6 +23,7 @@ import type {
   ImplementationProfileProposal,
   ProjectSetup,
   ProjectSetupProposal,
+  RevisionMetadata,
   TestCaseListProposal,
   TestScenarioListProposal,
 } from "contract-domain";
@@ -36,7 +37,8 @@ import {
 } from "contract-domain";
 import { getUserFacingErrorMessage, UserFacingError } from "lib/errors";
 import { HarnessResult } from "lib/types";
-import { Priority, Quality, WORKFLOW_STAGE_LABELS, Status, WorkflowStage, StructuralFragment } from "store/constants";
+import { assertApproved } from "store/approval";
+import { Priority, WORKFLOW_STAGE_LABELS, Status, WorkflowStage, StructuralFragment } from "store/constants";
 import type { FlatStore, TestCaseSnapshotInput, TestScenarioSnapshotInput } from "store/store";
 import { uuid } from "utilities";
 
@@ -79,7 +81,6 @@ export function applyAtomically(
 
 export type ArtifactApplyOptions = {
   markGenerated?: boolean;
-  markQualityGood?: boolean;
 };
 
 export function applyProductOverviewProposal(
@@ -88,7 +89,6 @@ export function applyProductOverviewProposal(
   options: ArtifactApplyOptions = {},
 ): void {
   const markGenerated = options.markGenerated ?? true;
-  const markQualityGood = options.markQualityGood ?? true;
   applyAtomically(store, (candidate) => {
     const existingFeatures = new Map(
       candidate.productOverview.primaryFeatures.map((f) => [f.id, f] as const),
@@ -108,8 +108,7 @@ export function applyProductOverviewProposal(
         return {
           ...getSnapshot(existing),
           content: item.content,
-          quality: Quality.Unchecked,
-          qualityIssues: [],
+          approval: "draft",
         };
       }
       return { content: item.content };
@@ -126,8 +125,7 @@ export function applyProductOverviewProposal(
         return {
           ...getSnapshot(existing),
           content: item.content,
-          quality: Quality.Unchecked,
-          qualityIssues: [],
+          approval: "draft",
         };
       }
       return { content: item.content };
@@ -141,7 +139,6 @@ export function applyProductOverviewProposal(
       targetUsers: proposal.targetUsers.map(toUserSnapshot) as never,
     });
     if (markGenerated) candidate.markStageGenerated(WorkflowStage.ProductOverview);
-    if (markQualityGood) candidate.markStageQuality(WorkflowStage.ProductOverview, Quality.Good);
   });
 }
 
@@ -159,7 +156,6 @@ export function applyArtifactListProposals(
   options: ArtifactApplyOptions = {},
 ): void {
   const markGenerated = options.markGenerated ?? true;
-  const markQualityGood = options.markQualityGood ?? true;
   applyAtomically(store, (candidate) => {
     const completedSteps = new Set<WorkflowStage>();
     proposals.forEach((proposal) => {
@@ -169,7 +165,6 @@ export function applyArtifactListProposals(
     });
     completedSteps.forEach((step) => {
       if (markGenerated) candidate.markStageGenerated(step);
-      if (markQualityGood) candidate.markStageQuality(step, Quality.Good);
     });
   });
 }
@@ -195,16 +190,13 @@ export function applyTestCodeProposal(
   });
 }
 
-function revisionMetadata(previous?: { id: string; revision: number }) {
+function revisionMetadata(previous?: { id: string; revision: number }): RevisionMetadata {
   return {
     id: previous?.id ?? uuid(),
     revisionId: uuid(),
     revision: (previous?.revision ?? 0) + 1,
-    // No manual approval flow exists: generated artifacts are immediately
-    // considered final until a newer revision replaces them.
-    status: "approved" as const,
+    status: "draft",
     createdAt: new Date().toISOString(),
-    approvedAt: new Date().toISOString(),
   };
 }
 
@@ -270,9 +262,7 @@ export function applyImplementationProfileProposal(
   store: FlatStore,
   proposal: ImplementationProfileProposal,
 ): void {
-  if (store.boundaryDesign == null) {
-    throw new Error("An approved boundary design is required before implementation profiling.");
-  }
+  assertApproved(store.boundaryDesign, "boundary design");
   const profile = materializeImplementationProfile(
     proposal,
     store.boundaryDesign.revisionId,
@@ -405,9 +395,8 @@ export function applyContractSuiteProposal(
   store: FlatStore,
   proposal: ContractSuiteProposal,
 ): void {
-  if (store.boundaryDesign == null || store.implementationProfile == null) {
-    throw new Error("Approved boundary design and implementation profile are required.");
-  }
+  assertApproved(store.boundaryDesign, "boundary design");
+  assertApproved(store.implementationProfile, "implementation profile");
   if (
     store.implementationProfile.boundaryRevisionId !==
     store.boundaryDesign.revisionId
@@ -462,6 +451,9 @@ export function applyTestScenarioProposal(
   store: FlatStore,
   proposal: TestScenarioListProposal,
 ): void {
+  if (!store.stageIsApproved(WorkflowStage.InterfaceContracts)) {
+    throw new Error("Approve the implementation profile and every formal contract first.");
+  }
   const resolved = resolveDependencies(proposal.items);
   const previous = new Map(store.testScenarios.map((item) => [item.id, item]));
   const snapshots: TestScenarioSnapshotInput[] = proposal.items.map((item) => {
@@ -532,14 +524,10 @@ export function applyProjectSetupProposal(
   store: FlatStore,
   proposal: ProjectSetupProposal,
 ): void {
-  if (
-    store.boundaryDesign == null ||
-    store.implementationProfile == null ||
-    store.contractSuite == null
-  ) {
-    throw new Error(
-      "Approved contracts and an implementation profile are required before project setup.",
-    );
+  assertApproved(store.boundaryDesign, "boundary design");
+  assertApproved(store.implementationProfile, "implementation profile");
+  if (store.contractSuite == null || !store.stageIsApproved(WorkflowStage.InterfaceContracts)) {
+    throw new Error("An approved contract suite is required before project setup.");
   }
   const setup: ProjectSetup = { ...revisionMetadata(store.projectSetup ?? undefined), ...proposal };
   validateProjectSetup(
@@ -637,11 +625,17 @@ export function generator<
 
       requiredSteps.forEach((step) => {
         const status = store.getStepStatus(step);
-        if (status === Status.Completed) return;
-        const action = status === Status.Outdated ? "Regenerate" : "Complete";
-        throw new UserFacingError(
-          `${action} ${WORKFLOW_STAGE_LABELS[step]} before trying to ${operation}.`,
-        );
+        if (status !== Status.Completed) {
+          const action = status === Status.Outdated ? "Regenerate" : "Complete";
+          throw new UserFacingError(
+            `${action} ${WORKFLOW_STAGE_LABELS[step]} before trying to ${operation}.`,
+          );
+        }
+        if (!store.stageIsApproved(step)) {
+          throw new UserFacingError(
+            `Approve ${WORKFLOW_STAGE_LABELS[step]} before trying to ${operation}.`,
+          );
+        }
       });
 
       store.businessCounter += 1;

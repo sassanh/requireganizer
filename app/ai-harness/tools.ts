@@ -9,7 +9,6 @@ import {
   qualityContractForStage,
   withQualityContract,
   type ArtifactStageDefinition,
-  type QualityContract,
 } from "ai-harness/workflow";
 import type {
   BoundaryDesign,
@@ -261,48 +260,20 @@ export function buildArtifactListTool({
   };
 }
 
-export function buildQualityCheckTool(
-  expectedIds: readonly string[],
-  contract: QualityContract | null,
+export function buildOverviewFieldRevisionTool(
+  field: "name" | "purpose",
 ): HarnessToolDefinition {
   return {
-    name: "submit_quality_check",
+    name: "submit_overview_field_revision",
     description: withQualityContract(
-      "Report writing quality for every listed item. Do not rewrite artifacts. Every item id must appear exactly once. quality is good or bad; bad requires issues that name the failed claim.",
-      contract,
-      "check",
+      `Submit replacement text for the product ${field}.`,
+      qualityContractForStage(WorkflowStage.ProductOverview),
     ),
     parameters: objectSchema(
       {
-        items: {
-          type: "array",
-          minItems: expectedIds.length,
-          maxItems: expectedIds.length,
-          description: "One verdict per current item in this stage.",
-          items: objectSchema(
-            {
-              id: {
-                type: "string",
-                enum: [...expectedIds],
-                description: "The item id being judged.",
-              },
-              quality: {
-                type: "string",
-                enum: ["good", "bad"],
-                description: "Whether this item satisfies the quality contract.",
-              },
-              issues: {
-                type: "array",
-                items: { type: "string", minLength: 1 },
-                description:
-                  "Empty when good. One or more failed claims when bad.",
-              },
-            },
-            ["id", "quality", "issues"],
-          ),
-        },
+        content: nonEmptyString(`The replacement ${field}.`),
       },
-      ["items"],
+      ["content"],
     ),
   };
 }
@@ -320,12 +291,17 @@ export function buildFragmentRevisionTool(
   const patchProperties = {
     content: nonEmptyString("Optional replacement content."),
     priority: { type: "string", enum: Object.values(Priority) },
+    remove: {
+      type: "boolean",
+      description:
+        "Set true to drop this item from the list. Do not send other patch fields with it.",
+    },
   };
 
   return {
     name: "submit_fragment_revision",
     description: withQualityContract(
-      "Submit a patch for exactly the requested artifact.",
+      "Submit a patch for exactly the requested artifact. To drop the item, send patch {remove: true} with no other fields.",
       qualityContractForFragment(entityType),
     ),
     parameters: objectSchema(

@@ -25,29 +25,6 @@ function array(value: unknown, label: string): unknown[] {
   return value;
 }
 
-// No manual approval flow exists: legacy snapshots may still carry draft
-// statuses, so normalize every revisioned artifact to approved on load.
-function approvedStatus(value: unknown): unknown {
-  if (!isRecord(value) || value.status === "approved") return value;
-  return {
-    ...value,
-    status: "approved",
-    approvedAt: value.approvedAt ?? new Date().toISOString(),
-  };
-}
-
-function approvedContractSuite(value: unknown): unknown {
-  if (!isRecord(value)) return value;
-  const stampBundles = (bundles: unknown): unknown =>
-    Array.isArray(bundles) ? bundles.map(approvedStatus) : bundles;
-  return {
-    ...value,
-    interfaceContracts: stampBundles(value.interfaceContracts),
-    subjectContracts: stampBundles(value.subjectContracts),
-    verificationContracts: stampBundles(value.verificationContracts),
-  };
-}
-
 function validateLocalDependencies(
   items: readonly { id: string; dependencies: readonly string[] }[],
   label: string,
@@ -94,9 +71,9 @@ const importProject = (self_: unknown, value: unknown): void => {
     userStories: array(value.userStories, "User stories"),
     requirements: array(value.requirements, "Requirements"),
     acceptanceCriteria: array(value.acceptanceCriteria, "Acceptance criteria"),
-    boundaryDesign: approvedStatus(value.boundaryDesign) ?? null,
-    implementationProfile: approvedStatus(value.implementationProfile) ?? null,
-    contractSuite: approvedContractSuite(value.contractSuite) ?? null,
+    boundaryDesign: value.boundaryDesign ?? null,
+    implementationProfile: value.implementationProfile ?? null,
+    contractSuite: value.contractSuite ?? null,
     testScenarios: array(value.testScenarios, "Test scenarios"),
     projectSetup: value.projectSetup ?? null,
     scaffoldFiles: parseScaffoldFiles(value.scaffoldFiles ?? []),

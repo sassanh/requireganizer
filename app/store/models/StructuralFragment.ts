@@ -1,11 +1,11 @@
 import { cast, getParent, Instance, isAlive, types } from "mobx-state-tree";
 
+import type { ApprovalStatus } from "contract-domain";
 import { uuid } from "utilities";
 
 import {
   FRAGMENT_CODES,
   Priority,
-  Quality,
   StructuralFragment as StructuralFragmentName,
 } from "../constants";
 
@@ -42,29 +42,31 @@ const HalfStructuralFragmentModel = types
     priority: types.maybeNull(types.enumeration(Object.values(Priority))),
     references: types.array(ReferenceModel),
     dependencies: types.array(types.string),
-    quality: types.optional(
-      types.enumeration(Object.values(Quality)),
-      Quality.Unchecked,
+    approval: types.optional(
+      types.enumeration<ApprovalStatus>(["draft", "approved"]),
+      "draft",
     ),
-    qualityIssues: types.optional(types.array(types.string), []),
+  })
+  .preProcessSnapshot((snapshot) => {
+    if (snapshot == null || typeof snapshot !== "object") return snapshot;
+    const record = snapshot as Record<string, unknown>;
+    const { quality: _quality, qualityIssues: _qualityIssues, ...rest } = record;
+    return rest as typeof snapshot;
   })
   .actions((self) => ({
-    setQuality(quality: Quality.Good | Quality.Bad, issues: readonly string[] = []) {
-      self.quality = quality;
-      self.qualityIssues = cast(quality === Quality.Bad ? [...issues] : []);
+    dropApproval() {
+      if (self.approval === "draft") return;
+      self.approval = "draft";
     },
-    uncheckQuality() {
-      if (self.quality === Quality.Unchecked && self.qualityIssues.length === 0) {
-        return;
-      }
-      self.quality = Quality.Unchecked;
-      self.qualityIssues = cast([]);
+    approve() {
+      self.approval = "approved";
     },
+  }))
+  .actions((self) => ({
     setContent(newContent: string) {
       if (self.content === newContent) return;
       self.content = newContent;
-      self.quality = Quality.Unchecked;
-      self.qualityIssues = cast([]);
+      self.dropApproval();
     },
     setPriority(newPriority: Priority) {
       self.priority = newPriority;
@@ -83,8 +85,7 @@ const HalfStructuralFragmentModel = types
     }: StructuralFragmentUpdate) {
       if (content !== undefined && content !== self.content) {
         self.content = content;
-        self.quality = Quality.Unchecked;
-        self.qualityIssues = cast([]);
+        self.dropApproval();
       }
       if (priority !== undefined) self.priority = priority;
       if (references !== undefined)

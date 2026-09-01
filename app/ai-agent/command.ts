@@ -15,9 +15,7 @@ export type RevisionTarget = {
 export type AiCommand =
   | { kind: "generate"; stage: CommandStage; scenarioId?: string; seed?: string }
   | { kind: "revise"; stage: CommandStage; comment?: string; target?: RevisionTarget; scenarioId?: string }
-  | { kind: "check"; stage: WorkflowStage }
-  | { kind: "fix"; stage: WorkflowStage }
-  | { kind: "comment"; fragment: StructuralFragment; id: string; comment: string }
+  | { kind: "comment"; fragment?: StructuralFragment; id: string; comment: string }
   | { kind: "test-code"; scenarioId: string; testCaseId: string; comment?: string };
 
 /**
@@ -52,10 +50,6 @@ export function describeCommand(command: AiCommand): string {
       if (command.comment != null && command.comment.length > 0) text += ` — ${command.comment}`;
       return text;
     }
-    case "check":
-      return `Check ${stageLabel(command.stage)} quality`;
-    case "fix":
-      return `Fix ${stageLabel(command.stage)} quality`;
     case "comment":
       return `Apply requested change to ${command.id}: ${command.comment}`;
     case "test-code":
@@ -63,7 +57,7 @@ export function describeCommand(command: AiCommand): string {
   }
 }
 
-const COMMAND_KINDS = ["generate", "revise", "check", "fix", "comment", "test-code"] as const;
+const COMMAND_KINDS = ["generate", "revise", "comment", "test-code"] as const;
 
 /**
  * Recognize a transcript entry produced by renderCommand. Returns null for

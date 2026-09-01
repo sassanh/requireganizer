@@ -1,19 +1,18 @@
-import { Delete } from "@mui/icons-material";
-import { IconButton, Stack, StackProps, TextField, Typography } from "@mui/material";
+import { Stack, StackProps, TextField, Typography } from "@mui/material";
 import type { Theme } from "@mui/material/styles";
 import { observer } from "mobx-react-lite";
 import { isAlive } from "mobx-state-tree";
 import { Fragment, type ReactNode } from "react";
 
-import { qualityContractForFragment } from "ai-harness/workflow";
 import { useFragmentHash } from "hooks/useFragmentHash";
-import { FRAGMENT_CODES, Priority, Quality, StructuralFragment as StructuralFragmentName, useStore } from "store";
+import { FRAGMENT_CODES, Priority, StructuralFragment as StructuralFragmentName, useStore } from "store";
 import { type TestCase, StructuralFragment } from "store/models";
 
-import CommentButton from "./CommentButton";
+import ApprovalMark from "./ApprovalMark";
+import { useStagedApproval } from "./changeQueue";
 import { getFrozenFragment, rememberFrozenFragment } from "./frozenFragment";
 import Link from "./Link";
-import { QualityIssues, qualityBarSx } from "./QualityState";
+import { ApprovalBar, QualityIssues, approvalBarSx } from "./QualityState";
 
 const lastLiveCode = new WeakMap<object, string>();
 
@@ -41,10 +40,9 @@ interface FragmentFrameProps extends StackProps {
   code: string;
   type: string;
   priority: string;
-  quality?: Quality;
+  approved?: boolean;
   qualityIssues?: readonly string[];
   children: ReactNode;
-  showActions: boolean;
   isDisabled: boolean;
   isHighlighted: boolean;
   highlightSx?:
@@ -52,7 +50,6 @@ interface FragmentFrameProps extends StackProps {
     | ((theme: Theme) => React.CSSProperties);
   dependencies: CaptionLink[];
   references: CaptionLink[];
-  onRemove?: () => void;
   onComment?: (comment: string) => void;
 }
 
@@ -61,88 +58,95 @@ function FragmentFrame({
   code,
   type,
   priority,
-  quality,
+  approved,
   qualityIssues = [],
   children,
-  showActions,
   isDisabled,
   isHighlighted,
   highlightSx,
   dependencies,
   references,
-  onRemove,
   onComment,
   sx,
   ...props
 }: FragmentFrameProps) {
+  const hasCaptions = dependencies.length > 0 || references.length > 0;
+  const captionRightPadding = onComment != null ? 36 : 22;
+  const approval = useStagedApproval(id, approved === true ? "approved" : "draft");
   return (
     <Stack
       {...props}
       id={id}
       sx={[
         { pl: 1 },
-        quality != null ? qualityBarSx(quality) : {},
+        approved != null ? approvalBarSx() : {},
         isHighlighted ? highlightSx ?? { backgroundColor: "action.focus" } : {},
         ...(Array.isArray(sx) ? sx : sx ? [sx] : []),
       ]}
     >
-      <Stack direction="row" data-fragment={`${type}:${id}`}>
-        <Typography
-          component={Link}
-          href={`#${code}`}
-          underline="hover"
-          variant="body1"
-          sx={codeSx(priority)}
-        >
-          {code}.
-        </Typography>
-        {children}
-        {showActions && (
-          <Stack direction="row">
-            <IconButton
-              aria-label="Remove"
-              disabled={isDisabled}
-              onClick={onRemove}
-            >
-              <Delete />
-            </IconButton>
-            <CommentButton
-              disabled={isDisabled}
-              onSubmit={onComment ?? (() => {})}
-            />
-          </Stack>
+      {approved != null ? <ApprovalBar status={approval} /> : null}
+      <Stack
+        sx={{
+          position: "relative",
+          pb: hasCaptions ? 0 : 5,
+        }}
+      >
+        <Stack direction="row" data-fragment={`${type}:${id}`}>
+          <Typography
+            component={Link}
+            href={`#${code}`}
+            underline="hover"
+            variant="body1"
+            sx={codeSx(priority)}
+          >
+            {code}.
+          </Typography>
+          {children}
+        </Stack>
+        {dependencies.length > 0 && (
+          <Typography variant="caption" sx={{ py: 1, pr: captionRightPadding }}>
+            Dependencies:{" "}
+            {dependencies.map((dependency, index) => (
+              <Fragment key={`${dependency.id}:${index}`}>
+                <Link
+                  scroll={false}
+                  href={dependency.href}
+                  underline="hover"
+                >
+                  {dependency.label}
+                </Link>
+                {index < dependencies.length - 1 ? ", " : ""}
+              </Fragment>
+            ))}
+          </Typography>
         )}
+        {references.length > 0 && (
+          <Typography variant="caption" sx={{ py: 1, pr: captionRightPadding }}>
+            References:{" "}
+            {references.map((reference, index) => (
+              <Fragment key={`${reference.id}:${index}`}>
+                <Link href={reference.href} underline="hover">
+                  {reference.label}
+                </Link>
+                {index < references.length - 1 ? ", " : ""}
+              </Fragment>
+            ))}
+          </Typography>
+        )}
+        <Stack
+          sx={{
+            position: "absolute",
+            right: 8,
+            bottom: 8,
+          }}
+        >
+          <ApprovalMark
+            id={id}
+            onRequestChange={onComment}
+            requestChangeDisabled={isDisabled}
+          />
+        </Stack>
       </Stack>
-      {dependencies.length > 0 && (
-        <Typography variant="caption" sx={{ py: 1 }}>
-          Dependencies:{" "}
-          {dependencies.map((dependency, index) => (
-            <Fragment key={`${dependency.id}:${index}`}>
-              <Link
-                scroll={false}
-                href={dependency.href}
-                underline="hover"
-              >
-                {dependency.label}
-              </Link>
-              {index < dependencies.length - 1 ? ", " : ""}
-            </Fragment>
-          ))}
-        </Typography>
-      )}
-      {references.length > 0 && (
-        <Typography variant="caption" sx={{ py: 1 }}>
-          References:{" "}
-          {references.map((reference, index) => (
-            <Fragment key={`${reference.id}:${index}`}>
-              <Link href={reference.href} underline="hover">
-                {reference.label}
-              </Link>
-              {index < references.length - 1 ? ", " : ""}
-            </Fragment>
-          ))}
-        </Typography>
-      )}
       <QualityIssues issues={qualityIssues} />
     </Stack>
   );
@@ -154,8 +158,6 @@ interface FragmentShellProps<Type extends StructuralFragment>
   list: Type[];
   fragment: Type;
   onComment?: (parameters: { fragment: Type; comment: string }) => void;
-  onRemove?: (parameters: { fragment: Type }) => void;
-  showActions?: boolean;
   highlightSx?:
     | React.CSSProperties
     | ((theme: Theme) => React.CSSProperties);
@@ -169,8 +171,6 @@ const FragmentShellContent = observer(function FragmentShellContent<
   list,
   fragment,
   onComment,
-  onRemove,
-  showActions = true,
   highlightSx,
   sx,
   ...props
@@ -183,13 +183,8 @@ const FragmentShellContent = observer(function FragmentShellContent<
   const fragmentId = fragment.id;
   const fragmentType = fragment.type;
   const fragmentPriority = fragment.priority ?? "";
-  const showsQuality = qualityContractForFragment(fragmentType) != null;
-  const qualityIssues = showsQuality
-    ? [
-        ...fragment.qualityIssues,
-        ...(store?.mechanicalIssuesForItem(fragmentId).map(({ message }) => message) ?? []),
-      ]
-    : [];
+  const qualityIssues =
+    store?.mechanicalIssuesForItem(fragmentId).map(({ message }) => message) ?? [];
   const dependencies = [...fragment.dependencies].map((id) => {
     const linkedCode = store.getCode(id);
     return {
@@ -207,10 +202,6 @@ const FragmentShellContent = observer(function FragmentShellContent<
   }));
   const isHighlighted = hash === code || hash === fragmentId;
 
-  const handleRemove = () => {
-    if (!isAlive(fragment)) return;
-    onRemove?.({ fragment });
-  };
   const handleComment = (comment: string) => {
     if (!isAlive(fragment)) return;
     onComment?.({ fragment, comment });
@@ -221,15 +212,13 @@ const FragmentShellContent = observer(function FragmentShellContent<
       code={code}
       type={fragmentType}
       priority={fragmentPriority}
-      quality={showsQuality ? fragment.quality : undefined}
+      approved={fragment.approval === "approved"}
       qualityIssues={qualityIssues}
-      showActions={showActions}
       isDisabled={isDisabled}
       isHighlighted={isHighlighted}
       highlightSx={highlightSx}
       dependencies={dependencies}
       references={references}
-      onRemove={handleRemove}
       onComment={handleComment}
       sx={sx}
       {...props}
@@ -329,12 +318,10 @@ export function freezeLiveFragment(
   {
     list,
     isDisabled,
-    showActions,
     store,
   }: {
     list: StructuralFragment[];
     isDisabled: boolean;
-    showActions: boolean;
     store: {
       getCode: (id: string) => string | undefined;
       getPath: (id: string) => string | undefined;
@@ -364,7 +351,7 @@ export function freezeLiveFragment(
       code={fragment.getCode()}
       type={fragmentType}
       priority={fragment.priority ?? ""}
-      showActions={showActions}
+      approved={fragment.approval === "approved"}
       isDisabled={isDisabled}
       isHighlighted={false}
       dependencies={dependencies}
@@ -380,7 +367,6 @@ export function freezeLiveFragment(
 export function freezeFragmentSnapshot(
   id: string,
   snapshot: unknown,
-  showActions: boolean,
   isDisabled: boolean,
 ): void {
   if (getFrozenFragment(id) != null) return;
@@ -394,7 +380,6 @@ export function freezeFragmentSnapshot(
       code=""
       type={type}
       priority={typeof record.priority === "string" ? record.priority : ""}
-      showActions={showActions}
       isDisabled={isDisabled}
       isHighlighted={false}
       dependencies={[]}

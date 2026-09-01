@@ -12,6 +12,7 @@ import { GenerationButton } from "components";
 import { useStore } from "store";
 import type { TestScenario } from "store/models";
 
+import ApprovalMark from "./ApprovalMark";
 import {
   MembershipMotion,
 } from "./membershipPresentation";
@@ -57,6 +58,7 @@ export default observer(function TestCaseScenarioAccordions({
                   <Typography variant="h6" sx={{ flexGrow: 1, pr: 2 }}>
                     {picture.content}
                   </Typography>
+                  {scenario != null ? <ApprovalMark id={scenario.id} /> : null}
                   <Typography
                     variant="caption"
                     sx={{
@@ -77,7 +79,7 @@ export default observer(function TestCaseScenarioAccordions({
                   <Stack>
                     <GenerationButton
                       endIcon={<Build />}
-                      disabled={store.isBusy}
+                      disabled={store.isBusy || scenario.approval !== "approved"}
                       onGenerate={() => {
                         const real = store.testScenarios.find(
                           (entry) => entry.id === scenario.id,

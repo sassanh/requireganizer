@@ -169,7 +169,8 @@ const FactoryTab = observer(function FactoryTab({
       sx={[
         {
           alignSelf: "stretch",
-          justifyContent: "space-between",
+          width: "100%",
+          justifyContent: "flex-start",
           position: "relative",
           overflow: "visible",
           color: ICON_COLOR[status],
@@ -178,7 +179,10 @@ const FactoryTab = observer(function FactoryTab({
             color: SELECTED_ICON_COLOR[status],
             borderRightColor: "currentColor",
           },
-          "& .MuiTab-icon": { overflow: "hidden" },
+          "& .MuiTab-icon": {
+            overflow: "hidden",
+            marginLeft: "auto",
+          },
           ...(pulsing
             ? {
                 animation: `${factoryTabPop} ${HIGHLIGHT_MILLISECONDS}ms ease-out`,
@@ -372,12 +376,7 @@ const Factory: React.FunctionComponent<FactoryProps> = ({ activeProject }) => {
               fragments={shown.userStories}
               isDisabled={store.isBusy}
               structuralFragment={StructuralFragment.UserStory}
-              onAddFragment={store.addUserStory}
               onComment={store.handleComment}
-              onRemoveFragment={({ fragment }) => {
-                const real = store.userStories.find((item) => item.id === fragment.id);
-                if (real != null) store.removeUserStory({ fragment: real });
-              }}
             />
           </AnimatedTabPanel>
 
@@ -391,12 +390,7 @@ const Factory: React.FunctionComponent<FactoryProps> = ({ activeProject }) => {
               fragments={shown.requirements}
               isDisabled={store.isBusy}
               structuralFragment={StructuralFragment.Requirement}
-              onAddFragment={store.addRequirement}
               onComment={store.handleComment}
-              onRemoveFragment={({ fragment }) => {
-                const real = store.requirements.find((item) => item.id === fragment.id);
-                if (real != null) store.removeRequirement({ fragment: real });
-              }}
             />
           </AnimatedTabPanel>
 
@@ -410,14 +404,7 @@ const Factory: React.FunctionComponent<FactoryProps> = ({ activeProject }) => {
               fragments={shown.acceptanceCriteria}
               isDisabled={store.isBusy}
               structuralFragment={StructuralFragment.AcceptanceCriteria}
-              onAddFragment={store.addAcceptanceCriteria}
               onComment={store.handleComment}
-              onRemoveFragment={({ fragment }) => {
-                const real = store.acceptanceCriteria.find(
-                  (item) => item.id === fragment.id,
-                );
-                if (real != null) store.removeAcceptanceCriteria({ fragment: real });
-              }}
             />
           </AnimatedTabPanel>
 

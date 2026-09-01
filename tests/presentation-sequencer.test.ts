@@ -8,6 +8,7 @@ import {
   claim,
   complete,
   getPresentationTick,
+  isPresenting,
   noteVisibleStep,
   resetPresentation,
   setPresentationNav,
@@ -220,5 +221,19 @@ describe("presentation sequencer", () => {
     const { real, shown } = attachPair();
     real.setName({ name: "typed" });
     assert.equal(shown.productOverview.name ?? "", "typed");
+  });
+
+  it("presents approve through the sequencer", () => {
+    const { real, shown } = attachPair();
+    real.setName({ name: "Acme" });
+    assert.equal(shown.productOverview.nameApproval, "draft");
+    real.approve("productOverview/name");
+    assert.equal(real.productOverview.nameApproval, "approved");
+    assert.equal(shown.productOverview.nameApproval, "approved");
+    assert.equal(isPresenting(), true);
+    const tick = getPresentationTick();
+    claim(tick);
+    complete(tick);
+    assert.equal(isPresenting(), false);
   });
 });

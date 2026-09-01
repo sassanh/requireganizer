@@ -1,4 +1,6 @@
 export { default as handleComment } from "./handle-comment";
+export { default as handleOverviewFieldComment } from "./handle-overview-field-comment";
+export { default as requestStageChange } from "./request-stage-change";
 export { regenerateLastReply } from "./conversation-history";
 export { default as sendConversationMessage } from "./send-conversation-message";
 export { default as generateAcceptanceCriteria } from "./generate-acceptance-criteria";
@@ -13,5 +15,3 @@ export { default as generateTestCode } from "./generate-test-code";
 export { default as generateTestScenarios } from "./generate-test-scenarios";
 export { default as generateUserStories } from "./generate-user-stories";
 export { default as reviseFormalContract } from "./revise-formal-contract";
-export { default as checkStageQuality } from "./check-stage-quality";
-export { default as fixStageQuality } from "./fix-stage-quality";

@@ -26,7 +26,7 @@ export function buildReadTools(store: FlatStore): AgentTool[] {
           stage: WORKFLOW_STAGE_LABELS[step],
           status: store.getStepStatus(step),
           hasArtifacts: store.hasStepArtifacts(step),
-          quality: store.stageQuality(step),
+          approved: store.stageIsApproved(step),
           mechanicalIssues: store.mechanicalIssuesForStage(step).map(({ itemId, message }) => ({
             itemId,
             message,

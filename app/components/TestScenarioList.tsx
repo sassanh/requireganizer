@@ -5,6 +5,7 @@ import { useRef } from "react";
 
 import type { TestScenario } from "store/models";
 
+import ApprovalMark from "./ApprovalMark";
 import {
   MembershipMotion,
   useMembershipTurns,
@@ -68,7 +69,13 @@ function pictureFromLive(scenario: TestScenario): ScenarioPicture {
   );
 }
 
-function ScenarioCard({ picture }: { picture: ScenarioPicture }) {
+function ScenarioCard({
+  picture,
+  liveId,
+}: {
+  picture: ScenarioPicture;
+  liveId?: string;
+}) {
   return (
     <Card variant="outlined">
       <CardContent component={Stack} spacing={1}>
@@ -78,6 +85,7 @@ function ScenarioCard({ picture }: { picture: ScenarioPicture }) {
           </Typography>
           <Chip size="small" label={picture.bindingKind} />
           <Chip size="small" label={picture.priority || "unprioritized"} />
+          {liveId != null ? <ApprovalMark id={liveId} /> : null}
         </Stack>
         <Typography>{picture.description}</Typography>
         <Typography variant="caption" color="text.secondary">
@@ -132,7 +140,10 @@ export default observer(function TestScenarioList({
             exitHeight={exitHeightFor(id)}
             itemRef={itemRef}
           >
-            <ScenarioCard picture={picture} />
+            <ScenarioCard
+              picture={picture}
+              liveId={liveIds.includes(id) ? id : undefined}
+            />
           </MembershipMotion>
         );
       })}

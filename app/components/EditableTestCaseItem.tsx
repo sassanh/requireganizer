@@ -31,7 +31,6 @@ const EditableTestCaseItemContent = observer(function EditableTestCaseItemConten
       isDisabled={isDisabled}
       list={list}
       fragment={fragment}
-      showActions={false}
       highlightSx={(theme) => ({
         outline: `2px solid ${theme.palette.action.focus}`,
       })}

@@ -1,11 +1,9 @@
-import { Add } from "@mui/icons-material";
-import { Button, Divider, Paper, Stack } from "@mui/material";
+import { Divider, Paper, Stack, Typography } from "@mui/material";
 import { observer } from "mobx-react-lite";
 import { isAlive } from "mobx-state-tree";
 import { ReactElement, ReactNode } from "react";
 
 import {
-  STRUCTURAL_FRAGMENT_LABEL,
   StructuralFragment as StructuralFragmentName,
 } from "store";
 import {
@@ -26,7 +24,6 @@ interface FragmentListProps<Type extends StructuralFragmentModel> {
   isDisabled: boolean;
   structuralFragment: Type["type"];
   scenarioId?: string;
-  onAddFragment?: () => void;
   renderFragment: (
     fragment: Type,
     options?: { isDisabled?: boolean; list?: Type[] },
@@ -45,7 +42,6 @@ const FragmentList = observer(function FragmentList<
   isDisabled,
   structuralFragment,
   scenarioId,
-  onAddFragment,
   renderFragment,
 }: FragmentListProps<Type>) {
   const liveFragments = fragments.filter((fragment) => isAlive(fragment));
@@ -87,11 +83,6 @@ const FragmentList = observer(function FragmentList<
           </MembershipMotion>
         );
       })}
-      {onAddFragment && (
-        <Button disabled={isDisabled} endIcon={<Add />} onClick={onAddFragment}>
-          Add {STRUCTURAL_FRAGMENT_LABEL[structuralFragment]}
-        </Button>
-      )}
     </Stack>
   );
 });
@@ -100,34 +91,37 @@ interface StructuralFragmentsProps<Type extends StructuralFragmentModel> {
   fragments: Type[];
   isDisabled: boolean;
   structuralFragment: Type["type"];
-  onAddFragment: () => void;
+  title?: string;
   onComment: (parameters: { fragment: Type; comment: string }) => void;
-  onRemoveFragment: (parameters: { fragment: Type }) => void;
 }
 
 const StructuralFragments = <Type extends StructuralFragmentModel>({
   fragments,
   isDisabled,
   structuralFragment,
-  onAddFragment,
+  title,
   onComment,
-  onRemoveFragment,
 }: StructuralFragmentsProps<Type>): ReactElement => (
-  <FragmentList
-    fragments={fragments}
-    isDisabled={isDisabled}
-    structuralFragment={structuralFragment}
-    onAddFragment={onAddFragment}
-    renderFragment={(fragment, options) => (
-      <EditableItem<Type>
-        list={options?.list ?? fragments}
-        fragment={fragment}
-        isDisabled={options?.isDisabled ?? isDisabled}
-        onComment={onComment}
-        onRemove={onRemoveFragment}
-      />
-    )}
-  />
+  <Stack sx={{ gap: 1 }}>
+    {title != null ? (
+      <Typography variant="h6" component="h4">
+        {title}
+      </Typography>
+    ) : null}
+    <FragmentList
+      fragments={fragments}
+      isDisabled={isDisabled}
+      structuralFragment={structuralFragment}
+      renderFragment={(fragment, options) => (
+        <EditableItem<Type>
+          list={options?.list ?? fragments}
+          fragment={fragment}
+          isDisabled={options?.isDisabled ?? isDisabled}
+          onComment={onComment}
+        />
+      )}
+    />
+  </Stack>
 );
 
 interface TestCaseFragmentsProps {

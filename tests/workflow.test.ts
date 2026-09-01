@@ -60,6 +60,7 @@ describe("canonical engineering workflow", () => {
   it("system prompt points at the submit-tool quality contract instead of restating it", () => {
     const prompt = buildAgentSystemPrompt();
     assert.match(prompt, /submit tool[\s\S]*quality contract/i);
+    assert.match(prompt, /Generate produces draft/);
     assert.doesNotMatch(prompt, /Separate user outcomes from implementation details/);
     assert.equal(
       prompt.includes(STAGE_QUALITY_CONTRACTS[WorkflowStage.UserStories].objective),

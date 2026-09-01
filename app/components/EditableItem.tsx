@@ -2,9 +2,7 @@ import { StackProps } from "@mui/material";
 import { observer } from "mobx-react-lite";
 import { isAlive } from "mobx-state-tree";
 
-import { useStore } from "store";
 import { StructuralFragment } from "store/models";
-import { commitTimelineSegment } from "store/timeline/controller";
 
 import FragmentShell from "./FragmentShell";
 import { StagedTextField } from "./TextChange";
@@ -15,7 +13,6 @@ interface EditableItemProps<Type extends StructuralFragment>
   list: Type[];
   fragment: Type;
   onComment: (parameters: { fragment: Type; comment: string }) => void;
-  onRemove: (parameters: { fragment: Type }) => void;
 }
 
 const EditableItemContent = observer(function EditableItemContent<
@@ -25,31 +22,14 @@ const EditableItemContent = observer(function EditableItemContent<
   list,
   fragment,
   onComment,
-  onRemove,
   ...props
 }: EditableItemProps<Type>) {
-  const realStore = useStore();
-  const handleChange = ({
-    target: { value },
-  }: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const writable = realStore.structuralFragmentsCache[fragment.id];
-    if (writable == null || !isAlive(writable)) return;
-    writable.setContent(value);
-  };
-
-  const handleKeyUp = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === "Escape") {
-      event.currentTarget.blur();
-    }
-  };
-
   return (
     <FragmentShell
       isDisabled={isDisabled}
       list={list}
       fragment={fragment}
       onComment={onComment}
-      onRemove={onRemove}
       {...props}
     >
       <StagedTextField
@@ -57,15 +37,13 @@ const EditableItemContent = observer(function EditableItemContent<
         elementId={fragment.id}
         multiline
         fullWidth
-        onChange={handleChange}
-        onBlur={commitTimelineSegment}
         disabled={isDisabled}
         sx={{
           "&:not(:focus-within) fieldset": { border: "none" },
         }}
         slotProps={{
           input: {
-            onKeyUp: handleKeyUp,
+            readOnly: true,
             sx: { pl: 9 },
           },
         }}

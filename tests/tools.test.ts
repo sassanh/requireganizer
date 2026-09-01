@@ -6,7 +6,6 @@ import {
   buildArtifactListTool,
   buildFragmentRevisionTool,
   buildProductOverviewTool,
-  buildQualityCheckTool,
 } from "../app/ai-harness/tools";
 import {
   formatQualityContract,
@@ -160,16 +159,11 @@ describe("AI function-tool schemas", () => {
     const fragmentContract = qualityContractForFragment(StructuralFragment.UserStory);
     assert.ok(fragmentContract != null);
     assert.ok(revision.description?.includes(formatQualityContract(fragmentContract)));
-  });
-
-  it("puts the quality contract on the check tool and forbids rewrite", () => {
-    const contract = qualityContractForStage(WorkflowStage.UserStories);
-    assert.ok(contract != null);
-    const tool = buildQualityCheckTool(["story-1"], contract);
-    assert.equal(tool.name, "submit_quality_check");
-    assert.ok(tool.description?.includes("Do not rewrite"));
-    assert.ok(
-      tool.description?.includes(formatQualityContract(contract, "check")),
-    );
+    assert.match(revision.description ?? "", /remove: true/);
+    const revisionParameters = record(revision.parameters);
+    const revisionProperties = record(revisionParameters.properties);
+    const patch = record(revisionProperties.patch);
+    const patchProperties = record(patch.properties);
+    assert.equal(record(patchProperties.remove).type, "boolean");
   });
 });

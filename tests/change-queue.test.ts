@@ -246,9 +246,7 @@ describe("change queue", () => {
           fragments: shown.userStories,
           isDisabled: false,
           structuralFragment: "user_story" as never,
-          onAddFragment: () => {},
           onComment: () => {},
-          onRemoveFragment: () => {},
         }),
       );
       await Promise.resolve();
@@ -329,9 +327,7 @@ describe("change queue", () => {
           fragments: shown.userStories,
           isDisabled: false,
           structuralFragment: "user_story" as never,
-          onAddFragment: () => {},
           onComment: () => {},
-          onRemoveFragment: () => {},
         }),
       );
       await Promise.resolve();
@@ -353,10 +349,6 @@ describe("change queue", () => {
       readText(),
       "keep me visible",
       "the leaving item must still show its content, not an empty shell",
-    );
-    assert.ok(
-      container.querySelector('[aria-label="Remove"]'),
-      "the leaving item must keep its actions",
     );
 
     await playMembershipTurn(React);
@@ -410,9 +402,7 @@ describe("change queue", () => {
           fragments: shown.userStories,
           isDisabled: false,
           structuralFragment: "user_story" as never,
-          onAddFragment: () => {},
           onComment: () => {},
-          onRemoveFragment: () => {},
         }),
       );
       await Promise.resolve();
@@ -495,9 +485,7 @@ describe("change queue", () => {
           fragments: shown.userStories,
           isDisabled: false,
           structuralFragment: "user_story" as never,
-          onAddFragment: () => {},
           onComment: () => {},
-          onRemoveFragment: () => {},
         }),
       );
       await Promise.resolve();
@@ -662,9 +650,7 @@ describe("change queue", () => {
           fragments: shown.productOverview.primaryFeatures,
           isDisabled: false,
           structuralFragment: "primary_feature" as never,
-          onAddFragment: () => {},
           onComment: () => {},
-          onRemoveFragment: () => {},
         }),
       );
     }

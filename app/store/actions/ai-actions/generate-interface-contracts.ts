@@ -11,6 +11,11 @@ import {
 export default generator(
   function* generateInterfaceContracts(self) {
     const { runAgentCommand } = yield* toGenerator(import("ai-agent/agent"));
+    if (self.implementationProfile.status !== "approved") {
+      throw new UserFacingError(
+        "Approve the Implementation Profile before generating interface contracts.",
+      );
+    }
     if (self.implementationProfile.boundaryRevisionId !== self.boundaryDesign.revisionId) {
       throw new UserFacingError(
         "Regenerate the implementation profile for the current Boundary Design before generating interface contracts.",

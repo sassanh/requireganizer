@@ -70,7 +70,7 @@ export const TestScenarioModel = types
       revisionId?: string;
       revision?: number;
     }) {
-      self.content = title;
+      self.setContent(title);
       self.description = description;
       self.binding = cast(binding);
       self.revisionId = revisionId ?? uuid();
