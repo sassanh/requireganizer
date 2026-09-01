@@ -16,12 +16,14 @@ import type {
   FragmentRevisionProposal,
   ProductOverviewPatchItem,
   ProductOverviewProposal,
+  QualityCheckProposal,
   TestCodeProposal,
 } from "ai-harness/contracts";
 import {
   materializeArtifactItems,
   type PersistedArtifactItem,
 } from "ai-harness/reconciliation";
+import { qualityContractForStage } from "ai-harness/workflow";
 import {
   type BoundaryDesign,
   type ContractSuite,
@@ -63,6 +65,8 @@ import {
   reviseFormalContract,
   sendConversationMessage,
   regenerateLastReply,
+  checkStageQuality,
+  fixStageQuality,
 } from "./actions";
 import {
   GENERATION_PREREQUISITE_BY_WORKFLOW_STAGE,
@@ -71,11 +75,22 @@ import {
   Priority,
   WORKFLOW_STAGE_BY_STRUCTURAL_FRAGMENT,
   WORKFLOW_STAGES,
+  OVERVIEW_NAME_QUALITY_ID,
+  OVERVIEW_PURPOSE_QUALITY_ID,
+  Quality,
   Status,
   WorkflowStage,
   StructuralFragment as StructuralFragmentName,
   isBefore,
 } from "./constants";
+import {
+  aggregateQuality,
+  collectMechanicalIssues,
+  qualityItemIdsForStage,
+  type IntegrityGraph,
+  type IntegrityItem,
+  type MechanicalIssue,
+} from "./integrity";
 import {
   AcceptanceCriteria,
   AcceptanceCriteriaModel,
@@ -142,6 +157,88 @@ export interface TestCaseSnapshotInput {
   generatedInputFingerprint?: string | null;
 }
 
+function integrityItem(fragment: {
+  id: string;
+  type: StructuralFragmentName;
+  content: string;
+  references: readonly { id: string; type: StructuralFragmentName }[];
+  dependencies: readonly string[];
+}): IntegrityItem {
+  return {
+    id: fragment.id,
+    type: fragment.type,
+    content: fragment.content,
+    references: fragment.references.map(({ id, type }) => ({ id, type })),
+    dependencies: [...fragment.dependencies],
+  };
+}
+
+function criterionIdsFrom(
+  references: readonly { id: string; type: StructuralFragmentName }[],
+): string[] {
+  return references
+    .filter(({ type }) => type === StructuralFragmentName.AcceptanceCriteria)
+    .map(({ id }) => id);
+}
+
+function integrityGraphFromStore(source: {
+  productOverview: ProductOverview;
+  userStories: readonly UserStory[];
+  requirements: readonly Requirement[];
+  acceptanceCriteria: readonly AcceptanceCriteria[];
+  boundaryDesign: BoundaryDesign | null;
+  testScenarios: readonly TestScenario[];
+}): IntegrityGraph {
+  return {
+    productOverview: {
+      name: source.productOverview.name,
+      purpose: source.productOverview.purpose,
+      primaryFeatures: source.productOverview.primaryFeatures.map(integrityItem),
+      targetUsers: source.productOverview.targetUsers.map(integrityItem),
+    },
+    userStories: source.userStories.map(integrityItem),
+    requirements: source.requirements.map(integrityItem),
+    acceptanceCriteria: source.acceptanceCriteria.map(integrityItem),
+    boundaryDesign: source.boundaryDesign,
+    testScenarios: source.testScenarios.map((scenario) => ({
+      id: scenario.id,
+      criterionIds: criterionIdsFrom(scenario.references),
+      testCases: scenario.testCases.map((testCase) => ({
+        id: testCase.id,
+        criterionIds: criterionIdsFrom(testCase.references),
+      })),
+    })),
+  };
+}
+
+function qualitiesForStage(
+  source: {
+    productOverview: ProductOverview;
+    userStories: readonly UserStory[];
+    requirements: readonly Requirement[];
+    acceptanceCriteria: readonly AcceptanceCriteria[];
+  },
+  step: WorkflowStage,
+): Quality[] | null {
+  switch (step) {
+    case WorkflowStage.ProductOverview:
+      return [
+        source.productOverview.nameQuality,
+        source.productOverview.purposeQuality,
+        ...source.productOverview.primaryFeatures.map(({ quality }) => quality),
+        ...source.productOverview.targetUsers.map(({ quality }) => quality),
+      ];
+    case WorkflowStage.UserStories:
+      return source.userStories.map(({ quality }) => quality);
+    case WorkflowStage.Requirements:
+      return source.requirements.map(({ quality }) => quality);
+    case WorkflowStage.AcceptanceCriteria:
+      return source.acceptanceCriteria.map(({ quality }) => quality);
+    default:
+      return null;
+  }
+}
+
 function createFragment(
   entityType: StructuralFragmentName,
   data: PersistedArtifactItem,
@@ -202,19 +299,38 @@ function scenarioDesign(scenarios: readonly TestScenario[]) {
   }));
 }
 
+const QUALITY_FINGERPRINT_KEYS = new Set([
+  "quality",
+  "qualityIssues",
+  "nameQuality",
+  "purposeQuality",
+  "nameIssues",
+  "purposeIssues",
+]);
+
+function omitQualityFields(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(omitQualityFields);
+  if (value == null || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([key]) => !QUALITY_FINGERPRINT_KEYS.has(key))
+      .map(([key, item]) => [key, omitQualityFields(item)]),
+  );
+}
+
 export function buildWorkflowInput(
   source: WorkflowInputSource,
   step: WorkflowStage,
 ): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   if (step === WorkflowStage.ProductOverview) return result;
-  result.productOverview = source.productOverview;
+  result.productOverview = omitQualityFields(source.productOverview);
   if (step === WorkflowStage.UserStories) return result;
-  result.userStories = source.userStories;
+  result.userStories = omitQualityFields(source.userStories);
   if (step === WorkflowStage.Requirements) return result;
-  result.requirements = source.requirements;
+  result.requirements = omitQualityFields(source.requirements);
   if (step === WorkflowStage.AcceptanceCriteria) return result;
-  result.acceptanceCriteria = source.acceptanceCriteria;
+  result.acceptanceCriteria = omitQualityFields(source.acceptanceCriteria);
   if (step === WorkflowStage.BoundaryDesign) return result;
   result.boundaryDesign = source.boundaryDesign;
   if (step === WorkflowStage.InterfaceContracts) return result;
@@ -419,6 +535,60 @@ export const FlatStore = types
     markStageGenerated(step: WorkflowStage) {
       self.stageInputFingerprints.set(step, workflowFingerprint(self, step));
     },
+    markStageQuality(step: WorkflowStage, quality: Quality.Good | Quality.Bad) {
+      const issues: string[] = [];
+      switch (step) {
+        case WorkflowStage.ProductOverview:
+          self.productOverview.nameQuality = quality;
+          self.productOverview.purposeQuality = quality;
+          self.productOverview.nameIssues = cast(issues);
+          self.productOverview.purposeIssues = cast(issues);
+          self.productOverview.primaryFeatures.forEach((item) =>
+            item.setQuality(quality, issues),
+          );
+          self.productOverview.targetUsers.forEach((item) =>
+            item.setQuality(quality, issues),
+          );
+          break;
+        case WorkflowStage.UserStories:
+          self.userStories.forEach((item) => item.setQuality(quality, issues));
+          break;
+        case WorkflowStage.Requirements:
+          self.requirements.forEach((item) => item.setQuality(quality, issues));
+          break;
+        case WorkflowStage.AcceptanceCriteria:
+          self.acceptanceCriteria.forEach((item) => item.setQuality(quality, issues));
+          break;
+        default:
+          break;
+      }
+    },
+    applyQualityCheck(proposal: QualityCheckProposal) {
+      for (const verdict of proposal.items) {
+        const quality = verdict.quality === "good" ? Quality.Good : Quality.Bad;
+        if (verdict.id === OVERVIEW_NAME_QUALITY_ID) {
+          self.productOverview.nameQuality = quality;
+          self.productOverview.nameIssues = cast(verdict.issues);
+          continue;
+        }
+        if (verdict.id === OVERVIEW_PURPOSE_QUALITY_ID) {
+          self.productOverview.purposeQuality = quality;
+          self.productOverview.purposeIssues = cast(verdict.issues);
+          continue;
+        }
+        const fragment = [
+          ...self.productOverview.primaryFeatures,
+          ...self.productOverview.targetUsers,
+          ...self.userStories,
+          ...self.requirements,
+          ...self.acceptanceCriteria,
+        ].find((item) => item.id === verdict.id);
+        if (fragment == null) {
+          throw new Error(`Cannot apply quality for unknown item ${verdict.id}.`);
+        }
+        fragment.setQuality(quality, verdict.issues);
+      }
+    },
     setScaffoldFiles(files: { path: string; content: string }[]) {
       self.scaffoldFiles = cast(parseScaffoldFiles(files));
     },
@@ -450,10 +620,16 @@ export const FlatStore = types
       self.eventTarget.emit("stepUpdate", WorkflowStage.ProductOverview);
     },
     setName({ name }: { name: string }) {
+      if (self.productOverview.name === name) return;
       self.productOverview.name = name;
+      self.productOverview.nameQuality = Quality.Unchecked;
+      self.productOverview.nameIssues = cast([]);
     },
     setPurpose({ purpose }: { purpose: string }) {
+      if (self.productOverview.purpose === purpose) return;
       self.productOverview.purpose = purpose;
+      self.productOverview.purposeQuality = Quality.Unchecked;
+      self.productOverview.purposeIssues = cast([]);
     },
     setPrimaryFeatures({ primaryFeatures }: { primaryFeatures: SnapshotIn<PrimaryFeature>[] }) {
       self.productOverview.primaryFeatures = cast(primaryFeatures);
@@ -715,6 +891,12 @@ export const FlatStore = types
       ] as unknown as StructuralFragment[];
       return Object.fromEntries(all.map((fragment) => [fragment.id, fragment]));
     },
+    get integrityGraph(): IntegrityGraph {
+      return integrityGraphFromStore(self);
+    },
+    get mechanicalIssues(): MechanicalIssue[] {
+      return collectMechanicalIssues(integrityGraphFromStore(self));
+    },
   }))
   .views((self) => ({
     get projectSetupIsCurrent() {
@@ -741,28 +923,75 @@ export const FlatStore = types
     get isProjectSetupOutdated() {
       return self.projectSetup != null && !self.projectSetupIsCurrent;
     },
+    mechanicalIssuesForStage(step: WorkflowStage): MechanicalIssue[] {
+      return self.mechanicalIssues.filter((issue) => issue.stage === step);
+    },
+    mechanicalIssuesForItem(id: string): MechanicalIssue[] {
+      return self.mechanicalIssues.filter((issue) => issue.itemId === id);
+    },
+    stageQuality(step: WorkflowStage): Quality | null {
+      const qualities = qualitiesForStage(self, step);
+      if (qualities == null) return null;
+      return aggregateQuality(qualities);
+    },
+    qualityItemIds(step: WorkflowStage): string[] | null {
+      return qualityItemIdsForStage(step, integrityGraphFromStore(self));
+    },
     getStepStatus(step: WorkflowStage): Status {
       const generated = self.stageInputFingerprints.get(step);
       const inputIsOutdated =
         generated != null && generated !== workflowFingerprint(self, step);
+      const stageIssues = self.mechanicalIssues.filter((issue) => issue.stage === step);
+      const quality = qualitiesForStage(self, step);
+      const qualityReady =
+        quality == null || aggregateQuality(quality) === Quality.Good;
       let status: Status;
+      let hasArtifacts: boolean;
+      let mechanicallyComplete = false;
       switch (step) {
         case WorkflowStage.ProductOverview:
-          status = self.productOverview.isComplete ? Status.Completed : Status.Pending;
+          hasArtifacts = !self.productOverview.isEmpty;
+          mechanicallyComplete =
+            self.productOverview.isComplete && stageIssues.length === 0;
+          status =
+            mechanicallyComplete && qualityReady
+              ? Status.Completed
+              : Status.Pending;
           break;
         case WorkflowStage.UserStories:
-          status = self.userStories.length > 0 ? Status.Completed : Status.Pending;
+          hasArtifacts = self.userStories.length > 0;
+          mechanicallyComplete = hasArtifacts && stageIssues.length === 0;
+          status =
+            mechanicallyComplete && qualityReady
+              ? Status.Completed
+              : Status.Pending;
           break;
         case WorkflowStage.Requirements:
-          status = self.requirements.length > 0 ? Status.Completed : Status.Pending;
+          hasArtifacts = self.requirements.length > 0;
+          mechanicallyComplete = hasArtifacts && stageIssues.length === 0;
+          status =
+            mechanicallyComplete && qualityReady
+              ? Status.Completed
+              : Status.Pending;
           break;
         case WorkflowStage.AcceptanceCriteria:
-          status = self.acceptanceCriteria.length > 0 ? Status.Completed : Status.Pending;
+          hasArtifacts = self.acceptanceCriteria.length > 0;
+          mechanicallyComplete = hasArtifacts && stageIssues.length === 0;
+          status =
+            mechanicallyComplete && qualityReady
+              ? Status.Completed
+              : Status.Pending;
           break;
         case WorkflowStage.BoundaryDesign:
-          status = self.boundaryDesign != null ? Status.Completed : Status.Pending;
+          hasArtifacts = self.boundaryDesign != null;
+          status =
+            hasArtifacts && stageIssues.length === 0
+              ? Status.Completed
+              : Status.Pending;
           break;
         case WorkflowStage.InterfaceContracts:
+          hasArtifacts =
+            self.implementationProfile != null || self.contractSuite != null;
           status = self.contractsReady ? Status.Completed : Status.Pending;
           if (
             status === Status.Completed &&
@@ -776,23 +1005,31 @@ export const FlatStore = types
           }
           break;
         case WorkflowStage.TestScenarios:
+          hasArtifacts = self.testScenarios.length > 0;
           status =
-            self.testScenarios.length > 0 && self.testScenarios.every(({ binding }) => binding != null)
+            hasArtifacts &&
+            self.testScenarios.every(({ binding }) => binding != null) &&
+            stageIssues.length === 0
               ? Status.Completed
               : Status.Pending;
           break;
         case WorkflowStage.TestCases:
+          hasArtifacts = self.testScenarios.some(
+            ({ testCases }) => testCases.length > 0,
+          );
           status =
             self.testScenarios.length > 0 &&
             self.testScenarios.every(
               (scenario) =>
                 scenario.testCases.length > 0 &&
                 scenario.testCases.every(({ definition }) => definition != null),
-            )
+            ) &&
+            stageIssues.length === 0
               ? Status.Completed
               : Status.Pending;
           break;
         case WorkflowStage.ProjectSetup:
+          hasArtifacts = self.projectSetup != null;
           status = self.projectSetup == null ? Status.Pending : Status.Completed;
           if (status === Status.Completed && !self.projectSetupIsCurrent) {
             status = Status.Outdated;
@@ -805,6 +1042,7 @@ export const FlatStore = types
                 generatedInputFingerprint != null,
             ),
           );
+          hasArtifacts = hasGeneratedTests;
           if (
             self.projectSetup == null ||
             self.testScenarios.reduce((count, scenario) => count + scenario.testCases.length, 0) === 0
@@ -829,10 +1067,13 @@ export const FlatStore = types
           break;
         }
         case WorkflowStage.Code:
+          hasArtifacts = false;
           status = Status.Pending;
           break;
       }
-      return status === Status.Completed && inputIsOutdated ? Status.Outdated : status;
+      if (hasArtifacts && inputIsOutdated) return Status.Outdated;
+      if (mechanicallyComplete && !qualityReady) return Status.Outdated;
+      return status;
     },
   }))
   .views((self) => ({
@@ -882,6 +1123,16 @@ export const FlatStore = types
         return JSON.stringify(self.data(step));
       },
       hasStepArtifacts,
+      canCheckStep(step: WorkflowStage): boolean {
+        return qualityContractForStage(step) != null && hasStepArtifacts(step);
+      },
+      canFixStep(step: WorkflowStage): boolean {
+        return (
+          qualityContractForStage(step) != null &&
+          hasStepArtifacts(step) &&
+          self.stageQuality(step) === Quality.Bad
+        );
+      },
       affectedDownstreamSteps(
         sourceStep: WorkflowStage,
         includeSourceStep = false,
@@ -920,6 +1171,8 @@ const aiFlows = {
   generateTestCases,
   generateProjectSetup,
   generateTestCode,
+  checkStageQuality,
+  fixStageQuality,
 };
 
 export const Store = FlatStore.actions(

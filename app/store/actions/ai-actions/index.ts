@@ -13,3 +13,5 @@ export { default as generateTestCode } from "./generate-test-code";
 export { default as generateTestScenarios } from "./generate-test-scenarios";
 export { default as generateUserStories } from "./generate-user-stories";
 export { default as reviseFormalContract } from "./revise-formal-contract";
+export { default as checkStageQuality } from "./check-stage-quality";
+export { default as fixStageQuality } from "./fix-stage-quality";

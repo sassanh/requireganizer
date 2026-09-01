@@ -45,6 +45,16 @@ export interface FragmentRevisionProposal {
   };
 }
 
+export interface QualityCheckVerdict {
+  id: string;
+  quality: "good" | "bad";
+  issues: string[];
+}
+
+export interface QualityCheckProposal {
+  items: QualityCheckVerdict[];
+}
+
 export interface TestCodeProjectContext {
   name: string;
   purpose: string;

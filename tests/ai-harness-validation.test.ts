@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   parseArtifactListProposal,
   parseFragmentRevisionProposal,
+  parseQualityCheckProposal,
   parseTestCodeProposal,
   parseTestCodeRequest,
 } from "../app/ai-harness/validation";
@@ -470,6 +471,77 @@ describe("test-code request parsing", () => {
         testCase: { ...validTestCodeRequest().testCase, renderedSteps: "hand-written steps" },
       })),
       /must be rendered from its structured definition/,
+    );
+  });
+});
+
+describe("quality-check proposal parsing", () => {
+  const expectedIds = ["item-1", "item-2"];
+
+  it("accepts a complete good/bad report", () => {
+    const proposal = parseQualityCheckProposal(
+      {
+        items: [
+          { id: "item-1", quality: "good", issues: [] },
+          { id: "item-2", quality: "bad", issues: ["Not independently valuable."] },
+        ],
+      },
+      { expectedIds },
+    );
+    assert.equal(proposal.items[1].quality, "bad");
+  });
+
+  it("rejects missing items, extra ids, good-with-issues, and bad-without-issues", () => {
+    assert.match(
+      parseError(() =>
+        parseQualityCheckProposal(
+          { items: [{ id: "item-1", quality: "good", issues: [] }] },
+          { expectedIds },
+        ),
+      ),
+      /missing 1 item/,
+    );
+    assert.match(
+      parseError(() =>
+        parseQualityCheckProposal(
+          {
+            items: [
+              { id: "item-1", quality: "good", issues: [] },
+              { id: "ghost", quality: "good", issues: [] },
+            ],
+          },
+          { expectedIds },
+        ),
+      ),
+      /not an item in this stage/,
+    );
+    assert.match(
+      parseError(() =>
+        parseQualityCheckProposal(
+          {
+            items: [
+              { id: "item-1", quality: "good", issues: ["should not be here"] },
+              { id: "item-2", quality: "good", issues: [] },
+            ],
+          },
+          { expectedIds },
+        ),
+      ),
+      /must be empty when quality is good/,
+    );
+    assert.match(
+      parseError(() =>
+        parseQualityCheckProposal(
+          {
+            items: [
+              { id: "item-1", quality: "good", issues: [] },
+              { id: "item-2", quality: "bad", issues: [] },
+            ],
+          },
+          { expectedIds },
+        ),
+      ),
+      /must name the failed claim/,
     );
   });
 });

@@ -1,6 +1,7 @@
 import { cast, Instance, SnapshotIn, types } from "mobx-state-tree";
 
 import {
+  Quality,
   StructuralFragment,
 } from "store/constants";
 
@@ -26,6 +27,16 @@ export const ProductOverviewModel = types
   .model("ProductOverview", {
     name: types.maybeNull(types.string),
     purpose: types.maybeNull(types.string),
+    nameQuality: types.optional(
+      types.enumeration(Object.values(Quality)),
+      Quality.Unchecked,
+    ),
+    purposeQuality: types.optional(
+      types.enumeration(Object.values(Quality)),
+      Quality.Unchecked,
+    ),
+    nameIssues: types.optional(types.array(types.string), []),
+    purposeIssues: types.optional(types.array(types.string), []),
     primaryFeatures: types.array(PrimaryFeatureModel),
     targetUsers: types.array(TargetUserModel),
   })

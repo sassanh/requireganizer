@@ -2,6 +2,7 @@ import { Box, Divider, Stack } from "@mui/material";
 import { observer } from "mobx-react-lite";
 
 import { artifactElementId, StructuralFragments } from "components";
+import { QualityIssues, qualityBarSx } from "components/QualityState";
 import { StagedTextField } from "components/TextChange";
 import { useShownStore } from "presentation";
 import { StructuralFragment, useStore } from "store";
@@ -10,7 +11,10 @@ const NameField = observer(function NameField() {
   const store = useStore();
   const shown = useShownStore();
   return (
-    <Box id={artifactElementId("productOverview-name")}>
+    <Box
+      id={artifactElementId("productOverview-name")}
+      sx={qualityBarSx(shown.productOverview.nameQuality)}
+    >
       <StagedTextField
         committed={shown.productOverview.name || ""}
         elementId={artifactElementId("productOverview-name")}
@@ -18,6 +22,7 @@ const NameField = observer(function NameField() {
         label="Name"
         onChange={(event) => store.setName({ name: event.target.value })}
       />
+      <QualityIssues issues={shown.productOverview.nameIssues} inset={false} />
     </Box>
   );
 });
@@ -26,7 +31,10 @@ const PurposeField = observer(function PurposeField() {
   const store = useStore();
   const shown = useShownStore();
   return (
-    <Box id={artifactElementId("productOverview-purpose")}>
+    <Box
+      id={artifactElementId("productOverview-purpose")}
+      sx={qualityBarSx(shown.productOverview.purposeQuality)}
+    >
       <StagedTextField
         committed={shown.productOverview.purpose || ""}
         elementId={artifactElementId("productOverview-purpose")}
@@ -38,6 +46,7 @@ const PurposeField = observer(function PurposeField() {
           store.setPurpose({ purpose: event.target.value })
         }
       />
+      <QualityIssues issues={shown.productOverview.purposeIssues} inset={false} />
     </Box>
   );
 });

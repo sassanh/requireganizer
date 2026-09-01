@@ -5,6 +5,7 @@ import { uuid } from "utilities";
 import {
   FRAGMENT_CODES,
   Priority,
+  Quality,
   StructuralFragment as StructuralFragmentName,
 } from "../constants";
 
@@ -41,10 +42,29 @@ const HalfStructuralFragmentModel = types
     priority: types.maybeNull(types.enumeration(Object.values(Priority))),
     references: types.array(ReferenceModel),
     dependencies: types.array(types.string),
+    quality: types.optional(
+      types.enumeration(Object.values(Quality)),
+      Quality.Unchecked,
+    ),
+    qualityIssues: types.optional(types.array(types.string), []),
   })
   .actions((self) => ({
+    setQuality(quality: Quality.Good | Quality.Bad, issues: readonly string[] = []) {
+      self.quality = quality;
+      self.qualityIssues = cast(quality === Quality.Bad ? [...issues] : []);
+    },
+    uncheckQuality() {
+      if (self.quality === Quality.Unchecked && self.qualityIssues.length === 0) {
+        return;
+      }
+      self.quality = Quality.Unchecked;
+      self.qualityIssues = cast([]);
+    },
     setContent(newContent: string) {
+      if (self.content === newContent) return;
       self.content = newContent;
+      self.quality = Quality.Unchecked;
+      self.qualityIssues = cast([]);
     },
     setPriority(newPriority: Priority) {
       self.priority = newPriority;
@@ -61,7 +81,11 @@ const HalfStructuralFragmentModel = types
       references,
       dependencies,
     }: StructuralFragmentUpdate) {
-      if (content !== undefined) self.content = content;
+      if (content !== undefined && content !== self.content) {
+        self.content = content;
+        self.quality = Quality.Unchecked;
+        self.qualityIssues = cast([]);
+      }
       if (priority !== undefined) self.priority = priority;
       if (references !== undefined)
         self.references = cast(

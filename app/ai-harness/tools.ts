@@ -9,6 +9,7 @@ import {
   qualityContractForStage,
   withQualityContract,
   type ArtifactStageDefinition,
+  type QualityContract,
 } from "ai-harness/workflow";
 import type {
   BoundaryDesign,
@@ -253,6 +254,52 @@ export function buildArtifactListTool({
                   ]),
             ],
           },
+        },
+      },
+      ["items"],
+    ),
+  };
+}
+
+export function buildQualityCheckTool(
+  expectedIds: readonly string[],
+  contract: QualityContract | null,
+): HarnessToolDefinition {
+  return {
+    name: "submit_quality_check",
+    description: withQualityContract(
+      "Report writing quality for every listed item. Do not rewrite artifacts. Every item id must appear exactly once. quality is good or bad; bad requires issues that name the failed claim.",
+      contract,
+      "check",
+    ),
+    parameters: objectSchema(
+      {
+        items: {
+          type: "array",
+          minItems: expectedIds.length,
+          maxItems: expectedIds.length,
+          description: "One verdict per current item in this stage.",
+          items: objectSchema(
+            {
+              id: {
+                type: "string",
+                enum: [...expectedIds],
+                description: "The item id being judged.",
+              },
+              quality: {
+                type: "string",
+                enum: ["good", "bad"],
+                description: "Whether this item satisfies the quality contract.",
+              },
+              issues: {
+                type: "array",
+                items: { type: "string", minLength: 1 },
+                description:
+                  "Empty when good. One or more failed claims when bad.",
+              },
+            },
+            ["id", "quality", "issues"],
+          ),
         },
       },
       ["items"],

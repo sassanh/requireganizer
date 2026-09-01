@@ -4,6 +4,7 @@ import {
   FragmentRevisionProposal,
   ProductOverviewPatchItem,
   ProductOverviewProposal,
+  QualityCheckProposal,
   TestCodeRequest,
   TestCodeProposal,
 } from "ai-harness/contracts";
@@ -23,6 +24,7 @@ import {
   Priority,
   StructuralFragment,
 } from "store/constants";
+import { uncoveredIds } from "store/integrity";
 import { isEnumMember } from "utilities";
 
 export interface ArtifactIdentity {
@@ -424,10 +426,10 @@ function assertCoverage(
   const requiredIds = [...artifacts.values()]
     .filter(({ type }) => type === definition.coverageReferenceType)
     .map(({ id }) => id);
-  const coveredIds = new Set(
+  const missing = uncoveredIds(
+    requiredIds,
     items.flatMap((item) => item.references.map(({ id }) => id)),
   );
-  const missing = requiredIds.filter((id) => !coveredIds.has(id));
   if (missing.length > 0) {
     throw new InvalidJsonError(
       `${definition.entityType} result does not cover ${missing.length} required upstream artifact(s).`,
@@ -534,6 +536,57 @@ export function parseArtifactListProposal(
   assertValidDependencies(items);
   assertCoverage(items, artifacts, definition);
   return { entityType, items };
+}
+
+export function parseQualityCheckProposal(
+  value: unknown,
+  { expectedIds }: { expectedIds: readonly string[] },
+): QualityCheckProposal {
+  if (!isRecord(value)) {
+    throw new InvalidJsonError("Quality-check result must be an object.");
+  }
+  assertAllowedKeys(value, ["items"], "Quality-check result");
+  const rawItems = requiredArray(value, "items", "Quality-check result");
+  if (rawItems.length === 0) {
+    throw new InvalidJsonError("Quality-check result.items must not be empty.");
+  }
+  const expected = new Set(expectedIds);
+  const seen = new Set<string>();
+  const items = rawItems.map((item, index) => {
+    const label = `Quality-check result.items[${index}]`;
+    if (!isRecord(item)) {
+      throw new InvalidJsonError(`${label} must be an object.`);
+    }
+    assertAllowedKeys(item, ["id", "quality", "issues"], label);
+    const id = requiredString(item, "id", label);
+    if (!expected.has(id)) {
+      throw new InvalidJsonError(`${label}.id is not an item in this stage.`);
+    }
+    if (seen.has(id)) {
+      throw new InvalidJsonError(`${label}.id is duplicated.`);
+    }
+    seen.add(id);
+    const quality = enumValue(
+      item.quality,
+      { good: "good", bad: "bad" } as const,
+      `${label}.quality`,
+    );
+    const issues = stringArray(item, "issues", label);
+    if (quality === "good" && issues.length > 0) {
+      throw new InvalidJsonError(`${label}.issues must be empty when quality is good.`);
+    }
+    if (quality === "bad" && issues.length === 0) {
+      throw new InvalidJsonError(`${label}.issues must name the failed claim when quality is bad.`);
+    }
+    return { id, quality, issues };
+  });
+  const missing = expectedIds.filter((id) => !seen.has(id));
+  if (missing.length > 0) {
+    throw new InvalidJsonError(
+      `Quality-check result is missing ${missing.length} item(s).`,
+    );
+  }
+  return { items };
 }
 
 export function parseFragmentRevisionProposal(

@@ -13,6 +13,7 @@ import {
   buildImplementationProfileTool,
   buildProductOverviewTool,
   buildProjectSetupTool,
+  buildQualityCheckTool,
   buildTestCaseListTool,
   buildTestCodeTool,
   buildTestScenarioListTool,
@@ -22,10 +23,11 @@ import {
   parseArtifactListProposal,
   parseFragmentRevisionProposal,
   parseProductOverviewProposal,
+  parseQualityCheckProposal,
   parseTestCodeProposal,
   parseTestCodeRequest,
 } from "ai-harness/validation";
-import { getArtifactStageDefinition } from "ai-harness/workflow";
+import { getArtifactStageDefinition, qualityContractForStage } from "ai-harness/workflow";
 import {
   fingerprint,
   parseBoundaryDesignProposal,
@@ -61,6 +63,7 @@ import {
   applyTestScenarioProposal,
 } from "store/actions/ai-actions/utilities";
 import { WorkflowStage, StructuralFragment } from "store/constants";
+import { uncoveredIds } from "store/integrity";
 import type { TestCase, TestScenario } from "store/models";
 import type { FlatStore } from "store/store";
 import { generateTestAnnotation } from "utilities/testParser";
@@ -332,7 +335,27 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
 
   const stageTools: AgentTool[] = [];
 
-  if (command.kind === "generate" || command.kind === "revise") {
+  if (command.kind === "check") {
+    const contract = qualityContractForStage(command.stage);
+    const expectedIds = store.qualityItemIds(command.stage);
+    if (contract == null || expectedIds == null || expectedIds.length === 0) {
+      throw new Error(`${command.stage} has no writing-quality contract.`);
+    }
+    stageTools.push(agentTool(buildQualityCheckTool(expectedIds, contract), async (args) => {
+      const proposal = parseQualityCheckProposal(args, { expectedIds });
+      store.applyQualityCheck(proposal);
+      return "Quality check recorded.";
+    }));
+    return [communicate, ...stageTools];
+  }
+
+  if (command.kind === "generate" || command.kind === "revise" || command.kind === "fix") {
+    const applyOptions = command.kind === "fix"
+      ? { markGenerated: false, markQualityGood: false }
+      : { markGenerated: true, markQualityGood: true };
+    if (command.kind === "fix" && qualityContractForStage(command.stage) == null) {
+      throw new Error(`${command.stage} has no writing-quality contract.`);
+    }
     const reviseTarget = command.kind === "revise"
       ? command.target ?? undefined
       : undefined;
@@ -350,7 +373,7 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
         const state = JSON.parse(store.json(WorkflowStage.ProductOverview)) as Record<string, unknown>;
         stageTools.push(agentTool(buildProductOverviewTool(state), async (args) => {
           const proposal = parseProductOverviewProposal(args, state);
-          applyProductOverviewProposal(store, proposal);
+          applyProductOverviewProposal(store, proposal, applyOptions);
           return "Product overview applied.";
         }));
         break;
@@ -375,7 +398,7 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
               expectedEntityType: fragmentType,
               state,
             });
-            applyArtifactListProposal(store, proposal);
+            applyArtifactListProposal(store, proposal, applyOptions);
             return `${definition.entityType} list applied.`;
           },
         ));
@@ -451,10 +474,14 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
                 }
               }
             }
-            for (const id of acceptanceCriteriaIds) {
-              if (!proposal.items.some((item) => item.acceptanceCriteriaIds.includes(id))) {
-                throw new Error(`Test scenario proposal does not cover acceptance criterion ${id}.`);
-              }
+            const missingCriteria = uncoveredIds(
+              acceptanceCriteriaIds,
+              proposal.items.flatMap((item) => item.acceptanceCriteriaIds),
+            );
+            if (missingCriteria.length > 0) {
+              throw new Error(
+                `Test scenario proposal does not cover acceptance criterion ${missingCriteria[0]}.`,
+              );
             }
             applyTestScenarioProposal(store, proposal);
             store.eventTarget.emit("stepUpdate", WorkflowStage.TestScenarios);
@@ -508,10 +535,14 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
                 snapshot.revisionId,
               );
             }
-            for (const id of snapshot.acceptanceCriteriaIds) {
-              if (!proposal.items.some((item) => item.acceptanceCriteriaIds.includes(id))) {
-                throw new Error(`Test case proposal does not cover acceptance criterion ${id}.`);
-              }
+            const missingCriteria = uncoveredIds(
+              snapshot.acceptanceCriteriaIds,
+              proposal.items.flatMap((item) => item.acceptanceCriteriaIds),
+            );
+            if (missingCriteria.length > 0) {
+              throw new Error(
+                `Test case proposal does not cover acceptance criterion ${missingCriteria[0]}.`,
+              );
             }
             applyTestCaseProposal(store, proposal);
             store.eventTarget.emit("stepUpdate", WorkflowStage.TestCases);

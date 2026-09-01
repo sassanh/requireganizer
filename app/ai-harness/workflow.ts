@@ -161,23 +161,31 @@ export function qualityContractForFragment(
  * The only reader of quality-contract fields. Submit-tool descriptions
  * attach this text so the model verifies writing; code does not parse it.
  */
-export function formatQualityContract(contract: QualityContract): string {
+export function formatQualityContract(
+  contract: QualityContract,
+  mode: "submit" | "check" = "submit",
+): string {
   const rules = contract.qualityRules.map((rule) => `- ${rule}`).join("\n");
+  const action =
+    mode === "check"
+      ? "Judge each item against this contract. Report good or bad. Do not rewrite. Judge the claim, not the vocabulary."
+      : "Verify the writing against this contract before submitting. Do not submit text that fails it. Judge the claim, not the vocabulary.";
   return [
     `Objective: ${contract.objective}`,
     `Contract: ${contract.itemContract}`,
     "Rules:",
     rules,
-    "Verify the writing against this contract before submitting. Do not submit text that fails it. Judge the claim, not the vocabulary.",
+    action,
   ].join("\n");
 }
 
 export function withQualityContract(
   baseDescription: string,
   contract: QualityContract | null,
+  mode: "submit" | "check" = "submit",
 ): string {
   if (contract == null) return baseDescription;
-  return `${baseDescription}\n\n${formatQualityContract(contract)}`;
+  return `${baseDescription}\n\n${formatQualityContract(contract, mode)}`;
 }
 
 export function getArtifactStageDefinition(

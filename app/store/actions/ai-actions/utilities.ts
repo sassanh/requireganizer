@@ -36,7 +36,7 @@ import {
 } from "contract-domain";
 import { getUserFacingErrorMessage, UserFacingError } from "lib/errors";
 import { HarnessResult } from "lib/types";
-import { Priority, WORKFLOW_STAGE_LABELS, Status, WorkflowStage, StructuralFragment } from "store/constants";
+import { Priority, Quality, WORKFLOW_STAGE_LABELS, Status, WorkflowStage, StructuralFragment } from "store/constants";
 import type { FlatStore, TestCaseSnapshotInput, TestScenarioSnapshotInput } from "store/store";
 import { uuid } from "utilities";
 
@@ -77,10 +77,18 @@ export function applyAtomically(
   applySnapshot(store, snapshot);
 }
 
+export type ArtifactApplyOptions = {
+  markGenerated?: boolean;
+  markQualityGood?: boolean;
+};
+
 export function applyProductOverviewProposal(
   store: FlatStore,
   proposal: ProductOverviewProposal,
+  options: ArtifactApplyOptions = {},
 ): void {
+  const markGenerated = options.markGenerated ?? true;
+  const markQualityGood = options.markQualityGood ?? true;
   applyAtomically(store, (candidate) => {
     const existingFeatures = new Map(
       candidate.productOverview.primaryFeatures.map((f) => [f.id, f] as const),
@@ -97,7 +105,12 @@ export function applyProductOverviewProposal(
       if (item.id != null) {
         const existing = existingFeatures.get(item.id);
         if (existing == null) throw new Error(`Unknown primaryFeature id ${item.id}`);
-        return { ...getSnapshot(existing), content: item.content };
+        return {
+          ...getSnapshot(existing),
+          content: item.content,
+          quality: Quality.Unchecked,
+          qualityIssues: [],
+        };
       }
       return { content: item.content };
     };
@@ -110,7 +123,12 @@ export function applyProductOverviewProposal(
       if (item.id != null) {
         const existing = existingUsers.get(item.id);
         if (existing == null) throw new Error(`Unknown targetUser id ${item.id}`);
-        return { ...getSnapshot(existing), content: item.content };
+        return {
+          ...getSnapshot(existing),
+          content: item.content,
+          quality: Quality.Unchecked,
+          qualityIssues: [],
+        };
       }
       return { content: item.content };
     };
@@ -122,21 +140,26 @@ export function applyProductOverviewProposal(
     candidate.setTargetUsers({
       targetUsers: proposal.targetUsers.map(toUserSnapshot) as never,
     });
-    candidate.markStageGenerated(WorkflowStage.ProductOverview);
+    if (markGenerated) candidate.markStageGenerated(WorkflowStage.ProductOverview);
+    if (markQualityGood) candidate.markStageQuality(WorkflowStage.ProductOverview, Quality.Good);
   });
 }
 
 export function applyArtifactListProposal(
   store: FlatStore,
   proposal: ArtifactListProposal,
+  options: ArtifactApplyOptions = {},
 ): void {
-  applyArtifactListProposals(store, [proposal]);
+  applyArtifactListProposals(store, [proposal], options);
 }
 
 export function applyArtifactListProposals(
   store: FlatStore,
   proposals: ArtifactListProposal[],
+  options: ArtifactApplyOptions = {},
 ): void {
+  const markGenerated = options.markGenerated ?? true;
+  const markQualityGood = options.markQualityGood ?? true;
   applyAtomically(store, (candidate) => {
     const completedSteps = new Set<WorkflowStage>();
     proposals.forEach((proposal) => {
@@ -144,7 +167,10 @@ export function applyArtifactListProposals(
       candidate.replaceArtifactList(proposal);
       completedSteps.add(definition.step);
     });
-    completedSteps.forEach((step) => candidate.markStageGenerated(step));
+    completedSteps.forEach((step) => {
+      if (markGenerated) candidate.markStageGenerated(step);
+      if (markQualityGood) candidate.markStageQuality(step, Quality.Good);
+    });
   });
 }
 

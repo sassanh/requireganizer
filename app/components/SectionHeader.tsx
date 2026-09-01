@@ -3,6 +3,7 @@ import { Stack, Typography } from "@mui/material";
 import { observer } from "mobx-react-lite";
 import React, { useEffect } from "react";
 
+import { qualityContractForStage } from "ai-harness/workflow";
 import {
   GENERATOR_ACTION_BY_WORKFLOW_STAGE,
   WORKFLOW_STAGES,
@@ -96,11 +97,36 @@ const Header: React.FunctionComponent<HeaderProps> = ({
           ) : null}
         </div>
       </Stack>
+      {qualityContractForStage(step) != null ? (
+        <Stack direction="row" sx={{ gap: 1, justifyContent: "flex-end" }}>
+          <GenerationButton
+            disabled={store.isBusy || !store.canCheckStep(step)}
+            variant="outlined"
+            size="medium"
+            onGenerate={() => store.checkStageQuality(step)}
+          >
+            Check
+          </GenerationButton>
+          <GenerationButton
+            disabled={store.isBusy || !store.canFixStep(step)}
+            variant="outlined"
+            size="medium"
+            onGenerate={() => store.fixStageQuality(step)}
+          >
+            Fix
+          </GenerationButton>
+        </Stack>
+      ) : null}
       <Typography variant="h3" sx={{
         alignSelf: "center"
       }}>
         {WORKFLOW_STAGE_LABELS[step]}
       </Typography>
+      {store.mechanicalIssuesForStage(step).map((issue, index) => (
+        <Typography key={`${issue.itemId ?? "stage"}:${index}`} variant="body2" color="error">
+          {issue.message}
+        </Typography>
+      ))}
     </Stack>
   );
 };

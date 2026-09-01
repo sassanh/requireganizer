@@ -65,6 +65,12 @@ const ICON_COLOR = {
   [Status.Completed]: "success.main",
 } as const;
 
+const SELECTED_ICON_COLOR = {
+  [Status.Pending]: "text.secondary",
+  [Status.Outdated]: "warning.dark",
+  [Status.Completed]: "success.dark",
+} as const;
+
 function SlidingStatusIcon({
   status,
   className,
@@ -167,6 +173,11 @@ const FactoryTab = observer(function FactoryTab({
           position: "relative",
           overflow: "visible",
           color: ICON_COLOR[status],
+          borderRight: "2px solid transparent",
+          "&.Mui-selected": {
+            color: SELECTED_ICON_COLOR[status],
+            borderRightColor: "currentColor",
+          },
           "& .MuiTab-icon": { overflow: "hidden" },
           ...(pulsing
             ? {
@@ -310,7 +321,15 @@ const Factory: React.FunctionComponent<FactoryProps> = ({ activeProject }) => {
               overflowX: "hidden",
             }}
           >
-            <TabList orientation="vertical" sx={{ minHeight: 0, overflow: "visible" }}>
+            <TabList
+              orientation="vertical"
+              textColor="inherit"
+              sx={{
+                minHeight: 0,
+                overflow: "visible",
+                "& .MuiTabs-indicator": { display: "none" },
+              }}
+            >
               {Object.values(WorkflowStage).map((tabStep: WorkflowStage) => (
                 <FactoryTab
                   key={tabStep}

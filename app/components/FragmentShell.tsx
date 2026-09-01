@@ -5,13 +5,15 @@ import { observer } from "mobx-react-lite";
 import { isAlive } from "mobx-state-tree";
 import { Fragment, type ReactNode } from "react";
 
+import { qualityContractForFragment } from "ai-harness/workflow";
 import { useFragmentHash } from "hooks/useFragmentHash";
-import { FRAGMENT_CODES, Priority, StructuralFragment as StructuralFragmentName, useStore } from "store";
+import { FRAGMENT_CODES, Priority, Quality, StructuralFragment as StructuralFragmentName, useStore } from "store";
 import { type TestCase, StructuralFragment } from "store/models";
 
 import CommentButton from "./CommentButton";
 import { getFrozenFragment, rememberFrozenFragment } from "./frozenFragment";
 import Link from "./Link";
+import { QualityIssues, qualityBarSx } from "./QualityState";
 
 const lastLiveCode = new WeakMap<object, string>();
 
@@ -39,6 +41,8 @@ interface FragmentFrameProps extends StackProps {
   code: string;
   type: string;
   priority: string;
+  quality?: Quality;
+  qualityIssues?: readonly string[];
   children: ReactNode;
   showActions: boolean;
   isDisabled: boolean;
@@ -57,6 +61,8 @@ function FragmentFrame({
   code,
   type,
   priority,
+  quality,
+  qualityIssues = [],
   children,
   showActions,
   isDisabled,
@@ -75,6 +81,7 @@ function FragmentFrame({
       id={id}
       sx={[
         { pl: 1 },
+        quality != null ? qualityBarSx(quality) : {},
         isHighlighted ? highlightSx ?? { backgroundColor: "action.focus" } : {},
         ...(Array.isArray(sx) ? sx : sx ? [sx] : []),
       ]}
@@ -136,6 +143,7 @@ function FragmentFrame({
           ))}
         </Typography>
       )}
+      <QualityIssues issues={qualityIssues} />
     </Stack>
   );
 }
@@ -175,6 +183,13 @@ const FragmentShellContent = observer(function FragmentShellContent<
   const fragmentId = fragment.id;
   const fragmentType = fragment.type;
   const fragmentPriority = fragment.priority ?? "";
+  const showsQuality = qualityContractForFragment(fragmentType) != null;
+  const qualityIssues = showsQuality
+    ? [
+        ...fragment.qualityIssues,
+        ...(store?.mechanicalIssuesForItem(fragmentId).map(({ message }) => message) ?? []),
+      ]
+    : [];
   const dependencies = [...fragment.dependencies].map((id) => {
     const linkedCode = store.getCode(id);
     return {
@@ -206,6 +221,8 @@ const FragmentShellContent = observer(function FragmentShellContent<
       code={code}
       type={fragmentType}
       priority={fragmentPriority}
+      quality={showsQuality ? fragment.quality : undefined}
+      qualityIssues={qualityIssues}
       showActions={showActions}
       isDisabled={isDisabled}
       isHighlighted={isHighlighted}
