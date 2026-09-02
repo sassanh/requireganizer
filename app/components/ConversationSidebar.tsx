@@ -49,6 +49,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { describeCommand, parseCommandMessage } from "ai-agent/command";
+import { disclosedThinking } from "ai-agent/thinking";
 import { useStore } from "store";
 import {
   activateBranch,
@@ -86,6 +87,7 @@ type ContentBlock = {
   type: string;
   text?: string;
   thinking?: string;
+  thinkingSignature?: string;
   name?: string;
   id?: string;
   arguments?: unknown;
@@ -368,14 +370,18 @@ const MessageView = memo(function MessageView({
 
   // Tool/thinking activity units: chips render in one row; the expanded
   // unit's panel renders below the row (never inside it — a full-width
-  // panel would force the row to wrap).
+  // panel would force the row to wrap). Thinking blocks with no disclosed
+  // text (encrypted-only reasoning the provider did not summarize) render
+  // no chip: a chip promising content it cannot reveal is worse than none.
   const units = blocks
     .map((block, blockIndex) => {
       if (block.type === "thinking") {
+        const thinking = disclosedThinking(block);
+        if (thinking.length === 0) return null;
         return {
           key: `thinking-${blockIndex}`,
           kind: "thinking" as const,
-          thinking: block.thinking ?? "",
+          thinking,
         };
       }
       if (block.type === "toolCall" && block.id != null) {
@@ -424,11 +430,9 @@ const MessageView = memo(function MessageView({
     );
   }
 
-  const thinkingBlocks = blocks.filter((block) => block.type === "thinking");
-  const toolCalls = blocks.filter((block) => block.type === "toolCall");
   const text = blockText(blocks, "text");
 
-  if (text.trim().length === 0 && thinkingBlocks.length === 0 && toolCalls.length === 0) {
+  if (text.trim().length === 0 && units.length === 0) {
     return null;
   }
 

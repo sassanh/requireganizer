@@ -11,6 +11,7 @@ import {
 } from "mobx-state-tree";
 import { createContext, useContext } from "react";
 
+import { hydrateConversationThinking } from "ai-agent/thinking";
 import type {
   ArtifactListProposal,
   FragmentRevisionProposal,
@@ -502,7 +503,7 @@ export const FlatStore = types
       self.activeAgent = null;
     },
     setConversation(messages: unknown[]) {
-      self.conversation = cast(messages);
+      self.conversation = cast(hydrateConversationThinking(messages));
     },
     setConversationSidebar(open: boolean) {
       self.conversationSidebarOpen = open;

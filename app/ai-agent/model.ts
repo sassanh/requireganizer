@@ -1,7 +1,7 @@
 import type { Model } from "@earendil-works/pi-ai";
 
 export const ZEN_BASE_URL = "https://opencode.ai/zen/v1";
-export const ZEN_MODEL_ID = "muse-spark-1.2-contributor-free";
+export const ZEN_MODEL_ID = "muse-spark-1.3-contributor-free";
 
 /**
  * The OpenCode Zen gateway model definition for the pi agent runtime.
@@ -12,7 +12,7 @@ export const ZEN_MODEL_ID = "muse-spark-1.2-contributor-free";
  */
 export const zenGatewayModel: Model<"openai-responses"> = {
   id: ZEN_MODEL_ID,
-  name: "Muse Spark 1.2 (Free)",
+  name: "Muse Spark 1.3 (Free)",
   api: "openai-responses",
   provider: "opencode",
   baseUrl: ZEN_BASE_URL,

@@ -6,6 +6,7 @@ import type {
 } from "@earendil-works/pi-ai";
 import { streamSimple } from "@earendil-works/pi-ai/compat";
 
+import { fetchWithReasoningTextBridge } from "ai-agent/reasoning-sse";
 import { resolveApiKey, AI_BASE_URL } from "lib/ai-provider";
 
 export const runtime = "nodejs";
@@ -62,6 +63,21 @@ export async function POST(request: Request): Promise<Response> {
     ...options,
     apiKey: resolveApiKey(),
     signal: request.signal,
+    fetch: fetchWithReasoningTextBridge,
+    onPayload: (payload) => {
+      if (payload == null || typeof payload !== "object") return undefined;
+      const params = payload as Record<string, unknown>;
+      if (params.reasoning == null || typeof params.reasoning !== "object") {
+        return undefined;
+      }
+      return {
+        ...params,
+        reasoning: {
+          ...(params.reasoning as Record<string, unknown>),
+          summary: "detailed",
+        },
+      };
+    },
   });
 
   const bodyStream = new ReadableStream<Uint8Array>({
