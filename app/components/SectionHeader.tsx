@@ -3,9 +3,7 @@ import { Stack, Typography } from "@mui/material";
 import { observer } from "mobx-react-lite";
 import React, { useEffect } from "react";
 
-import { qualityContractForStage } from "ai-harness/workflow";
 import {
-  GENERATION_PREREQUISITE_BY_WORKFLOW_STAGE,
   GENERATOR_ACTION_BY_WORKFLOW_STAGE,
   WORKFLOW_STAGES,
   WORKFLOW_STAGE_LABELS,
@@ -14,12 +12,37 @@ import {
   useStore,
 } from "store";
 
-import CommentButton from "./CommentButton";
 import GenerationButton from "./GenerationButton";
 import css from "./SectionHeader.module.css";
 
 export interface HeaderProps {
   step: WorkflowStage;
+}
+
+function nextGenerateHint(
+  store: ReturnType<typeof useStore>,
+  step: WorkflowStage,
+  nextStep: WorkflowStage,
+): string | null {
+  if (store.canGenerateStep(nextStep)) return null;
+  const status = store.getStepStatus(step);
+  if (status === Status.Pending || status === Status.Locked) {
+    return "Generate this stage first.";
+  }
+  if (!store.stageIsApproved(step)) {
+    return "Approve each item first.";
+  }
+  if (status === Status.Outdated) {
+    return "Regenerate this stage first.";
+  }
+  if (
+    nextStep === WorkflowStage.InterfaceContracts &&
+    store.implementationProfile != null &&
+    store.implementationProfile.status !== "approved"
+  ) {
+    return "Approve the profile first.";
+  }
+  return null;
 }
 
 const Header: React.FunctionComponent<HeaderProps> = ({
@@ -29,9 +52,7 @@ const Header: React.FunctionComponent<HeaderProps> = ({
 
   const stepIndex = WORKFLOW_STAGES.indexOf(step);
   const nextStep = stepIndex < WORKFLOW_STAGES.length - 1 ? WORKFLOW_STAGES[stepIndex + 1] : null;
-  const currentStepGeneratorAction = step === WorkflowStage.InterfaceContracts
-    ? null
-    : GENERATOR_ACTION_BY_WORKFLOW_STAGE[step];
+  const currentStepGeneratorAction = store.generatorActionForStep(step);
   const nextStepGeneratorAction = nextStep
     ? GENERATOR_ACTION_BY_WORKFLOW_STAGE[nextStep]
     : null;
@@ -58,6 +79,9 @@ const Header: React.FunctionComponent<HeaderProps> = ({
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [store, nextStep, nextStepGeneratorAction]);
+
+  const hint =
+    nextStep != null ? nextGenerateHint(store, step, nextStep) : null;
 
   return (
     <Stack
@@ -86,27 +110,26 @@ const Header: React.FunctionComponent<HeaderProps> = ({
         </div>
         <div className={css.headerNext}>
           {nextStep && nextStepGeneratorAction ? (
-            <GenerationButton
-              disabled={store.isBusy || !store.canGenerateStep(nextStep)}
-              variant="contained"
-              size="large"
-              autoCapitalize="off"
-              endIcon={<ArrowRight />}
-              onGenerate={() => store[nextStepGeneratorAction]()}
-            >
-              {WORKFLOW_STAGE_LABELS[nextStep]}
-            </GenerationButton>
+            <>
+              <GenerationButton
+                disabled={store.isBusy || !store.canGenerateStep(nextStep)}
+                variant="contained"
+                size="large"
+                autoCapitalize="off"
+                endIcon={<ArrowRight />}
+                onGenerate={() => store[nextStepGeneratorAction]()}
+              >
+                {WORKFLOW_STAGE_LABELS[nextStep]}
+              </GenerationButton>
+              {hint == null ? null : (
+                <Typography variant="caption" color="text.secondary">
+                  {hint}
+                </Typography>
+              )}
+            </>
           ) : null}
         </div>
       </Stack>
-      {qualityContractForStage(step) != null && store.hasStepArtifacts(step) ? (
-        <Stack direction="row" sx={{ gap: 1, justifyContent: "flex-end" }}>
-          <CommentButton
-            disabled={store.isBusy}
-            onSubmit={(comment) => store.requestStageChange(step, comment)}
-          />
-        </Stack>
-      ) : null}
       <Typography variant="h3" sx={{
         alignSelf: "center"
       }}>
@@ -117,15 +140,6 @@ const Header: React.FunctionComponent<HeaderProps> = ({
           {issue.message}
         </Typography>
       ))}
-      {nextStep && nextStepGeneratorAction && !store.canGenerateStep(nextStep) ? (
-        <Typography variant="body2" color="text.secondary" sx={{ alignSelf: "flex-end" }}>
-          {GENERATION_PREREQUISITE_BY_WORKFLOW_STAGE[nextStep] === step &&
-          store.getStepStatus(step) === Status.Completed &&
-          !store.stageIsApproved(step)
-            ? `Approve each item to generate ${WORKFLOW_STAGE_LABELS[nextStep]}.`
-            : store.cannotGenerateReason(nextStep)}
-        </Typography>
-      ) : null}
     </Stack>
   );
 };

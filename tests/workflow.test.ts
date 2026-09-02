@@ -12,6 +12,8 @@ import {
 } from "../app/ai-harness/workflow";
 import {
   GENERATION_PREREQUISITE_BY_WORKFLOW_STAGE,
+  OVERVIEW_NAME_QUALITY_ID,
+  OVERVIEW_PURPOSE_QUALITY_ID,
   Priority,
   Status,
   StructuralFragment,
@@ -53,6 +55,15 @@ describe("canonical engineering workflow", () => {
     assert.equal(store.canGenerateStep(WorkflowStage.UserStories), false);
   });
 
+  it("puts interface-contracts generate on the same header action as other stages", async () => {
+    const { Store: StoreModel } = await import("../app/store/store");
+    const store = StoreModel.create({ productOverview: {} });
+    assert.equal(
+      store.generatorActionForStep(WorkflowStage.InterfaceContracts),
+      "generateImplementationProfile",
+    );
+  });
+
   it("locks empty later stages while an earlier stage is pending", async () => {
     const { Store: StoreModel } = await import("../app/store/store");
     const store = StoreModel.create({ productOverview: {} });
@@ -79,7 +90,7 @@ describe("canonical engineering workflow", () => {
     );
   });
 
-  it("does not lock the next empty stage when the previous is only unsigned", async () => {
+  it("keeps an empty later stage locked while the previous is unsigned", async () => {
     const { Store: StoreModel } = await import("../app/store/store");
     const store = StoreModel.create({
       productOverview: {
@@ -90,12 +101,17 @@ describe("canonical engineering workflow", () => {
       },
     });
     assert.equal(store.getStepStatus(WorkflowStage.ProductOverview), Status.Outdated);
-    assert.equal(store.getStepStatus(WorkflowStage.UserStories), Status.Pending);
-    assert.equal(store.stageIsLocked(WorkflowStage.UserStories), false);
+    assert.equal(store.getStepStatus(WorkflowStage.UserStories), Status.Locked);
     assert.equal(
       store.resolveOpenStep(WorkflowStage.UserStories),
-      WorkflowStage.UserStories,
+      WorkflowStage.ProductOverview,
     );
+    store.approve(OVERVIEW_NAME_QUALITY_ID);
+    store.approve(OVERVIEW_PURPOSE_QUALITY_ID);
+    store.approve("feat-1");
+    store.approve("user-1");
+    assert.equal(store.getStepStatus(WorkflowStage.ProductOverview), Status.Completed);
+    assert.equal(store.getStepStatus(WorkflowStage.UserStories), Status.Pending);
   });
 
   it("does not lock a later stage that already has artifacts", async () => {

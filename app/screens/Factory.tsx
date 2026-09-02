@@ -180,9 +180,9 @@ const FactoryTab = observer(function FactoryTab({
           position: "relative",
           overflow: "visible",
           color: ICON_COLOR[status],
+          opacity: .8,
           borderRight: "2px solid transparent",
           "&.Mui-selected": {
-            color: SELECTED_ICON_COLOR[status],
             borderRightColor: "currentColor",
           },
           "& .MuiTab-icon": {
@@ -215,8 +215,8 @@ const FactoryTab = observer(function FactoryTab({
   );
 });
 
-/** Same fill + micro-scale as field `pulseElement`. Fill lives on `::before`
- * so MUI Tab's own background/opacity styles cannot swallow it. */
+/** Tab fill + micro-scale. Fill lives on `::before` so MUI Tab's own
+ * background/opacity styles cannot swallow it. */
 const factoryTabPop = keyframes`
   0% { transform: scale(1); }
   35% { transform: scale(1.012); }

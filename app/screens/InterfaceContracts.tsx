@@ -1,4 +1,4 @@
-import { Build, Send } from "@mui/icons-material";
+import { Send } from "@mui/icons-material";
 import {
   Accordion,
   AccordionDetails,
@@ -58,19 +58,9 @@ const InterfaceContractsView = () => {
 
   if (profile == null) {
     return (
-      <Stack spacing={2} sx={{ alignItems: "center" }}>
-        <Alert severity="info" sx={{ width: "100%" }}>
-          Generate an implementation profile to define the platform, runtime, and testing stack.
-        </Alert>
-        <GenerationButton
-          startIcon={<Build />}
-          variant="contained"
-          disabled={store.isBusy || store.boundaryDesign == null}
-          onGenerate={store.generateImplementationProfile}
-        >
-          Generate implementation profile
-        </GenerationButton>
-      </Stack>
+      <Alert severity="info">
+        Generate an implementation profile to define the platform, runtime, and testing stack.
+      </Alert>
     );
   }
 
@@ -115,18 +105,6 @@ const InterfaceContractsView = () => {
           />
         </CardContent>
       </Card>
-
-      {suite == null && (
-        <GenerationButton
-          startIcon={<Build />}
-          variant="contained"
-          disabled={store.isBusy || profile.status !== "approved"}
-          onGenerate={store.generateInterfaceContracts}
-          sx={{ alignSelf: "center" }}
-        >
-          Generate formal interface contracts
-        </GenerationButton>
-      )}
 
       {suite != null && (
         <Box id={artifactElementId("contractSuite")}>

@@ -114,6 +114,7 @@ export type GeneratorActionName =
   | "generateAcceptanceCriteria"
   | "generateBoundaryDesign"
   | "generateImplementationProfile"
+  | "generateInterfaceContracts"
   | "generateTestScenarios"
   | "generateTestCases"
   | "generateProjectSetup";

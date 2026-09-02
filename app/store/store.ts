@@ -80,6 +80,7 @@ import {
   OVERVIEW_PURPOSE_QUALITY_ID,
   Status,
   WorkflowStage,
+  type GeneratorActionName,
   StructuralFragment as StructuralFragmentName,
   isBefore,
 } from "./constants";
@@ -1039,7 +1040,11 @@ export const FlatStore = types
     }
     function stageIsLocked(step: WorkflowStage): boolean {
       if (hasStepArtifacts(step)) return false;
-      return firstPendingPredecessor(step) != null;
+      for (const previous of WORKFLOW_STAGES) {
+        if (previous === step) return false;
+        if (getStepStatus(previous) !== Status.Completed) return true;
+      }
+      return false;
     }
     function resolveOpenStep(step: WorkflowStage): WorkflowStage {
       if (!stageIsLocked(step)) return step;
@@ -1158,6 +1163,13 @@ export const FlatStore = types
       if (status === Status.Outdated) {
         return `Regenerate ${label} to generate ${target}.`;
       }
+      if (
+        step === WorkflowStage.InterfaceContracts &&
+        self.implementationProfile != null &&
+        !isApproved(self.implementationProfile.status)
+      ) {
+        return "Approve the implementation profile to generate Interface Contracts.";
+      }
       return null;
     };
 
@@ -1183,6 +1195,15 @@ export const FlatStore = types
       },
       canGenerateStep(step: WorkflowStage): boolean {
         return cannotGenerateReason(step) == null;
+      },
+      generatorActionForStep(step: WorkflowStage): GeneratorActionName | null {
+        if (
+          step === WorkflowStage.InterfaceContracts &&
+          self.implementationProfile != null
+        ) {
+          return "generateInterfaceContracts";
+        }
+        return GENERATOR_ACTION_BY_WORKFLOW_STAGE[step];
       },
     };
   })
