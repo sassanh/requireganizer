@@ -38,7 +38,16 @@ import {
 import { getUserFacingErrorMessage, UserFacingError } from "lib/errors";
 import { HarnessResult } from "lib/types";
 import { assertApproved } from "store/approval";
-import { Priority, WORKFLOW_STAGE_LABELS, Status, WorkflowStage, StructuralFragment } from "store/constants";
+import {
+  OVERVIEW_NAME_QUALITY_ID,
+  OVERVIEW_PURPOSE_QUALITY_ID,
+  Priority,
+  WORKFLOW_STAGE_LABELS,
+  Status,
+  WorkflowStage,
+  StructuralFragment,
+} from "store/constants";
+import { classifyListChange } from "store/listChange";
 import type { FlatStore, TestCaseSnapshotInput, TestScenarioSnapshotInput } from "store/store";
 import { uuid } from "utilities";
 
@@ -90,26 +99,38 @@ export function applyProductOverviewProposal(
 ): void {
   const markGenerated = options.markGenerated ?? true;
   applyAtomically(store, (candidate) => {
+    const overview = candidate.productOverview;
+    const before = [
+      { id: OVERVIEW_NAME_QUALITY_ID, code: "Name" },
+      { id: OVERVIEW_PURPOSE_QUALITY_ID, code: "Purpose" },
+      ...overview.primaryFeatures.map((item) => ({
+        id: item.id,
+        code: item.getCode(),
+      })),
+      ...overview.targetUsers.map((item) => ({
+        id: item.id,
+        code: item.getCode(),
+      })),
+    ];
     const existingFeatures = new Map(
-      candidate.productOverview.primaryFeatures.map((f) => [f.id, f] as const),
+      overview.primaryFeatures.map((item) => [item.id, item] as const),
     );
     const existingUsers = new Map(
-      candidate.productOverview.targetUsers.map((u) => [u.id, u] as const),
+      overview.targetUsers.map((item) => [item.id, item] as const),
     );
     const toFeatureSnapshot = (item: ProductOverviewPatchItem): unknown => {
       if (typeof item === "string") {
         const existing = existingFeatures.get(item);
         if (existing == null) throw new Error(`Unknown primaryFeature id ${item}`);
+        existing.clearPendingRemoval();
         return getSnapshot(existing);
       }
       if (item.id != null) {
         const existing = existingFeatures.get(item.id);
         if (existing == null) throw new Error(`Unknown primaryFeature id ${item.id}`);
-        return {
-          ...getSnapshot(existing),
-          content: item.content,
-          approval: "draft",
-        };
+        existing.clearPendingRemoval();
+        existing.setData({ content: item.content });
+        return getSnapshot(existing);
       }
       return { content: item.content };
     };
@@ -117,27 +138,65 @@ export function applyProductOverviewProposal(
       if (typeof item === "string") {
         const existing = existingUsers.get(item);
         if (existing == null) throw new Error(`Unknown targetUser id ${item}`);
+        existing.clearPendingRemoval();
         return getSnapshot(existing);
       }
       if (item.id != null) {
         const existing = existingUsers.get(item.id);
         if (existing == null) throw new Error(`Unknown targetUser id ${item.id}`);
-        return {
-          ...getSnapshot(existing),
-          content: item.content,
-          approval: "draft",
-        };
+        existing.clearPendingRemoval();
+        existing.setData({ content: item.content });
+        return getSnapshot(existing);
       }
       return { content: item.content };
     };
+    const proposedFeatureIds = new Set(
+      proposal.primaryFeatures.flatMap((item) =>
+        typeof item === "string" ? [item] : item.id != null ? [item.id] : [],
+      ),
+    );
+    const proposedUserIds = new Set(
+      proposal.targetUsers.flatMap((item) =>
+        typeof item === "string" ? [item] : item.id != null ? [item.id] : [],
+      ),
+    );
+    const featureSnapshots = proposal.primaryFeatures.map(toFeatureSnapshot);
+    for (const existing of overview.primaryFeatures) {
+      if (proposedFeatureIds.has(existing.id)) continue;
+      existing.markPendingRemoval();
+      featureSnapshots.push(getSnapshot(existing));
+    }
+    const userSnapshots = proposal.targetUsers.map(toUserSnapshot);
+    for (const existing of overview.targetUsers) {
+      if (proposedUserIds.has(existing.id)) continue;
+      existing.markPendingRemoval();
+      userSnapshots.push(getSnapshot(existing));
+    }
     candidate.setName({ name: proposal.name });
     candidate.setPurpose({ purpose: proposal.purpose });
     candidate.setPrimaryFeatures({
-      primaryFeatures: proposal.primaryFeatures.map(toFeatureSnapshot) as never,
+      primaryFeatures: featureSnapshots as never,
     });
     candidate.setTargetUsers({
-      targetUsers: proposal.targetUsers.map(toUserSnapshot) as never,
+      targetUsers: userSnapshots as never,
     });
+    candidate.recordStageListChange(
+      WorkflowStage.ProductOverview,
+      classifyListChange(before, [
+        { id: OVERVIEW_NAME_QUALITY_ID, lastSignedContent: overview.lastSignedName },
+        { id: OVERVIEW_PURPOSE_QUALITY_ID, lastSignedContent: overview.lastSignedPurpose },
+        ...overview.primaryFeatures.map((item) => ({
+          id: item.id,
+          lastSignedContent: item.lastSignedContent,
+          pendingRemoval: item.pendingRemoval,
+        })),
+        ...overview.targetUsers.map((item) => ({
+          id: item.id,
+          lastSignedContent: item.lastSignedContent,
+          pendingRemoval: item.pendingRemoval,
+        })),
+      ]),
+    );
     if (markGenerated) candidate.markStageGenerated(WorkflowStage.ProductOverview);
   });
 }

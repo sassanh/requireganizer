@@ -82,6 +82,7 @@ const Header: React.FunctionComponent<HeaderProps> = ({
 
   const hint =
     nextStep != null ? nextGenerateHint(store, step, nextStep) : null;
+  const listChangeText = store.stageListChangeCaption(step)?.text;
 
   return (
     <Stack
@@ -135,6 +136,11 @@ const Header: React.FunctionComponent<HeaderProps> = ({
       }}>
         {WORKFLOW_STAGE_LABELS[step]}
       </Typography>
+      {listChangeText != null ? (
+        <Typography variant="body2" color="text.secondary" sx={{ alignSelf: "center" }}>
+          {listChangeText}
+        </Typography>
+      ) : null}
       {store.mechanicalIssuesForStage(step).map((issue, index) => (
         <Typography key={`${issue.itemId ?? "stage"}:${index}`} variant="body2" color="error">
           {issue.message}

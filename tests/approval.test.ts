@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import { buildResultTools } from "../app/ai-agent/result-tools";
 import { fingerprint } from "../app/contract-domain";
+import { applyProductOverviewProposal } from "../app/store/actions/ai-actions/utilities";
 import {
   OVERVIEW_NAME_QUALITY_ID,
   OVERVIEW_PURPOSE_QUALITY_ID,
@@ -79,7 +80,89 @@ describe("explicit approval", () => {
     assert.equal(store.productOverview.nameApproval, "approved");
     store.setName({ name: "Garden Pal" });
     assert.equal(store.productOverview.nameApproval, "draft");
+    assert.equal(store.productOverview.lastSignedName, "Plant Pal");
     assert.equal(store.stageIsApproved(WorkflowStage.ProductOverview), false);
+  });
+
+  it("keeps the last signed text across a second rewrite and clears it on approve", () => {
+    const store = storeWithOverview();
+    approveOverview(store);
+    store.setName({ name: "Garden Pal" });
+    store.setName({ name: "Forest Pal" });
+    assert.equal(store.productOverview.lastSignedName, "Plant Pal");
+    store.approve(OVERVIEW_NAME_QUALITY_ID);
+    assert.equal(store.productOverview.lastSignedName, null);
+    assert.equal(store.productOverview.nameApproval, "approved");
+  });
+
+  it("does not capture last-signed text on a first draft", () => {
+    const store = storeWithOverview();
+    assert.equal(store.productOverview.nameApproval, "draft");
+    store.setName({ name: "Garden Pal" });
+    assert.equal(store.productOverview.lastSignedName, null);
+  });
+
+  it("does not put last-signed text in the workflow fingerprint", () => {
+    const rewritten = storeWithOverview();
+    approveOverview(rewritten);
+    rewritten.setName({ name: "Garden Pal" });
+    const bornDraft = storeWithOverview();
+    bornDraft.setName({ name: "Garden Pal" });
+    assert.equal(rewritten.productOverview.lastSignedName, "Plant Pal");
+    assert.equal(bornDraft.productOverview.lastSignedName, null);
+    assert.equal(
+      workflowFingerprint(rewritten, WorkflowStage.UserStories),
+      workflowFingerprint(bornDraft, WorkflowStage.UserStories),
+    );
+  });
+
+  it("keeps a signed feature when the overview submit names only its id", () => {
+    const store = storeWithOverview();
+    approveOverview(store);
+    applyProductOverviewProposal(store, {
+      name: "Plant Pal",
+      purpose: "Help people keep houseplants alive.",
+      primaryFeatures: ["feat-1"],
+      targetUsers: ["user-1"],
+    });
+    const feature = store.productOverview.primaryFeatures[0]!;
+    assert.equal(feature.approval, "approved");
+    assert.equal(feature.lastSignedContent, null);
+    assert.equal(store.stageListChangeCaption(WorkflowStage.ProductOverview)?.text, null);
+  });
+
+  it("shows a standing rewrite against last-signed feature text", () => {
+    const store = storeWithOverview();
+    approveOverview(store);
+    applyProductOverviewProposal(store, {
+      name: "Plant Pal",
+      purpose: "Help people keep houseplants alive.",
+      primaryFeatures: [{ id: "feat-1", content: "Track watering and feeding" }],
+      targetUsers: ["user-1"],
+    });
+    const feature = store.productOverview.primaryFeatures[0]!;
+    assert.equal(feature.approval, "draft");
+    assert.equal(feature.lastSignedContent, "Track watering");
+    assert.equal(store.stageListChangeCaption(WorkflowStage.ProductOverview)?.grain, "item");
+    assert.equal(store.stageListChangeCaption(WorkflowStage.ProductOverview)?.text, null);
+  });
+
+  it("keeps a removed feature until that removal is approved", () => {
+    const store = storeWithOverview();
+    approveOverview(store);
+    store.reviseFragment({
+      entityType: StructuralFragment.PrimaryFeature,
+      id: "feat-1",
+      patch: { remove: true },
+    });
+    const feature = store.productOverview.primaryFeatures[0]!;
+    assert.equal(store.productOverview.primaryFeatures.length, 1);
+    assert.equal(feature.pendingRemoval, true);
+    assert.equal(feature.approval, "draft");
+    assert.equal(feature.lastSignedContent, "Track watering");
+    assert.equal(store.stageListChangeCaption(WorkflowStage.ProductOverview)?.grain, "item");
+    store.approve("feat-1");
+    assert.equal(store.productOverview.primaryFeatures.length, 0);
   });
 
   it("does not change fingerprints when approving", () => {

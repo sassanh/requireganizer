@@ -91,6 +91,13 @@ import {
   type MechanicalIssue,
 } from "./integrity";
 import {
+  classifyListChange,
+  listChangeCaption,
+  type ListChange,
+  type ListChangeAfterItem,
+  type ListChangeBeforeItem,
+} from "./listChange";
+import {
   AcceptanceCriteria,
   AcceptanceCriteriaModel,
   Requirement,
@@ -280,6 +287,10 @@ const NON_INPUT_FINGERPRINT_KEYS = new Set([
   "approval",
   "nameApproval",
   "purposeApproval",
+  "lastSignedContent",
+  "lastSignedName",
+  "lastSignedPurpose",
+  "pendingRemoval",
   "status",
   "approvedAt",
 ]);
@@ -374,6 +385,7 @@ export const FlatStore = types
     projectSetup: types.maybeNull(types.frozen<ProjectSetup>()),
     scaffoldFiles: types.array(ScaffoldFileModel),
     stageInputFingerprints: types.map(types.string),
+    stageListChanges: types.map(types.frozen<ListChange>()),
     systemMessage: types.maybeNull(types.string),
     conversation: types.optional(types.frozen<unknown[]>(), []),
     conversationSidebarOpen: false,
@@ -409,6 +421,7 @@ export const FlatStore = types
       self.projectSetup = null;
       self.scaffoldFiles = cast([]);
       self.stageInputFingerprints.clear();
+      self.stageListChanges.clear();
       self.systemMessage = null;
       self.pendingImpactChange = null;
       self.contractRevisionDiff = null;
@@ -541,15 +554,43 @@ export const FlatStore = types
       });
       self.eventTarget.emit("stepUpdate", WorkflowStage.ProductOverview);
     },
+    recordStageListChange(step: WorkflowStage, change: ListChange) {
+      self.stageListChanges.set(step, change);
+    },
+    removeEarlyFragment(fragment: StructuralFragment) {
+      switch (fragment.type) {
+        case StructuralFragmentName.PrimaryFeature:
+          self.productOverview.removePrimaryFeature({
+            fragment: fragment as PrimaryFeature,
+          });
+          return;
+        case StructuralFragmentName.TargetUser:
+          self.productOverview.removeTargetUser({
+            fragment: fragment as TargetUser,
+          });
+          return;
+        case StructuralFragmentName.UserStory:
+          self.userStories.remove(fragment as UserStory);
+          return;
+        case StructuralFragmentName.Requirement:
+          self.requirements.remove(fragment as Requirement);
+          return;
+        case StructuralFragmentName.AcceptanceCriteria:
+          self.acceptanceCriteria.remove(fragment as AcceptanceCriteria);
+          return;
+        default:
+          throw new Error(`Cannot drop ${fragment.type} fragment ${fragment.id}.`);
+      }
+    },
     setName({ name }: { name: string }) {
       if (self.productOverview.name === name) return;
-      self.productOverview.name = name;
       self.productOverview.uncheckName();
+      self.productOverview.name = name;
     },
     setPurpose({ purpose }: { purpose: string }) {
       if (self.productOverview.purpose === purpose) return;
-      self.productOverview.purpose = purpose;
       self.productOverview.uncheckPurpose();
+      self.productOverview.purpose = purpose;
     },
     setPrimaryFeatures({ primaryFeatures }: { primaryFeatures: SnapshotIn<PrimaryFeature>[] }) {
       self.productOverview.primaryFeatures = cast(primaryFeatures);
@@ -719,17 +760,47 @@ export const FlatStore = types
         [StructuralFragmentName.TestCode]: () => undefined,
       }[entityType]();
       if (list == null) throw new Error(`${entityType} requires a contract-first proposal.`);
+      const before: ListChangeBeforeItem[] = list.map((item) => ({
+        id: item.id,
+        code: item.getCode(),
+      }));
       const existingById = new Map(list.map((item) => [item.id, item]));
       const snapshots = materializeArtifactItems(items, uuid).map((item) => {
         const existing = existingById.get(item.id);
         if (existing == null) return getSnapshot(createFragment(entityType, item));
         const { id: _id, ...update } = item;
+        existing.clearPendingRemoval();
         existing.setData(update);
         return getSnapshot(existing);
       });
+      const keptIds = new Set(snapshots.map((item) => (item as { id: string }).id));
+      for (const existing of list) {
+        if (keptIds.has(existing.id)) continue;
+        existing.markPendingRemoval();
+        snapshots.push(getSnapshot(existing));
+      }
       list.replace(snapshots as never[]);
+      const after: ListChangeAfterItem[] = list.map((item) => ({
+        id: item.id,
+        lastSignedContent: item.lastSignedContent,
+        pendingRemoval: item.pendingRemoval,
+      }));
+      self.recordStageListChange(
+        WORKFLOW_STAGE_BY_STRUCTURAL_FRAGMENT[entityType],
+        classifyListChange(before, after),
+      );
     },
     reviseFragment({ entityType, id, patch }: FragmentRevisionProposal) {
+      const list = {
+        [StructuralFragmentName.PrimaryFeature]: () => self.productOverview.primaryFeatures,
+        [StructuralFragmentName.TargetUser]: () => self.productOverview.targetUsers,
+        [StructuralFragmentName.Requirement]: () => self.requirements,
+        [StructuralFragmentName.UserStory]: () => self.userStories,
+        [StructuralFragmentName.AcceptanceCriteria]: () => self.acceptanceCriteria,
+        [StructuralFragmentName.TestScenario]: () => undefined,
+        [StructuralFragmentName.TestCase]: () => undefined,
+        [StructuralFragmentName.TestCode]: () => undefined,
+      }[entityType]();
       const fragment = [
         ...self.productOverview.primaryFeatures,
         ...self.productOverview.targetUsers,
@@ -740,37 +811,31 @@ export const FlatStore = types
       if (fragment == null || fragment.type !== entityType) {
         throw new Error(`Cannot revise missing ${entityType} fragment ${id}.`);
       }
+      const before: ListChangeBeforeItem[] =
+        list == null
+          ? [{ id: fragment.id, code: fragment.getCode() }]
+          : list.map((item) => ({ id: item.id, code: item.getCode() }));
       if (patch.remove === true) {
-        switch (fragment.type) {
-          case StructuralFragmentName.PrimaryFeature:
-            self.productOverview.removePrimaryFeature({
-              fragment: fragment as PrimaryFeature,
-            });
-            return;
-          case StructuralFragmentName.TargetUser:
-            self.productOverview.removeTargetUser({
-              fragment: fragment as TargetUser,
-            });
-            return;
-          case StructuralFragmentName.UserStory:
-            self.removeUserStory({ fragment: fragment as UserStory });
-            return;
-          case StructuralFragmentName.Requirement:
-            self.removeRequirement({ fragment: fragment as Requirement });
-            return;
-          case StructuralFragmentName.AcceptanceCriteria:
-            self.removeAcceptanceCriteria({
-              fragment: fragment as AcceptanceCriteria,
-            });
-            return;
-          default:
-            throw new Error(`Cannot drop ${entityType} fragment ${id}.`);
-        }
+        fragment.markPendingRemoval();
+      } else {
+        fragment.clearPendingRemoval();
+        fragment.setData({
+          content: patch.content,
+          priority: patch.priority,
+        });
       }
-      fragment.setData({
-        content: patch.content,
-        priority: patch.priority,
-      });
+      const after: ListChangeAfterItem[] =
+        list == null
+          ? []
+          : list.map((item) => ({
+              id: item.id,
+              lastSignedContent: item.lastSignedContent,
+              pendingRemoval: item.pendingRemoval,
+            }));
+      self.recordStageListChange(
+        WORKFLOW_STAGE_BY_STRUCTURAL_FRAGMENT[entityType],
+        classifyListChange(before, after),
+      );
     },
   }))
   .views((self) => ({
@@ -1072,6 +1137,14 @@ export const FlatStore = types
       mechanicalIssuesForItem(id: string): MechanicalIssue[] {
         return self.mechanicalIssues.filter((issue) => issue.itemId === id);
       },
+      stageListChange(step: WorkflowStage): ListChange | undefined {
+        return self.stageListChanges.get(step);
+      },
+      stageListChangeCaption(step: WorkflowStage) {
+        const change = self.stageListChanges.get(step);
+        if (change == null) return null;
+        return listChangeCaption(change);
+      },
       hasStepArtifacts,
       firstPendingPredecessor,
       stageIsLocked,
@@ -1189,6 +1262,7 @@ export const FlatStore = types
         }
         const fragment = self.structuralFragmentsCache[id];
         if (fragment != null) {
+          if (fragment.pendingRemoval) return true;
           return fragment.content.trim().length > 0;
         }
         return true;
@@ -1242,6 +1316,18 @@ export const FlatStore = types
       }
       const fragment = self.structuralFragmentsCache[id];
       if (fragment != null) {
+        if (fragment.pendingRemoval) {
+          const stage = WORKFLOW_STAGE_BY_STRUCTURAL_FRAGMENT[fragment.type];
+          const previous = self.stageListChanges.get(stage);
+          self.removeEarlyFragment(fragment);
+          if (previous != null) {
+            self.recordStageListChange(stage, {
+              ...previous,
+              dropped: previous.dropped.filter((item) => item.id !== id),
+            });
+          }
+          return;
+        }
         fragment.approve();
         return;
       }

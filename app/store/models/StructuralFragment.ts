@@ -46,6 +46,8 @@ const HalfStructuralFragmentModel = types
       types.enumeration<ApprovalStatus>(["draft", "approved"]),
       "draft",
     ),
+    lastSignedContent: types.optional(types.maybeNull(types.string), null),
+    pendingRemoval: types.optional(types.boolean, false),
   })
   .preProcessSnapshot((snapshot) => {
     if (snapshot == null || typeof snapshot !== "object") return snapshot;
@@ -56,17 +58,27 @@ const HalfStructuralFragmentModel = types
   .actions((self) => ({
     dropApproval() {
       if (self.approval === "draft") return;
+      self.lastSignedContent = self.content;
       self.approval = "draft";
     },
     approve() {
       self.approval = "approved";
+      self.lastSignedContent = null;
+      self.pendingRemoval = false;
+    },
+    clearPendingRemoval() {
+      self.pendingRemoval = false;
     },
   }))
   .actions((self) => ({
+    markPendingRemoval() {
+      self.dropApproval();
+      self.pendingRemoval = true;
+    },
     setContent(newContent: string) {
       if (self.content === newContent) return;
-      self.content = newContent;
       self.dropApproval();
+      self.content = newContent;
     },
     setPriority(newPriority: Priority) {
       self.priority = newPriority;
@@ -84,8 +96,8 @@ const HalfStructuralFragmentModel = types
       dependencies,
     }: StructuralFragmentUpdate) {
       if (content !== undefined && content !== self.content) {
-        self.content = content;
         self.dropApproval();
+        self.content = content;
       }
       if (priority !== undefined) self.priority = priority;
       if (references !== undefined)

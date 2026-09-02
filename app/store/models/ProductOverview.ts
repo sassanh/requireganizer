@@ -35,6 +35,8 @@ export const ProductOverviewModel = types
       types.enumeration<ApprovalStatus>(["draft", "approved"]),
       "draft",
     ),
+    lastSignedName: types.optional(types.maybeNull(types.string), null),
+    lastSignedPurpose: types.optional(types.maybeNull(types.string), null),
     primaryFeatures: types.array(PrimaryFeatureModel),
     targetUsers: types.array(TargetUserModel),
   })
@@ -52,16 +54,22 @@ export const ProductOverviewModel = types
   })
   .actions((self) => ({
     uncheckName() {
+      if (self.nameApproval === "draft") return;
+      self.lastSignedName = self.name;
       self.nameApproval = "draft";
     },
     uncheckPurpose() {
+      if (self.purposeApproval === "draft") return;
+      self.lastSignedPurpose = self.purpose;
       self.purposeApproval = "draft";
     },
     approveName() {
       self.nameApproval = "approved";
+      self.lastSignedName = null;
     },
     approvePurpose() {
       self.purposeApproval = "approved";
+      self.lastSignedPurpose = null;
     },
     setPrimaryFeatures({
       primaryFeatures,

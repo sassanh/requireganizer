@@ -34,6 +34,8 @@ const EditableItemContent = observer(function EditableItemContent<
     >
       <StagedTextField
         committed={fragment.content}
+        lastSigned={fragment.lastSignedContent}
+        pendingRemoval={fragment.pendingRemoval}
         elementId={fragment.id}
         multiline
         fullWidth

@@ -138,6 +138,9 @@ describe("agent result tools", () => {
       patch: { remove: true },
     } as never);
 
+    assert.equal(store.productOverview.primaryFeatures.length, 2);
+    assert.equal(store.productOverview.primaryFeatures[0]?.pendingRemoval, true);
+    store.approve(featureId);
     assert.equal(store.productOverview.primaryFeatures.length, 1);
     assert.equal(
       store.productOverview.primaryFeatures[0]?.content,

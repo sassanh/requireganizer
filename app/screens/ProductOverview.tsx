@@ -30,6 +30,7 @@ const NameField = observer(function NameField() {
       <ApprovalBar status={nameApproval} />
       <StagedTextField
         committed={shown.productOverview.name || ""}
+        lastSigned={shown.productOverview.lastSignedName}
         elementId={artifactElementId("productOverview-name")}
         fullWidth
         label="Name"
@@ -68,6 +69,7 @@ const PurposeField = observer(function PurposeField() {
       <ApprovalBar status={purposeApproval} />
       <StagedTextField
         committed={shown.productOverview.purpose || ""}
+        lastSigned={shown.productOverview.lastSignedPurpose}
         elementId={artifactElementId("productOverview-purpose")}
         fullWidth
         multiline

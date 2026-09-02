@@ -1,10 +1,11 @@
-import { Box, TextField, type TextFieldProps } from "@mui/material";
+import { Box, TextField, Typography, type TextFieldProps } from "@mui/material";
 import { alpha, keyframes, useTheme } from "@mui/material/styles";
 import {
   useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
+  type ReactNode,
 } from "react";
 
 import { isPresenting } from "presentation";
@@ -253,15 +254,113 @@ export function useStagedText(
   };
 }
 
+function StandingTextDiff({
+  before,
+  after,
+  label,
+  multiline = false,
+  fullWidth = false,
+  sx,
+}: {
+  before: string;
+  after: string;
+  label?: ReactNode;
+  multiline?: boolean;
+  fullWidth?: boolean;
+  sx?: TextFieldProps["sx"];
+}) {
+  const theme = useTheme();
+  const hunks = wordDiff(before, after);
+  return (
+    <Box sx={{ width: fullWidth ? "100%" : undefined, position: "relative" }}>
+      {label != null && label !== "" ? (
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          sx={{ display: "block", ml: 1.75, mb: 0.5 }}
+        >
+          {label}
+        </Typography>
+      ) : null}
+      <Box
+        sx={[
+          {
+            typography: "body1",
+            whiteSpace: multiline ? "pre-wrap" : "pre",
+            wordBreak: "break-word",
+            ...(label != null && label !== ""
+              ? {
+                  px: 1.75,
+                  py: 1.25,
+                  border: 1,
+                  borderColor: "divider",
+                  borderRadius: 1,
+                  minHeight: 56,
+                }
+              : {}),
+          },
+          ...(Array.isArray(sx) ? sx : sx != null ? [sx] : []),
+        ]}
+      >
+        {hunks.map((hunk, index) => {
+          if (hunk.kind === "equal") {
+            return (
+              <Box component="span" key={`${hunk.kind}:${index}`}>
+                {hunk.text}
+              </Box>
+            );
+          }
+          if (hunk.kind === "delete") {
+            return (
+              <Box
+                component="span"
+                key={`${hunk.kind}:${index}`}
+                sx={{
+                  textDecoration: "line-through",
+                  color: "text.secondary",
+                  backgroundColor: alpha(theme.palette.error.main, 0.12),
+                  borderRadius: "2px",
+                  boxDecorationBreak: "clone",
+                  WebkitBoxDecorationBreak: "clone",
+                }}
+              >
+                {hunk.text}
+              </Box>
+            );
+          }
+          return (
+            <Box
+              component="span"
+              key={`${hunk.kind}:${index}`}
+              sx={{
+                backgroundColor: alpha(theme.palette.success.main, 0.16),
+                borderRadius: "2px",
+                boxDecorationBreak: "clone",
+                WebkitBoxDecorationBreak: "clone",
+              }}
+            >
+              {hunk.text}
+            </Box>
+          );
+        })}
+      </Box>
+    </Box>
+  );
+}
+
 type StagedTextFieldProps = Omit<TextFieldProps, "value"> & {
   committed: string;
   elementId?: string;
+  lastSigned?: string | null;
+  pendingRemoval?: boolean;
 };
 
 /** TextField that plays word-level red/green change spans while presenting. */
 export function StagedTextField({
   committed,
   elementId,
+  lastSigned,
+  pendingRemoval = false,
   slotProps,
   onChange,
   onFocus,
@@ -320,6 +419,29 @@ export function StagedTextField({
     "style" in htmlInput && htmlInput.style != null
       ? (htmlInput.style as CSSProperties)
       : {};
+
+  if (
+    !staged.animating &&
+    (pendingRemoval || (lastSigned != null && lastSigned !== committed))
+  ) {
+    return (
+      <StandingTextDiff
+        before={pendingRemoval ? (lastSigned ?? committed) : lastSigned!}
+        after={pendingRemoval ? "" : committed}
+        label={props.label}
+        multiline={props.multiline === true}
+        fullWidth={props.fullWidth === true}
+        sx={
+          slotProps != null &&
+          typeof slotProps.input === "object" &&
+          slotProps.input != null &&
+          "sx" in slotProps.input
+            ? (slotProps.input.sx as TextFieldProps["sx"])
+            : props.sx
+        }
+      />
+    );
+  }
 
   return (
     <Box
