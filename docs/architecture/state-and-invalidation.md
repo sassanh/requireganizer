@@ -1,6 +1,6 @@
 # State, revisions, and invalidation
 
-Project data uses schema version 2. Imports with another version are rejected; the application does not reinterpret legacy data.
+Project data uses schema version 3. Imports with another version are rejected; the application does not reinterpret legacy data.
 
 ## Exact dependencies
 

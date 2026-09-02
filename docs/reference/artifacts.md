@@ -56,6 +56,6 @@ Automated-test generation receives the exact structured case, scenario binding, 
 
 ## Project schema and recovery
 
-Project exports use schema version 2. Imports with another schema version are rejected with the reason shown to the user. Imports rerun graph, schema, revision, dependency, coverage, contract, case, and scaffold validation before replacing live state.
+Project exports use schema version 3. Imports with another schema version are rejected with the reason shown to the user. Imports rerun graph, schema, revision, dependency, coverage, contract, case, and scaffold validation before replacing live state.
 
 Before an upstream revision invalidates completed downstream work, Requireganizer presents the affected artifacts and saves a complete recovery snapshot. Stale artifacts remain readable but cannot be used for generation. IndexedDB retains the latest 20 unpinned snapshots per project and every pinned snapshot.

@@ -6,7 +6,7 @@
 - pnpm 11
 - An OpenAI-compatible chat-completions endpoint and model that support formal function tools
 
-The default configuration uses the OpenCode Zen gateway and the `x-preview-f-free` model through a continuous agentic conversation. Set provider credentials or override the endpoint in `.env.local` when needed.
+The default configuration uses the OpenCode Zen gateway and the `muse-spark-1.3-contributor-free` model through a continuous agentic conversation. Set provider credentials or override the endpoint in `.env.local` when needed.
 
 ## Install and run
 
@@ -38,7 +38,7 @@ The documentation uses the GitHub Pages base path `/requireganizer/`. VitePress 
 
 ## First project
 
-1. Create a project. Optionally give a starting intent to draft the product overview once; skip to write the overview yourself. The intent is not stored.
+1. Create a project. Optionally give a starting intent to draft the product overview once; skip to write the overview yourself. The intent is kept as revision 0 provenance.
 2. Review the product overview. Approve each item; generated output is draft until you do.
 3. Continue through each stage in order. Request change or Approve each item; the left bar is the signature.
 4. Approve Boundary Design, the Implementation Profile, and each formal contract bundle after review, the same way: item by item.

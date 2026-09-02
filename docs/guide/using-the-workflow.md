@@ -1,6 +1,6 @@
 # Using the workflow
 
-Generate and review each stage in order. Generated work is draft. Approve each item after you review it. Quality-good is not approval. The next stage generates only from a fully approved set.
+Generate and review each stage in order, in small complete iterations — one stage or one fully worked slice at a time. You choose each iteration's scope. Generated work is draft. Approve each item after you review it. Quality-good is not approval. The next stage generates only from a fully approved set; an undecided item waits for a later iteration rather than flowing downstream half-done.
 
 Approval is the same gate at Product Overview, stories, requirements, and criteria, then at Boundary Design, the Implementation Profile, every interface bundle, every subject protocol/binding, and every verification contract.
 
@@ -24,6 +24,6 @@ Project Files is a separate viewer. The Code stage remains pending because neith
 
 ## Stale work and recovery
 
-When a revision would invalidate completed downstream artifacts, review the impact list. Confirming saves a complete recovery snapshot before applying the revision. Stale artifacts remain visible but cannot drive further generation. Open **Revisions** to pin, restore, download, or delete snapshots.
+When a revision would invalidate completed downstream artifacts, review the impact list. Confirming saves a complete recovery snapshot before applying the revision. Stale artifacts remain visible but cannot drive further generation. An item whose own text is unchanged stays approved even if the reasoning behind it shifted. Open **Revisions** to pin, restore, download, or delete snapshots.
 
 Imports must use the current project schema. Obsolete imports are rejected clearly; no compatibility migration is applied.
