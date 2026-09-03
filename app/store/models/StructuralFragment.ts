@@ -23,6 +23,30 @@ export interface StructuralFragmentUpdate {
   dependencies?: string[];
 }
 
+export function referencesEqual(
+  next: ReadonlyArray<{ id: string; type: string }>,
+  current: ReadonlyArray<{ id: string; type: string }>,
+): boolean {
+  return (
+    next.length === current.length &&
+    next.every(
+      (reference, index) =>
+        reference.id === current[index].id &&
+        reference.type === current[index].type,
+    )
+  );
+}
+
+export function dependenciesEqual(
+  next: ReadonlyArray<string>,
+  current: ReadonlyArray<string>,
+): boolean {
+  return (
+    next.length === current.length &&
+    next.every((dependency, index) => dependency === current[index])
+  );
+}
+
 export const ReferenceModel = types.model({
   id: types.string,
   type: types.enumeration(Object.values(StructuralFragmentName)),
@@ -69,6 +93,18 @@ const HalfStructuralFragmentModel = types
     clearPendingRemoval() {
       self.pendingRemoval = false;
     },
+    // An edit landing back on the last approved text restores approval:
+    // there is nothing left to review.
+    reapproveIfMatchesSigned() {
+      if (
+        !self.pendingRemoval &&
+        self.lastSignedContent != null &&
+        self.content === self.lastSignedContent
+      ) {
+        self.approval = "approved";
+        self.lastSignedContent = null;
+      }
+    },
   }))
   .actions((self) => ({
     markPendingRemoval() {
@@ -79,6 +115,7 @@ const HalfStructuralFragmentModel = types
       if (self.content === newContent) return;
       self.dropApproval();
       self.content = newContent;
+      self.reapproveIfMatchesSigned();
     },
     setPriority(newPriority: Priority) {
       self.priority = newPriority;
@@ -105,6 +142,7 @@ const HalfStructuralFragmentModel = types
           references.map((reference) => ReferenceModel.create(reference)),
         );
       if (dependencies !== undefined) self.dependencies = cast(dependencies);
+      self.reapproveIfMatchesSigned();
     },
   }));
 

@@ -12,6 +12,8 @@ import { uuid } from "utilities";
 import {
   StructuralFragmentModel,
   StructuralFragmentUpdate,
+  dependenciesEqual,
+  referencesEqual,
 } from "./StructuralFragment";
 
 interface TestCaseUpdate extends StructuralFragmentUpdate {
@@ -20,30 +22,6 @@ interface TestCaseUpdate extends StructuralFragmentUpdate {
   definition?: TestCaseDefinition;
   revisionId?: string;
   revision?: number;
-}
-
-function referencesEqual(
-  next: NonNullable<TestCaseUpdate["references"]>,
-  current: ReadonlyArray<{ id: string; type: StructuralFragment }>,
-): boolean {
-  return (
-    next.length === current.length &&
-    next.every(
-      (reference, index) =>
-        reference.id === current[index].id &&
-        reference.type === current[index].type,
-    )
-  );
-}
-
-function dependenciesEqual(
-  next: NonNullable<TestCaseUpdate["dependencies"]>,
-  current: ReadonlyArray<string>,
-): boolean {
-  return (
-    next.length === current.length &&
-    next.every((dependency, index) => dependency === current[index])
-  );
 }
 
 export type TestCase = Instance<typeof TestCaseModel>;

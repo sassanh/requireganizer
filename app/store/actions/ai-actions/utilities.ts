@@ -15,6 +15,7 @@ import {
 } from "ai-harness/contracts";
 import { getArtifactStageDefinition } from "ai-harness/workflow";
 import type {
+  ApprovalStatus,
   BoundaryDesign,
   BoundaryDesignProposal,
   ContractSuite,
@@ -48,8 +49,46 @@ import {
   StructuralFragment,
 } from "store/constants";
 import { classifyListChange } from "store/listChange";
+import {
+  dependenciesEqual,
+  referencesEqual,
+} from "store/models/StructuralFragment";
 import type { FlatStore, TestCaseSnapshotInput, TestScenarioSnapshotInput } from "store/store";
 import { uuid } from "utilities";
+
+interface PriorItemState {
+  approval: ApprovalStatus;
+  lastSignedContent: string | null;
+  content: string;
+}
+
+/**
+ * Approval for a rewritten item whose human-authored fields are unchanged.
+ * Identical content keeps its state, and content matching the last approved
+ * text restores approval — there is nothing left to review.
+ */
+function approvalForUnchangedItem(
+  prior: PriorItemState,
+  nextContent: string,
+): { approval: ApprovalStatus; lastSignedContent: string | null } {
+  const signed =
+    prior.lastSignedContent ??
+    (prior.approval === "approved" ? prior.content : null);
+  const reapproved = signed != null && nextContent === signed;
+  return {
+    approval: reapproved ? "approved" : prior.approval,
+    lastSignedContent: reapproved ? null : prior.lastSignedContent,
+  };
+}
+
+/** Last-approved text for a rewritten item, mirroring fragment dropApproval. */
+function signedContentOf(prior: PriorItemState | null): string | null {
+  if (prior == null) return null;
+  return (
+    prior.lastSignedContent ??
+    (prior.approval === "approved" ? prior.content : null)
+  );
+}
 
 export function applyAtomically(
   store: FlatStore,
@@ -515,20 +554,61 @@ export function applyTestScenarioProposal(
   }
   const resolved = resolveDependencies(proposal.items);
   const previous = new Map(store.testScenarios.map((item) => [item.id, item]));
+  // A rewrite that changes nothing — same members, same wording, same
+  // bindings — applies silently instead of queueing a phantom impact
+  // confirmation for downstream stages.
+  let changed = proposal.items.length !== previous.size;
   const snapshots: TestScenarioSnapshotInput[] = proposal.items.map((item) => {
     const identity = resolved.get(item.key)!;
     const prior = previous.get(identity.id);
+    const references = item.acceptanceCriteriaIds.map((id) => ({ id, type: StructuralFragment.AcceptanceCriteria }));
+    const textSame =
+      prior != null &&
+      item.title === prior.content &&
+      item.description === prior.description &&
+      referencesEqual(references, prior.references) &&
+      dependenciesEqual(identity.dependencies, prior.dependencies);
+    const bindingSame =
+      prior != null &&
+      fingerprint(item.binding) === fingerprint(prior.binding);
+    // Unchanged wording, or wording back on the last approved text: there
+    // is nothing left to review.
+    const signed = signedContentOf(prior ?? null);
+    const matchesSigned =
+      prior != null && signed != null && item.title === signed;
+    if (prior == null || (!textSame && !matchesSigned) || !bindingSame) {
+      changed = true;
+    }
+    if (prior == null || (!textSame && !matchesSigned)) {
+      return {
+        id: identity.id,
+        title: item.title,
+        description: item.description,
+        priority: item.priority as Priority,
+        references,
+        dependencies: identity.dependencies,
+        binding: item.binding,
+        revisionId: uuid(),
+        revision: (prior?.revision ?? 0) + 1,
+        approval: "draft",
+        lastSignedContent: signedContentOf(prior ?? null),
+        testCases: prior?.testCases.map((testCase) => getSnapshot(testCase)),
+      };
+    }
+    // Human-authored fields unchanged: keep review state, and only mint a
+    // new revision when the contract binding genuinely moved.
     return {
       id: identity.id,
       title: item.title,
       description: item.description,
       priority: item.priority as Priority,
-      references: item.acceptanceCriteriaIds.map((id) => ({ id, type: StructuralFragment.AcceptanceCriteria })),
+      references,
       dependencies: identity.dependencies,
       binding: item.binding,
-      revisionId: uuid(),
-      revision: (prior?.revision ?? 0) + 1,
-      testCases: prior?.testCases.map((testCase) => getSnapshot(testCase)),
+      revisionId: bindingSame ? prior.revisionId : uuid(),
+      revision: bindingSame ? prior.revision : prior.revision + 1,
+      ...approvalForUnchangedItem(prior, item.title),
+      testCases: prior.testCases.map((testCase) => getSnapshot(testCase)),
     };
   });
   applyAtomically(
@@ -537,7 +617,7 @@ export function applyTestScenarioProposal(
       candidate.setTestScenarios(snapshots);
       candidate.markStageGenerated(WorkflowStage.TestScenarios);
     },
-    store.testScenarios.length === 0
+    store.testScenarios.length === 0 || !changed
       ? undefined
       : { sourceStep: WorkflowStage.TestScenarios, summary: "Apply the new revision-bound scenario set." },
   );
@@ -548,23 +628,59 @@ export function applyTestCaseProposal(store: FlatStore, proposal: TestCaseListPr
   if (scenario == null) throw new Error(`Missing scenario ${proposal.scenarioId}.`);
   const resolved = resolveDependencies(proposal.items);
   const previous = new Map(scenario.testCases.map((item) => [item.id, item]));
+  // A rewrite that changes nothing applies silently instead of queueing a
+  // phantom impact confirmation for downstream stages.
+  let changed = proposal.items.length !== previous.size;
   const cases: TestCaseSnapshotInput[] = proposal.items.map((item) => {
     const identity = resolved.get(item.key)!;
     const prior = previous.get(identity.id);
+    const references = [
+      { id: scenario.id, type: StructuralFragment.TestScenario },
+      ...item.acceptanceCriteriaIds.map((id) => ({ id, type: StructuralFragment.AcceptanceCriteria })),
+    ];
+    const textSame =
+      prior != null &&
+      item.title === prior.title &&
+      item.description === prior.content &&
+      fingerprint(item.definition) === fingerprint(prior.definition) &&
+      referencesEqual(references, prior.references) &&
+      dependenciesEqual(identity.dependencies, prior.dependencies);
+    // Wording back on the last approved text restores approval, like the
+    // fragment models do. A pure revert applies silently.
+    const signed = signedContentOf(prior ?? null);
+    const matchesSigned =
+      prior != null && signed != null && item.description === signed;
+    if (prior == null || (!textSame && !matchesSigned)) changed = true;
+    if (prior == null || (!textSame && !matchesSigned)) {
+      return {
+        id: identity.id,
+        title: item.title,
+        description: item.description,
+        priority: item.priority as Priority,
+        references,
+        dependencies: identity.dependencies,
+        definition: item.definition,
+        revisionId: uuid(),
+        revision: (prior?.revision ?? 0) + 1,
+        approval: "draft",
+        lastSignedContent: signedContentOf(prior ?? null),
+        generatedInputFingerprint: prior?.generatedInputFingerprint,
+      };
+    }
+    // Definition and wording unchanged: keep review state and revision, so
+    // generated tests stay in sync instead of phantom-going stale.
     return {
       id: identity.id,
       title: item.title,
       description: item.description,
       priority: item.priority as Priority,
-      references: [
-        { id: scenario.id, type: StructuralFragment.TestScenario },
-        ...item.acceptanceCriteriaIds.map((id) => ({ id, type: StructuralFragment.AcceptanceCriteria })),
-      ],
+      references,
       dependencies: identity.dependencies,
       definition: item.definition,
-      revisionId: uuid(),
-      revision: (prior?.revision ?? 0) + 1,
-      generatedInputFingerprint: prior?.generatedInputFingerprint,
+      revisionId: prior.revisionId,
+      revision: prior.revision,
+      ...approvalForUnchangedItem(prior, item.description),
+      generatedInputFingerprint: prior.generatedInputFingerprint,
     };
   });
   applyAtomically(
@@ -573,7 +689,7 @@ export function applyTestCaseProposal(store: FlatStore, proposal: TestCaseListPr
       candidate.replaceTestCases(proposal.scenarioId, cases);
       candidate.markStageGenerated(WorkflowStage.TestCases);
     },
-    scenario.testCases.length === 0
+    scenario.testCases.length === 0 || !changed
       ? undefined
       : { sourceStep: WorkflowStage.TestCases, summary: `Apply regenerated cases for ${scenario.content}.` },
   );

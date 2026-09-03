@@ -71,6 +71,23 @@ export const ProductOverviewModel = types
       self.purposeApproval = "approved";
       self.lastSignedPurpose = null;
     },
+    // An edit landing back on the last approved text restores approval:
+    // there is nothing left to review.
+    reapproveNameIfMatchesSigned() {
+      if (self.lastSignedName != null && self.name === self.lastSignedName) {
+        self.nameApproval = "approved";
+        self.lastSignedName = null;
+      }
+    },
+    reapprovePurposeIfMatchesSigned() {
+      if (
+        self.lastSignedPurpose != null &&
+        self.purpose === self.lastSignedPurpose
+      ) {
+        self.purposeApproval = "approved";
+        self.lastSignedPurpose = null;
+      }
+    },
     setPrimaryFeatures({
       primaryFeatures,
     }: {

@@ -148,6 +148,8 @@ export interface TestScenarioSnapshotInput {
   binding: TestScenarioBinding;
   revisionId: string;
   revision: number;
+  approval?: ApprovalStatus;
+  lastSignedContent?: string | null;
   testCases?: SnapshotIn<TestCase>[];
 }
 
@@ -161,6 +163,8 @@ export interface TestCaseSnapshotInput {
   definition: TestCaseDefinition;
   revisionId: string;
   revision: number;
+  approval?: ApprovalStatus;
+  lastSignedContent?: string | null;
   generatedInputFingerprint?: string | null;
 }
 
@@ -587,11 +591,13 @@ export const FlatStore = types
       if (self.productOverview.name === name) return;
       self.productOverview.uncheckName();
       self.productOverview.name = name;
+      self.productOverview.reapproveNameIfMatchesSigned();
     },
     setPurpose({ purpose }: { purpose: string }) {
       if (self.productOverview.purpose === purpose) return;
       self.productOverview.uncheckPurpose();
       self.productOverview.purpose = purpose;
+      self.productOverview.reapprovePurposeIfMatchesSigned();
     },
     setPrimaryFeatures({ primaryFeatures }: { primaryFeatures: SnapshotIn<PrimaryFeature>[] }) {
       self.productOverview.primaryFeatures = cast(primaryFeatures);
@@ -705,6 +711,8 @@ export const FlatStore = types
           binding: scenario.binding,
           revisionId: scenario.revisionId,
           revision: scenario.revision,
+          approval: scenario.approval ?? "draft",
+          lastSignedContent: scenario.lastSignedContent ?? null,
           testCases: scenario.testCases ?? [],
         })) as SnapshotIn<TestScenario>[],
       );
@@ -725,6 +733,8 @@ export const FlatStore = types
           definition: testCase.definition,
           revisionId: testCase.revisionId,
           revision: testCase.revision,
+          approval: testCase.approval ?? "draft",
+          lastSignedContent: testCase.lastSignedContent ?? null,
           generatedInputFingerprint: testCase.generatedInputFingerprint ?? null,
         })),
       );
