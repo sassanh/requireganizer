@@ -30,6 +30,7 @@ import {
   WORKFLOW_STAGE_LABELS,
   Status,
   WorkflowStage,
+  generateStep,
   useStore,
 } from "store";
 
@@ -100,7 +101,7 @@ const Header: React.FunctionComponent<HeaderProps> = ({
     const trimmed = modelHint.trim();
     setPrepareOpen(false);
     setModelHint("");
-    store.generateStep(nextStep, trimmed === "" ? undefined : trimmed);
+    generateStep(store, nextStep, trimmed === "" ? undefined : trimmed);
   };
 
   const listChangeText = store.stageListChangeCaption(step)?.text;

@@ -8,7 +8,8 @@ import type {
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import { applySnapshot, getSnapshot } from "mobx-state-tree";
 
-import { Store } from "../app/store/store";
+import { WorkflowStage } from "../app/store/constants";
+import { Store, generateStep } from "../app/store/store";
 import type { Store as StoreInstance } from "../app/store/store";
 import {
   activateBranch,
@@ -20,6 +21,7 @@ import {
   endRewind,
   flushTimeline,
   getChangeFocus,
+  getCurrentStepKind,
   getDeclaredStepNames,
   getTimelineMeta,
   getTimelineSnapshot,
@@ -486,6 +488,32 @@ describe("timeline controller", () => {
     ]) {
       assert.ok(declared.includes(name), `${name} must be declared`);
     }
+  });
+
+  it("admits the generator turn when dispatched through generateStep", async () => {
+    const store = newStore();
+
+    // generateStep is the single dispatch for stage generation. It must
+    // invoke the stage flow as a root call: the timeline admits only root
+    // calls of declared steps, so a nested dispatch would run the whole
+    // generation with no history entry (undo skips it) and no change
+    // focus (the stage snaps on all at once instead of presenting).
+    // Without a provider the attempt fails before mutating, but the turn
+    // must still be open while the flow runs.
+    generateStep(store, WorkflowStage.UserStories);
+    assert.equal(getCurrentStepKind(), "ai");
+
+    // Let the failed attempt settle: it records nothing, and the next
+    // action must open a fresh turn rather than folding into a leak.
+    const deadline = Date.now() + 10000;
+    while (getCurrentStepKind() != null && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.equal(getCurrentStepKind(), null);
+    const entries = getTimelineMeta().entries.length;
+    store.setPurpose({ purpose: "after" });
+    commitTimelineSegment();
+    assert.equal(getTimelineMeta().entries.length, entries + 1);
   });
 
   it("admits a declared flow root but records no node for a no-op attempt", async () => {

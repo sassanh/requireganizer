@@ -1405,27 +1405,7 @@ const aiFlows = {
 
 export const Store = FlatStore.actions(
   withSelf(aiFlows),
-).actions(withSelf({ import: import_, export: export_, exportCode }))
-  /**
-   * Run a stage's generator with an optional user hint. The two flows with
-   * leading parameters take the hint second; every other flow takes it
-   * first, so this is the one place that knows the shapes.
-   */
-  .actions((self) => ({
-    generateStep(step: WorkflowStage, hint?: string): void {
-      if (step === WorkflowStage.TestCases) {
-        void self.generateTestCases(undefined, hint);
-        return;
-      }
-      if (step === WorkflowStage.ProductOverview) {
-        void self.generateProductOverview(undefined, hint);
-        return;
-      }
-      const action = GENERATOR_ACTION_BY_WORKFLOW_STAGE[step];
-      if (action == null) return;
-      void (self[action] as (hint?: string) => unknown)(hint);
-    },
-  }));
+).actions(withSelf({ import: import_, export: export_, exportCode }));
 
 for (const [actionName, flow_] of Object.entries(aiFlows)) {
   const step = (
@@ -1438,5 +1418,28 @@ for (const [actionName, flow_] of Object.entries(aiFlows)) {
 
 export type FlatStore = Instance<typeof FlatStore>;
 export type Store = Instance<typeof Store>;
+
+/**
+ * Run a stage's generator with an optional user hint. A plain function,
+ * deliberately not a store action: the timeline admits only root calls of
+ * declared steps, so the generator must be invoked directly for its turn
+ * to open. An action wrapper would nest the call, and the generation
+ * would run with no history entry and no presentation. The two flows with
+ * leading parameters take the hint second; every other flow takes it
+ * first, so this is the one place that knows the shapes.
+ */
+export function generateStep(store: Store, step: WorkflowStage, hint?: string): void {
+  if (step === WorkflowStage.TestCases) {
+    void store.generateTestCases(undefined, hint);
+    return;
+  }
+  if (step === WorkflowStage.ProductOverview) {
+    void store.generateProductOverview(undefined, hint);
+    return;
+  }
+  const action = GENERATOR_ACTION_BY_WORKFLOW_STAGE[step];
+  if (action == null) return;
+  void (store[action] as (hint?: string) => unknown)(hint);
+}
 export const storeContext = createContext<Store>(null!);
 export const useStore = () => useContext(storeContext);
