@@ -10,6 +10,7 @@ import {
 
 import { isPresenting } from "presentation";
 
+import { animationMs } from "./animation";
 import { usePresentationTurn } from "./changeQueue";
 import {
   hunksHaveKind,
@@ -71,8 +72,8 @@ function TextChangeSpans({
               "--text-change-flash-mid": alpha(flash, 0.12),
               animation:
                 phase === "remove"
-                  ? `${removeFlash} ${TEXT_REMOVE_MILLISECONDS}ms ease-out forwards`
-                  : `${insertFlash} ${TEXT_INSERT_MILLISECONDS}ms ease-out forwards`,
+                  ? `${removeFlash} ${animationMs(TEXT_REMOVE_MILLISECONDS)}ms ease-out forwards`
+                  : `${insertFlash} ${animationMs(TEXT_INSERT_MILLISECONDS)}ms ease-out forwards`,
               ...(phase === "insert" ? { opacity: 0 } : {}),
             }}
           >
@@ -217,25 +218,25 @@ export function useStagedText(
       swapTimer = setTimeout(() => {
         setDisplayed(committed);
         setPhase("insert");
-      }, TEXT_REMOVE_SWAP_MILLISECONDS);
+      }, animationMs(TEXT_REMOVE_SWAP_MILLISECONDS));
       finalTimer = setTimeout(() => {
         setPhase("idle");
         setHunks(null);
         finish();
-      }, TEXT_REMOVE_SWAP_MILLISECONDS + TEXT_INSERT_MILLISECONDS);
+      }, animationMs(TEXT_REMOVE_SWAP_MILLISECONDS + TEXT_INSERT_MILLISECONDS));
     } else if (hasDeletes) {
       finalTimer = setTimeout(() => {
         setDisplayed(committed);
         setPhase("idle");
         setHunks(null);
         finish();
-      }, TEXT_REMOVE_MILLISECONDS);
+      }, animationMs(TEXT_REMOVE_MILLISECONDS));
     } else if (hasInserts) {
       finalTimer = setTimeout(() => {
         setPhase("idle");
         setHunks(null);
         finish();
-      }, TEXT_INSERT_MILLISECONDS);
+      }, animationMs(TEXT_INSERT_MILLISECONDS));
     }
 
     return createCleanup(tick, () => {

@@ -9,6 +9,7 @@ import {
   resetPresentation,
 } from "presentation";
 
+import { animationMs } from "./animation";
 import {
   animateApprovalBar,
   pulseElement,
@@ -119,7 +120,7 @@ export function useStagedContent<Value>(
     };
     let hold: ReturnType<typeof setTimeout> | null = setTimeout(
       doFinish,
-      HIGHLIGHT_HOLD_MILLISECONDS,
+      animationMs(HIGHLIGHT_HOLD_MILLISECONDS),
     );
     if (anim?.finished != null) {
       anim.finished
@@ -188,7 +189,7 @@ export function useStagedApproval(
     };
     let hold: ReturnType<typeof setTimeout> | null = setTimeout(
       doFinish,
-      HIGHLIGHT_MILLISECONDS,
+      animationMs(HIGHLIGHT_MILLISECONDS),
     );
     if (anim?.finished != null) {
       anim.finished

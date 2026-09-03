@@ -25,6 +25,7 @@ import React, {
 } from "react";
 
 import { AnimatedTabPanel, SectionHeader, StructuralFragments, TestCaseScenarioAccordions, TestScenarioList } from "components";
+import { animationMs, animationSeconds } from "components/animation";
 import {
   HIGHLIGHT_HOLD_MILLISECONDS,
   HIGHLIGHT_MILLISECONDS,
@@ -104,10 +105,10 @@ function SlidingStatusIcon({
           animate={{ y: 0 }}
           exit={{
             y: slide ? "100%" : 0,
-            transition: { duration: slide ? ITEM_MOTION_SECONDS : 0 },
+            transition: { duration: animationSeconds(slide ? ITEM_MOTION_SECONDS : 0) },
           }}
           transition={{
-            duration: slide ? ITEM_MOTION_SECONDS : 0,
+            duration: animationSeconds(slide ? ITEM_MOTION_SECONDS : 0),
             ease: "easeInOut",
           }}
           style={{
@@ -154,7 +155,7 @@ const FactoryTab = observer(function FactoryTab({
     prevStatus.current = status;
     if (!isPresenting()) return;
     setStatusPulse(true);
-    const timer = setTimeout(() => setStatusPulse(false), HIGHLIGHT_MILLISECONDS);
+    const timer = setTimeout(() => setStatusPulse(false), animationMs(HIGHLIGHT_MILLISECONDS));
     return () => {
       clearTimeout(timer);
       setStatusPulse(false);
@@ -191,7 +192,7 @@ const FactoryTab = observer(function FactoryTab({
           },
           ...(pulsing
             ? {
-                animation: `${factoryTabPop} ${HIGHLIGHT_MILLISECONDS}ms ease-out`,
+                animation: `${factoryTabPop} ${animationMs(HIGHLIGHT_MILLISECONDS)}ms ease-out`,
               }
             : {}),
           "&::before": {
@@ -203,7 +204,7 @@ const FactoryTab = observer(function FactoryTab({
             zIndex: 0,
             ...(pulsing
               ? {
-                  animation: `${factoryTabFill} ${HIGHLIGHT_MILLISECONDS}ms ease-out`,
+                  animation: `${factoryTabFill} ${animationMs(HIGHLIGHT_MILLISECONDS)}ms ease-out`,
                 }
               : {}),
           },
@@ -309,7 +310,7 @@ const Factory: React.FunctionComponent<FactoryProps> = ({ activeProject }) => {
       session.completed = true;
       complete(tick);
     };
-    const timer = setTimeout(finish, HIGHLIGHT_HOLD_MILLISECONDS);
+    const timer = setTimeout(finish, animationMs(HIGHLIGHT_HOLD_MILLISECONDS));
     return () => {
       clearTimeout(timer);
     };

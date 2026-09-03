@@ -8,6 +8,7 @@ import {
   isPresenting,
 } from "presentation";
 
+import { animationMs, animationSeconds } from "./animation";
 import { ITEM_MOTION_SECONDS } from "./itemMotion";
 import { scrollIntoViewWithMargin } from "./scrollFollower";
 
@@ -145,7 +146,7 @@ export function useMembershipTurns(liveIds: string[]): {
       setEnteringIds(new Set());
       session.completed = true;
       complete(tick);
-    }, ITEM_MOTION_SECONDS * 1000);
+    }, animationMs(ITEM_MOTION_SECONDS * 1000));
 
     return () => {
       clearTimeout(timer);
@@ -205,7 +206,7 @@ export function MembershipMotion({
       animate={{
         height: exiting ? (collapse ? 0 : (exitHeight ?? "auto")) : "auto",
         transition: {
-          duration: exiting && !collapse ? 0 : ITEM_MOTION_SECONDS,
+          duration: exiting && !collapse ? 0 : animationSeconds(ITEM_MOTION_SECONDS),
           ease: "easeInOut",
         },
       }}
@@ -219,7 +220,7 @@ export function MembershipMotion({
         animate={{
           x: exiting ? "100%" : 0,
           transition: {
-            duration: ITEM_MOTION_SECONDS,
+            duration: animationSeconds(ITEM_MOTION_SECONDS),
             ease: "easeInOut",
           },
         }}

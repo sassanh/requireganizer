@@ -54,6 +54,7 @@ import {
 import { ActionView } from "actions/ActionView";
 import { describeCommand, parseCommandMessage } from "ai-agent/command";
 import { disclosedThinking } from "ai-agent/thinking";
+import { animationMs } from "components/animation";
 import { useStore } from "store";
 import {
   activateBranch,
@@ -625,7 +626,7 @@ function UserBubble({
         className="message-actions"
         direction="row"
         spacing={0}
-        sx={{ transition: "opacity 150ms ease" }}
+        sx={{ transition: `opacity ${animationMs(150)}ms ease` }}
       >
         <Tooltip title="Rewind here — continue from before this message">
           <span>
@@ -1018,7 +1019,7 @@ function ConversationSidebar() {
                                 `0 0 0 4px ${alpha(theme.palette.primary.main, 0.45)}`,
                             },
                           },
-                          animation: "conversationBlink 600ms ease-in-out 2",
+                          animation: `conversationBlink ${animationMs(600)}ms ease-in-out 2`,
                         },
                       },
                     ]}
@@ -1126,7 +1127,7 @@ function CommandBubble({ summary, raw }: { summary: string; raw: string }) {
           fontSize="small"
           sx={{
             transform: expanded ? "rotate(180deg)" : "none",
-            transition: "transform 150ms ease",
+            transition: `transform ${animationMs(150)}ms ease`,
           }}
         />
         <Typography variant="caption" sx={{ flexGrow: 1 }}>

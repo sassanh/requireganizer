@@ -1,3 +1,4 @@
+import { animationMs } from "./animation";
 import { ITEM_MOTION_SECONDS } from "./itemMotion";
 
 /** How long the scroll pursuit follows an element before settling: long
@@ -95,7 +96,7 @@ export function scrollIntoViewWithMargin(
   if (fit === "nearest" && isFullyVisible(element, container, margin)) return;
 
   const startedAt = performance.now();
-  const duration = PURSUIT_SECONDS * 1000;
+  const duration = animationMs(PURSUIT_SECONDS * 1000);
   const step = (now: number): void => {
     if (now - startedAt >= duration || !element.isConnected) {
       activeFrame = null;

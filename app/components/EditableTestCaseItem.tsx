@@ -4,6 +4,7 @@ import { isAlive } from "mobx-state-tree";
 
 import { TestCase } from "store/models";
 
+import { animationSeconds } from "./animation";
 import FragmentShell from "./FragmentShell";
 import { StagedTextField } from "./TextChange";
 
@@ -46,7 +47,7 @@ const EditableTestCaseItemContent = observer(function EditableTestCaseItemConten
                 ? "rgba(237, 108, 2, 0.15)"
                 : "rgba(237, 108, 2, 0.08)"
               : theme.palette.background.paper,
-        transition: "background-color 0.2s",
+        transition: `background-color ${animationSeconds(0.2)}s`,
       })}
       {...props}
     >

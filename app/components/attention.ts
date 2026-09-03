@@ -4,8 +4,11 @@
 // Web Animations API so React re-renders cannot strip it. The presenter
 // reports done after a short hold; this flash may still be running when
 // the next change starts.
+import { animationMs } from "./animation";
 
-/** Run one highlight on `element`. Returns the running animation so the
+/** Run one highlight on `element`. `durationMs` is the base; the central
+ * pace applies inside, so callers pass release-speed constants and every
+ * highlight follows one knob. Returns the running animation so the
  * caller can report done when it finishes (null when animation is not
  * available — the caller then completes after its own duration). */
 export function pulseElement(
@@ -20,7 +23,7 @@ export function pulseElement(
       { backgroundColor: "rgba(46, 101, 89, 0.06)", offset: 0.7 },
       { backgroundColor: "rgba(46, 101, 89, 0)" },
     ],
-    { duration: durationMs, easing: "ease-out" },
+    { duration: animationMs(durationMs), easing: "ease-out" },
   );
 }
 
@@ -68,7 +71,8 @@ export function settleApprovalBar(element: HTMLElement | null): void {
 }
 
 /** Approve: green fills top → bottom. Unapprove: empties bottom → top.
- * Glow rides that same stroke and fades out. */
+ * Glow rides that same stroke and fades out. `durationMs` is the base;
+ * the central pace applies inside like the highlight above. */
 export function animateApprovalBar(
   element: HTMLElement,
   nextStatus: "draft" | "approved",
@@ -110,7 +114,7 @@ export function animateApprovalBar(
         { transform: "scaleY(1)", opacity: 0.55 },
         { transform: "scaleY(0)", opacity: 0 },
       ];
-  const timing = { duration: durationMs, easing: "ease-in-out" as const };
+  const timing = { duration: animationMs(durationMs), easing: "ease-in-out" as const };
 
   fill.animate(stroke, { ...timing, fill: "forwards" });
   return sweep.animate(glow, timing);
