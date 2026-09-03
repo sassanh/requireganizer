@@ -1,5 +1,6 @@
 import {
   ArrowDownward,
+  ArrowRight,
   ArrowUpward,
   Check,
   Comment,
@@ -276,4 +277,28 @@ export const requestChangeAction: Action<RequestChangeTarget> = {
   shortcut: requestChangeShortcut,
   isEnabled: ({ blocked }) => !blocked,
   run: ({ open }) => open(),
+};
+
+export const generateNextShortcut: ShortcutSpec = { key: "Enter", mod: true };
+
+/** Guarded opener: blocked only while busy; otherwise the reason speaks. */
+export interface PrepareGenerateTarget {
+  blocked: boolean;
+  reason: string | null;
+  open: () => void;
+}
+
+export const prepareGenerateAction: Action<PrepareGenerateTarget> = {
+  id: "prepare-generate",
+  name: "Generate next stage",
+  icon: <ArrowRight fontSize="small" />,
+  shortcut: generateNextShortcut,
+  isEnabled: ({ blocked }) => !blocked,
+  run: ({ reason, open }) => {
+    if (reason != null) {
+      notify(reason, "error");
+      return;
+    }
+    open();
+  },
 };

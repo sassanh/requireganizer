@@ -77,19 +77,21 @@ export default observer(function TestCaseScenarioAccordions({
               {scenario != null && (
                 <AccordionDetails>
                   <Stack>
-                    <GenerationButton
-                      endIcon={<Build />}
-                      disabled={store.isBusy || scenario.approval !== "approved"}
-                      onGenerate={() => {
-                        const real = store.testScenarios.find(
-                          (entry) => entry.id === scenario.id,
-                        );
-                        if (real != null) store.generateTestCases(real);
-                      }}
-                      sx={{ alignSelf: "end" }}
-                    >
-                      Generate Test Cases
-                    </GenerationButton>
+                    {scenario.testCases.length === 0 ? (
+                      <GenerationButton
+                        endIcon={<Build />}
+                        disabled={store.isBusy || scenario.approval !== "approved"}
+                        onGenerate={() => {
+                          const real = store.testScenarios.find(
+                            (entry) => entry.id === scenario.id,
+                          );
+                          if (real != null) store.generateTestCases(real);
+                        }}
+                        sx={{ alignSelf: "end" }}
+                      >
+                        Generate Test Cases
+                      </GenerationButton>
+                    ) : null}
                     <TestCaseFragments
                       fragments={scenario.testCases}
                       isDisabled={store.isBusy}

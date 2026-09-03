@@ -9,7 +9,7 @@ import {
 } from "./utilities";
 
 export default generator(
-  function* generateInterfaceContracts(self) {
+  function* generateInterfaceContracts(self, hint?: string) {
     const { runAgentCommand } = yield* toGenerator(import("ai-agent/agent"));
     if (self.implementationProfile.status !== "approved") {
       throw new UserFacingError(
@@ -21,9 +21,11 @@ export default generator(
         "Regenerate the implementation profile for the current Boundary Design before generating interface contracts.",
       );
     }
+    const trimmedHint = hint?.trim();
     yield* toGenerator(runAgentCommand(self, "generate interface contracts", {
       kind: "generate",
       stage: WorkflowStage.InterfaceContracts,
+      ...(trimmedHint != null && trimmedHint.length > 0 ? { hint: trimmedHint } : {}),
     }));
     self.eventTarget.emit("stepUpdate", WorkflowStage.InterfaceContracts);
   },

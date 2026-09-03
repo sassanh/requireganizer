@@ -7,8 +7,9 @@ import type { TestScenario } from "store/models";
 import { generator } from "./utilities";
 
 export default generator(
-  function* generateTestCases(self, target?: TestScenario) {
+  function* generateTestCases(self, target?: TestScenario, hint?: string) {
     const scenarios = target == null ? [...self.testScenarios] : [target];
+    const trimmedHint = hint?.trim();
     for (const scenario of scenarios) {
       if (scenario.approval !== "approved") {
         throw new UserFacingError("Approve this scenario before generating its cases.");
@@ -19,6 +20,7 @@ const { runAgentCommand } = yield* toGenerator(import("ai-agent/agent"));
         kind: "generate",
         stage: WorkflowStage.TestCases,
         scenarioId: scenario.id,
+        ...(trimmedHint != null && trimmedHint.length > 0 ? { hint: trimmedHint } : {}),
       }));
       if (self.pendingImpactChange != null) return;
     }

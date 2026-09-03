@@ -1405,7 +1405,27 @@ const aiFlows = {
 
 export const Store = FlatStore.actions(
   withSelf(aiFlows),
-).actions(withSelf({ import: import_, export: export_, exportCode }));
+).actions(withSelf({ import: import_, export: export_, exportCode }))
+  /**
+   * Run a stage's generator with an optional user hint. The two flows with
+   * leading parameters take the hint second; every other flow takes it
+   * first, so this is the one place that knows the shapes.
+   */
+  .actions((self) => ({
+    generateStep(step: WorkflowStage, hint?: string): void {
+      if (step === WorkflowStage.TestCases) {
+        void self.generateTestCases(undefined, hint);
+        return;
+      }
+      if (step === WorkflowStage.ProductOverview) {
+        void self.generateProductOverview(undefined, hint);
+        return;
+      }
+      const action = GENERATOR_ACTION_BY_WORKFLOW_STAGE[step];
+      if (action == null) return;
+      void (self[action] as (hint?: string) => unknown)(hint);
+    },
+  }));
 
 for (const [actionName, flow_] of Object.entries(aiFlows)) {
   const step = (

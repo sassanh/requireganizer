@@ -19,12 +19,14 @@ export function makeStructuralFragmentFlow<
   requiredSteps: readonly WorkflowStage[];
 }) {
   return generator(
-    function* generateStructuralFragmentFlow(self) {
+    function* generateStructuralFragmentFlow(self, hint?: string) {
     const { runAgentCommand } = yield* toGenerator(import("ai-agent/agent"));
       const store = self as FlatStore;
+      const trimmedHint = hint?.trim();
       yield* toGenerator(runAgentCommand(store, `generate ${structuralFragment.replaceAll("_", " ")} items`, {
         kind: "generate",
         stage: step as Exclude<WorkflowStage, WorkflowStage.Code>,
+        ...(trimmedHint != null && trimmedHint.length > 0 ? { hint: trimmedHint } : {}),
       }));
       store.eventTarget.emit("stepUpdate", step);
     },

@@ -87,27 +87,29 @@ function TestCaseRow({
               : "default"
         }
       />
-      <GenerationButton
-        size="small"
-        variant="outlined"
-        disabled={busy || testCase.approval !== "approved"}
-        onGenerate={() => {
-          const realScenario = store.testScenarios.find(
-            (entry) => entry.id === scenario.id,
-          );
-          const realCase = realScenario?.testCases.find(
-            (entry) => entry.id === testCase.id,
-          );
-          if (realScenario != null && realCase != null) {
-            store.generateTestCode({
-              testCase: realCase,
-              testScenario: realScenario,
-            });
-          }
-        }}
-      >
-        {testCase.testStatus === "generated" ? "Regenerate" : "Generate test"}
-      </GenerationButton>
+      {testCase.testStatus === "not-generated" ? (
+        <GenerationButton
+          size="small"
+          variant="outlined"
+          disabled={busy || testCase.approval !== "approved"}
+          onGenerate={() => {
+            const realScenario = store.testScenarios.find(
+              (entry) => entry.id === scenario.id,
+            );
+            const realCase = realScenario?.testCases.find(
+              (entry) => entry.id === testCase.id,
+            );
+            if (realScenario != null && realCase != null) {
+              store.generateTestCode({
+                testCase: realCase,
+                testScenario: realScenario,
+              });
+            }
+          }}
+        >
+          Generate test
+        </GenerationButton>
+      ) : null}
     </Stack>
   );
 }

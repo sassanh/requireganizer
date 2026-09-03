@@ -79,14 +79,6 @@ const InterfaceContractsView = () => {
             <Typography variant="h5">Implementation Profile · revision {profile.revision}</Typography>
             <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
               <ApprovalMark id={profile.id} />
-              <GenerationButton
-                size="small"
-                variant="outlined"
-                disabled={store.isBusy}
-                onGenerate={store.generateImplementationProfile}
-              >
-                Generate new revision
-              </GenerationButton>
             </Stack>
           </Stack>
           {PROFILE_FIELDS.map(([field, label]) => (
