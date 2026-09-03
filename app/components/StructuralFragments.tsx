@@ -1,4 +1,4 @@
-import { Divider, Paper, Stack, Typography } from "@mui/material";
+import { Stack, Typography } from "@mui/material";
 import { observer } from "mobx-react-lite";
 import { isAlive } from "mobx-state-tree";
 import { ReactElement, ReactNode } from "react";
@@ -61,11 +61,7 @@ const FragmentList = observer(function FragmentList<
   };
 
   return (
-    <Stack
-      component={Paper}
-      variant="outlined"
-      sx={{ p: 1, gap: 1 }}
-    >
+    <Stack sx={{ gap: 1 }}>
       {presentedIds.map((id, index) => {
         const content = renderedChildFor(id);
         if (content == null) return null;
@@ -79,7 +75,6 @@ const FragmentList = observer(function FragmentList<
             itemRef={itemRef}
           >
             {content}
-            <Divider />
           </MembershipMotion>
         );
       })}

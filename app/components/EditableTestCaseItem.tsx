@@ -45,7 +45,7 @@ const EditableTestCaseItemContent = observer(function EditableTestCaseItemConten
               ? theme.palette.mode === "dark"
                 ? "rgba(237, 108, 2, 0.15)"
                 : "rgba(237, 108, 2, 0.08)"
-              : "transparent",
+              : theme.palette.background.paper,
         transition: "background-color 0.2s",
       })}
       {...props}
@@ -59,7 +59,7 @@ const EditableTestCaseItemContent = observer(function EditableTestCaseItemConten
           placeholder="Test Case Title"
           size="small"
           sx={{
-            "&:not(:focus-within) fieldset": { border: "none" },
+            "& fieldset": { border: "none" },
           }}
           slotProps={{
             input: {
@@ -76,7 +76,7 @@ const EditableTestCaseItemContent = observer(function EditableTestCaseItemConten
           placeholder="Test Steps"
           size="small"
           sx={{
-            "&:not(:focus-within) fieldset": { border: "none" },
+            "& fieldset": { border: "none" },
           }}
           slotProps={{
             input: {
@@ -93,7 +93,7 @@ const EditableTestCaseItemContent = observer(function EditableTestCaseItemConten
           placeholder="Expected Result"
           size="small"
           sx={{
-            "&:not(:focus-within) fieldset": { border: "none" },
+            "& fieldset": { border: "none" },
           }}
           slotProps={{
             input: {

@@ -290,13 +290,13 @@ function StandingTextDiff({
             wordBreak: "break-word",
             ...(label != null && label !== ""
               ? {
-                  px: 1.75,
-                  py: 1.25,
-                  border: 1,
-                  borderColor: "divider",
-                  borderRadius: 1,
-                  minHeight: 56,
-                }
+                px: 1.75,
+                py: 1.25,
+                border: 1,
+                borderColor: "divider",
+                borderRadius: 1,
+                minHeight: 56,
+              }
               : {}),
           },
           ...(Array.isArray(sx) ? sx : sx != null ? [sx] : []),
@@ -411,8 +411,8 @@ export function StagedTextField({
 
   const htmlInput =
     slotProps != null &&
-    typeof slotProps.htmlInput === "object" &&
-    slotProps.htmlInput != null
+      typeof slotProps.htmlInput === "object" &&
+      slotProps.htmlInput != null
       ? slotProps.htmlInput
       : {};
   const htmlStyle =
@@ -433,9 +433,9 @@ export function StagedTextField({
         fullWidth={props.fullWidth === true}
         sx={
           slotProps != null &&
-          typeof slotProps.input === "object" &&
-          slotProps.input != null &&
-          "sx" in slotProps.input
+            typeof slotProps.input === "object" &&
+            slotProps.input != null &&
+            "sx" in slotProps.input
             ? (slotProps.input.sx as TextFieldProps["sx"])
             : props.sx
         }

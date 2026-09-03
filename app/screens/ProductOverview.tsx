@@ -2,9 +2,9 @@ import { Box, Divider, Stack, TextField, Typography } from "@mui/material";
 import { observer } from "mobx-react-lite";
 
 import { artifactElementId, StructuralFragments } from "components";
+import { ApprovalFrame } from "components/ApprovalFrame";
 import ApprovalMark from "components/ApprovalMark";
-import { useStagedApproval } from "components/changeQueue";
-import { ApprovalBar, QualityIssues, approvalBarSx } from "components/QualityState";
+import { QualityIssues } from "components/QualityState";
 import { StagedTextField } from "components/TextChange";
 import { useShownStore } from "presentation";
 import {
@@ -18,24 +18,23 @@ const NameField = observer(function NameField() {
   const store = useStore();
   const shown = useShownStore();
   const nameElementId = artifactElementId("productOverview-name");
-  const nameApproval = useStagedApproval(
-    nameElementId,
-    shown.productOverview.nameApproval,
-  );
   return (
     <Box
-      id={nameElementId}
-      sx={approvalBarSx()}
+      sx={{ position: "relative" }}
     >
-      <ApprovalBar status={nameApproval} />
-      <StagedTextField
-        committed={shown.productOverview.name || ""}
-        lastSigned={shown.productOverview.lastSignedName}
-        elementId={artifactElementId("productOverview-name")}
-        fullWidth
-        label="Name"
-        slotProps={{ input: { readOnly: true } }}
-      />
+      <ApprovalFrame
+        elementId={nameElementId}
+        approval={shown.productOverview.nameApproval}
+      >
+        <StagedTextField
+          committed={shown.productOverview.name || ""}
+          lastSigned={shown.productOverview.lastSignedName}
+          elementId={artifactElementId("productOverview-name")}
+          fullWidth
+          label="Name"
+          slotProps={{ input: { readOnly: true } }}
+        />
+      </ApprovalFrame>
       <Stack sx={{ position: "absolute", right: 8, bottom: 8 }}>
         <ApprovalMark
           id={OVERVIEW_NAME_QUALITY_ID}
@@ -57,26 +56,25 @@ const PurposeField = observer(function PurposeField() {
   const store = useStore();
   const shown = useShownStore();
   const purposeElementId = artifactElementId("productOverview-purpose");
-  const purposeApproval = useStagedApproval(
-    purposeElementId,
-    shown.productOverview.purposeApproval,
-  );
   return (
     <Box
-      id={purposeElementId}
-      sx={approvalBarSx()}
+      sx={{ position: "relative" }}
     >
-      <ApprovalBar status={purposeApproval} />
-      <StagedTextField
-        committed={shown.productOverview.purpose || ""}
-        lastSigned={shown.productOverview.lastSignedPurpose}
-        elementId={artifactElementId("productOverview-purpose")}
-        fullWidth
-        multiline
-        label="Purpose"
-        placeholder="Summarize the key features and objectives of the software in a comprehensive overview..."
-        slotProps={{ input: { readOnly: true } }}
-      />
+      <ApprovalFrame
+        elementId={purposeElementId}
+        approval={shown.productOverview.purposeApproval}
+      >
+        <StagedTextField
+          committed={shown.productOverview.purpose || ""}
+          lastSigned={shown.productOverview.lastSignedPurpose}
+          elementId={artifactElementId("productOverview-purpose")}
+          fullWidth
+          multiline
+          label="Purpose"
+          placeholder="Summarize the key features and objectives of the software in a comprehensive overview..."
+          slotProps={{ input: { readOnly: true } }}
+        />
+      </ApprovalFrame>
       <Stack sx={{ position: "absolute", right: 8, bottom: 8 }}>
         <ApprovalMark
           id={OVERVIEW_PURPOSE_QUALITY_ID}

@@ -41,7 +41,7 @@ const EditableItemContent = observer(function EditableItemContent<
         fullWidth
         disabled={isDisabled}
         sx={{
-          "&:not(:focus-within) fieldset": { border: "none" },
+          "& fieldset": { border: "none" },
         }}
         slotProps={{
           input: {

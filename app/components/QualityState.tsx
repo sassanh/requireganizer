@@ -1,14 +1,6 @@
 import { Box, Stack, Typography } from "@mui/material";
-import type { SxProps, Theme } from "@mui/material/styles";
 
 import type { ApprovalStatus } from "contract-domain";
-
-export function approvalBarSx(): SxProps<Theme> {
-  return {
-    position: "relative",
-    pl: 1,
-  };
-}
 
 export function ApprovalBar({ status }: { status: ApprovalStatus }) {
   return (
@@ -20,10 +12,13 @@ export function ApprovalBar({ status }: { status: ApprovalStatus }) {
         left: 0,
         top: 0,
         bottom: 0,
-        width: "4px",
+        width: "8px",
+        borderStartStartRadius: 4,
+        borderEndStartRadius: 4,
         bgcolor: status === "approved" ? "success.main" : "action.disabled",
         overflow: "hidden",
         pointerEvents: "none",
+        zIndex: 1,
       }}
     >
       <Box

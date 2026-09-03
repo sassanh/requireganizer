@@ -210,7 +210,7 @@ export function MembershipMotion({
         },
       }}
       style={{
-        overflow: "hidden",
+        // overflow: "hidden",
         overflowAnchor: entering || exiting ? "none" : "auto",
       }}
     >

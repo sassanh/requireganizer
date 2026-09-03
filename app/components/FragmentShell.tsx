@@ -2,17 +2,17 @@ import { Stack, StackProps, TextField, Typography } from "@mui/material";
 import type { Theme } from "@mui/material/styles";
 import { observer } from "mobx-react-lite";
 import { isAlive } from "mobx-state-tree";
-import { Fragment, type ReactNode } from "react";
+import { Fragment, type MouseEvent, type ReactNode } from "react";
 
 import { useFragmentHash } from "hooks/useFragmentHash";
 import { FRAGMENT_CODES, Priority, StructuralFragment as StructuralFragmentName, useStore } from "store";
 import { type TestCase, StructuralFragment } from "store/models";
 
+import { ApprovalFrame } from "./ApprovalFrame";
 import ApprovalMark from "./ApprovalMark";
-import { useStagedApproval } from "./changeQueue";
 import { getFrozenFragment, rememberFrozenFragment } from "./frozenFragment";
 import Link from "./Link";
-import { ApprovalBar, QualityIssues, approvalBarSx } from "./QualityState";
+import { QualityIssues } from "./QualityState";
 
 const lastLiveCode = new WeakMap<object, string>();
 
@@ -46,8 +46,8 @@ interface FragmentFrameProps extends StackProps {
   isDisabled: boolean;
   isHighlighted: boolean;
   highlightSx?:
-    | React.CSSProperties
-    | ((theme: Theme) => React.CSSProperties);
+  | React.CSSProperties
+  | ((theme: Theme) => React.CSSProperties);
   dependencies: CaptionLink[];
   references: CaptionLink[];
   onComment?: (comment: string) => void;
@@ -67,27 +67,49 @@ function FragmentFrame({
   dependencies,
   references,
   onComment,
+  onClick,
   sx,
   ...props
 }: FragmentFrameProps) {
   const hasCaptions = dependencies.length > 0 || references.length > 0;
   const captionRightPadding = onComment != null ? 36 : 22;
-  const approval = useStagedApproval(id, approved === true ? "approved" : "draft");
+  // Clicking anywhere on the card (not a button or link) focuses its text,
+  // so the whole card — not just the text box — shows the focus border.
+  const handleFrameClick = (event: MouseEvent<HTMLDivElement>): void => {
+    onClick?.(event);
+    if (event.defaultPrevented) return;
+    if ((event.target as HTMLElement).closest("button, a, input, textarea")) {
+      return;
+    }
+    event.currentTarget.querySelector<HTMLElement>("input, textarea")?.focus();
+  };
   return (
-    <Stack
+    <ApprovalFrame
       {...props}
-      id={id}
+      elementId={id}
+      approval={approved === true ? "approved" : "draft"}
+      onClick={handleFrameClick}
+      // -1 keeps the card out of the tab order, but a mouse click still
+      // focuses the card itself — so empty card area selects the whole
+      // card even when there is no text box inside to focus.
+      tabIndex={-1}
       sx={[
-        { pl: 1 },
-        approved != null ? approvalBarSx() : {},
+        {
+          position: 'relative',
+          borderRadius: 1,
+          bgcolor: "background.paper",
+          "&:focus-within": {
+            outline: "2px solid",
+            outlineColor: "primary.main",
+          },
+        },
         isHighlighted ? highlightSx ?? { backgroundColor: "action.focus" } : {},
         ...(Array.isArray(sx) ? sx : sx ? [sx] : []),
       ]}
     >
-      {approved != null ? <ApprovalBar status={approval} /> : null}
       <Stack
         sx={{
-          position: "relative",
+          pl: 2,
           pb: hasCaptions ? 0 : 5,
         }}
       >
@@ -148,7 +170,7 @@ function FragmentFrame({
         </Stack>
       </Stack>
       <QualityIssues issues={qualityIssues} />
-    </Stack>
+    </ApprovalFrame>
   );
 }
 
@@ -159,8 +181,8 @@ interface FragmentShellProps<Type extends StructuralFragment>
   fragment: Type;
   onComment?: (parameters: { fragment: Type; comment: string }) => void;
   highlightSx?:
-    | React.CSSProperties
-    | ((theme: Theme) => React.CSSProperties);
+  | React.CSSProperties
+  | ((theme: Theme) => React.CSSProperties);
 }
 
 const FragmentShellContent = observer(function FragmentShellContent<
@@ -190,9 +212,8 @@ const FragmentShellContent = observer(function FragmentShellContent<
     return {
       id,
       href: linkedCode ? `#${linkedCode}` : "#",
-      label: `${FRAGMENT_CODES[fragmentType]}-${
-        list.findIndex(({ id: id_ }) => id_ === id) + 1
-      }`,
+      label: `${FRAGMENT_CODES[fragmentType]}-${list.findIndex(({ id: id_ }) => id_ === id) + 1
+        }`,
     };
   });
   const references = [...fragment.references].map((reference) => ({
@@ -236,7 +257,7 @@ const FragmentShell = <Type extends StructuralFragment>(
 ) => (isAlive(props.fragment) ? <FragmentShellContent {...props} /> : null);
 
 const fieldSx = {
-  "&:not(:focus-within) fieldset": { border: "none" },
+  "& fieldset": { border: "none" },
 };
 
 function itemBodyFromFields(fields: {
@@ -334,9 +355,8 @@ export function freezeLiveFragment(
     return {
       id,
       href: linkedCode ? `#${linkedCode}` : "#",
-      label: `${FRAGMENT_CODES[fragmentType]}-${
-        list.findIndex(({ id: id_ }) => id_ === id) + 1
-      }`,
+      label: `${FRAGMENT_CODES[fragmentType]}-${list.findIndex(({ id: id_ }) => id_ === id) + 1
+        }`,
     };
   });
   const references = [...fragment.references].map((reference) => ({
