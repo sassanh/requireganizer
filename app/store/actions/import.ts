@@ -68,6 +68,7 @@ const importProject = (self_: unknown, value: unknown): void => {
     businessCounter: 0,
     validationErrors: null,
     productOverview: value.productOverview,
+    overviewSeed: typeof value.overviewSeed === "string" ? value.overviewSeed : null,
     userStories: array(value.userStories, "User stories"),
     requirements: array(value.requirements, "Requirements"),
     acceptanceCriteria: array(value.acceptanceCriteria, "Acceptance criteria"),

@@ -1,4 +1,4 @@
-import { Box, Divider, Stack } from "@mui/material";
+import { Box, Divider, Stack, TextField, Typography } from "@mui/material";
 import { observer } from "mobx-react-lite";
 
 import { artifactElementId, StructuralFragments } from "components";
@@ -94,12 +94,31 @@ const PurposeField = observer(function PurposeField() {
   );
 });
 
+const SeedBlock = observer(function SeedBlock() {
+  const shown = useShownStore();
+  if (shown.overviewSeed == null) return null;
+  return (
+    <Box>
+      <Typography variant="caption" color="text.secondary">
+        Starting intent (revision 0) — the words this overview was drafted from. Read-only.
+      </Typography>
+      <TextField
+        value={shown.overviewSeed}
+        fullWidth
+        multiline
+        slotProps={{ input: { readOnly: true } }}
+      />
+    </Box>
+  );
+});
+
 const ProductOverview = observer(function ProductOverview() {
   const store = useStore();
   const shown = useShownStore();
 
   return (
     <Stack sx={{ gap: 2 }}>
+      <SeedBlock />
       <Box sx={{ display: "grid", gap: 2 }}>
         <NameField />
         <PurposeField />

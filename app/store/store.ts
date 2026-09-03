@@ -380,6 +380,9 @@ export const FlatStore = types
     businessCounter: types.optional(types.number, 0),
     validationErrors: types.maybeNull(types.string),
     productOverview: ProductOverviewModel,
+    // One-time starting intent that drafted the overview. Revision 0
+    // provenance: write-once, read-only, never an input to generation.
+    overviewSeed: types.optional(types.maybeNull(types.string), null),
     userStories: types.array(UserStoryModel),
     requirements: types.array(RequirementModel),
     acceptanceCriteria: types.array(AcceptanceCriteriaModel),
@@ -598,6 +601,11 @@ export const FlatStore = types
       self.productOverview.uncheckPurpose();
       self.productOverview.purpose = purpose;
       self.productOverview.reapprovePurposeIfMatchesSigned();
+    },
+    // Revision 0 provenance is one-time: later generates never overwrite it.
+    setOverviewSeed({ seed }: { seed: string }) {
+      if (self.overviewSeed != null) return;
+      self.overviewSeed = seed;
     },
     setPrimaryFeatures({ primaryFeatures }: { primaryFeatures: SnapshotIn<PrimaryFeature>[] }) {
       self.productOverview.primaryFeatures = cast(primaryFeatures);
