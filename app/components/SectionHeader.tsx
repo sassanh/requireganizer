@@ -1,7 +1,7 @@
 import { ArrowRight, Refresh } from "@mui/icons-material";
 import { Stack, Typography } from "@mui/material";
 import { observer } from "mobx-react-lite";
-import React, { useEffect } from "react";
+import React from "react";
 
 import {
   GENERATOR_ACTION_BY_WORKFLOW_STAGE,
@@ -56,29 +56,6 @@ const Header: React.FunctionComponent<HeaderProps> = ({
   const nextStepGeneratorAction = nextStep
     ? GENERATOR_ACTION_BY_WORKFLOW_STAGE[nextStep]
     : null;
-
-  useEffect(() => {
-    if (!nextStepGeneratorAction) return;
-    const osModifierKey = window.navigator.userAgent.includes("Mac")
-      ? "metaKey"
-      : "ctrlKey";
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (
-        event.key === "Enter" &&
-        event[osModifierKey] &&
-        !store.isBusy &&
-        nextStep != null &&
-        store.canGenerateStep(nextStep)
-      ) {
-        event.preventDefault();
-        store[nextStepGeneratorAction]();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [store, nextStep, nextStepGeneratorAction]);
 
   const hint =
     nextStep != null ? nextGenerateHint(store, step, nextStep) : null;

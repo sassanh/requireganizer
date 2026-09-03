@@ -1,3 +1,5 @@
+import { approveAction, approveShortcut } from "actions/actions";
+
 import {
   isEditableTarget,
   isOverlayTarget,
@@ -7,20 +9,19 @@ import {
 } from "./shortcuts";
 
 /**
- * Press the selected frame's own Approve button, if it has a live one.
- * Going through the button reuses every existing guard (already
- * approved, busy store) instead of duplicating them.
+ * Press the selected frame's own Approve button through its action, if it
+ * has a live one. Going through the button reuses every existing guard
+ * (already approved, busy store) instead of duplicating them.
  */
 function approveSelected(): void {
   selectedNavigateFrame()
-    ?.querySelector<HTMLElement>("[data-approve-button]")
+    ?.querySelector<HTMLElement>(`[data-action="${approveAction.id}"]`)
     ?.click();
 }
 
 const APPROVE_SHORTCUT: ShortcutBinding = {
-  id: "approve-selected",
-  key: "a",
-  mod: true,
+  id: approveAction.id,
+  ...approveShortcut,
   when: (event) =>
     !isEditableTarget(event.target) && !isOverlayTarget(event.target),
   action: approveSelected,

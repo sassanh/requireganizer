@@ -1,3 +1,9 @@
+import {
+  redoAction,
+  redoShortcut,
+  undoAction,
+  undoShortcut,
+} from "actions/actions";
 import { redo, undo } from "store/timeline/controller";
 
 import {
@@ -16,18 +22,15 @@ import {
  * page sees it; ctrl+z is the reliable undo there.
  */
 const UNDO_SHORTCUT: ShortcutBinding = {
-  id: "timeline-undo",
-  key: "z",
-  mod: true,
+  id: undoAction.id,
+  ...undoShortcut,
   when: (event) => !isEditableTarget(event.target),
   action: undo,
 };
 
 const REDO_SHORTCUT: ShortcutBinding = {
-  id: "timeline-redo",
-  key: "z",
-  mod: true,
-  shift: true,
+  id: redoAction.id,
+  ...redoShortcut,
   when: (event) => !isEditableTarget(event.target),
   action: redo,
 };

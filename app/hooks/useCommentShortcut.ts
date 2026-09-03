@@ -1,3 +1,5 @@
+import { requestChangeAction, requestChangeShortcut } from "actions/actions";
+
 import {
   isEditableTarget,
   isOverlayTarget,
@@ -6,22 +8,19 @@ import {
   type ShortcutBinding,
 } from "./shortcuts";
 
-/** Single source for the key: the button tooltip renders it from here. */
-export const COMMENT_SHORTCUT_KEY = "c";
-
 /**
- * Open the selected frame's change-request popover through its own
- * button, reusing its open/disabled behavior instead of duplicating it.
+ * Open the selected frame's change-request popover through its own button,
+ * reusing its open/disabled behavior instead of duplicating it.
  */
 function openCommentForSelected(): void {
   selectedNavigateFrame()
-    ?.querySelector<HTMLElement>("[data-comment-button]")
+    ?.querySelector<HTMLElement>(`[data-action="${requestChangeAction.id}"]`)
     ?.click();
 }
 
 const COMMENT_SHORTCUT: ShortcutBinding = {
-  id: "request-change",
-  key: COMMENT_SHORTCUT_KEY,
+  id: requestChangeAction.id,
+  ...requestChangeShortcut,
   when: (event) =>
     !isEditableTarget(event.target) && !isOverlayTarget(event.target),
   action: openCommentForSelected,

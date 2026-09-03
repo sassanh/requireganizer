@@ -13,6 +13,7 @@ import ApprovalMark from "./ApprovalMark";
 import { pulseElement } from "./attention";
 import { HIGHLIGHT_MILLISECONDS } from "./changeQueue";
 import { formatFragmentCopy } from "./copyFormat";
+import { FragmentMoreMenu } from "./FragmentMoreMenu";
 import { getFrozenFragment, rememberFrozenFragment } from "./frozenFragment";
 import Link from "./Link";
 import { QualityIssues } from "./QualityState";
@@ -166,11 +167,14 @@ function FragmentFrame({
             bottom: 8,
           }}
         >
-          <ApprovalMark
-            id={id}
-            onRequestChange={onComment}
-            requestChangeDisabled={isDisabled}
-          />
+          <Stack direction="row" sx={{ alignItems: "center", gap: 0.5 }}>
+            <ApprovalMark
+              id={id}
+              onRequestChange={onComment}
+              requestChangeDisabled={isDisabled}
+            />
+            <FragmentMoreMenu />
+          </Stack>
         </Stack>
       </Stack>
       <QualityIssues issues={qualityIssues} />

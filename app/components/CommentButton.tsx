@@ -1,9 +1,11 @@
-import { Comment, Send } from "@mui/icons-material";
-import { IconButton, Paper, Popper, TextField, Tooltip } from "@mui/material";
+import { Paper, Popper, TextField } from "@mui/material";
 import { observer } from "mobx-react-lite";
-import { ChangeEvent, FormEvent, MouseEvent, useCallback, useEffect, useState } from "react";
+import { ChangeEvent, FormEvent, useCallback, useEffect, useState } from "react";
 
-import { COMMENT_SHORTCUT_KEY } from "hooks/useCommentShortcut";
+import { requestChangeAction, sendChangeRequestAction } from "actions/actions";
+import { ActionView } from "actions/ActionView";
+
+import { sendOnEnter } from "./enterToSend";
 
 interface CommentButtonProps {
   disabled?: boolean;
@@ -21,10 +23,9 @@ const CommentButton = ({
   const [buttonRef, setButtonRef] = useState<HTMLButtonElement | null>(null);
 
   const isOpen = anchor !== null;
-  const handleOpen = useCallback((event: MouseEvent<HTMLButtonElement>) => {
-    event.stopPropagation();
-    setAnchor(event.currentTarget);
-  }, []);
+  const openPopover = useCallback(() => {
+    if (buttonRef != null) setAnchor(buttonRef);
+  }, [buttonRef]);
   // Deliberately not a modal: outside pointer-down closes, Escape closes
   // and hands focus back, submit closes and hands focus back. No focus
   // trap means nothing can yank focus out from under the text area.
@@ -52,8 +53,7 @@ const CommentButton = ({
   );
 
   const handleSubmit = useCallback(
-    async (event: FormEvent) => {
-      event.preventDefault();
+    async () => {
       if (isSubmitting || comment.trim().length === 0) return;
       setIsSubmitting(true);
       try {
@@ -68,22 +68,26 @@ const CommentButton = ({
     [buttonRef, comment, isSubmitting, onSubmit],
   );
 
+  const handleFormSubmit = useCallback(
+    (event: FormEvent) => {
+      event.preventDefault();
+      void handleSubmit();
+    },
+    [handleSubmit],
+  );
+
   return (
     <>
-      <Tooltip title={`Request change (${COMMENT_SHORTCUT_KEY.toUpperCase()})`}>
-        <IconButton
-          aria-label="Request change"
-          color='primary'
-          data-comment-button
-          data-comment-open={isOpen ? "" : undefined}
-          ref={setButtonRef}
+      <span data-comment-open={isOpen ? "" : undefined}>
+        <ActionView
+          variant="iconbutton"
+          action={requestChangeAction}
+          target={{ blocked: disabled || isSubmitting, open: openPopover }}
           size="small"
-          disabled={disabled || isSubmitting}
-          onClick={handleOpen}
-        >
-          <Comment />
-        </IconButton>
-      </Tooltip>
+          color="primary"
+          ref={setButtonRef}
+        />
+      </span>
       <Popper
         open={isOpen}
         anchorEl={anchor}
@@ -93,11 +97,14 @@ const CommentButton = ({
           component="form"
           data-comment-popover
           sx={{ p: 1, width: 320 }}
-          onSubmit={handleSubmit}
+          onSubmit={handleFormSubmit}
           onKeyDown={(event) => {
-            if (event.key !== "Escape") return;
-            setAnchor(null);
-            buttonRef?.focus();
+            if (event.key === "Escape") {
+              setAnchor(null);
+              buttonRef?.focus();
+              return;
+            }
+            sendOnEnter(event, () => void handleSubmit());
           }}
         >
           <TextField
@@ -110,14 +117,17 @@ const CommentButton = ({
             autoFocus
             onChange={handleCommentChange}
           />
-          <IconButton
-            aria-label="Send change request"
-            disabled={disabled || comment.trim().length === 0}
+          <ActionView
+            variant="iconbutton"
+            action={sendChangeRequestAction}
+            target={{
+              blocked: disabled || isSubmitting,
+              text: comment,
+              send: () => void handleSubmit(),
+            }}
+            submit
             loading={isSubmitting}
-            type="submit"
-          >
-            <Send />
-          </IconButton>
+          />
         </Paper>
       </Popper>
     </>

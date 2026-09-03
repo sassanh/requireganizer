@@ -7,9 +7,7 @@ import {
   Forum,
   History,
   Person,
-  Redo,
   Refresh,
-  Send,
   SmartToy,
   Stop,
   Undo,
@@ -48,6 +46,12 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+import {
+  redoAction,
+  sendMessageAction,
+  undoAction,
+} from "actions/actions";
+import { ActionView } from "actions/ActionView";
 import { describeCommand, parseCommandMessage } from "ai-agent/command";
 import { disclosedThinking } from "ai-agent/thinking";
 import { useStore } from "store";
@@ -59,10 +63,9 @@ import {
   getTimelineMeta,
   jumpToNode,
   onTimelineChange,
-  redo,
-  undo,
 } from "store/timeline/controller";
 
+import { sendOnEnter } from "./enterToSend";
 import { describeToolOutput } from "./toolOutputSummary";
 
 function formatHistoryTimestamp(createdAt: number): string {
@@ -860,30 +863,18 @@ function ConversationSidebar() {
         <Typography variant="subtitle1" sx={{ flexGrow: 1 }}>
           AI conversation
         </Typography>
-        <Tooltip title="Undo (Cmd+Z)">
-          <span>
-            <IconButton
-              size="small"
-              aria-label="Undo"
-              disabled={busy || !timelineMeta.canUndo}
-              onClick={undo}
-            >
-              <Undo fontSize="small" />
-            </IconButton>
-          </span>
-        </Tooltip>
-        <Tooltip title="Redo (Cmd+Shift+Z)">
-          <span>
-            <IconButton
-              size="small"
-              aria-label="Redo"
-              disabled={busy || !timelineMeta.canRedo}
-              onClick={redo}
-            >
-              <Redo fontSize="small" />
-            </IconButton>
-          </span>
-        </Tooltip>
+        <ActionView
+          variant="iconbutton"
+          action={undoAction}
+          target={{ blocked: busy, available: timelineMeta.canUndo }}
+          size="small"
+        />
+        <ActionView
+          variant="iconbutton"
+          action={redoAction}
+          target={{ blocked: busy, available: timelineMeta.canRedo }}
+          size="small"
+        />
         <Tooltip title="History">
           <span>
             <IconButton
@@ -1213,12 +1204,7 @@ const ConversationComposer = memo(function ConversationComposer({
         <TextField
           value={draft}
           onChange={(event) => onDraftChange(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-              event.preventDefault();
-              sendDraft();
-            }
-          }}
+          onKeyDown={(event) => sendOnEnter(event, sendDraft)}
           placeholder={rewindActive ? "Continue from here…" : "Ask the agent…"}
           multiline
           maxRows={6}
@@ -1226,14 +1212,12 @@ const ConversationComposer = memo(function ConversationComposer({
           size="small"
           disabled={store.isBusy}
         />
-        <IconButton
-          aria-label="Send message"
+        <ActionView
+          variant="iconbutton"
+          action={sendMessageAction}
+          target={{ blocked: store.isBusy, text: draft, send: sendDraft }}
           color="primary"
-          disabled={store.isBusy || draft.trim().length === 0}
-          onClick={sendDraft}
-        >
-          <Send />
-        </IconButton>
+        />
       </Stack>
     </Box>
   );

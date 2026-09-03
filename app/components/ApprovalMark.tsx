@@ -1,10 +1,11 @@
-import { Button, Stack } from "@mui/material";
+import { Stack } from "@mui/material";
 import { observer } from "mobx-react-lite";
 
+import { approveAction } from "actions/actions";
+import { ActionView } from "actions/ActionView";
 import { useStore } from "store";
 
 import CommentButton from "./CommentButton";
-import { notify } from "./notices";
 
 const ApprovalMark = observer(function ApprovalMark({
   id,
@@ -22,19 +23,17 @@ const ApprovalMark = observer(function ApprovalMark({
   return (
     <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexShrink: 0 }}>
       {canApprove ? (
-        <Button
-          size="small"
-          variant="contained"
-          data-approve-button
-          disabled={store?.isBusy === true}
-          onClick={(event) => {
-            event.stopPropagation();
-            store.approve(id);
-            notify("Approved");
+        <ActionView
+          variant="textbutton"
+          action={approveAction}
+          target={{
+            blocked: store?.isBusy === true,
+            approvable: canApprove,
+            approve: () => store?.approve(id),
           }}
-        >
-          Approve
-        </Button>
+          size="small"
+          buttonVariant="contained"
+        />
       ) : null}
       {onRequestChange != null ? (
         <CommentButton
