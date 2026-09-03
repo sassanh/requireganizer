@@ -1,4 +1,6 @@
 import {
+  ArrowDownward,
+  ArrowUpward,
   Check,
   Comment,
   ContentCopy,
@@ -13,6 +15,7 @@ import { pulseElement } from "components/attention";
 import { HIGHLIGHT_MILLISECONDS } from "components/changeQueue";
 import { copyTextForElement } from "components/copy";
 import { notify } from "components/notices";
+import { scrollIntoViewWithMargin, MARGIN_PIXELS } from "components/scrollFollower";
 import { redo, undo } from "store/timeline/controller";
 
 import { SEND_SHORTCUT_SPEC, type ShortcutSpec } from "./shortcutText";
@@ -156,6 +159,86 @@ export const copyUrlAction: Action<HTMLElement> = {
   },
 };
 
+export const selectNextShortcut: ShortcutSpec = { key: "j" };
+export const selectPreviousShortcut: ShortcutSpec = { key: "k" };
+
+function fragmentCards(): HTMLElement[] {
+  return Array.from(
+    document.querySelectorAll<HTMLElement>("[data-navigate-card]"),
+  ).filter((card) => card.getClientRects().length > 0);
+}
+
+function focusNavigateCard(card: HTMLElement): void {
+  // Selection only: the focus border moves, the address bar is untouched.
+  // Prefer the text box inside (fields show their own focus ring); fall
+  // back to the frame itself (cards outline the whole frame).
+  const focusTarget =
+    card instanceof HTMLInputElement || card instanceof HTMLTextAreaElement
+      ? card
+      : (card.querySelector<HTMLElement>("input, textarea") ?? card);
+  focusTarget.focus({ preventScroll: true });
+  scrollIntoViewWithMargin(card, "nearest", MARGIN_PIXELS);
+}
+
+function moveSelection(direction: 1 | -1): void {
+  const cards = fragmentCards();
+  if (cards.length === 0) return;
+  const active =
+    document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+  const currentIndex =
+    active == null
+      ? -1
+      : cards.findIndex(
+          (card) => card === active || card.contains(active),
+        );
+  const nextIndex =
+    currentIndex === -1
+      ? (direction === 1 ? 0 : cards.length - 1)
+      : Math.min(cards.length - 1, Math.max(0, currentIndex + direction));
+  const next = cards[nextIndex];
+  if (next == null || next === active) return;
+  focusNavigateCard(next);
+}
+
+/** Post-approve advance: strictly the next item, nothing at the end. */
+function advanceSelection(): void {
+  const cards = fragmentCards();
+  if (cards.length === 0) return;
+  const active =
+    document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+  const currentIndex =
+    active == null
+      ? -1
+      : cards.findIndex(
+          (card) => card === active || card.contains(active),
+        );
+  const next = cards[currentIndex + 1];
+  if (next == null) return;
+  focusNavigateCard(next);
+}
+
+export const selectNextAction: Action<void> = {
+  id: "selection-next",
+  name: "Select next item",
+  icon: <ArrowDownward fontSize="small" />,
+  shortcut: selectNextShortcut,
+  isEnabled: () => fragmentCards().length > 0,
+  run: () => moveSelection(1),
+};
+
+export const selectPreviousAction: Action<void> = {
+  id: "selection-previous",
+  name: "Select previous item",
+  icon: <ArrowUpward fontSize="small" />,
+  shortcut: selectPreviousShortcut,
+  isEnabled: () => fragmentCards().length > 0,
+  run: () => moveSelection(-1),
+};
+
 export const approveShortcut: ShortcutSpec = { key: "a", mod: true };
 export const requestChangeShortcut: ShortcutSpec = { key: "c" };
 
@@ -175,6 +258,8 @@ export const approveAction: Action<ApproveTarget> = {
   run: ({ approve }) => {
     approve();
     notify("Approved");
+    // Review flow: approving moves on to the next item when there is one.
+    advanceSelection();
   },
 };
 

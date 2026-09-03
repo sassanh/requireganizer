@@ -1,7 +1,9 @@
 import {
-  MARGIN_PIXELS,
-  scrollIntoViewWithMargin,
-} from "components/scrollFollower";
+  selectNextAction,
+  selectNextShortcut,
+  selectPreviousAction,
+  selectPreviousShortcut,
+} from "actions/actions";
 
 import {
   isEditableTarget,
@@ -10,42 +12,6 @@ import {
   type ShortcutBinding,
 } from "./shortcuts";
 
-function fragmentCards(): HTMLElement[] {
-  return Array.from(
-    document.querySelectorAll<HTMLElement>("[data-navigate-card]"),
-  ).filter((card) => card.getClientRects().length > 0);
-}
-
-function moveSelection(direction: 1 | -1): void {
-  const cards = fragmentCards();
-  if (cards.length === 0) return;
-  const active =
-    document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : null;
-  const currentIndex =
-    active == null
-      ? -1
-      : cards.findIndex(
-          (card) => card === active || card.contains(active),
-        );
-  const nextIndex =
-    currentIndex === -1
-      ? (direction === 1 ? 0 : cards.length - 1)
-      : Math.min(cards.length - 1, Math.max(0, currentIndex + direction));
-  const next = cards[nextIndex];
-  if (next == null || next === active) return;
-  // Selection only: the focus border moves, the address bar is untouched.
-  // Prefer the text box inside (fields show their own focus ring); fall
-  // back to the frame itself (cards outline the whole frame).
-  const focusTarget =
-    next instanceof HTMLInputElement || next instanceof HTMLTextAreaElement
-      ? next
-      : (next.querySelector<HTMLElement>("input, textarea") ?? next);
-  focusTarget.focus({ preventScroll: true });
-  scrollIntoViewWithMargin(next, "nearest", MARGIN_PIXELS);
-}
-
 function selectionKeysLive(event: KeyboardEvent): boolean {
   return (
     !isEditableTarget(event.target) && !isOverlayTarget(event.target)
@@ -53,17 +19,17 @@ function selectionKeysLive(event: KeyboardEvent): boolean {
 }
 
 const MOVE_NEXT_SHORTCUT: ShortcutBinding = {
-  id: "selection-next",
-  key: "j",
+  id: selectNextAction.id,
+  ...selectNextShortcut,
   when: selectionKeysLive,
-  action: () => moveSelection(1),
+  action: () => selectNextAction.run(),
 };
 
 const MOVE_PREVIOUS_SHORTCUT: ShortcutBinding = {
-  id: "selection-previous",
-  key: "k",
+  id: selectPreviousAction.id,
+  ...selectPreviousShortcut,
   when: selectionKeysLive,
-  action: () => moveSelection(-1),
+  action: () => selectPreviousAction.run(),
 };
 
 /**
