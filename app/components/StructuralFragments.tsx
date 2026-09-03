@@ -3,6 +3,10 @@ import { observer } from "mobx-react-lite";
 import { isAlive } from "mobx-state-tree";
 import { ReactElement, ReactNode } from "react";
 
+import { useApproveShortcut } from "hooks/useApproveShortcut";
+import { useCommentShortcut } from "hooks/useCommentShortcut";
+import { useCopyShortcut } from "hooks/useCopyShortcut";
+import { useFragmentNavigation } from "hooks/useFragmentNavigation";
 import {
   StructuralFragment as StructuralFragmentName,
 } from "store";
@@ -44,6 +48,10 @@ const FragmentList = observer(function FragmentList<
   scenarioId,
   renderFragment,
 }: FragmentListProps<Type>) {
+  useFragmentNavigation();
+  useApproveShortcut();
+  useCopyShortcut();
+  useCommentShortcut();
   const liveFragments = fragments.filter((fragment) => isAlive(fragment));
   const liveIds = [
     ...new Set(liveFragments.map((fragment) => fragment.id)),

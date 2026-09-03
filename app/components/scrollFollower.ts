@@ -6,7 +6,7 @@ const PURSUIT_SECONDS = ITEM_MOTION_SECONDS + 0.3;
 
 /** How far from the viewport edges an item must sit to count as visible;
  * anything hugging an edge gets scrolled to center before its slot. */
-const MARGIN_PIXELS = 96;
+export const MARGIN_PIXELS = 96;
 
 /** How aggressively the pursuit eases toward the target each frame. */
 const PURSUIT_FACTOR = 0.22;
@@ -56,12 +56,13 @@ function viewportMetrics(
 function isFullyVisible(
   element: HTMLElement,
   container: HTMLElement | null,
+  margin = 0,
 ): boolean {
   const { top, projectedHeight, viewportHeight } = viewportMetrics(
     element,
     container,
   );
-  return top >= 0 && top + projectedHeight <= viewportHeight;
+  return top - margin >= 0 && top + projectedHeight + margin <= viewportHeight;
 }
 
 /**
@@ -86,11 +87,12 @@ function isFullyVisible(
 export function scrollIntoViewWithMargin(
   element: HTMLElement,
   fit: ScrollFit = "center",
+  margin = 0,
 ): void {
   cancelScroll();
   if (!element.isConnected) return;
   const container = scrollableAncestor(element);
-  if (fit === "nearest" && isFullyVisible(element, container)) return;
+  if (fit === "nearest" && isFullyVisible(element, container, margin)) return;
 
   const startedAt = performance.now();
   const duration = PURSUIT_SECONDS * 1000;
@@ -111,9 +113,9 @@ export function scrollIntoViewWithMargin(
     const from = container?.scrollTop ?? window.scrollY;
     let unclamped = from;
     if (fit === "nearest") {
-      if (top < 0) unclamped = from + top;
-      else if (projectedBottom > viewportHeight) {
-        unclamped = from + projectedBottom - viewportHeight;
+      if (top - margin < 0) unclamped = from + top - margin;
+      else if (projectedBottom + margin > viewportHeight) {
+        unclamped = from + projectedBottom + margin - viewportHeight;
       } else {
         activeFrame = requestAnimationFrame(step);
         return;

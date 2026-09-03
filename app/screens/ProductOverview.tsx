@@ -4,6 +4,7 @@ import { observer } from "mobx-react-lite";
 import { artifactElementId, StructuralFragments } from "components";
 import { ApprovalFrame } from "components/ApprovalFrame";
 import ApprovalMark from "components/ApprovalMark";
+import { formatFieldCopy } from "components/copyFormat";
 import { QualityIssues } from "components/QualityState";
 import { StagedTextField } from "components/TextChange";
 import { useShownStore } from "presentation";
@@ -25,6 +26,9 @@ const NameField = observer(function NameField() {
       <ApprovalFrame
         elementId={nameElementId}
         approval={shown.productOverview.nameApproval}
+        getCopyText={() =>
+          formatFieldCopy("Name", shown.productOverview.name ?? "")
+        }
       >
         <StagedTextField
           committed={shown.productOverview.name || ""}
@@ -63,6 +67,9 @@ const PurposeField = observer(function PurposeField() {
       <ApprovalFrame
         elementId={purposeElementId}
         approval={shown.productOverview.purposeApproval}
+        getCopyText={() =>
+          formatFieldCopy("Purpose", shown.productOverview.purpose ?? "")
+        }
       >
         <StagedTextField
           committed={shown.productOverview.purpose || ""}

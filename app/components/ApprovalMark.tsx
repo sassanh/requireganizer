@@ -4,6 +4,7 @@ import { observer } from "mobx-react-lite";
 import { useStore } from "store";
 
 import CommentButton from "./CommentButton";
+import { notify } from "./notices";
 
 const ApprovalMark = observer(function ApprovalMark({
   id,
@@ -24,10 +25,12 @@ const ApprovalMark = observer(function ApprovalMark({
         <Button
           size="small"
           variant="contained"
+          data-approve-button
           disabled={store?.isBusy === true}
           onClick={(event) => {
             event.stopPropagation();
             store.approve(id);
+            notify("Approved");
           }}
         >
           Approve

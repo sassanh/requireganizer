@@ -7,6 +7,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 
 import { setAgentSessionId } from "ai-agent/agent";
 import Link from "components/Link";
+import { NoticeHost } from "components/NoticeHost";
 import { useUndoRedoKeyboardShortcuts } from "hooks/useUndoRedoKeyboardShortcuts";
 import {
   getProjectsIndex,
@@ -261,6 +262,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
                 }}
               >
                 {children}
+                <NoticeHost />
               </DefaultPropsProvider>
             </ThemeProvider>
           </AppRouterCacheProvider>

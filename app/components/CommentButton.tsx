@@ -1,7 +1,9 @@
 import { Comment, Send } from "@mui/icons-material";
-import { IconButton, Paper, Popover, TextField } from "@mui/material";
+import { IconButton, Paper, Popper, TextField, Tooltip } from "@mui/material";
 import { observer } from "mobx-react-lite";
-import { ChangeEvent, FocusEvent, FormEvent, MouseEvent, useCallback, useState } from "react";
+import { ChangeEvent, FormEvent, MouseEvent, useCallback, useEffect, useState } from "react";
+
+import { COMMENT_SHORTCUT_KEY } from "hooks/useCommentShortcut";
 
 interface CommentButtonProps {
   disabled?: boolean;
@@ -12,25 +14,36 @@ const CommentButton = ({
   disabled = false,
   onSubmit,
 }: CommentButtonProps) => {
-  const [isOpen, setIsOpen] = useState(false);
+  const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
   const [comment, setComment] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const [popupRef, setPopupRef] = useState<HTMLFormElement | null>(null);
   const [buttonRef, setButtonRef] = useState<HTMLButtonElement | null>(null);
 
-  const handleOpen = useCallback((event: MouseEvent) => {
+  const isOpen = anchor !== null;
+  const handleOpen = useCallback((event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
-    setIsOpen(true);
+    setAnchor(event.currentTarget);
   }, []);
-  const handleBlur = useCallback(
-    ({ relatedTarget }: FocusEvent) => {
-      if (popupRef !== relatedTarget && !popupRef?.contains(relatedTarget)) {
-        setIsOpen(false);
+  // Deliberately not a modal: outside pointer-down closes, Escape closes
+  // and hands focus back, submit closes and hands focus back. No focus
+  // trap means nothing can yank focus out from under the text area.
+  useEffect(() => {
+    if (anchor === null) return;
+    const onPointerDown = (event: Event) => {
+      const target = event.target as Node | null;
+      if (target == null || anchor.contains(target)) return;
+      if (
+        target instanceof HTMLElement &&
+        target.closest("[data-comment-popover]") != null
+      ) {
+        return;
       }
-    },
-    [popupRef],
-  );
+      setAnchor(null);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [anchor]);
 
   const handleCommentChange = useCallback(
     ({ target: { value } }: ChangeEvent<HTMLTextAreaElement>) =>
@@ -46,39 +59,46 @@ const CommentButton = ({
       try {
         await onSubmit(comment);
         setComment("");
-        setIsOpen(false);
+        setAnchor(null);
+        buttonRef?.focus();
       } finally {
         setIsSubmitting(false);
       }
     },
-    [comment, isSubmitting, onSubmit],
+    [buttonRef, comment, isSubmitting, onSubmit],
   );
 
   return (
     <>
-      <IconButton
-        aria-label="Request change"
-        color='primary'
-        ref={setButtonRef}
-        size="small"
-        disabled={disabled || isSubmitting}
-        onClick={handleOpen}
-      >
-        <Comment />
-      </IconButton>
-      <Popover
+      <Tooltip title={`Request change (${COMMENT_SHORTCUT_KEY.toUpperCase()})`}>
+        <IconButton
+          aria-label="Request change"
+          color='primary'
+          data-comment-button
+          data-comment-open={isOpen ? "" : undefined}
+          ref={setButtonRef}
+          size="small"
+          disabled={disabled || isSubmitting}
+          onClick={handleOpen}
+        >
+          <Comment />
+        </IconButton>
+      </Tooltip>
+      <Popper
         open={isOpen}
-        onClose={() => setIsOpen(false)}
-        anchorOrigin={{ vertical: "top", horizontal: "right" }}
-        transformOrigin={{ vertical: "bottom", horizontal: "right" }}
-        anchorEl={buttonRef}
+        anchorEl={anchor}
+        placement="top-end"
       >
         <Paper
           component="form"
+          data-comment-popover
           sx={{ p: 1, width: 320 }}
-          ref={setPopupRef}
-          onBlur={handleBlur}
           onSubmit={handleSubmit}
+          onKeyDown={(event) => {
+            if (event.key !== "Escape") return;
+            setAnchor(null);
+            buttonRef?.focus();
+          }}
         >
           <TextField
             fullWidth
@@ -99,7 +119,7 @@ const CommentButton = ({
             <Send />
           </IconButton>
         </Paper>
-      </Popover>
+      </Popper>
     </>
   );
 };

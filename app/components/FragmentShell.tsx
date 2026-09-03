@@ -2,7 +2,7 @@ import { Stack, StackProps, TextField, Typography } from "@mui/material";
 import type { Theme } from "@mui/material/styles";
 import { observer } from "mobx-react-lite";
 import { isAlive } from "mobx-state-tree";
-import { Fragment, type MouseEvent, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, type MouseEvent, type ReactNode } from "react";
 
 import { useFragmentHash } from "hooks/useFragmentHash";
 import { FRAGMENT_CODES, Priority, StructuralFragment as StructuralFragmentName, useStore } from "store";
@@ -10,9 +10,13 @@ import { type TestCase, StructuralFragment } from "store/models";
 
 import { ApprovalFrame } from "./ApprovalFrame";
 import ApprovalMark from "./ApprovalMark";
+import { pulseElement } from "./attention";
+import { HIGHLIGHT_MILLISECONDS } from "./changeQueue";
+import { formatFragmentCopy } from "./copyFormat";
 import { getFrozenFragment, rememberFrozenFragment } from "./frozenFragment";
 import Link from "./Link";
 import { QualityIssues } from "./QualityState";
+import { scrollIntoViewWithMargin } from "./scrollFollower";
 
 const lastLiveCode = new WeakMap<object, string>();
 
@@ -51,6 +55,7 @@ interface FragmentFrameProps extends StackProps {
   dependencies: CaptionLink[];
   references: CaptionLink[];
   onComment?: (comment: string) => void;
+  getCopyText?: () => string;
 }
 
 function FragmentFrame({
@@ -68,6 +73,7 @@ function FragmentFrame({
   references,
   onComment,
   onClick,
+  getCopyText,
   sx,
   ...props
 }: FragmentFrameProps) {
@@ -88,11 +94,9 @@ function FragmentFrame({
       {...props}
       elementId={id}
       approval={approved === true ? "approved" : "draft"}
+      data-fragment-code={code === "" ? undefined : code}
+      getCopyText={getCopyText}
       onClick={handleFrameClick}
-      // -1 keeps the card out of the tab order, but a mouse click still
-      // focuses the card itself — so empty card area selects the whole
-      // card even when there is no text box inside to focus.
-      tabIndex={-1}
       sx={[
         {
           position: 'relative',
@@ -223,6 +227,20 @@ const FragmentShellContent = observer(function FragmentShellContent<
   }));
   const isHighlighted = hash === code || hash === fragmentId;
 
+  // Navigating to a fragment (its code link, a reference, a fresh page
+  // load with a hash) pulls the card into view and flashes it once.
+  const previousHashRef = useRef<string | null>(null);
+  useEffect(() => {
+    const previous = previousHashRef.current;
+    previousHashRef.current = hash;
+    if (hash === "" || hash === previous) return;
+    if (hash !== code && hash !== fragmentId) return;
+    const node = document.getElementById(fragmentId);
+    if (node == null) return;
+    scrollIntoViewWithMargin(node, "nearest");
+    pulseElement(node, HIGHLIGHT_MILLISECONDS);
+  }, [hash, code, fragmentId]);
+
   const handleComment = (comment: string) => {
     if (!isAlive(fragment)) return;
     onComment?.({ fragment, comment });
@@ -241,6 +259,13 @@ const FragmentShellContent = observer(function FragmentShellContent<
       dependencies={dependencies}
       references={references}
       onComment={handleComment}
+      getCopyText={() =>
+        formatFragmentCopy({
+          code,
+          fragment,
+          getCode: (id) => store?.getCode(id) ?? id,
+        })
+      }
       sx={sx}
       {...props}
       id={fragmentId}
