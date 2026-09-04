@@ -46,6 +46,7 @@ import {
   WORKFLOW_STAGE_LABELS,
   Status,
   WorkflowStage,
+  refreshGuidance,
   StructuralFragment,
 } from "store/constants";
 import { classifyListChange } from "store/listChange";
@@ -117,7 +118,7 @@ export function applyAtomically(
       affectedArtifacts: affectedSteps.map((step) => ({
         step,
         label: `${WORKFLOW_STAGE_LABELS[step]} artifacts`,
-        reason: `These artifacts consume ${impact.sourceLabel ?? WORKFLOW_STAGE_LABELS[impact.sourceStep]} and will remain viewable but stale until regenerated.`,
+        reason: `These artifacts consume ${impact.sourceLabel ?? WORKFLOW_STAGE_LABELS[impact.sourceStep]} and will remain viewable but stale until refreshed.`,
       })),
       summary: impact.summary,
       candidateSnapshot: snapshot,
@@ -803,7 +804,7 @@ export function generator<
         if (status !== Status.Completed) {
           if (status === Status.Outdated) {
             throw new UserFacingError(
-              `Regenerate ${WORKFLOW_STAGE_LABELS[step]} before trying to ${operation}.`,
+              `${WORKFLOW_STAGE_LABELS[step]} is outdated. ${refreshGuidance(step)} before trying to ${operation}.`,
             );
           }
           const blocker = store.firstPendingPredecessor(step) ?? step;

@@ -651,7 +651,7 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
         throw new Error("Project setup, contracts, and an implementation profile are required.");
       }
       if (store.isProjectSetupOutdated) {
-        throw new Error("Project Setup is stale; regenerate it before generating tests.");
+        throw new Error("Project Setup is stale; refresh it before generating tests.");
       }
       if (testCase.approval !== "approved") {
         throw new Error("Approve this test case before generating the automated test.");

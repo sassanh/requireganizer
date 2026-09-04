@@ -16,7 +16,7 @@ export default generator(
     }: { testCase: TestCase; testScenario: TestScenario; comment?: string },
   ) {
     if (self.isProjectSetupOutdated) {
-      throw new UserFacingError("Project Setup is stale. Review and regenerate it before generating automated tests.");
+      throw new UserFacingError("Project Setup is stale. Refresh it before generating automated tests.");
     }
     if (testCase.approval !== "approved") {
       throw new UserFacingError("Approve this test case before generating the automated test.");

@@ -63,6 +63,7 @@ import {
   handleComment,
   handleOverviewFieldComment,
   import as import_,
+  refreshStage,
   requestStageChange,
   reviseFormalContract,
   sendConversationMessage,
@@ -81,6 +82,7 @@ import {
   OVERVIEW_PURPOSE_QUALITY_ID,
   Status,
   WorkflowStage,
+  refreshGuidance,
   type GeneratorActionName,
   StructuralFragment as StructuralFragmentName,
   isBefore,
@@ -1253,7 +1255,8 @@ export const FlatStore = types
         return `Approve ${label} to generate ${target}.`;
       }
       if (status === Status.Outdated) {
-        return `Regenerate ${label} to generate ${target}.`;
+        const stale = stalePrerequisite(step) ?? prerequisite;
+        return `${WORKFLOW_STAGE_LABELS[stale]} is outdated. ${refreshGuidance(stale)} to generate ${target}.`;
       }
       if (
         step === WorkflowStage.InterfaceContracts &&
@@ -1264,11 +1267,71 @@ export const FlatStore = types
       }
       return null;
     };
+    /**
+     * Whether a stage's inputs genuinely changed since it was generated.
+     * This is narrower than an Outdated status, which also covers work
+     * that is complete but not yet approved. Only input staleness calls
+     * for a refresh; unapproved work with current inputs calls for review.
+     */
+    const stageInputsOutdated = (step: WorkflowStage): boolean => {
+      switch (step) {
+        case WorkflowStage.Code:
+        case WorkflowStage.InterfaceContracts:
+        case WorkflowStage.AutomatedTests:
+          return false;
+        case WorkflowStage.ProjectSetup:
+          return self.projectSetup != null && !self.projectSetupIsCurrent;
+        default: {
+          const generated = self.stageInputFingerprints.get(step);
+          return (
+            generated != null &&
+            self.hasStepArtifacts(step) &&
+            generated !== workflowFingerprint(self, step)
+          );
+        }
+      }
+    };
+    /**
+     * Stages the refresh flow supports: anything with a whole-stage
+     * revise path whose inputs genuinely changed. Contract suites revise
+     * one exact target at a time by design, and test output regenerates
+     * per case, so neither refreshes whole. Merely unapproved work with
+     * current inputs never qualifies; it needs review, not a rewrite.
+     */
+    const canRefreshStep = (step: WorkflowStage): boolean => {
+      if (
+        step === WorkflowStage.Code ||
+        step === WorkflowStage.InterfaceContracts ||
+        step === WorkflowStage.AutomatedTests
+      ) {
+        return false;
+      }
+      return stageInputsOutdated(step);
+    };
+    /**
+     * The stale prerequisite blocking this step's generation, when
+     * refreshing it is actually the next action. Approval comes first,
+     * matching the blocker message order: unapproved work with stale
+     * inputs still asks for approval before any refresh.
+     */
+    const stalePrerequisite = (step: WorkflowStage): WorkflowStage | null => {
+      const prerequisite = GENERATION_PREREQUISITE_BY_WORKFLOW_STAGE[step];
+      if (
+        prerequisite == null ||
+        !canRefreshStep(prerequisite) ||
+        !stageIsApproved(prerequisite)
+      ) {
+        return null;
+      }
+      return prerequisite;
+    };
 
     return {
       approvalOf,
       stageIsApproved,
       cannotGenerateReason,
+      canRefreshStep,
+      stalePrerequisite,
       canApprove(id: string): boolean {
         if (self.isBusy) return false;
         const status = approvalOf(id);
@@ -1387,6 +1450,7 @@ const aiFlows = {
   handleComment,
   sendConversationMessage,
   regenerateLastReply,
+  refreshStage,
   generateProductOverview,
   generateUserStories,
   generateRequirements,
@@ -1440,6 +1504,15 @@ export function generateStep(store: Store, step: WorkflowStage, hint?: string): 
   const action = GENERATOR_ACTION_BY_WORKFLOW_STAGE[step];
   if (action == null) return;
   void (store[action] as (hint?: string) => unknown)(hint);
+}
+
+/**
+ * Refresh a stale stage with an optional user hint. A plain function for
+ * the same timeline reason as generateStep: the refresh flow must run as
+ * a root call so its turn opens.
+ */
+export function refreshStep(store: Store, step: WorkflowStage, hint?: string): void {
+  void store.refreshStage(step, hint);
 }
 export const storeContext = createContext<Store>(null!);
 export const useStore = () => useContext(storeContext);

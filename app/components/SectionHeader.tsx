@@ -25,12 +25,14 @@ import {
   type ShortcutBinding,
 } from "hooks/shortcuts";
 import {
+  GENERATION_PREREQUISITE_BY_WORKFLOW_STAGE,
   GENERATOR_ACTION_BY_WORKFLOW_STAGE,
   WORKFLOW_STAGES,
   WORKFLOW_STAGE_LABELS,
   Status,
   WorkflowStage,
   generateStep,
+  refreshStep,
   useStore,
 } from "store";
 
@@ -59,6 +61,7 @@ const Header: React.FunctionComponent<HeaderProps> = ({
     : null;
 
   const [prepareOpen, setPrepareOpen] = useState(false);
+  const [refreshTarget, setRefreshTarget] = useState<WorkflowStage | null>(null);
   const [modelHint, setModelHint] = useState("");
   const [hintOpen, setHintOpen] = useState(false);
   const hintFieldRef = useRef<HTMLTextAreaElement>(null);
@@ -70,16 +73,34 @@ const Header: React.FunctionComponent<HeaderProps> = ({
 
   // One opener for the button and the shortcut: the guards read the live
   // store at call time, and step never changes for a mounted header. A
-  // blocked stage speaks through a message instead of a dead button.
+  // stale prerequisite refreshes through the dialog instead of dying in
+  // an error message; anything else blocked speaks through a message.
+  const openRefreshDialog = useCallback((target: WorkflowStage) => {
+    setRefreshTarget(target);
+    setPrepareOpen(true);
+  }, []);
+
+  const closePrepare = useCallback(() => {
+    setPrepareOpen(false);
+    setRefreshTarget(null);
+  }, []);
+
   const requestPrepare = useCallback(() => {
+    if (store.isBusy) return;
     if (nextStep == null || nextStepGeneratorAction == null) return;
+    const stale = store.stalePrerequisite(nextStep);
+    if (stale != null) {
+      openRefreshDialog(stale);
+      return;
+    }
+    setRefreshTarget(null);
     const target = {
       blocked: store.isBusy,
       reason: store.cannotGenerateReason(nextStep),
       open: () => setPrepareOpen(true),
     };
     if (prepareGenerateAction.isEnabled(target)) prepareGenerateAction.run(target);
-  }, [store, nextStep, nextStepGeneratorAction]);
+  }, [store, nextStep, nextStepGeneratorAction, openRefreshDialog]);
 
   // Every stage page mounts a header; only the visible one's binding fires.
   const prepareBinding = useMemo<ShortcutBinding>(
@@ -97,14 +118,24 @@ const Header: React.FunctionComponent<HeaderProps> = ({
   useShortcut(prepareBinding);
 
   const confirmPrepare = () => {
-    if (nextStep == null) return;
     const trimmed = modelHint.trim();
-    setPrepareOpen(false);
+    const hint = trimmed === "" ? undefined : trimmed;
+    if (refreshTarget != null) {
+      const target = refreshTarget;
+      closePrepare();
+      setModelHint("");
+      refreshStep(store, target, hint);
+      return;
+    }
+    if (nextStep == null) return;
+    closePrepare();
     setModelHint("");
-    generateStep(store, nextStep, trimmed === "" ? undefined : trimmed);
+    generateStep(store, nextStep, hint);
   };
 
   const listChangeText = store.stageListChangeCaption(step)?.text;
+  const generateLabel =
+    nextStep == null ? "" : WORKFLOW_STAGE_LABELS[nextStep];
   const writtenHint = modelHint.trim().replace(/\s+/g, " ");
   const hintPreview =
     writtenHint.length > 80 ? `${writtenHint.slice(0, 80)}…` : writtenHint;
@@ -168,29 +199,59 @@ const Header: React.FunctionComponent<HeaderProps> = ({
           {listChangeText}
         </Typography>
       ) : null}
+      {store.canRefreshStep(step) ? (
+        <Stack direction="row" sx={{ gap: 2, alignSelf: "center", alignItems: "center" }}>
+          <Typography variant="body2" color="text.secondary">
+            {(() => {
+              const input = GENERATION_PREREQUISITE_BY_WORKFLOW_STAGE[step];
+              return input == null
+                ? `Its inputs changed since ${WORKFLOW_STAGE_LABELS[step]} was generated.`
+                : `${WORKFLOW_STAGE_LABELS[input]} changed since ${WORKFLOW_STAGE_LABELS[step]} was generated.`;
+            })()}
+          </Typography>
+          <GenerationButton
+            disabled={store.isBusy}
+            variant="outlined"
+            startIcon={<Refresh />}
+            onGenerate={() => openRefreshDialog(step)}
+          >
+            Refresh with AI
+          </GenerationButton>
+        </Stack>
+      ) : null}
       {store.mechanicalIssuesForStage(step).map((issue, index) => (
         <Typography key={`${issue.itemId ?? "stage"}:${index}`} variant="body2" color="error">
           {issue.message}
         </Typography>
       ))}
-      {nextStep != null && nextStepGeneratorAction != null ? (
+      {(nextStep != null && nextStepGeneratorAction != null) || refreshTarget != null ? (
         <Dialog
           open={prepareOpen}
-          onClose={() => setPrepareOpen(false)}
+          onClose={closePrepare}
           fullWidth
           maxWidth="sm"
         >
           <DialogTitle>
-            Generate {WORKFLOW_STAGE_LABELS[nextStep]}
+            {refreshTarget != null
+              ? `Refresh ${WORKFLOW_STAGE_LABELS[refreshTarget]}`
+              : `Generate ${generateLabel}`}
           </DialogTitle>
           <DialogContent
             sx={{ display: "flex", flexDirection: "column", gap: 2 }}
           >
-            <Typography variant="body2" color="text.secondary">
-              Builds {WORKFLOW_STAGE_LABELS[nextStep]} from the approved{" "}
-              {WORKFLOW_STAGE_LABELS[step]}. Each item still needs your
-              review before approval.
-            </Typography>
+            {refreshTarget != null ? (
+              <Typography variant="body2" color="text.secondary">
+                Brings {WORKFLOW_STAGE_LABELS[refreshTarget]} in line with
+                the current inputs. Untouched items keep their approvals;
+                changed items return to draft for your review.
+              </Typography>
+            ) : (
+              <Typography variant="body2" color="text.secondary">
+                Builds {generateLabel} from the approved{" "}
+                {WORKFLOW_STAGE_LABELS[step]}. Each item still needs your
+                review before approval.
+              </Typography>
+            )}
             <Accordion
               disableGutters
               elevation={0}
@@ -219,13 +280,13 @@ const Header: React.FunctionComponent<HeaderProps> = ({
             </Accordion>
           </DialogContent>
           <DialogActions>
-            <Button onClick={() => setPrepareOpen(false)}>Cancel</Button>
+            <Button onClick={closePrepare}>Cancel</Button>
             <Button
               variant="contained"
               disabled={store.isBusy}
               onClick={confirmPrepare}
             >
-              Generate
+              {refreshTarget != null ? "Refresh" : "Generate"}
             </Button>
           </DialogActions>
         </Dialog>

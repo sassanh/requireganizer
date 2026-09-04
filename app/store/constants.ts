@@ -145,6 +145,18 @@ export const GENERATION_PREREQUISITE_BY_WORKFLOW_STAGE: Partial<Record<WorkflowS
   [WorkflowStage.AutomatedTests]: WorkflowStage.ProjectSetup,
 };
 
+/**
+ * What the user can actually do about a stale stage. Contract suites
+ * revise one exact target at a time by design, so they name targeted
+ * revision; every other stage refreshes whole through the revise channel.
+ */
+export function refreshGuidance(step: WorkflowStage): string {
+  if (step === WorkflowStage.InterfaceContracts) {
+    return "Revise the affected contracts";
+  }
+  return `Refresh ${WORKFLOW_STAGE_LABELS[step]}`;
+}
+
 export const FRAGMENT_CODES: Record<StructuralFragment, string> = {
   [StructuralFragment.PrimaryFeature]: "FEA",
   [StructuralFragment.TargetUser]: "USR",

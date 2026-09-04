@@ -1,5 +1,6 @@
 export { default as handleComment } from "./handle-comment";
 export { default as handleOverviewFieldComment } from "./handle-overview-field-comment";
+export { default as refreshStage } from "./refresh-stage";
 export { default as requestStageChange } from "./request-stage-change";
 export { regenerateLastReply } from "./conversation-history";
 export { default as sendConversationMessage } from "./send-conversation-message";
