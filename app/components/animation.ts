@@ -4,7 +4,14 @@
  * pacing between animations is preserved — a 900ms highlight stays three
  * times longer than a 300ms hold at any speed. Applies to animations
  * started after the change; anything already running keeps its pace.
+ *
+ * Playing items (the staged highlights, slides, and text changes) add
+ * the presenting tick's rush on top through presentationMs/presentationSeconds.
+ * Everyday touches (buttons, chat) stay on the manual speed through
+ * animationMs/animationSeconds.
  */
+import { getPresentationPace } from "presentation/momentum";
+
 let speed = 1;
 
 /** The current pace multiplier. */
@@ -26,4 +33,14 @@ export function animationMs(baseMs: number): number {
 /** Scale a second duration by the current pace. */
 export function animationSeconds(baseSeconds: number): number {
   return baseSeconds / speed;
+}
+
+/** Scale a millisecond duration by the manual pace and the tick's rush. */
+export function presentationMs(baseMs: number): number {
+  return animationMs(baseMs) / getPresentationPace();
+}
+
+/** Scale a second duration by the manual pace and the tick's rush. */
+export function presentationSeconds(baseSeconds: number): number {
+  return animationSeconds(baseSeconds) / getPresentationPace();
 }

@@ -13,7 +13,6 @@ import {
 } from "@mui/material";
 import { keyframes } from "@mui/material/styles";
 import { observer } from "mobx-react-lite";
-import { AnimatePresence, motion } from "motion/react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import React, {
   useCallback,
@@ -25,14 +24,14 @@ import React, {
 } from "react";
 
 import { AnimatedTabPanel, SectionHeader, StructuralFragments, TestCaseScenarioAccordions, TestScenarioList } from "components";
-import { animationMs, animationSeconds } from "components/animation";
+import { presentationMs, presentationSeconds } from "components/animation";
 import {
   HIGHLIGHT_HOLD_MILLISECONDS,
   HIGHLIGHT_MILLISECONDS,
   useStagedContent,
 } from "components/changeQueue";
 import { ITEM_MOTION_SECONDS } from "components/itemMotion";
-import { scrollIntoViewWithMargin } from "components/scrollFollower";
+import { scrollPresentationIntoView } from "components/scrollFollower";
 import {
   claim,
   complete,
@@ -76,6 +75,44 @@ const SELECTED_ICON_COLOR = {
   [Status.Locked]: "text.secondary",
 } as const;
 
+function MovingIcon({
+  status,
+  start,
+  end,
+  durationSeconds,
+}: {
+  status: Status;
+  start: string;
+  end: string;
+  durationSeconds: number;
+}) {
+  const Icon = ICONS[status];
+  const [moved, setMoved] = useState(start === end);
+  useEffect(() => {
+    if (start === end) return;
+    const frame = requestAnimationFrame(() => setMoved(true));
+    return () => cancelAnimationFrame(frame);
+  }, [start, end]);
+  return (
+    <Box
+      component="span"
+      sx={{
+        position: "absolute",
+        inset: 0,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        transform: moved ? end : start,
+        transitionProperty: "transform",
+        transitionDuration: `${durationSeconds}s`,
+        transitionTimingFunction: "ease-in-out",
+      }}
+    >
+      <Icon sx={{ color: ICON_COLOR[status] }} />
+    </Box>
+  );
+}
+
 function SlidingStatusIcon({
   status,
   className,
@@ -83,8 +120,24 @@ function SlidingStatusIcon({
   status: Status;
   className?: string;
 }) {
-  const Icon = ICONS[status];
   const slide = isPresenting();
+  const [settled, setSettled] = useState(status);
+  const [departing, setDeparting] = useState<Status | null>(null);
+  // Render-phase handoff, not an effect: the arriving icon takes the new
+  // status and the previous one becomes the departing layer for one slide.
+  if (settled !== status) {
+    setDeparting(settled);
+    setSettled(status);
+  }
+  useEffect(() => {
+    if (departing == null) return;
+    const timer = setTimeout(
+      () => setDeparting(null),
+      presentationMs(ITEM_MOTION_SECONDS * 1000),
+    );
+    return () => clearTimeout(timer);
+  }, [departing]);
+  const durationSeconds = presentationSeconds(slide ? ITEM_MOTION_SECONDS : 0);
   return (
     <Box
       aria-hidden
@@ -98,30 +151,21 @@ function SlidingStatusIcon({
         display: "inline-flex",
       }}
     >
-      <AnimatePresence initial={false}>
-        <motion.span
-          key={status}
-          initial={slide ? { y: "-100%" } : false}
-          animate={{ y: 0 }}
-          exit={{
-            y: slide ? "100%" : 0,
-            transition: { duration: animationSeconds(slide ? ITEM_MOTION_SECONDS : 0) },
-          }}
-          transition={{
-            duration: animationSeconds(slide ? ITEM_MOTION_SECONDS : 0),
-            ease: "easeInOut",
-          }}
-          style={{
-            position: "absolute",
-            inset: 0,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <Icon sx={{ color: ICON_COLOR[status] }} />
-        </motion.span>
-      </AnimatePresence>
+      <MovingIcon
+        key={settled}
+        status={settled}
+        start={slide ? "translateY(-100%)" : "none"}
+        end="none"
+        durationSeconds={durationSeconds}
+      />
+      {departing != null && slide ? (
+        <MovingIcon
+          status={departing}
+          start="none"
+          end="translateY(100%)"
+          durationSeconds={durationSeconds}
+        />
+      ) : null}
     </Box>
   );
 }
@@ -155,7 +199,7 @@ const FactoryTab = observer(function FactoryTab({
     prevStatus.current = status;
     if (!isPresenting()) return;
     setStatusPulse(true);
-    const timer = setTimeout(() => setStatusPulse(false), animationMs(HIGHLIGHT_MILLISECONDS));
+    const timer = setTimeout(() => setStatusPulse(false), presentationMs(HIGHLIGHT_MILLISECONDS));
     return () => {
       clearTimeout(timer);
       setStatusPulse(false);
@@ -192,7 +236,7 @@ const FactoryTab = observer(function FactoryTab({
           },
           ...(pulsing
             ? {
-                animation: `${factoryTabPop} ${animationMs(HIGHLIGHT_MILLISECONDS)}ms ease-out`,
+                animation: `${factoryTabPop} ${presentationMs(HIGHLIGHT_MILLISECONDS)}ms ease-out`,
               }
             : {}),
           "&::before": {
@@ -204,7 +248,7 @@ const FactoryTab = observer(function FactoryTab({
             zIndex: 0,
             ...(pulsing
               ? {
-                  animation: `${factoryTabFill} ${animationMs(HIGHLIGHT_MILLISECONDS)}ms ease-out`,
+                  animation: `${factoryTabFill} ${presentationMs(HIGHLIGHT_MILLISECONDS)}ms ease-out`,
                 }
               : {}),
           },
@@ -296,7 +340,7 @@ const Factory: React.FunctionComponent<FactoryProps> = ({ activeProject }) => {
     if (presentingNavigate == null || !tabIsPresenting) return;
 
     const tab = factoryTabNode(presentingNavigate);
-    if (tab != null) scrollIntoViewWithMargin(tab);
+    if (tab != null) scrollPresentationIntoView(tab);
 
     const tick = getPresentationTick();
     const session = tabPulseRef.current;
@@ -310,7 +354,7 @@ const Factory: React.FunctionComponent<FactoryProps> = ({ activeProject }) => {
       session.completed = true;
       complete(tick);
     };
-    const timer = setTimeout(finish, animationMs(HIGHLIGHT_HOLD_MILLISECONDS));
+    const timer = setTimeout(finish, presentationMs(HIGHLIGHT_HOLD_MILLISECONDS));
     return () => {
       clearTimeout(timer);
     };

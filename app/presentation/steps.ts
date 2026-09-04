@@ -30,3 +30,15 @@ export function stepForSubject(subject: string): WorkflowStage | null {
       return null;
   }
 }
+
+/**
+ * Subjects no element presents: workflow bookkeeping the queue must not
+ * play. Such frames could never be claimed; they would only tax the queue
+ * and steal the rush boundaries from the visible items around them.
+ */
+export function isPresentableSubject(subject: string): boolean {
+  return (
+    subject !== "stageInputFingerprints" &&
+    !subject.startsWith("stageInputFingerprints/")
+  );
+}

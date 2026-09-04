@@ -1,4 +1,6 @@
-import { animationMs } from "./animation";
+import { getPresentationTick } from "presentation";
+
+import { animationMs, presentationMs } from "./animation";
 import { ITEM_MOTION_SECONDS } from "./itemMotion";
 
 /** How long the scroll pursuit follows an element before settling: long
@@ -24,10 +26,12 @@ export function scrollableAncestor(element: HTMLElement): HTMLElement | null {
 }
 
 let activeFrame: number | null = null;
+let activeTick: number | null = null;
 
 function cancelScroll(): void {
   if (activeFrame != null) cancelAnimationFrame(activeFrame);
   activeFrame = null;
+  activeTick = null;
 }
 
 export type ScrollFit = "center" | "nearest";
@@ -90,16 +94,56 @@ export function scrollIntoViewWithMargin(
   fit: ScrollFit = "center",
   margin = 0,
 ): void {
+  scrollWithDuration(
+    element,
+    fit,
+    margin,
+    animationMs(PURSUIT_SECONDS * 1000),
+    true,
+  );
+}
+
+/** Follow a playing item through its slot: manual pace plus queue rush. */
+export function scrollPresentationIntoView(
+  element: HTMLElement,
+  fit: ScrollFit = "center",
+  margin = 0,
+): void {
+  scrollWithDuration(
+    element,
+    fit,
+    margin,
+    presentationMs(PURSUIT_SECONDS * 1000),
+    false,
+  );
+}
+
+function scrollWithDuration(
+  element: HTMLElement,
+  fit: ScrollFit,
+  margin: number,
+  duration: number,
+  restart: boolean,
+): void {
+  // One camera move per presentation tick: whoever asks first aims, later
+  // joiners on the same tick (the card, then its text) ride along instead
+  // of killing the pursuit and re-aiming mid-slide. Manual moves always
+  // take over.
+  const tickNow = getPresentationTick();
+  if (!restart && activeFrame != null && activeTick === tickNow) {
+    return;
+  }
   cancelScroll();
+  activeTick = getPresentationTick();
   if (!element.isConnected) return;
   const container = scrollableAncestor(element);
   if (fit === "nearest" && isFullyVisible(element, container, margin)) return;
 
   const startedAt = performance.now();
-  const duration = animationMs(PURSUIT_SECONDS * 1000);
   const step = (now: number): void => {
     if (now - startedAt >= duration || !element.isConnected) {
       activeFrame = null;
+      activeTick = null;
       return;
     }
     const { top, projectedHeight, viewportHeight } = viewportMetrics(
@@ -108,6 +152,7 @@ export function scrollIntoViewWithMargin(
     );
     if (projectedHeight <= 0) {
       activeFrame = null;
+      activeTick = null;
       return;
     }
     const projectedBottom = top + projectedHeight;

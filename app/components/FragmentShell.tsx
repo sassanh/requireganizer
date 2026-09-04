@@ -106,6 +106,7 @@ function FragmentFrame({
           "&:focus-within": {
             outline: "2px solid",
             outlineColor: "primary.main",
+            outlineOffset: "-2px",
           },
         },
         isHighlighted ? highlightSx ?? { backgroundColor: "action.focus" } : {},

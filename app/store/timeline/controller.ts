@@ -296,6 +296,55 @@ function diffArrayOps(
   }
 }
 
+/**
+ * One source of truth for "this field choreographs as its own nested
+ * list": an array field with at least one identifiable entry on either
+ * side. The nested diff and the own-level comparison below must agree on
+ * exactly these fields, or an update could be silenced on both levels.
+ */
+function isNestedIdentifiableField(
+  beforeField: unknown,
+  afterField: unknown,
+): boolean {
+  if (!Array.isArray(beforeField) && !Array.isArray(afterField)) return false;
+  const beforeArr = Array.isArray(beforeField) ? beforeField : [];
+  const afterArr = Array.isArray(afterField) ? afterField : [];
+  return [...beforeArr, ...afterArr].some(
+    (entry) => snapshotItemId(entry) != null,
+  );
+}
+
+/** The item with nested-list fields stripped: what the item itself shows. */
+function ownLevelValue(item: unknown, peer: unknown): unknown {
+  if (
+    item == null ||
+    typeof item !== "object" ||
+    Array.isArray(item) ||
+    peer == null ||
+    typeof peer !== "object" ||
+    Array.isArray(peer)
+  ) {
+    return item;
+  }
+  const record = item as Record<string, unknown>;
+  const peerRecord = peer as Record<string, unknown>;
+  const fields = new Set([...Object.keys(record), ...Object.keys(peerRecord)]);
+  const copy: Record<string, unknown> = {};
+  for (const field of fields) {
+    if (isNestedIdentifiableField(record[field], peerRecord[field])) continue;
+    if (field in record) copy[field] = record[field];
+  }
+  return copy;
+}
+
+/** True when the item changed outside its nested lists. */
+function hasOwnLevelChanges(beforeItem: unknown, afterItem: unknown): boolean {
+  return (
+    JSON.stringify(ownLevelValue(beforeItem, afterItem)) !==
+    JSON.stringify(ownLevelValue(afterItem, beforeItem))
+  );
+}
+
 /** Collections nested inside identifiable items (scenario.testCases, ...). */
 function diffNestedIdentifiableArrays(
   prefix: string,
@@ -328,19 +377,84 @@ function diffNestedIdentifiableArrays(
     for (const field of fields) {
       const beforeField = beforeItem?.[field];
       const afterField = afterItem?.[field];
-      if (!Array.isArray(beforeField) && !Array.isArray(afterField)) continue;
+      if (!isNestedIdentifiableField(beforeField, afterField)) continue;
       const beforeArr = Array.isArray(beforeField) ? beforeField : [];
       const afterArr = Array.isArray(afterField) ? afterField : [];
-      if (
-        ![...beforeArr, ...afterArr].some(
-          (entry) => snapshotItemId(entry) != null,
-        )
-      ) {
-        continue;
-      }
       diffArrayOps(`${prefix}/${id}/${field}`, beforeArr, afterArr, ops);
     }
   }
+}
+
+/**
+ * The single gate for collection diffing: item-level ops plus nested-list
+ * ops, minus the redundant half. An added or removed identity carries its
+ * whole snapshot, so its descendants are definitionally covered and emit
+ * nothing of their own. An update whose change lives entirely inside its
+ * nested lists likewise emits only the nested ops. Either direction keeps
+ * every presenter fed exactly once, so no tick plays to an empty room.
+ */
+function diffCollectionOps(
+  prefix: string,
+  beforeList: unknown[],
+  afterList: unknown[],
+  ops: ChangeFocusOp[],
+): void {
+  const beforeIds = new Set<string>();
+  const afterIds = new Set<string>();
+  for (const item of beforeList) {
+    const id = snapshotItemId(item);
+    if (id != null) beforeIds.add(id);
+  }
+  for (const item of afterList) {
+    const id = snapshotItemId(item);
+    if (id != null) afterIds.add(id);
+  }
+  const covered = new Set<string>();
+  for (const id of beforeIds) {
+    if (!afterIds.has(id)) covered.add(id);
+  }
+  for (const id of afterIds) {
+    if (!beforeIds.has(id)) covered.add(id);
+  }
+  const beforeById = new Map<string, unknown>();
+  const afterById = new Map<string, unknown>();
+  for (const item of beforeList) {
+    const id = snapshotItemId(item);
+    if (id != null) beforeById.set(id, item);
+  }
+  for (const item of afterList) {
+    const id = snapshotItemId(item);
+    if (id != null) afterById.set(id, item);
+  }
+  const nestedOnly = new Set<string>();
+  for (const id of afterIds) {
+    if (!beforeIds.has(id)) continue;
+    const beforeItem = beforeById.get(id);
+    const afterItem = afterById.get(id);
+    if (
+      JSON.stringify(beforeItem) !== JSON.stringify(afterItem) &&
+      !hasOwnLevelChanges(beforeItem, afterItem)
+    ) {
+      nestedOnly.add(id);
+    }
+  }
+  const withoutIds = (list: unknown[], excluded: Set<string>): unknown[] =>
+    list.filter((item) => {
+      const id = snapshotItemId(item);
+      return id == null || !excluded.has(id);
+    });
+  diffArrayOps(
+    prefix,
+    withoutIds(beforeList, nestedOnly),
+    withoutIds(afterList, nestedOnly),
+    ops,
+  );
+  diffNestedIdentifiableArrays(
+    prefix,
+    withoutIds(beforeList, covered),
+    withoutIds(afterList, covered),
+    ops,
+  );
 }
 
 /**
@@ -364,8 +478,7 @@ function diffOps(before: StateTree, after: StateTree): ChangeFocusOp[] {
     if (JSON.stringify(beforeValue) === JSON.stringify(afterValue)) continue;
 
     if (Array.isArray(beforeValue) && Array.isArray(afterValue)) {
-      diffArrayOps(key, beforeValue, afterValue, ops);
-      diffNestedIdentifiableArrays(key, beforeValue, afterValue, ops);
+      diffCollectionOps(key, beforeValue, afterValue, ops);
       continue;
     }
 
@@ -388,8 +501,7 @@ function diffOps(before: StateTree, after: StateTree): ChangeFocusOp[] {
         const beforeField = beforeFields[field];
         const afterField = afterFields[field];
         if (Array.isArray(beforeField) && Array.isArray(afterField)) {
-          diffArrayOps(`${key}/${field}`, beforeField, afterField, ops);
-          diffNestedIdentifiableArrays(
+          diffCollectionOps(
             `${key}/${field}`,
             beforeField,
             afterField,

@@ -56,6 +56,7 @@ export function ApprovalFrame({
             outline: "2px solid",
             outlineColor: "primary.main",
             borderColor: "transparent",
+            outlineOffset: "-2px",
           },
         },
         ...(Array.isArray(sx) ? sx : sx ? [sx] : []),

@@ -4,27 +4,40 @@
 // Web Animations API so React re-renders cannot strip it. The presenter
 // reports done after a short hold; this flash may still be running when
 // the next change starts.
-import { animationMs } from "./animation";
+import { animationMs, presentationMs } from "./animation";
 
-/** Run one highlight on `element`. `durationMs` is the base; the central
- * pace applies inside, so callers pass release-speed constants and every
- * highlight follows one knob. Returns the running animation so the
- * caller can report done when it finishes (null when animation is not
- * available — the caller then completes after its own duration). */
-export function pulseElement(
+const HIGHLIGHT_KEYFRAMES: Keyframe[] = [
+  { backgroundColor: "rgba(46, 101, 89, 0)" },
+  { backgroundColor: "rgba(46, 101, 89, 0.16)", offset: 0.35 },
+  { backgroundColor: "rgba(46, 101, 89, 0.06)", offset: 0.7 },
+  { backgroundColor: "rgba(46, 101, 89, 0)" },
+];
+
+function runHighlight(
   element: HTMLElement,
   durationMs: number,
 ): Animation | null {
   if (typeof element.animate !== "function") return null;
-  return element.animate(
-    [
-      { backgroundColor: "rgba(46, 101, 89, 0)" },
-      { backgroundColor: "rgba(46, 101, 89, 0.16)", offset: 0.35 },
-      { backgroundColor: "rgba(46, 101, 89, 0.06)", offset: 0.7 },
-      { backgroundColor: "rgba(46, 101, 89, 0)" },
-    ],
-    { duration: animationMs(durationMs), easing: "ease-out" },
-  );
+  return element.animate(HIGHLIGHT_KEYFRAMES, {
+    duration: durationMs,
+    easing: "ease-out",
+  });
+}
+
+/** Everyday highlight (copy confirmation, link jump): manual pace only. */
+export function pulseElement(
+  element: HTMLElement,
+  durationMs: number,
+): Animation | null {
+  return runHighlight(element, animationMs(durationMs));
+}
+
+/** Playing-item highlight: manual pace plus the queue's rush. */
+export function pulsePresentationElement(
+  element: HTMLElement,
+  durationMs: number,
+): Animation | null {
+  return runHighlight(element, presentationMs(durationMs));
 }
 
 function approvalStampColor(
@@ -71,8 +84,8 @@ export function settleApprovalBar(element: HTMLElement | null): void {
 }
 
 /** Approve: green fills top → bottom. Unapprove: empties bottom → top.
- * Glow rides that same stroke and fades out. `durationMs` is the base;
- * the central pace applies inside like the highlight above. */
+ * Glow rides that same stroke and fades out. A playing-item animation:
+ * the manual pace plus the queue's rush apply inside. */
 export function animateApprovalBar(
   element: HTMLElement,
   nextStatus: "draft" | "approved",
@@ -114,7 +127,7 @@ export function animateApprovalBar(
         { transform: "scaleY(1)", opacity: 0.55 },
         { transform: "scaleY(0)", opacity: 0 },
       ];
-  const timing = { duration: animationMs(durationMs), easing: "ease-in-out" as const };
+  const timing = { duration: presentationMs(durationMs), easing: "ease-in-out" as const };
 
   fill.animate(stroke, { ...timing, fill: "forwards" });
   return sweep.animate(glow, timing);

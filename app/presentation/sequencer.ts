@@ -10,7 +10,13 @@ import {
 } from "store/timeline/controller";
 
 import { applyOpToTree } from "./applyOp";
-import { stepForSubject } from "./steps";
+import {
+  noteMomentumPlayed,
+  setMomentumBacklog,
+  setPresentationPace,
+  settleMomentumPace,
+} from "./momentum";
+import { isPresentableSubject, stepForSubject } from "./steps";
 
 export const UNCLAIMED_MILLISECONDS = 100;
 export const SAFETY_MILLISECONDS = 5000;
@@ -146,8 +152,17 @@ function playOrder(ops: ChangeFocusOp[]): ChangeFocusOp[] {
 }
 
 function enqueueOps(ops: ChangeFocusOp[]): void {
-  let step = plannedStep();
+  const kept: ChangeFocusOp[] = [];
   for (const op of playOrder(ops)) {
+    if (!isPresentableSubject(op.subject)) continue;
+    kept.push(op);
+  }
+  // Frames carry no pace of their own: the rush is read from the backlog
+  // when each frame starts, so batches that land mid-run extend the run
+  // instead of starting their own curve. Navigates open the run but are
+  // not its items.
+  let step = plannedStep();
+  for (const op of kept) {
     const needed = stepForSubject(op.subject);
     if (needed != null && step != null && needed !== step) {
       queue.push({ kind: "navigate", step: needed });
@@ -194,8 +209,25 @@ function beginNavigatePresent(step: WorkflowStage): void {
   armPresentTimers(latch.tick);
 }
 
+/**
+ * Read the rush from the backlog as each frame starts: presentable items
+ * still queued, including the frame about to play. The pace eases toward
+ * what the backlog calls for in capped steps, so late batches stretch the
+ * climb instead of dipping or leaping it. An empty queue means the run
+ * truly drained, so the rush resets and the pace is normal.
+ */
+function reportMomentum(): void {
+  let values = 0;
+  for (const frame of queue) {
+    if (frame.kind === "value") values += 1;
+  }
+  setMomentumBacklog(values);
+  settleMomentumPace();
+}
+
 function applyHead(): void {
   if (replica == null) return;
+  reportMomentum();
   const frame = queue.shift();
   if (frame == null) {
     presenting = false;
@@ -204,6 +236,7 @@ function applyHead(): void {
     catchUpFromReal();
     return;
   }
+  if (frame.kind === "value") noteMomentumPlayed();
 
   if (frame.kind === "navigate") {
     nav?.requestStep(frame.step);
@@ -335,6 +368,8 @@ export function syncPresentationFrom(real: Store): void {
 export function resetPresentation(): void {
   clearTimers();
   queue.length = 0;
+  setMomentumBacklog(0);
+  setPresentationPace(1);
   latch = { tick: 0, claims: 0 };
   presenting = false;
   pendingNavigate = null;

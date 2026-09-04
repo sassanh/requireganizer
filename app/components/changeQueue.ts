@@ -9,13 +9,13 @@ import {
   resetPresentation,
 } from "presentation";
 
-import { animationMs } from "./animation";
+import { presentationMs } from "./animation";
 import {
   animateApprovalBar,
-  pulseElement,
+  pulsePresentationElement,
   settleApprovalBar,
 } from "./attention";
-import { scrollIntoViewWithMargin } from "./scrollFollower";
+import { scrollPresentationIntoView } from "./scrollFollower";
 
 /**
  * How long one highlight animation runs visually. Presenters report done
@@ -48,7 +48,7 @@ export function usePresentationTurn(elementId: string | undefined) {
     }
     const node =
       elementId != null ? document.getElementById(elementId) : null;
-    if (node != null) scrollIntoViewWithMargin(node);
+    if (node != null) scrollPresentationIntoView(node);
     return tick;
   }, [elementId]);
 
@@ -110,7 +110,7 @@ export function useStagedContent<Value>(
     const node =
       elementId != null ? document.getElementById(elementId) : null;
     setDisplayed(committed);
-    const anim = node != null ? pulseElement(node, HIGHLIGHT_MILLISECONDS) : null;
+    const anim = node != null ? pulsePresentationElement(node, HIGHLIGHT_MILLISECONDS) : null;
 
     let finished = false;
     const doFinish = () => {
@@ -120,7 +120,7 @@ export function useStagedContent<Value>(
     };
     let hold: ReturnType<typeof setTimeout> | null = setTimeout(
       doFinish,
-      animationMs(HIGHLIGHT_HOLD_MILLISECONDS),
+      presentationMs(HIGHLIGHT_HOLD_MILLISECONDS),
     );
     if (anim?.finished != null) {
       anim.finished
@@ -189,7 +189,7 @@ export function useStagedApproval(
     };
     let hold: ReturnType<typeof setTimeout> | null = setTimeout(
       doFinish,
-      animationMs(HIGHLIGHT_MILLISECONDS),
+      presentationMs(HIGHLIGHT_MILLISECONDS),
     );
     if (anim?.finished != null) {
       anim.finished

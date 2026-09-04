@@ -19,7 +19,8 @@ import EditableItem from "./EditableItem";
 import EditableTestCaseItem from "./EditableTestCaseItem";
 import { getFrozenFragment } from "./frozenFragment";
 import {
-  MembershipMotion,
+  MemoMembershipMotion,
+  useMembershipContent,
   useMembershipTurns,
 } from "./membershipPresentation";
 
@@ -59,6 +60,7 @@ const FragmentList = observer(function FragmentList<
 
   const { presentedIds, enteringIds, exitingIds, exitHeightFor, seqFor, itemRef } =
     useMembershipTurns(liveIds);
+  const contentFor = useMembershipContent();
 
   const renderedChildFor = (id: string): ReactNode => {
     const live = liveFragments.find((fragment) => fragment.id === id);
@@ -71,10 +73,16 @@ const FragmentList = observer(function FragmentList<
   return (
     <Stack sx={{ gap: 1 }}>
       {presentedIds.map((id, index) => {
-        const content = renderedChildFor(id);
+        // The key captures everything the row shows: identity, position,
+        // label number, and flags. Appends reuse settled rows' keys, so
+        // only the arriving row builds fresh content.
+        const contentKey = liveIds.includes(id)
+          ? `${id}:${seqFor(id)}:${index}:${liveIds.indexOf(id)}:${isDisabled}`
+          : `${id}:${seqFor(id)}:${index}:gone`;
+        const content = contentFor(contentKey, () => renderedChildFor(id));
         if (content == null) return null;
         return (
-          <MembershipMotion
+          <MemoMembershipMotion
             key={`${id}:${seqFor(id)}:${index}`}
             id={id}
             entering={enteringIds.has(id)}
@@ -83,7 +91,7 @@ const FragmentList = observer(function FragmentList<
             itemRef={itemRef}
           >
             {content}
-          </MembershipMotion>
+          </MemoMembershipMotion>
         );
       })}
     </Stack>

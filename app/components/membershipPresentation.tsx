@@ -1,5 +1,4 @@
-import { motion } from "motion/react";
-import { ReactNode, useLayoutEffect, useRef, useState } from "react";
+import { ReactNode, memo, useCallback, useLayoutEffect, useRef, useState } from "react";
 
 import {
   claim,
@@ -8,9 +7,9 @@ import {
   isPresenting,
 } from "presentation";
 
-import { animationMs, animationSeconds } from "./animation";
+import { presentationMs, presentationSeconds } from "./animation";
 import { ITEM_MOTION_SECONDS } from "./itemMotion";
-import { scrollIntoViewWithMargin } from "./scrollFollower";
+import { scrollPresentationIntoView } from "./scrollFollower";
 
 export function uniqueIds(ids: string[]): string[] {
   const seen = new Set<string>();
@@ -123,14 +122,14 @@ export function useMembershipTurns(liveIds: string[]): {
       setEnteringIds(new Set([id]));
       requestAnimationFrame(() => {
         const node = nodesRef.current.get(id);
-        if (node != null) scrollIntoViewWithMargin(node);
+        if (node != null) scrollPresentationIntoView(node);
       });
     } else if (removed.length > 0) {
       const id = removed[0]!;
       const node = nodesRef.current.get(id);
       if (node != null) {
         exitHeightRef.current.set(id, node.getBoundingClientRect().height);
-        scrollIntoViewWithMargin(node, "nearest");
+        scrollPresentationIntoView(node, "nearest");
       }
       setExitingIds(new Set([id]));
     }
@@ -146,7 +145,7 @@ export function useMembershipTurns(liveIds: string[]): {
       setEnteringIds(new Set());
       session.completed = true;
       complete(tick);
-    }, animationMs(ITEM_MOTION_SECONDS * 1000));
+    }, presentationMs(ITEM_MOTION_SECONDS * 1000));
 
     return () => {
       clearTimeout(timer);
@@ -173,6 +172,17 @@ export function useMembershipTurns(liveIds: string[]): {
   };
 }
 
+/**
+ * Seconds the outer box takes to settle its height. Entrances need none:
+ * the box has no clipping, so it simply sits at full height while the
+ * sideways glide carries the motion. Exits hold at the measured height for
+ * a frame, then collapse.
+ */
+function exitHeightDuration(exiting: boolean, collapse: boolean): number {
+  if (exiting && !collapse) return 0;
+  return presentationSeconds(ITEM_MOTION_SECONDS);
+}
+
 export function MembershipMotion({
   id,
   entering,
@@ -189,6 +199,17 @@ export function MembershipMotion({
   children: ReactNode;
 }) {
   const [collapse, setCollapse] = useState(false);
+  // The sideways glide runs as a plain CSS transition so the compositor
+  // carries it through the next card's mount work on the main thread.
+  const [slidIn, setSlidIn] = useState(false);
+  useLayoutEffect(() => {
+    if (!entering) return;
+    const frame = requestAnimationFrame(() => setSlidIn(true));
+    return () => {
+      cancelAnimationFrame(frame);
+      setSlidIn(false);
+    };
+  }, [entering]);
   useLayoutEffect(() => {
     if (!exiting) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- collapse animates on exit
@@ -200,33 +221,68 @@ export function MembershipMotion({
   }, [exiting]);
 
   return (
-    <motion.div
+    <div
       ref={itemRef(id)}
-      initial={entering ? { height: 0 } : false}
-      animate={{
-        height: exiting ? (collapse ? 0 : (exitHeight ?? "auto")) : "auto",
-        transition: {
-          duration: exiting && !collapse ? 0 : animationSeconds(ITEM_MOTION_SECONDS),
-          ease: "easeInOut",
-        },
-      }}
       style={{
-        // overflow: "hidden",
+        height: exiting ? (collapse ? 0 : (exitHeight ?? "auto")) : "auto",
+        transitionProperty: "height",
+        transitionDuration: `${exitHeightDuration(exiting, collapse)}s`,
+        transitionTimingFunction: "ease-in-out",
+        overflow: "hidden",
         overflowAnchor: entering || exiting ? "none" : "auto",
       }}
     >
-      <motion.div
-        initial={entering ? { x: "100%" } : false}
-        animate={{
-          x: exiting ? "100%" : 0,
-          transition: {
-            duration: animationSeconds(ITEM_MOTION_SECONDS),
-            ease: "easeInOut",
-          },
+      <div
+        style={{
+          transform: exiting
+            ? "translateX(100%)"
+            : entering && !slidIn
+              ? "translateX(100%)"
+              : "none",
+          transitionProperty: "transform",
+          transitionDuration: `${presentationSeconds(ITEM_MOTION_SECONDS)}s`,
+          transitionTimingFunction: "ease-in-out",
         }}
       >
         {children}
-      </motion.div>
-    </motion.div>
+      </div>
+    </div>
   );
+}
+
+/**
+ * A membership row that survives its siblings' arrivals: list re-renders
+ * only reach rows whose play state changed, so adding card 28 costs one
+ * fresh row instead of re-rendering 27 settled ones. `itemRef` is outside
+ * the comparison; it closes over a stable node map.
+ */
+export const MemoMembershipMotion = memo(
+  MembershipMotion,
+  (prev, next) =>
+    prev.id === next.id &&
+    prev.entering === next.entering &&
+    prev.exiting === next.exiting &&
+    prev.exitHeight === next.exitHeight &&
+    prev.children === next.children,
+);
+
+/**
+ * Row content cached per key across list renders: the memoized row above
+ * only skips settled rows while it keeps receiving the identical element.
+ * The key must capture everything the built content reads (identity,
+ * position, labels, flags) — a stale key shows stale content. Appends
+ * reuse settled rows' keys, so only the arriving row builds.
+ */
+export function useMembershipContent(): (
+  key: string,
+  build: () => ReactNode,
+) => ReactNode {
+  const cacheRef = useRef(new Map<string, ReactNode>());
+  return useCallback((key: string, build: () => ReactNode) => {
+    const hit = cacheRef.current.get(key);
+    if (hit !== undefined) return hit;
+    const node = build();
+    cacheRef.current.set(key, node);
+    return node;
+  }, []);
 }

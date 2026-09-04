@@ -57,12 +57,18 @@ async function attachShown(store: import("../app/store/store").Store) {
 }
 
 async function playMembershipTurn(React: typeof import("react")): Promise<void> {
-  const { ITEM_MOTION_SECONDS } = await import("../app/components/itemMotion");
-  await React.act(async () => {
-    await new Promise((resolve) =>
-      setTimeout(resolve, ITEM_MOTION_SECONDS * 1000 + 40),
-    );
-  });
+  // Wait until the queue leaves the current tick, however long the turn's
+  // slowest claimant takes. One call always plays exactly one turn: some
+  // turns are shared (the list and a text field finish together), so no
+  // single presenter's timer length fits them all.
+  const { getPresentationTick } = await import("../app/presentation");
+  const tick = getPresentationTick();
+  const deadline = Date.now() + 5000;
+  while (getPresentationTick() === tick && Date.now() < deadline) {
+    await React.act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+  }
 }
 
 describe("change queue", () => {
