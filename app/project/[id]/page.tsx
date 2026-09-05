@@ -100,6 +100,13 @@ function Home() {
           message={store.validationErrors}
           details={store.validationErrorDetails}
           onClose={store.resetValidationErrors}
+          onRetry={
+            store.canRetryFailedOperation()
+              ? () => {
+                  void store.retryFailedOperation();
+                }
+              : undefined
+          }
         />
       ) : null}
       <AppBar
@@ -137,11 +144,11 @@ function Home() {
           <FolderOpen />
         </Button>
         </Tooltip>
-        <Tooltip title="Conversation">
+        <Tooltip title="Agent">
           <Button
             variant={conversationOpen ? "contained" : "outlined"}
             color={conversationOpen ? "primary" : "inherit"}
-            aria-label="Conversation"
+            aria-label="Agent"
             onClick={() => store.setConversationSidebar(!conversationOpen)}
             sx={{ minWidth: 0, px: 1.25 }}
           >

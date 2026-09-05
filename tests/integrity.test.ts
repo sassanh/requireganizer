@@ -14,7 +14,7 @@ import {
   collectMechanicalIssues,
   uncoveredIds,
 } from "../app/store/integrity";
-import { Store, workflowFingerprint } from "../app/store/store";
+import { Store, stageInputHash } from "../app/store/store";
 import type { FlatStore } from "../app/store/store";
 
 function storeWithOverview(): FlatStore {
@@ -214,10 +214,10 @@ describe("standing approval and coverage on the store", () => {
     store.approve("req-1");
     store.markStageGenerated(WorkflowStage.Requirements);
     assert.equal(store.getStepStatus(WorkflowStage.Requirements), Status.Completed);
-    const before = workflowFingerprint(store, WorkflowStage.Requirements);
+    const before = stageInputHash(store, WorkflowStage.Requirements);
     store.approve("ac-1");
     assert.equal(
-      workflowFingerprint(store, WorkflowStage.Requirements),
+      stageInputHash(store, WorkflowStage.Requirements),
       before,
     );
     assert.equal(store.getStepStatus(WorkflowStage.Requirements), Status.Completed);

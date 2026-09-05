@@ -15,12 +15,14 @@ interface ValidationErrorAlertProps {
   message: string;
   details: string | null;
   onClose: () => void;
+  onRetry?: () => void;
 }
 
 export default function ValidationErrorAlert({
   message,
   details,
   onClose,
+  onRetry,
 }: ValidationErrorAlertProps) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const canShowDetails =
@@ -31,15 +33,29 @@ export default function ValidationErrorAlert({
       <PersistentAlert severity="error" onClose={onClose}>
         <Stack spacing={1} sx={{ alignItems: "flex-start" }}>
           <span>{message}</span>
-          {canShowDetails && (
-            <Button
-              color="inherit"
-              size="small"
-              variant="outlined"
-              onClick={() => setDetailsOpen(true)}
-            >
-              More details
-            </Button>
+          {(onRetry != null || canShowDetails) && (
+            <Stack direction="row" spacing={1}>
+              {onRetry != null && (
+                <Button
+                  color="inherit"
+                  size="small"
+                  variant="contained"
+                  onClick={onRetry}
+                >
+                  Retry
+                </Button>
+              )}
+              {canShowDetails && (
+                <Button
+                  color="inherit"
+                  size="small"
+                  variant="outlined"
+                  onClick={() => setDetailsOpen(true)}
+                >
+                  More details
+                </Button>
+              )}
+            </Stack>
           )}
         </Stack>
       </PersistentAlert>

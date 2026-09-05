@@ -3,7 +3,6 @@
 import {
   CallSplit,
   Close,
-  ExpandMore,
   Forum,
   History,
   Person,
@@ -52,7 +51,7 @@ import {
   undoAction,
 } from "actions/actions";
 import { ActionView } from "actions/ActionView";
-import { describeCommand, parseCommandMessage } from "ai-agent/command";
+import { describeCommand, parseCommandMessage, type AiCommand } from "ai-agent/command";
 import { disclosedThinking } from "ai-agent/thinking";
 import { animationMs } from "components/animation";
 import { useStore } from "store";
@@ -407,7 +406,7 @@ const MessageView = memo(function MessageView({
     const text = blockText(blocks, "text");
     const command = parseCommandMessage(text);
     if (command != null) {
-      return <CommandBubble summary={describeCommand(command)} raw={text} />;
+      return <CommandBubble summary={describeCommand(command)} command={command} />;
     }
     return (
       <UserBubble text={text} index={index} busy={busy} onRevert={onRevert} />
@@ -862,7 +861,7 @@ function ConversationSidebar() {
       >
         <Forum fontSize="small" color="primary" />
         <Typography variant="subtitle1" sx={{ flexGrow: 1 }}>
-          AI conversation
+          Agent
         </Typography>
         <ActionView
           variant="iconbutton"
@@ -963,7 +962,7 @@ function ConversationSidebar() {
       <Box ref={scrollRef} onScroll={handleScroll} sx={{ flexGrow: 1, overflowY: "auto", p: 1.5 }}>
         {messages.length === 0 ? (
           <Alert severity="info">
-            No conversation yet. Generate an artifact to start the agentic conversation.
+            No agent activity yet. Generate an artifact to start.
           </Alert>
         ) : (
           <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
@@ -1100,46 +1099,51 @@ function ConversationSidebar() {
   );
 }
 
-function CommandBubble({ summary, raw }: { summary: string; raw: string }) {
-  const [expanded, setExpanded] = useState(false);
+function CommandBubble({ summary, command }: { summary: string; command: AiCommand }) {
+  const [dialogOpen, setDialogOpen] = useState(false);
 
   return (
-    <Paper
-      variant="outlined"
-      sx={{
-        p: 1.25,
-        // UI-initiated commands: dashed accent border marks them as generated
-        // by the interface rather than typed by the reader.
-        alignSelf: "flex-end",
-        ml: 8,
-        bgcolor: (theme) => alpha(theme.palette.primary.main, 0.08),
-        borderColor: "primary.main",
-        borderStyle: "dashed",
-      }}
-    >
-      <Stack
-        direction="row"
-        spacing={0.75}
-        onClick={() => setExpanded((open) => !open)}
-        sx={{ alignItems: "center", cursor: "pointer", userSelect: "none" }}
+    <>
+      <Paper
+        variant="outlined"
+        sx={{
+          p: 1.25,
+          // UI-initiated commands: dashed accent border marks them as generated
+          // by the interface rather than typed by the reader.
+          alignSelf: "flex-end",
+          ml: 8,
+          bgcolor: (theme) => alpha(theme.palette.primary.main, 0.08),
+          borderColor: "primary.main",
+          borderStyle: "dashed",
+        }}
       >
-        <ExpandMore
-          fontSize="small"
-          sx={{
-            transform: expanded ? "rotate(180deg)" : "none",
-            transition: `transform ${animationMs(150)}ms ease`,
-          }}
-        />
-        <Typography variant="caption" sx={{ flexGrow: 1 }}>
-          {summary}
-        </Typography>
-      </Stack>
-      <Collapse in={expanded}>
-        <Box component="pre" sx={{ m: 0, mt: 1, fontFamily: "monospace", fontSize: 11, whiteSpace: "pre-wrap" }}>
-          {raw}
-        </Box>
-      </Collapse>
-    </Paper>
+        <Stack
+          direction="row"
+          spacing={0.75}
+          onClick={() => setDialogOpen(true)}
+          sx={{ alignItems: "center", cursor: "pointer", userSelect: "none" }}
+        >
+          <Typography variant="caption" sx={{ flexGrow: 1 }}>
+            {summary}
+          </Typography>
+        </Stack>
+      </Paper>
+      {dialogOpen && (
+        <Dialog open onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth>
+          <Box sx={{ display: "flex", alignItems: "center", p: 2, pb: 1 }}>
+            <Typography variant="subtitle1" sx={{ flexGrow: 1 }}>
+              Command
+            </Typography>
+            <IconButton size="small" aria-label="Close" onClick={() => setDialogOpen(false)}>
+              <Close fontSize="small" />
+            </IconButton>
+          </Box>
+          <Box sx={{ px: 2, pb: 2, overflowY: "auto" }}>
+            <JsonTree value={command} />
+          </Box>
+        </Dialog>
+      )}
+    </>
   );
 }
 

@@ -3,6 +3,7 @@ import {
   Accordion,
   AccordionDetails,
   AccordionSummary,
+  Alert,
   Button,
   Dialog,
   DialogActions,
@@ -200,24 +201,29 @@ const Header: React.FunctionComponent<HeaderProps> = ({
         </Typography>
       ) : null}
       {store.canRefreshStep(step) ? (
-        <Stack direction="row" sx={{ gap: 2, alignSelf: "center", alignItems: "center" }}>
-          <Typography variant="body2" color="text.secondary">
-            {(() => {
-              const input = GENERATION_PREREQUISITE_BY_WORKFLOW_STAGE[step];
-              return input == null
-                ? `Its inputs changed since ${WORKFLOW_STAGE_LABELS[step]} was generated.`
-                : `${WORKFLOW_STAGE_LABELS[input]} changed since ${WORKFLOW_STAGE_LABELS[step]} was generated.`;
-            })()}
-          </Typography>
-          <GenerationButton
-            disabled={store.isBusy}
-            variant="outlined"
-            startIcon={<Refresh />}
-            onGenerate={() => openRefreshDialog(step)}
-          >
-            Refresh with AI
-          </GenerationButton>
-        </Stack>
+        <Alert
+          severity="warning"
+          sx={{ alignSelf: "stretch" }}
+          action={
+            <GenerationButton
+              disabled={store.isBusy}
+              variant="outlined"
+              size="small"
+              color="inherit"
+              startIcon={<Refresh />}
+              onGenerate={() => openRefreshDialog(step)}
+            >
+              Refresh with AI
+            </GenerationButton>
+          }
+        >
+          {(() => {
+            const input = GENERATION_PREREQUISITE_BY_WORKFLOW_STAGE[step];
+            return input == null
+              ? `Its inputs changed since ${WORKFLOW_STAGE_LABELS[step]} was generated.`
+              : `${WORKFLOW_STAGE_LABELS[input]} changed since ${WORKFLOW_STAGE_LABELS[step]} was generated.`;
+          })()}
+        </Alert>
       ) : null}
       {store.mechanicalIssuesForStage(step).map((issue, index) => (
         <Typography key={`${issue.itemId ?? "stage"}:${index}`} variant="body2" color="error">

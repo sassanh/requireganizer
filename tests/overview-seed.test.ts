@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 
 import { PROJECT_SCHEMA_VERSION } from "../app/lib/projectSchema";
 import { WorkflowStage } from "../app/store/constants";
-import { Store, workflowFingerprint } from "../app/store/store";
+import { Store, stageInputHash } from "../app/store/store";
 import type { FlatStore } from "../app/store/store";
 
 const emptyProject = {
@@ -41,8 +41,8 @@ describe("overview seed as revision 0", () => {
     seeded.setOverviewSeed({ seed: "A plant care helper." });
     const plain = Store.create({ productOverview: {} }) as unknown as FlatStore;
     assert.equal(
-      workflowFingerprint(seeded, WorkflowStage.UserStories),
-      workflowFingerprint(plain, WorkflowStage.UserStories),
+      stageInputHash(seeded, WorkflowStage.UserStories),
+      stageInputHash(plain, WorkflowStage.UserStories),
     );
   });
 

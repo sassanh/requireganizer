@@ -70,6 +70,7 @@ import {
   sendConversationMessage,
   regenerateLastReply,
 } from "./actions";
+import { hasPendingRetry, takePendingRetry } from "./actions/ai-actions/utilities";
 import { asApprovedRevision, asDraftRevision, isApproved } from "./approval";
 import {
   GENERATION_PREREQUISITE_BY_WORKFLOW_STAGE,
@@ -122,7 +123,13 @@ import {
   TargetUser,
   TargetUserModel,
 } from "./models/ProductOverview";
+import { summarizeStageInputChange } from "./stageInputDiff";
 import { declareTimelineStep } from "./timeline/controller";
+import {
+  hashArtifact,
+  putArtifact,
+  tryResolveArtifact,
+} from "./timeline/serialize";
 import { withSelf } from "./utilities";
 
 export { PROJECT_SCHEMA_VERSION } from "lib/projectSchema";
@@ -342,8 +349,15 @@ export function buildWorkflowInput(
   return result;
 }
 
-export function workflowFingerprint(source: WorkflowInputSource, step: WorkflowStage) {
-  return fingerprint(buildWorkflowInput(source, step));
+/**
+ * The hash of the inputs a stage was generated from. The value is a link,
+ * not just a checksum: recording writes the built inputs into the shared
+ * content store, so the same hash later resolves the old content for the
+ * refresh instruction. Hashes recorded before this link existed resolve
+ * to nothing, and those stages fall back to generic wording.
+ */
+export function stageInputHash(source: WorkflowInputSource, step: WorkflowStage) {
+  return hashArtifact(buildWorkflowInput(source, step));
 }
 
 export function testDesignFingerprint(source: WorkflowInputSource): string {
@@ -533,7 +547,7 @@ export const FlatStore = types
       applySnapshot(self, snapshot as SnapshotIn<typeof FlatStore>);
     },
     markStageGenerated(step: WorkflowStage) {
-      self.stageInputFingerprints.set(step, workflowFingerprint(self, step));
+      self.stageInputFingerprints.set(step, putArtifact(buildWorkflowInput(self, step)));
     },
     setScaffoldFiles(files: { path: string; content: string }[]) {
       self.scaffoldFiles = cast(parseScaffoldFiles(files));
@@ -985,7 +999,7 @@ export const FlatStore = types
       if (stageIsLocked(step)) return Status.Locked;
       const generated = self.stageInputFingerprints.get(step);
       const inputIsOutdated =
-        generated != null && generated !== workflowFingerprint(self, step);
+        generated != null && generated !== stageInputHash(self, step);
       const stageIssues = self.mechanicalIssues.filter((issue) => issue.stage === step);
       let status: Status;
       let hasArtifacts: boolean;
@@ -1323,7 +1337,7 @@ export const FlatStore = types
           return (
             generated != null &&
             self.hasStepArtifacts(step) &&
-            generated !== workflowFingerprint(self, step)
+            generated !== stageInputHash(self, step)
           );
         }
       }
@@ -1359,6 +1373,48 @@ export const FlatStore = types
       }
       return prerequisite;
     };
+    /**
+     * One sentence per upstream change since the stage was generated, for
+     * the refresh instruction. Empty when the recorded inputs resolve to
+     * nothing: hashes from before the content link cannot name their
+     * change, and the instruction falls back to generic wording.
+     */
+    const stageInputChanges = (step: WorkflowStage): string[] => {
+      const recorded = self.stageInputFingerprints.get(step);
+      if (recorded == null) return [];
+      const previous = tryResolveArtifact(recorded);
+      if (
+        previous == null ||
+        typeof previous !== "object" ||
+        Array.isArray(previous)
+      ) {
+        return [];
+      }
+      return summarizeStageInputChange(
+        previous as Record<string, unknown>,
+        buildWorkflowInput(self, step),
+      );
+    };
+    /**
+     * Both input versions for the refresh instruction: the recorded inputs
+     * the stage was generated from and the current ones. Null when the
+     * recorded inputs resolve to nothing.
+     */
+    const stageInputVersions = (
+      step: WorkflowStage,
+    ): { previous: unknown; current: unknown } | null => {
+      const recorded = self.stageInputFingerprints.get(step);
+      if (recorded == null) return null;
+      const previous = tryResolveArtifact(recorded);
+      if (
+        previous == null ||
+        typeof previous !== "object" ||
+        Array.isArray(previous)
+      ) {
+        return null;
+      }
+      return { previous, current: buildWorkflowInput(self, step) };
+    };
 
     return {
       approvalOf,
@@ -1368,6 +1424,11 @@ export const FlatStore = types
       upstreamBlockerReason,
       canRefreshStep,
       stalePrerequisite,
+      stageInputChanges,
+      stageInputVersions,
+      canRetryFailedOperation(): boolean {
+        return hasPendingRetry();
+      },
       canApprove(id: string): boolean {
         if (self.isBusy) return false;
         const status = approvalOf(id);
@@ -1420,6 +1481,16 @@ export const FlatStore = types
     },
   }))
   .actions((self) => ({
+    /**
+     * Re-run the rate-limited attempt. The re-dispatch is a fresh flow,
+     * so gates and history treat it like pressing the original button
+     * again; a missing attempt is a silent no-op.
+     */
+    retryFailedOperation() {
+      const attempt = takePendingRetry();
+      if (attempt == null) return null;
+      return attempt();
+    },
     approve(id: string) {
       const step = self.approvalStep(id);
       if (step != null) {

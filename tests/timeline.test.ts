@@ -32,8 +32,11 @@ import {
 import {
   artifactCount,
   captureState,
+  collectArtifactGarbage,
   importTimelineData,
+  putArtifact,
   restoreSnapshot,
+  tryResolveArtifact,
   type PersistedTimeline,
 } from "../app/store/timeline/serialize";
 
@@ -172,6 +175,29 @@ describe("timeline serialization", () => {
     // Exactly one new artifact (the changed product overview) was stored.
     assert.equal(artifactCount() - countAfterA, 1);
     assert.ok((stateB.productOverview ?? "").length <= 20);
+  });
+
+  it("keeps stage input snapshots reachable through recorded fingerprints", () => {
+    const recordedInput = { productOverview: { name: "Plant Pal" } };
+    const inputHash = putArtifact(recordedInput);
+    const state = captureState({
+      schemaVersion: 3,
+      businessCounter: 0,
+      productOverview: { name: "Plant Pal Pro", purpose: null },
+      userStories: [],
+      requirements: [],
+      acceptanceCriteria: [],
+      boundaryDesign: null,
+      implementationProfile: null,
+      contractSuite: null,
+      testScenarios: [],
+      projectSetup: null,
+      scaffoldFiles: [],
+      stageInputFingerprints: { [WorkflowStage.UserStories]: inputHash },
+      conversation: [],
+    } as never);
+    collectArtifactGarbage([state]);
+    assert.deepEqual(tryResolveArtifact(inputHash), recordedInput);
   });
 
   it("strips legacy ephemeral fields from imported node states", () => {

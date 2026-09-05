@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { unprotect } from "mobx-state-tree";
+
 import { buildRefreshComment } from "../app/store/actions/ai-actions/refresh-stage";
 import {
   OVERVIEW_NAME_QUALITY_ID,
@@ -98,6 +100,45 @@ describe("stale stage refresh", () => {
   it("works without a user hint", () => {
     const comment = buildRefreshComment(WorkflowStage.Requirements);
     assert.ok(comment.includes("Requirements"));
+  });
+
+  it("hands the model the exact upstream change", () => {
+    const store = storeWithStaleStories();
+    const changes = store.stageInputChanges(WorkflowStage.UserStories);
+    assert.ok(
+      changes.some(
+        (change) => change.includes("Plant Pal") && change.includes("Plant Pal Pro"),
+      ),
+    );
+    const versions = store.stageInputVersions(WorkflowStage.UserStories);
+    assert.ok(versions != null);
+    assert.match(JSON.stringify(versions.previous), /Plant Pal"/);
+    assert.match(JSON.stringify(versions.current), /Plant Pal Pro/);
+    const comment = buildRefreshComment(
+      WorkflowStage.UserStories,
+      undefined,
+      changes,
+      versions,
+    );
+    assert.ok(comment.includes("Upstream changes:"));
+    assert.ok(comment.includes("Plant Pal Pro"));
+    assert.ok(comment.includes("Previous inputs:"));
+    assert.ok(comment.includes("Current inputs:"));
+  });
+
+  it("falls back to generic wording for hashes from before the content link", () => {
+    const store = storeWithStaleStories();
+    // Test-only write: the map changes through store actions in the app.
+    unprotect(store);
+    store.stageInputFingerprints.set(WorkflowStage.UserStories, "0".repeat(64));
+    assert.equal(store.getStepStatus(WorkflowStage.UserStories), Status.Outdated);
+    assert.deepEqual(store.stageInputChanges(WorkflowStage.UserStories), []);
+    const comment = buildRefreshComment(
+      WorkflowStage.UserStories,
+      undefined,
+      store.stageInputChanges(WorkflowStage.UserStories),
+    );
+    assert.ok(!comment.includes("Upstream changes:"));
   });
 
   it("offers no refresh when nothing is stale", () => {

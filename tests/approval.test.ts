@@ -16,7 +16,7 @@ import {
   StructuralFragment,
   WorkflowStage,
 } from "../app/store/constants";
-import { Store, testDesignFingerprint, workflowFingerprint } from "../app/store/store";
+import { Store, testDesignFingerprint, stageInputHash } from "../app/store/store";
 import type { FlatStore } from "../app/store/store";
 
 const emptyRevisionId = fingerprint([]);
@@ -116,8 +116,8 @@ describe("explicit approval", () => {
     assert.equal(rewritten.productOverview.lastSignedName, "Plant Pal");
     assert.equal(bornDraft.productOverview.lastSignedName, null);
     assert.equal(
-      workflowFingerprint(rewritten, WorkflowStage.UserStories),
-      workflowFingerprint(bornDraft, WorkflowStage.UserStories),
+      stageInputHash(rewritten, WorkflowStage.UserStories),
+      stageInputHash(bornDraft, WorkflowStage.UserStories),
     );
   });
 
@@ -185,9 +185,9 @@ describe("explicit approval", () => {
       ],
     });
     store.markStageGenerated(WorkflowStage.UserStories);
-    const before = workflowFingerprint(store, WorkflowStage.UserStories);
+    const before = stageInputHash(store, WorkflowStage.UserStories);
     approveOverview(store);
-    assert.equal(workflowFingerprint(store, WorkflowStage.UserStories), before);
+    assert.equal(stageInputHash(store, WorkflowStage.UserStories), before);
     assert.equal(store.getStepStatus(WorkflowStage.UserStories), Status.NeedsApproval);
   });
 

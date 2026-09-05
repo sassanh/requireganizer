@@ -11,16 +11,32 @@ import { generator } from "./utilities";
  * the model what changed and how to touch it. The full-list tools already
  * accept bare ids for untouched items; the comment points at the upstream
  * change and orders minimal edits, so unaffected items resubmit
- * byte-identical and keep their approvals.
+ * byte-identical and keep their approvals. The change list comes from the
+ * store's recorded inputs; an empty list keeps the generic wording. Both
+ * input versions travel in the comment so the model never fetches them.
  */
-export function buildRefreshComment(stage: WorkflowStage, hint?: string): string {
+export function buildRefreshComment(
+  stage: WorkflowStage,
+  hint?: string,
+  changes: string[] = [],
+  versions: { previous: unknown; current: unknown } | null = null,
+): string {
   const label = WORKFLOW_STAGE_LABELS[stage];
   const task =
     `The inputs of ${label} changed since it was generated. ` +
     `Bring ${label} in line with the current inputs: resubmit the complete set, ` +
     `keeping every unaffected item byte-identical, and patch, add, or remove ` +
     `only what the upstream change requires.`;
-  return hint != null && hint.trim().length > 0 ? `${task} ${hint.trim()}` : task;
+  const listed = changes
+    .map((change) => change.trim())
+    .filter((change) => change.length > 0)
+    .map((change) => `- ${change}`)
+    .join("\n");
+  const withChanges = listed === "" ? task : `${task} Upstream changes:\n${listed}`;
+  const withVersions = versions == null
+    ? withChanges
+    : `${withChanges}\nPrevious inputs: ${JSON.stringify(versions.previous)}\nCurrent inputs: ${JSON.stringify(versions.current)}`;
+  return hint != null && hint.trim().length > 0 ? `${withVersions} ${hint.trim()}` : withVersions;
 }
 
 export default generator(
@@ -42,7 +58,12 @@ export default generator(
     yield* toGenerator(runAgentCommand(self, `refresh ${label}`, {
       kind: "revise",
       stage: step as CommandStage,
-      comment: buildRefreshComment(step, hint),
+      comment: buildRefreshComment(
+        step,
+        hint,
+        self.stageInputChanges(step),
+        self.stageInputVersions(step),
+      ),
     }));
   },
   {

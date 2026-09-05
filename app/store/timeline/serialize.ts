@@ -62,7 +62,11 @@ export function hashArtifact(value: unknown): Hash {
   return sha256Text(canonicalJson(value)).slice(0, 20);
 }
 
-function putArtifact(value: unknown): Hash {
+/** Write one value into the content store, returning its hash. The same
+ * object identity reuses its hash while it stays stored; every caller that
+ * records inputs builds a fresh value, so a later write never reuses an
+ * older write's hash. */
+export function putArtifact(value: unknown): Hash {
   if (value != null && typeof value === "object") {
     const memoized = objectHashMemo.get(value);
     if (memoized != null && artifactStore.has(memoized)) return memoized;
@@ -86,6 +90,18 @@ function resolveArtifact(hash: Hash | null): unknown {
   return JSON.parse(json);
 }
 
+/**
+ * The non-throwing read end of the content store: recorded hashes from
+ * older formats resolve to nothing instead of failing, so callers fall
+ * back to generic wording.
+ */
+export function tryResolveArtifact(hash: Hash | null): unknown {
+  if (hash == null) return null;
+  const json = artifactStore.get(hash);
+  if (json == null) return null;
+  return JSON.parse(json) as unknown;
+}
+
 /** Mark-and-sweep: drop artifacts unreachable from the surviving nodes. */
 export function collectArtifactGarbage(
   states: readonly StateTree[],
@@ -105,6 +121,20 @@ export function collectArtifactGarbage(
     }
   };
   states.forEach((state) => visit(state));
+  // Stage input snapshots live one level deeper: each state's recorded
+  // fingerprints map names them, so resolve the map and keep every input
+  // it still names. Without this the sweep below would delete exactly the
+  // old content a refresh needs to describe.
+  for (const state of states) {
+    const recorded = tryResolveArtifact(state.stageInputFingerprints);
+    if (recorded != null && typeof recorded === "object" && !Array.isArray(recorded)) {
+      for (const hash of Object.values(recorded)) {
+        if (typeof hash === "string" && artifactStore.has(hash)) {
+          reachable.add(hash);
+        }
+      }
+    }
+  }
   for (const hash of artifactStore.keys()) {
     if (!reachable.has(hash)) artifactStore.delete(hash);
   }

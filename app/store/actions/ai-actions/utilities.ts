@@ -36,7 +36,7 @@ import {
   validateContractSuite,
   validateProjectSetup,
 } from "contract-domain";
-import { getUserFacingErrorMessage, UserFacingError } from "lib/errors";
+import { getUserFacingErrorMessage, isRateLimitError, isTimeoutError, UserFacingError } from "lib/errors";
 import { HarnessResult } from "lib/types";
 import { assertApproved } from "store/approval";
 import {
@@ -739,6 +739,26 @@ export function describeError(error: unknown): string {
   return stack.length > 0 ? `${lines.join("\n")}\n\n${stack}` : lines.join("\n");
 }
 
+/**
+ * The latest rate-limited attempt, waiting for its retry. Module state,
+ * never store state: the closure is not serializable, so it stays out of
+ * snapshots and the timeline entirely. It is always set and cleared
+ * together with the visible error, so reads stay fresh.
+ */
+let pendingRetry: (() => unknown) | null = null;
+
+/** Whether a failed attempt is waiting for its retry. */
+export function hasPendingRetry(): boolean {
+  return pendingRetry != null;
+}
+
+/** Take the waiting retry, leaving none behind. */
+export function takePendingRetry(): (() => unknown) | null {
+  const attempt = pendingRetry;
+  pendingRetry = null;
+  return attempt;
+}
+
 export function generator<
   const U extends unknown[],
   Requirements extends string & keyof SnapshotOrInstance<FlatStore>,
@@ -778,6 +798,7 @@ export function generator<
     let abortController: AbortController | null = null;
     try {
       store.resetValidationErrors();
+      pendingRetry = null;
 
       function throwEmptyError(requirement: Requirements) {
         throw new UserFacingError(
@@ -829,20 +850,32 @@ export function generator<
     } catch (error) {
       if (abortController?.signal.aborted) return;
       // Expected rule failures speak for themselves in the UI and need no
-      // diagnostics; only unexpected failures log and carry details.
+      // diagnostics; only unexpected failures log and carry details. Rate
+      // limits and timeouts are handled too: one calm sentence with a
+      // retry, and the attempt waits for it instead of a console entry.
       if (error instanceof UserFacingError) {
         store.setValidationError({ message: error.message });
       } else {
-        console.error(`Unable to ${operation}.`, error);
-        store.setValidationError({
-          message: getUserFacingErrorMessage(
-            error,
-            `Unable to ${operation}. Please try again.`,
-          ),
-          details: process.env.NODE_ENV === "development"
-            ? describeError(error)
-            : undefined,
-        });
+        const retryMessage = isRateLimitError(error)
+          ? "The AI provider hit its rate limit. Wait a moment, then try again."
+          : isTimeoutError(error)
+            ? "The AI request timed out. Wait a moment, then try again."
+            : null;
+        if (retryMessage != null) {
+          pendingRetry = () => flowFn(store, ...args);
+          store.setValidationError({ message: retryMessage });
+        } else {
+          console.error(`Unable to ${operation}.`, error);
+          store.setValidationError({
+            message: getUserFacingErrorMessage(
+              error,
+              `Unable to ${operation}. Please try again.`,
+            ),
+            details: process.env.NODE_ENV === "development"
+              ? describeError(error)
+              : undefined,
+          });
+        }
       }
     } finally {
       if (abortController != null) {
