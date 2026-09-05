@@ -2,6 +2,7 @@ import {
   CheckBox,
   Lock,
   NewReleases,
+  RateReview,
   Timer,
 } from "@mui/icons-material";
 import { TabContext, TabList } from "@mui/lab";
@@ -57,6 +58,7 @@ import ProjectSetup from "./ProjectSetup";
 const ICONS = {
   [Status.Pending]: Timer,
   [Status.Outdated]: NewReleases,
+  [Status.NeedsApproval]: RateReview,
   [Status.Completed]: CheckBox,
   [Status.Locked]: Lock,
 };
@@ -64,6 +66,7 @@ const ICONS = {
 const ICON_COLOR = {
   [Status.Pending]: "text.disabled",
   [Status.Outdated]: "warning.main",
+  [Status.NeedsApproval]: "warning.main",
   [Status.Completed]: "success.main",
   [Status.Locked]: "text.disabled",
 } as const;
@@ -71,6 +74,7 @@ const ICON_COLOR = {
 const SELECTED_ICON_COLOR = {
   [Status.Pending]: "text.secondary",
   [Status.Outdated]: "warning.dark",
+  [Status.NeedsApproval]: "warning.dark",
   [Status.Completed]: "success.dark",
   [Status.Locked]: "text.secondary",
 } as const;

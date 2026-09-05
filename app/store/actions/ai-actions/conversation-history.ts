@@ -53,5 +53,8 @@ export const regenerateLastReply = generator(
   {
     operation: "regenerate the last reply",
     requirements: [],
+    // Conversation carries no stage target, so the upstream gate does not
+    // apply; anything it submits goes through the gated submit tools.
+    targetStep: null,
   },
 );

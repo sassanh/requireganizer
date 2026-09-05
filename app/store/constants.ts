@@ -179,6 +179,7 @@ export enum Status {
   Completed = "completed",
   Outdated = "outdated",
   Locked = "locked",
+  NeedsApproval = "needs-approval",
 }
 
 export const OVERVIEW_NAME_QUALITY_ID = "productOverview/name";

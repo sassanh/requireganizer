@@ -24,5 +24,6 @@ export default generator(
   },
   {
     operation: "apply the requested change",
+    targetStep: (step: WorkflowStage, _comment: string) => step,
   },
 );

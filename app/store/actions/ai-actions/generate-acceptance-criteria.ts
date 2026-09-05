@@ -10,5 +10,4 @@ export default makeStructuralFragmentFlow({
     "requirements",
     "userStories",
   ],
-  requiredSteps: [WorkflowStage.Requirements],
 });

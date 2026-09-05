@@ -49,6 +49,7 @@ import type {
   ContractSuite,
   ProjectSetup,
 } from "contract-domain";
+import { UserFacingError } from "lib/errors";
 import {
   applyArtifactListProposal,
   applyBoundaryDesignProposal,
@@ -345,12 +346,12 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
         ? WorkflowStage.InterfaceContracts
         : command.stage;
       const reason = store.cannotGenerateReason(generateStage);
-      if (reason != null) throw new Error(reason);
+      if (reason != null) throw new UserFacingError(reason);
       if (
         command.stage === WorkflowStage.InterfaceContracts &&
         store.implementationProfile?.status !== "approved"
       ) {
-        throw new Error("Approve the implementation profile first.");
+        throw new UserFacingError("Approve the implementation profile first.");
       }
     }
     const applyOptions = { markGenerated: true };

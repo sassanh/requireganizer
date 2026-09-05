@@ -25,6 +25,6 @@ const { runAgentCommand } = yield* toGenerator(import("ai-agent/agent"));
   {
     operation: "revise formal contract",
     requirements: ["boundaryDesign", "implementationProfile", "contractSuite"],
-    requiredSteps: [],
+    targetStep: WorkflowStage.InterfaceContracts,
   },
 );

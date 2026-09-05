@@ -46,6 +46,7 @@ export default generator(
     }));
   },
   {
-    operation: "refresh the stale stage",
+    operation: "refresh the stage",
+    targetStep: (step: WorkflowStage, _hint?: string) => step,
   },
 );

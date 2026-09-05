@@ -36,6 +36,7 @@ import {
   validateContractSuite,
   validateImplementationProfile,
 } from "contract-domain";
+import { UserFacingError } from "lib/errors";
 import { PROJECT_SCHEMA_VERSION } from "lib/projectSchema";
 import {
   assertSafeVirtualPath,
@@ -1107,13 +1108,15 @@ export const FlatStore = types
           break;
       }
       if (hasArtifacts && inputIsOutdated) return Status.Outdated;
+      // Complete but unapproved is not stale: it needs review, not a
+      // refresh. Outdated stays reserved for genuinely changed inputs.
       if (
         status === Status.Completed &&
         step !== WorkflowStage.AutomatedTests &&
         step !== WorkflowStage.Code &&
         !(self as unknown as { stageIsApproved: (stage: WorkflowStage) => boolean }).stageIsApproved(step)
       ) {
-        return Status.Outdated;
+        return Status.NeedsApproval;
       }
       return status;
     }
@@ -1242,28 +1245,62 @@ export const FlatStore = types
       if (GENERATOR_ACTION_BY_WORKFLOW_STAGE[step] == null) {
         return "This stage has no generate action.";
       }
-      const prerequisite = GENERATION_PREREQUISITE_BY_WORKFLOW_STAGE[step];
-      if (prerequisite == null) return null;
-      const label = WORKFLOW_STAGE_LABELS[prerequisite];
-      const target = WORKFLOW_STAGE_LABELS[step];
-      const status = self.getStepStatus(prerequisite);
-      if (status === Status.Pending || status === Status.Locked) {
-        const blocker = self.firstPendingPredecessor(step) ?? prerequisite;
-        return `Complete ${WORKFLOW_STAGE_LABELS[blocker]} to generate ${target}.`;
-      }
-      if (!stageIsApproved(prerequisite)) {
-        return `Approve ${label} to generate ${target}.`;
-      }
-      if (status === Status.Outdated) {
-        const stale = stalePrerequisite(step) ?? prerequisite;
-        return `${WORKFLOW_STAGE_LABELS[stale]} is outdated. ${refreshGuidance(stale)} to generate ${target}.`;
-      }
+      if (GENERATION_PREREQUISITE_BY_WORKFLOW_STAGE[step] == null) return null;
+      const reason = upstreamBlockerReason(step, `to generate ${WORKFLOW_STAGE_LABELS[step]}`);
+      if (reason != null) return reason;
       if (
         step === WorkflowStage.InterfaceContracts &&
         self.implementationProfile != null &&
         !isApproved(self.implementationProfile.status)
       ) {
         return "Approve the implementation profile to generate Interface Contracts.";
+      }
+      return null;
+    };
+    /**
+     * The workflow stage an approval belongs to, so approvals can be
+     * gated on upstream work like every other stage-targeted action.
+     * Unknown ids belong to no stage and stay ungated.
+     */
+    const approvalStep = (id: string): WorkflowStage | null => {
+      if (id === OVERVIEW_NAME_QUALITY_ID || id === OVERVIEW_PURPOSE_QUALITY_ID) {
+        return WorkflowStage.ProductOverview;
+      }
+      const fragment = self.structuralFragmentsCache[id];
+      if (fragment != null) {
+        return WORKFLOW_STAGE_BY_STRUCTURAL_FRAGMENT[fragment.type];
+      }
+      if (self.boundaryDesign?.id === id) return WorkflowStage.BoundaryDesign;
+      if (self.implementationProfile?.id === id) {
+        return WorkflowStage.InterfaceContracts;
+      }
+      if (self.projectSetup?.id === id) return WorkflowStage.ProjectSetup;
+      if (contractBundle(id) != null) return WorkflowStage.InterfaceContracts;
+      return null;
+    };
+    /**
+     * The first reason nothing may happen in this step yet, walking every
+     * earlier stage in order. Unapproved work upstream blocks approvals,
+     * comments, refreshes, and generations alike; each gate phrases the
+     * shared finding with its own action tail. Ordering matches the
+     * workflow: unfinished work first, then stale inputs, then unapproved
+     * work. Staleness leads because approving work that is already out of
+     * line with its inputs only attests it before its rewrite.
+     */
+    const upstreamBlockerReason = (step: WorkflowStage, tail: string): string | null => {
+      for (const previous of WORKFLOW_STAGES) {
+        if (previous === step) return null;
+        const status = self.getStepStatus(previous);
+        if (status === Status.Pending || status === Status.Locked) {
+          const blocker = self.firstPendingPredecessor(step) ?? previous;
+          return `Complete ${WORKFLOW_STAGE_LABELS[blocker]} ${tail}.`;
+        }
+        if (status === Status.Outdated) {
+          return `Outdated ${WORKFLOW_STAGE_LABELS[previous]}. ${refreshGuidance(previous)} ${tail}.`;
+        }
+        if (!stageIsApproved(previous)) {
+          return `Approve ${WORKFLOW_STAGE_LABELS[previous]} ${tail}.`;
+        }
       }
       return null;
     };
@@ -1310,17 +1347,14 @@ export const FlatStore = types
     };
     /**
      * The stale prerequisite blocking this step's generation, when
-     * refreshing it is actually the next action. Approval comes first,
-     * matching the blocker message order: unapproved work with stale
-     * inputs still asks for approval before any refresh.
+     * refreshing it is actually the next action. Staleness leads for the
+     * same reason as in the blocker walk: refresh first, review after.
+     * Approval state does not matter here; the dialog and the message
+     * stay consistent by sharing this gate.
      */
     const stalePrerequisite = (step: WorkflowStage): WorkflowStage | null => {
       const prerequisite = GENERATION_PREREQUISITE_BY_WORKFLOW_STAGE[step];
-      if (
-        prerequisite == null ||
-        !canRefreshStep(prerequisite) ||
-        !stageIsApproved(prerequisite)
-      ) {
+      if (prerequisite == null || !canRefreshStep(prerequisite)) {
         return null;
       }
       return prerequisite;
@@ -1328,8 +1362,10 @@ export const FlatStore = types
 
     return {
       approvalOf,
+      approvalStep,
       stageIsApproved,
       cannotGenerateReason,
+      upstreamBlockerReason,
       canRefreshStep,
       stalePrerequisite,
       canApprove(id: string): boolean {
@@ -1385,6 +1421,14 @@ export const FlatStore = types
   }))
   .actions((self) => ({
     approve(id: string) {
+      const step = self.approvalStep(id);
+      if (step != null) {
+        const reason = self.upstreamBlockerReason(
+          step,
+          `before approving ${WORKFLOW_STAGE_LABELS[step]}`,
+        );
+        if (reason != null) throw new UserFacingError(reason);
+      }
       if (!self.canApprove(id)) {
         throw new Error(`Cannot approve ${id}.`);
       }

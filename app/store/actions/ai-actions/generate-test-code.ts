@@ -51,6 +51,6 @@ const { runAgentCommand } = yield* toGenerator(import("ai-agent/agent"));
       "projectSetup",
       "testScenarios",
     ],
-    requiredSteps: [WorkflowStage.ProjectSetup],
+    targetStep: WorkflowStage.AutomatedTests,
   },
 );

@@ -23,6 +23,6 @@ const { runAgentCommand } = yield* toGenerator(import("ai-agent/agent"));
       "contractSuite",
       "testScenarios",
     ],
-    requiredSteps: [WorkflowStage.TestCases],
+    targetStep: WorkflowStage.ProjectSetup,
   },
 );

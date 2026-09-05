@@ -17,6 +17,7 @@ import { HIGHLIGHT_MILLISECONDS } from "components/changeQueue";
 import { copyTextForElement } from "components/copy";
 import { notify } from "components/notices";
 import { scrollIntoViewWithMargin, MARGIN_PIXELS } from "components/scrollFollower";
+import { getUserFacingErrorMessage } from "lib/errors";
 import { redo, undo } from "store/timeline/controller";
 
 import { SEND_SHORTCUT_SPEC, type ShortcutSpec } from "./shortcutText";
@@ -257,7 +258,12 @@ export const approveAction: Action<ApproveTarget> = {
   shortcut: approveShortcut,
   isEnabled: ({ blocked, approvable }) => !blocked && approvable,
   run: ({ approve }) => {
-    approve();
+    try {
+      approve();
+    } catch (error) {
+      notify(getUserFacingErrorMessage(error, "Unable to approve."), "error");
+      return;
+    }
     notify("Approved");
     // Review flow: approving moves on to the next item when there is one.
     advanceSelection();

@@ -46,7 +46,6 @@ import {
   WORKFLOW_STAGE_LABELS,
   Status,
   WorkflowStage,
-  refreshGuidance,
   StructuralFragment,
 } from "store/constants";
 import { classifyListChange } from "store/listChange";
@@ -755,11 +754,18 @@ export function generator<
   {
     operation,
     requirements = [],
-    requiredSteps = [],
+    targetStep,
   }: {
     operation: string;
     requirements?: readonly Requirements[];
-    requiredSteps?: readonly WorkflowStage[];
+    /**
+     * The workflow stage this flow acts on, or a derivation from its
+     * arguments, or null for conversation with no stage target. Every
+     * stage-targeted flow is gated on upstream work here, so no flow
+     * can act downstream of unapproved work by forgetting a check. The
+     * option is required so a new flow fails to compile ungated.
+     */
+    targetStep: WorkflowStage | ((...args: U) => WorkflowStage) | null;
   },
 ) {
   const flowFn = flow(function* (
@@ -799,25 +805,16 @@ export function generator<
         }
       });
 
-      requiredSteps.forEach((step) => {
-        const status = store.getStepStatus(step);
-        if (status !== Status.Completed) {
-          if (status === Status.Outdated) {
-            throw new UserFacingError(
-              `${WORKFLOW_STAGE_LABELS[step]} is outdated. ${refreshGuidance(step)} before trying to ${operation}.`,
-            );
-          }
-          const blocker = store.firstPendingPredecessor(step) ?? step;
-          throw new UserFacingError(
-            `Complete ${WORKFLOW_STAGE_LABELS[blocker]} before trying to ${operation}.`,
-          );
-        }
-        if (!store.stageIsApproved(step)) {
-          throw new UserFacingError(
-            `Approve ${WORKFLOW_STAGE_LABELS[step]} before trying to ${operation}.`,
-          );
-        }
-      });
+      const target = typeof targetStep === "function"
+        ? (targetStep as (...args: U) => WorkflowStage)(...args)
+        : targetStep;
+      if (target != null) {
+        const blockerReason = store.upstreamBlockerReason(
+          target,
+          `before trying to ${operation}`,
+        );
+        if (blockerReason != null) throw new UserFacingError(blockerReason);
+      }
 
       store.businessCounter += 1;
       incrementedBusinessCounter = true;
@@ -831,17 +828,22 @@ export function generator<
       );
     } catch (error) {
       if (abortController?.signal.aborted) return;
-      console.error(`Unable to ${operation}.`, error);
-      store.setValidationError({
-        message: getUserFacingErrorMessage(
-          error,
-          `Unable to ${operation}. Please try again.`,
-        ),
-        details:
-          process.env.NODE_ENV === "development"
+      // Expected rule failures speak for themselves in the UI and need no
+      // diagnostics; only unexpected failures log and carry details.
+      if (error instanceof UserFacingError) {
+        store.setValidationError({ message: error.message });
+      } else {
+        console.error(`Unable to ${operation}.`, error);
+        store.setValidationError({
+          message: getUserFacingErrorMessage(
+            error,
+            `Unable to ${operation}. Please try again.`,
+          ),
+          details: process.env.NODE_ENV === "development"
             ? describeError(error)
             : undefined,
-      });
+        });
+      }
     } finally {
       if (abortController != null) {
         store.endAiOperation();

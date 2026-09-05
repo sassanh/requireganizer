@@ -100,7 +100,7 @@ describe("canonical engineering workflow", () => {
         targetUsers: [{ id: "user-1", content: "Busy plant owners" }],
       },
     });
-    assert.equal(store.getStepStatus(WorkflowStage.ProductOverview), Status.Outdated);
+    assert.equal(store.getStepStatus(WorkflowStage.ProductOverview), Status.NeedsApproval);
     assert.equal(store.getStepStatus(WorkflowStage.UserStories), Status.Locked);
     assert.equal(
       store.resolveOpenStep(WorkflowStage.UserStories),

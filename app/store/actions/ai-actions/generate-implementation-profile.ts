@@ -21,6 +21,6 @@ export default generator(
   {
     operation: "generate implementation profile",
     requirements: ["boundaryDesign"],
-    requiredSteps: [WorkflowStage.BoundaryDesign],
+    targetStep: WorkflowStage.InterfaceContracts,
   },
 );

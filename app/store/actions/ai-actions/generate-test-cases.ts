@@ -29,6 +29,6 @@ const { runAgentCommand } = yield* toGenerator(import("ai-agent/agent"));
   {
     operation: "generate test cases",
     requirements: ["boundaryDesign", "contractSuite", "testScenarios"],
-    requiredSteps: [WorkflowStage.TestScenarios],
+    targetStep: WorkflowStage.TestCases,
   },
 );

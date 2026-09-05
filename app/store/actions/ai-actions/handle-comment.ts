@@ -21,5 +21,6 @@ export default generator(
   {
     operation: "apply the requested change",
     requirements: [],
+    targetStep: ({ fragment }) => WORKFLOW_STAGE_BY_STRUCTURAL_FRAGMENT[fragment.type],
   },
 );

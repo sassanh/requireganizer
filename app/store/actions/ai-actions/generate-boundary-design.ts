@@ -18,6 +18,6 @@ export default generator(
   {
     operation: "generate boundary design",
     requirements: ["requirements", "acceptanceCriteria"],
-    requiredSteps: [WorkflowStage.AcceptanceCriteria],
+    targetStep: WorkflowStage.BoundaryDesign,
   },
 );

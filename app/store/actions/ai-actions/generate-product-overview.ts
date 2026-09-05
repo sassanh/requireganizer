@@ -22,5 +22,6 @@ export default generator(
   },
   {
     operation: "generate the product overview",
+    targetStep: WorkflowStage.ProductOverview,
   },
 );

@@ -3,6 +3,7 @@ import { toGenerator } from "mobx-state-tree";
 import {
   OVERVIEW_NAME_QUALITY_ID,
   OVERVIEW_PURPOSE_QUALITY_ID,
+  WorkflowStage,
 } from "store/constants";
 
 import { generator } from "./utilities";
@@ -22,5 +23,6 @@ export default generator(
   {
     operation: "apply the requested change",
     requirements: [],
+    targetStep: WorkflowStage.ProductOverview,
   },
 );

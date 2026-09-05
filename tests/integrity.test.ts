@@ -30,6 +30,13 @@ function storeWithOverview(): FlatStore {
   }) as unknown as FlatStore;
 }
 
+function approveOverview(store: FlatStore) {
+  store.approve(OVERVIEW_NAME_QUALITY_ID);
+  store.approve(OVERVIEW_PURPOSE_QUALITY_ID);
+  store.approve("feat-1");
+  store.approve("user-1");
+}
+
 function storeWithStories(): FlatStore {
   const store = storeWithOverview();
   store.setUserStories({
@@ -99,7 +106,7 @@ describe("mechanical coverage", () => {
 describe("standing approval and coverage on the store", () => {
   it("yellows a filled overview until every item is approved", () => {
     const store = storeWithOverview();
-    assert.equal(store.getStepStatus(WorkflowStage.ProductOverview), Status.Outdated);
+    assert.equal(store.getStepStatus(WorkflowStage.ProductOverview), Status.NeedsApproval);
     store.approve(OVERVIEW_NAME_QUALITY_ID);
     store.approve(OVERVIEW_PURPOSE_QUALITY_ID);
     store.approve("feat-1");
@@ -112,13 +119,14 @@ describe("standing approval and coverage on the store", () => {
 
   it("returns an item to draft when its content is rewritten", () => {
     const store = storeWithStories();
+    approveOverview(store);
     store.approve("story-1");
     assert.equal(store.userStories[0].approval, "approved");
     store.userStories[0].setContent(
       "As a busy plant owner, I want a rewritten outcome, so that plants stay alive.",
     );
     assert.equal(store.userStories[0].approval, "draft");
-    assert.equal(store.getStepStatus(WorkflowStage.UserStories), Status.Outdated);
+    assert.equal(store.getStepStatus(WorkflowStage.UserStories), Status.NeedsApproval);
   });
 
   it("returns name and purpose to draft when they are rewritten", () => {
@@ -181,6 +189,8 @@ describe("standing approval and coverage on the store", () => {
 
   it("does not yellow a downstream stage when only approval changes", () => {
     const store = storeWithStories();
+    approveOverview(store);
+    store.approve("story-1");
     store.setRequirements({
       requirements: [
         {
@@ -191,11 +201,21 @@ describe("standing approval and coverage on the store", () => {
         },
       ],
     });
+    store.setAcceptanceCriteria({
+      acceptanceCriteria: [
+        {
+          id: "ac-1",
+          content: "Given a due date, when it arrives, the owner is notified.",
+          references: [{ id: "req-1", type: StructuralFragment.Requirement }],
+          priority: Priority.P1,
+        },
+      ],
+    });
     store.approve("req-1");
     store.markStageGenerated(WorkflowStage.Requirements);
     assert.equal(store.getStepStatus(WorkflowStage.Requirements), Status.Completed);
     const before = workflowFingerprint(store, WorkflowStage.Requirements);
-    store.approve("story-1");
+    store.approve("ac-1");
     assert.equal(
       workflowFingerprint(store, WorkflowStage.Requirements),
       before,
@@ -205,6 +225,7 @@ describe("standing approval and coverage on the store", () => {
 
   it("yellows a stage when upstream content changes", () => {
     const store = storeWithStories();
+    approveOverview(store);
     store.approve("story-1");
     store.markStageGenerated(WorkflowStage.UserStories);
     assert.equal(store.getStepStatus(WorkflowStage.UserStories), Status.Completed);
@@ -230,7 +251,7 @@ describe("generate apply", () => {
     } as never);
     assert.equal(
       store.getStepStatus(WorkflowStage.ProductOverview),
-      Status.Outdated,
+      Status.NeedsApproval,
     );
     assert.equal(store.productOverview.nameApproval, "draft");
     assert.equal(store.stageIsApproved(WorkflowStage.ProductOverview), false);

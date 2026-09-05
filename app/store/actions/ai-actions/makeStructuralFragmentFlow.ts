@@ -11,12 +11,10 @@ export function makeStructuralFragmentFlow<
   step,
   structuralFragment,
   requirements,
-  requiredSteps,
 }: {
   step: WorkflowStage;
   structuralFragment: StructuralFragment;
   requirements: Requirements[];
-  requiredSteps: readonly WorkflowStage[];
 }) {
   return generator(
     function* generateStructuralFragmentFlow(self, hint?: string) {
@@ -33,7 +31,7 @@ export function makeStructuralFragmentFlow<
     {
       operation: `generate ${structuralFragment.replaceAll("_", " ")} items`,
       requirements,
-      requiredSteps,
+      targetStep: step,
     },
   );
 }

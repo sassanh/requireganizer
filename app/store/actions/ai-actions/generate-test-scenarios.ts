@@ -18,6 +18,6 @@ export default generator(
   {
     operation: "generate test scenarios",
     requirements: ["boundaryDesign", "contractSuite"],
-    requiredSteps: [WorkflowStage.InterfaceContracts],
+    targetStep: WorkflowStage.TestScenarios,
   },
 );

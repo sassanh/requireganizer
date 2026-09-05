@@ -32,6 +32,6 @@ export default generator(
   {
     operation: "generate interface contracts",
     requirements: ["boundaryDesign", "implementationProfile"],
-    requiredSteps: [WorkflowStage.BoundaryDesign],
+    targetStep: WorkflowStage.InterfaceContracts,
   },
 );

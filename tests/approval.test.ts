@@ -11,6 +11,7 @@ import {
 import {
   OVERVIEW_NAME_QUALITY_ID,
   OVERVIEW_PURPOSE_QUALITY_ID,
+  Priority,
   Status,
   StructuralFragment,
   WorkflowStage,
@@ -56,7 +57,7 @@ describe("explicit approval", () => {
       targetUsers: ["Busy plant owners"],
     } as never);
     assert.equal(store.productOverview.nameApproval, "draft");
-    assert.equal(store.getStepStatus(WorkflowStage.ProductOverview), Status.Outdated);
+    assert.equal(store.getStepStatus(WorkflowStage.ProductOverview), Status.NeedsApproval);
     assert.equal(store.stageIsApproved(WorkflowStage.ProductOverview), false);
     assert.equal(store.canGenerateStep(WorkflowStage.UserStories), false);
     assert.equal(
@@ -187,7 +188,7 @@ describe("explicit approval", () => {
     const before = workflowFingerprint(store, WorkflowStage.UserStories);
     approveOverview(store);
     assert.equal(workflowFingerprint(store, WorkflowStage.UserStories), before);
-    assert.equal(store.getStepStatus(WorkflowStage.UserStories), Status.Outdated);
+    assert.equal(store.getStepStatus(WorkflowStage.UserStories), Status.NeedsApproval);
   });
 
   it("keeps a draft revision draft on import", async () => {
@@ -264,6 +265,46 @@ describe("identical-content approval", () => {
 
   function storeWithContracts(): FlatStore {
     const store = storeWithStory();
+    store.setRequirements({
+      requirements: [
+        {
+          id: "req-1",
+          content: "The system must remind the owner on the watering due date.",
+          references: [{ id: "story-1", type: StructuralFragment.UserStory }],
+          priority: Priority.P1,
+        },
+      ],
+    });
+    store.approve("req-1");
+    store.setAcceptanceCriteria({
+      acceptanceCriteria: [
+        {
+          id: "ac-1",
+          content: "Given a due date, when it arrives, the owner is notified.",
+          references: [{ id: "req-1", type: StructuralFragment.Requirement }],
+          priority: Priority.P1,
+        },
+      ],
+    });
+    store.approve("ac-1");
+    store.setBoundaryDesign({
+      id: "boundary",
+      revisionId: "boundary-r1",
+      revision: 1,
+      status: "draft",
+      createdAt: "2026-08-13T00:00:00.000Z",
+      requirementsRevisionId: "req-r1",
+      acceptanceCriteriaRevisionId: "ac-r1",
+      rootSubjectId: "product",
+      subjects: [],
+      interfaces: [],
+      interactions: [],
+      verificationObligations: [],
+      coverage: [
+        { acceptanceCriteriaId: "ac-1", targetType: "interaction", targetId: "act-1" },
+      ],
+    } as never);
+    store.approve("boundary");
     store.setImplementationProfile({
       id: "profile",
       revisionId: "profile-r1",
@@ -278,6 +319,8 @@ describe("identical-content approval", () => {
       revision: 1,
       status: "approved",
       createdAt: "2026-08-13T00:00:00.000Z",
+      boundaryRevisionId: "boundary-r1",
+      profileRevisionId: "profile-r1",
       interfaceContracts: [{ id: "iface-1", status: "approved" }],
       subjectContracts: [{ id: "subject-1", status: "approved" }],
       verificationContracts: [],
@@ -297,7 +340,7 @@ describe("identical-content approval", () => {
           title,
           description: "Watering overdue path.",
           priority: "p0" as const,
-          acceptanceCriteriaIds: [],
+          acceptanceCriteriaIds: ["ac-1"],
           binding,
           dependencies: [],
         },
