@@ -136,6 +136,14 @@ function scrollWithDuration(
   cancelScroll();
   activeTick = getPresentationTick();
   if (!element.isConnected) return;
+  if (duration <= 0) {
+    // No time to pursue through: place the element at once instead.
+    element.scrollIntoView({
+      behavior: "auto",
+      block: fit === "center" ? "center" : "nearest",
+    });
+    return;
+  }
   const container = scrollableAncestor(element);
   if (fit === "nearest" && isFullyVisible(element, container, margin)) return;
 

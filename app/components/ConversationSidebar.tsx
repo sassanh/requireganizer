@@ -53,7 +53,7 @@ import {
 import { ActionView } from "actions/ActionView";
 import { describeCommand, parseCommandMessage, type AiCommand } from "ai-agent/command";
 import { disclosedThinking } from "ai-agent/thinking";
-import { animationMs } from "components/animation";
+import { animationMs, isReducedMotion } from "components/animation";
 import { useStore } from "store";
 import {
   activateBranch,
@@ -788,7 +788,7 @@ function ConversationSidebar() {
   useEffect(() => {
     if (highlightedIndex == null) return;
     entryRefs.current.get(highlightedIndex)?.scrollIntoView({
-      behavior: "smooth",
+      behavior: isReducedMotion() ? "auto" : "smooth",
       block: "center",
     });
     if (highlightTimerRef.current != null) {

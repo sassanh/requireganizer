@@ -14,6 +14,36 @@ import { getPresentationPace } from "presentation/momentum";
 
 let speed = 1;
 
+/**
+ * Whether the operating system asks for reduced motion. Read once per
+ * process through the pace below; every duration in the app flows through
+ * that pace, so this one flag stills everything with no per-site checks.
+ */
+let reducedMotion = false;
+let reducedMotionListening = false;
+
+function ensureReducedMotionListener(): void {
+  if (reducedMotionListening) return;
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    return;
+  }
+  reducedMotionListening = true;
+  const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+  const sync = (): void => {
+    reducedMotion = query.matches;
+  };
+  sync();
+  if (typeof query.addEventListener === "function") {
+    query.addEventListener("change", sync);
+  }
+}
+
+/** Whether the operating system asks for reduced motion. */
+export function isReducedMotion(): boolean {
+  ensureReducedMotionListener();
+  return reducedMotion;
+}
+
 /** The current pace multiplier. */
 export function animationSpeed(): number {
   return speed;
@@ -25,13 +55,15 @@ export function setAnimationSpeed(multiplier: number): void {
   speed = multiplier;
 }
 
-/** Scale a millisecond duration by the current pace. */
+/** Scale a millisecond duration by the current pace. Zero when the operating system asks for reduced motion. */
 export function animationMs(baseMs: number): number {
+  if (isReducedMotion()) return 0;
   return baseMs / speed;
 }
 
-/** Scale a second duration by the current pace. */
+/** Scale a second duration by the current pace. Zero when the operating system asks for reduced motion. */
 export function animationSeconds(baseSeconds: number): number {
+  if (isReducedMotion()) return 0;
   return baseSeconds / speed;
 }
 
