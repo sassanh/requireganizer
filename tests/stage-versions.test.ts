@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { unprotect } from "mobx-state-tree";
+
 import { buildReadTools } from "../app/ai-agent/read-tools";
 import {
   OVERVIEW_NAME_QUALITY_ID,
@@ -107,7 +109,7 @@ describe("stage version reads", () => {
     );
   });
 
-  it("rejects a hash holding no version of the requested stage", async () => {
+  it("returns a stage's recorded inputs when paired with its own hash", async () => {
     const store = storeWithRecordedStories();
     const artifactsTool = buildReadTools(store).find(
       (tool) => tool.name === "get_stage_artifacts",
@@ -115,17 +117,47 @@ describe("stage version reads", () => {
     assert.ok(artifactsTool != null);
     const hash = store.stageInputFingerprints.get(WorkflowStage.UserStories);
     assert.ok(hash != null);
-    // A stage's own hash versions its inputs, never itself.
+
+    const recorded = JSON.parse(
+      toolResultText(
+        await artifactsTool.execute("call-1", { stage: WorkflowStage.UserStories, hash }),
+      ),
+    ) as { productOverview: { name: string }; userStories?: unknown };
+    assert.equal(recorded.productOverview.name, "Plant Pal");
+    assert.ok(!("userStories" in recorded));
+  });
+
+  it("rejects predated and legacy reads with their own causes", async () => {
+    const store = storeWithRecordedStories();
+    const artifactsTool = buildReadTools(store).find(
+      (tool) => tool.name === "get_stage_artifacts",
+    );
+    assert.ok(artifactsTool != null);
+    const hash = store.stageInputFingerprints.get(WorkflowStage.UserStories);
+    assert.ok(hash != null);
+    // The stories snapshot predates requirements, so it holds none of them.
     await assert.rejects(
       () =>
-        artifactsTool.execute("call-1", { stage: WorkflowStage.UserStories, hash }),
-      /holds no recorded User Stories/,
+        artifactsTool.execute("call-1", { stage: WorkflowStage.Requirements, hash }),
+      /predates/,
     );
     // Test cases are no fingerprinted stage's input, so no version exists.
     await assert.rejects(
       () =>
         artifactsTool.execute("call-2", { stage: WorkflowStage.TestCases, hash }),
       /holds no recorded Test Cases/,
+    );
+    // A recorded hash with no readable content is a legacy recording.
+    // Test-only write: the map changes through store actions in the app.
+    unprotect(store);
+    store.stageInputFingerprints.set(WorkflowStage.Requirements, "0".repeat(64));
+    await assert.rejects(
+      () =>
+        artifactsTool.execute("call-3", {
+          stage: WorkflowStage.Requirements,
+          hash: "0".repeat(64),
+        }),
+      /before readable versions existed/,
     );
   });
 });

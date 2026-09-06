@@ -50,7 +50,7 @@ export function buildReadTools(store: FlatStore): AgentTool[] {
     name: "get_workflow_state",
     label: "Get workflow state",
     description:
-      "Get the status of every workflow stage (pending, completed, outdated, locked) and which artifacts exist. Each generated stage also reports the input hash it was built from; pass that hash to get_stage_artifacts to read the recorded version.",
+      "Get the status of every workflow stage (pending, completed, outdated, locked) and which artifacts exist. Each generated stage also reports the input hash of the inputs it was built from, never the stage itself. Pass a stage with its own hash to get_stage_artifacts to re-read those recorded inputs.",
     parameters: Type.Object({}),
     execute: async () => {
       const stages = CANONICAL_WORKFLOW.filter((step) => step !== WorkflowStage.Code)
@@ -77,10 +77,10 @@ export function buildReadTools(store: FlatStore): AgentTool[] {
     name: "get_stage_artifacts",
     label: "Get stage artifacts",
     description:
-      "Get the full JSON serialization of one workflow stage's artifacts. Stages use kebab-case names matching the workflow (e.g. \"product-overview\", \"boundary-design\"). Omit the hash for the current artifacts; pass a stage's recorded input hash from get_workflow_state to read the version that hash names.",
+      "Get the full JSON serialization of one workflow stage's artifacts. Stages use kebab-case names matching the workflow (e.g. \"product-overview\", \"boundary-design\"). Omit the hash for the current artifacts. Pass a stage with its own recorded input hash from get_workflow_state to re-read the inputs it was built from. To read a stage as recorded, pass a later stage's hash with that stage's name.",
     parameters: Type.Object({
       stage: Type.String({ description: "The workflow stage to read." }),
-      hash: Type.Optional(Type.String({ description: "A recorded input hash from get_workflow_state." })),
+      hash: Type.Optional(Type.String({ description: "That stage's own recorded input hash from get_workflow_state." })),
     }),
     execute: async (_toolCallId, params) => {
       const { stage, hash } = params as { stage: string; hash?: string };
@@ -98,28 +98,49 @@ export function buildReadTools(store: FlatStore): AgentTool[] {
         );
       }
       const snapshot = tryResolveArtifact(hash);
-      const endpoint = INPUT_KEY_BY_STAGE[step];
-      // The version is the stage's envelope as recorded: the schema marker
-      // plus every snapshot section up to the stage's own, exactly the
-      // shape a live read returns.
+      if (
+        snapshot == null ||
+        typeof snapshot !== "object" ||
+        Array.isArray(snapshot)
+      ) {
+        throw new Error(
+          `Input version "${hash}" was recorded before readable versions existed and holds no content. Regenerate the stage that recorded it to create a readable version.`,
+        );
+      }
+      const recordedSections = snapshot as Record<string, unknown>;
       const envelope: Record<string, unknown> = {
         schemaVersion: PROJECT_SCHEMA_VERSION,
       };
-      if (
-        endpoint != null &&
-        snapshot != null &&
-        typeof snapshot === "object" &&
-        !Array.isArray(snapshot)
-      ) {
-        const recordedSections = snapshot as Record<string, unknown>;
+      // A stage's own hash names the inputs it was built from, so pairing
+      // a stage with its own hash returns that full recorded snapshot.
+      const recordedByStep = [...store.stageInputFingerprints.entries()].some(
+        ([recordedStep, recordedHash]) => recordedStep === step && recordedHash === hash,
+      );
+      if (recordedByStep) {
         for (const key of INPUT_KEYS_IN_ORDER) {
           if (key in recordedSections) envelope[key] = recordedSections[key];
-          if (key === endpoint) break;
         }
+        return textResult(JSON.stringify(envelope));
       }
-      if (endpoint == null || !(endpoint in envelope)) {
+      const endpoint = INPUT_KEY_BY_STAGE[step];
+      // Otherwise the hash selects a snapshot and the stage selects how
+      // much of it to return: the schema marker plus every snapshot
+      // section up to the stage's own, exactly the shape a live read
+      // returns. A snapshot taken before the stage existed holds none of
+      // it, which is a predated read rather than a missing version.
+      if (endpoint == null) {
+        for (const key of INPUT_KEYS_IN_ORDER) {
+          if (key in recordedSections) envelope[key] = recordedSections[key];
+        }
+        return textResult(JSON.stringify(envelope));
+      }
+      for (const key of INPUT_KEYS_IN_ORDER) {
+        if (key in recordedSections) envelope[key] = recordedSections[key];
+        if (key === endpoint) break;
+      }
+      if (!(endpoint in envelope)) {
         throw new Error(
-          `Input version "${hash}" holds no recorded ${WORKFLOW_STAGE_LABELS[step]}.`,
+          `Input version "${hash}" holds no recorded ${WORKFLOW_STAGE_LABELS[step]}. It predates that stage. To read a stage's recorded inputs, pass that stage with its own input hash from get_workflow_state.`,
         );
       }
       return textResult(JSON.stringify(envelope));
