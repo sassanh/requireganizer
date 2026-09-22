@@ -29,7 +29,6 @@ import {
   GENERATION_PREREQUISITE_BY_WORKFLOW_STAGE,
   GENERATOR_ACTION_BY_WORKFLOW_STAGE,
   WORKFLOW_STAGES,
-  WORKFLOW_STAGE_LABELS,
   Status,
   WorkflowStage,
   generateStep,
@@ -136,7 +135,7 @@ const Header: React.FunctionComponent<HeaderProps> = ({
 
   const listChangeText = store.stageListChangeCaption(step)?.text;
   const generateLabel =
-    nextStep == null ? "" : WORKFLOW_STAGE_LABELS[nextStep];
+    nextStep == null ? "" : store.stageLabel(nextStep);
   const writtenHint = modelHint.trim().replace(/\s+/g, " ");
   const hintPreview =
     writtenHint.length > 80 ? `${writtenHint.slice(0, 80)}…` : writtenHint;
@@ -160,7 +159,7 @@ const Header: React.FunctionComponent<HeaderProps> = ({
               startIcon={<Refresh />}
               onGenerate={() => store[currentStepGeneratorAction]()}
             >
-              Generate {WORKFLOW_STAGE_LABELS[step]}
+              Generate {store.stageLabel(step)}
             </GenerationButton>
           ) : null}
         </div>
@@ -169,7 +168,7 @@ const Header: React.FunctionComponent<HeaderProps> = ({
             <>
               <Tooltip
                 title={actionHint(
-                  `Generate ${WORKFLOW_STAGE_LABELS[nextStep]}`,
+                  `Generate ${store.stageLabel(nextStep)}`,
                   generateNextShortcut,
                 )}
               >
@@ -182,7 +181,7 @@ const Header: React.FunctionComponent<HeaderProps> = ({
                     endIcon={<ArrowRight />}
                     onGenerate={requestPrepare}
                   >
-                    {WORKFLOW_STAGE_LABELS[nextStep]}
+                    {store.stageLabel(nextStep)}
                   </GenerationButton>
                 </span>
               </Tooltip>
@@ -193,7 +192,7 @@ const Header: React.FunctionComponent<HeaderProps> = ({
       <Typography variant="h3" sx={{
         alignSelf: "center"
       }}>
-        {WORKFLOW_STAGE_LABELS[step]}
+        {store.stageLabel(step)}
       </Typography>
       {listChangeText != null ? (
         <Typography variant="body2" color="text.secondary" sx={{ alignSelf: "center" }}>
@@ -220,8 +219,8 @@ const Header: React.FunctionComponent<HeaderProps> = ({
           {(() => {
             const input = GENERATION_PREREQUISITE_BY_WORKFLOW_STAGE[step];
             return input == null
-              ? `Its inputs changed since ${WORKFLOW_STAGE_LABELS[step]} was generated.`
-              : `${WORKFLOW_STAGE_LABELS[input]} changed since ${WORKFLOW_STAGE_LABELS[step]} was generated.`;
+              ? `Its inputs changed since ${store.stageLabel(step)} was generated.`
+              : `${store.stageLabel(input)} changed since ${store.stageLabel(step)} was generated.`;
           })()}
         </Alert>
       ) : null}
@@ -239,7 +238,7 @@ const Header: React.FunctionComponent<HeaderProps> = ({
         >
           <DialogTitle>
             {refreshTarget != null
-              ? `Refresh ${WORKFLOW_STAGE_LABELS[refreshTarget]}`
+              ? `Refresh ${store.stageLabel(refreshTarget)}`
               : `Generate ${generateLabel}`}
           </DialogTitle>
           <DialogContent
@@ -247,14 +246,14 @@ const Header: React.FunctionComponent<HeaderProps> = ({
           >
             {refreshTarget != null ? (
               <Typography variant="body2" color="text.secondary">
-                Brings {WORKFLOW_STAGE_LABELS[refreshTarget]} in line with
+                Brings {store.stageLabel(refreshTarget)} in line with
                 the current inputs. Untouched items keep their approvals;
                 changed items return to draft for your review.
               </Typography>
             ) : (
               <Typography variant="body2" color="text.secondary">
                 Builds {generateLabel} from the approved{" "}
-                {WORKFLOW_STAGE_LABELS[step]}. Each item still needs your
+                {store.stageLabel(step)}. Each item still needs your
                 review before approval.
               </Typography>
             )}

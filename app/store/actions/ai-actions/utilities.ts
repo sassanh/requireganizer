@@ -43,7 +43,6 @@ import {
   OVERVIEW_NAME_QUALITY_ID,
   OVERVIEW_PURPOSE_QUALITY_ID,
   Priority,
-  WORKFLOW_STAGE_LABELS,
   Status,
   WorkflowStage,
   StructuralFragment,
@@ -112,12 +111,12 @@ export function applyAtomically(
   if (impact != null && affectedSteps.length > 0) {
     store.queueImpactChange({
       sourceStep: impact.sourceStep,
-      sourceLabel: impact.sourceLabel ?? WORKFLOW_STAGE_LABELS[impact.sourceStep],
+      sourceLabel: impact.sourceLabel ?? store.stageLabel(impact.sourceStep),
       affectedSteps,
       affectedArtifacts: affectedSteps.map((step) => ({
         step,
-        label: `${WORKFLOW_STAGE_LABELS[step]} artifacts`,
-        reason: `These artifacts consume ${impact.sourceLabel ?? WORKFLOW_STAGE_LABELS[impact.sourceStep]} and will remain viewable but stale until refreshed.`,
+        label: `${store.stageLabel(step)} artifacts`,
+        reason: `These artifacts consume ${impact.sourceLabel ?? store.stageLabel(impact.sourceStep)} and will remain viewable but stale until refreshed.`,
       })),
       summary: impact.summary,
       candidateSnapshot: snapshot,

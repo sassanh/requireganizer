@@ -8,7 +8,7 @@ import { useStore } from "store";
 
 import CodeBlock from "./CodeBlock";
 
-const ImpactConfirmationDialog = ({ projectId }: { projectId: string }) => {
+const ImpactConfirmationDialog = ({ projectId, moduleId }: { projectId: string; moduleId: string }) => {
   const store = useStore();
   const [saving, setSaving] = useState(false);
   const change = store.pendingImpactChange;
@@ -18,6 +18,7 @@ const ImpactConfirmationDialog = ({ projectId }: { projectId: string }) => {
     try {
       await saveProjectSnapshot(
         projectId,
+        moduleId,
         getSnapshot(store),
         `Before ${change.sourceLabel} revision`,
       );

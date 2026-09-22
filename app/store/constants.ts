@@ -150,11 +150,14 @@ export const GENERATION_PREREQUISITE_BY_WORKFLOW_STAGE: Partial<Record<WorkflowS
  * revise one exact target at a time by design, so they name targeted
  * revision; every other stage refreshes whole through the revise channel.
  */
-export function refreshGuidance(step: WorkflowStage): string {
+export function refreshGuidance(
+  step: WorkflowStage,
+  label: string = WORKFLOW_STAGE_LABELS[step],
+): string {
   if (step === WorkflowStage.InterfaceContracts) {
     return "Revise the affected contracts";
   }
-  return `Refresh ${WORKFLOW_STAGE_LABELS[step]}`;
+  return `Refresh ${label}`;
 }
 
 export const FRAGMENT_CODES: Record<StructuralFragment, string> = {

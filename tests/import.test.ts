@@ -3,12 +3,12 @@ import { describe, it } from "node:test";
 
 import { fingerprint } from "../app/contract-domain";
 import {
-  assertCurrentProjectSchema,
-  PROJECT_SCHEMA_VERSION,
+  assertModuleSnapshotSchema,
+  MODULE_SCHEMA_VERSION,
 } from "../app/lib/projectSchema";
 
 const emptyProject = {
-  schemaVersion: PROJECT_SCHEMA_VERSION,
+  schemaVersion: MODULE_SCHEMA_VERSION,
   productOverview: {
     name: null,
     purpose: null,
@@ -27,12 +27,12 @@ const emptyProject = {
   stageInputFingerprints: {},
 };
 
-describe("project schema import", () => {
-  it("accepts schema version 2 and rejects obsolete data clearly", () => {
-    assert.doesNotThrow(() => assertCurrentProjectSchema(emptyProject));
+describe("module snapshot import", () => {
+  it("accepts the current module schema and rejects obsolete data clearly", () => {
+    assert.doesNotThrow(() => assertModuleSnapshotSchema(emptyProject));
     assert.throws(
-      () => assertCurrentProjectSchema({ ...emptyProject, schemaVersion: 1 }),
-      /obsolete project schema 1.*schema 3 only/,
+      () => assertModuleSnapshotSchema({ ...emptyProject, schemaVersion: 1 }),
+      /obsolete module schema 1.*schema 3 only/,
     );
   });
 

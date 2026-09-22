@@ -18,12 +18,13 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { getSnapshot } from "mobx-state-tree";
+import { observer } from "mobx-react-lite";
 import Link from "next/link";
 import { ChangeEvent, useEffect, useRef, useState } from "react";
 
 import { PersistentAlert } from "components";
 import { parseJson } from "lib/json";
+import { parseProjectPayload, pickActiveModule } from "lib/moduleSchema";
 import {
   deleteProjectData,
   getProjectsIndex,
@@ -32,7 +33,7 @@ import {
   saveProjectsIndex,
 } from "lib/projectStorage";
 import { deleteProviderCallsForProject } from "lib/providerCallStorage";
-import { Store } from "store";
+import { createModuleStore } from "store";
 
 interface ProjectSelectorProps {
   onSelect: (id: string, name: string, options?: { overviewSeed?: string }) => void;
@@ -123,11 +124,17 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
 
     try {
       const data = parseJson(await file.text(), "Imported project");
-      const importedStore = Store.create({ productOverview: {} });
-      importedStore.import(data);
+      const payload = parseProjectPayload(data);
+      const activeEntry = pickActiveModule(payload);
+      const activeStore = createModuleStore(activeEntry.snapshot);
+      // Every other module passes the same validation gate before its
+      // bytes are stored; the payload itself is saved unchanged.
+      for (const entry of payload.modules) {
+        if (entry.id !== activeEntry.id) createModuleStore(entry.snapshot);
+      }
 
       const baseName =
-        importedStore.productOverview.name?.trim() ||
+        activeStore.productOverview.name?.trim() ||
         file.name.replace(/\.json$/i, "");
       let name = baseName;
       let suffix = 1;
@@ -140,12 +147,12 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
       const meta: ProjectMeta = {
         id,
         name,
-        description: importedStore.productOverview.purpose?.slice(0, 200) ?? "",
+        description: activeStore.productOverview.purpose?.slice(0, 200) ?? "",
         updatedAt: new Date().toISOString(),
       };
 
       const updatedProjects = [...projectList, meta];
-      saveProjectBundle(id, getSnapshot(importedStore), updatedProjects);
+      saveProjectBundle(id, payload, updatedProjects);
       setProjects(updatedProjects);
       setError(null);
       onSelect(id, name);

@@ -26,29 +26,34 @@ export function renderCommand(command: AiCommand): string {
   return JSON.stringify(command);
 }
 
-function stageLabel(stage: CommandStage | WorkflowStage): string {
-  if (stage === "implementation-profile") return "implementation profile";
-  return WORKFLOW_STAGE_LABELS[stage];
-}
-
 /**
  * A short human-readable sentence describing what the command asks for,
  * used when collapsing command bubbles in the conversation view.
+ *
+ * The conversation passes the store's live stage labels so command bubbles
+ * read the same stage names as the rest of the interface; the default keeps
+ * the static workflow labels.
  */
-export function describeCommand(command: AiCommand): string {
+export function describeCommand(
+  command: AiCommand,
+  labelStep: (step: WorkflowStage) => string = (step) => WORKFLOW_STAGE_LABELS[step],
+): string {
+  // The single place that names the one stage outside the workflow list.
+  const labelStage = (stage: CommandStage | WorkflowStage): string =>
+    stage === "implementation-profile" ? "implementation profile" : labelStep(stage);
   switch (command.kind) {
     case "generate": {
       const scope = command.scenarioId != null ? ` for scenario ${command.scenarioId}` : "";
       if (command.seed != null && command.seed.trim().length > 0) {
-        return `Generate ${stageLabel(command.stage)} from starting intent`;
+        return `Generate ${labelStage(command.stage)} from starting intent`;
       }
       if (command.hint != null && command.hint.trim().length > 0) {
-        return `Generate ${stageLabel(command.stage)}${scope} — ${command.hint}`;
+        return `Generate ${labelStage(command.stage)}${scope} — ${command.hint}`;
       }
-      return `Generate ${stageLabel(command.stage)}${scope}`;
+      return `Generate ${labelStage(command.stage)}${scope}`;
     }
     case "revise": {
-      let text = `Revise ${stageLabel(command.stage)}`;
+      let text = `Revise ${labelStage(command.stage)}`;
       if (command.target != null) text += ` (${command.target.kind} ${command.target.id})`;
       if (command.comment != null && command.comment.length > 0) text += ` — ${command.comment}`;
       return text;

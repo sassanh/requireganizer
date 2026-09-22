@@ -1,12 +1,17 @@
+import { LEGACY_MODULE_ID, moduleScopeId } from "./moduleSchema";
+
 const DATABASE_NAME = "requireganizer-revisions";
-const DATABASE_VERSION = 1;
+const DATABASE_VERSION = 2;
 const STORE_NAME = "projectSnapshots";
 const PROJECT_INDEX = "projectId";
+const SCOPE_INDEX = "scopeId";
 const MAX_UNPINNED = 20;
 
 export interface ProjectRevisionSnapshot {
   id: string;
   projectId: string;
+  /** `${projectId}::${moduleId}`; written since schema v2 of this database. */
+  scopeId: string;
   createdAt: string;
   label: string;
   pinned: boolean;
@@ -52,15 +57,59 @@ function openDatabase(): Promise<IDBDatabase> {
         ? request.transaction!.objectStore(STORE_NAME)
         : database.createObjectStore(STORE_NAME, { keyPath: "id" });
       if (!store.indexNames.contains(PROJECT_INDEX)) store.createIndex(PROJECT_INDEX, PROJECT_INDEX, { unique: false });
+      if (!store.indexNames.contains(SCOPE_INDEX)) store.createIndex(SCOPE_INDEX, SCOPE_INDEX, { unique: false });
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error ?? new Error("Could not open revision storage."));
   });
 }
 
-export async function listProjectSnapshots(projectId: string): Promise<ProjectRevisionSnapshot[]> {
+let scopeBackfill: Promise<void> | null = null;
+
+/**
+ * Rows written before module scoping belong to the legacy single module;
+ * give them their scope once, then never again.
+ */
+function ensureScopeBackfill(database: IDBDatabase): Promise<void> {
+  if (scopeBackfill == null) {
+    scopeBackfill = backfillScopeIds(database).catch((error: unknown) => {
+      scopeBackfill = null;
+      throw error;
+    });
+  }
+  return scopeBackfill;
+}
+
+async function backfillScopeIds(database: IDBDatabase): Promise<void> {
+  const transaction = database.transaction(STORE_NAME, "readwrite");
+  const completion = transactionComplete(transaction);
+  const store = transaction.objectStore(STORE_NAME);
+  await new Promise<void>((resolve, reject) => {
+    const request = store.openCursor();
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (cursor == null) {
+        resolve();
+        return;
+      }
+      const row = cursor.value as ProjectRevisionSnapshot & { scopeId?: string };
+      if (row.scopeId == null) {
+        cursor.update({
+          ...row,
+          scopeId: moduleScopeId(row.projectId, LEGACY_MODULE_ID),
+        });
+      }
+      cursor.continue();
+    };
+    request.onerror = () => reject(request.error ?? new Error("Could not scope revision snapshots."));
+  });
+  await completion;
+}
+
+async function listProjectSnapshotsAnywhere(projectId: string): Promise<ProjectRevisionSnapshot[]> {
   const database = await openDatabase();
   try {
+    await ensureScopeBackfill(database);
     const transaction = database.transaction(STORE_NAME, "readonly");
     const completion = transactionComplete(transaction);
     const values = await requestResult(
@@ -73,8 +122,31 @@ export async function listProjectSnapshots(projectId: string): Promise<ProjectRe
   }
 }
 
+export async function listProjectSnapshots(
+  projectId: string,
+  moduleId: string,
+): Promise<ProjectRevisionSnapshot[]> {
+  const database = await openDatabase();
+  try {
+    await ensureScopeBackfill(database);
+    const transaction = database.transaction(STORE_NAME, "readonly");
+    const completion = transactionComplete(transaction);
+    const values = await requestResult(
+      transaction
+        .objectStore(STORE_NAME)
+        .index(SCOPE_INDEX)
+        .getAll(IDBKeyRange.only(moduleScopeId(projectId, moduleId))),
+    ) as ProjectRevisionSnapshot[];
+    await completion;
+    return values.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  } finally {
+    database.close();
+  }
+}
+
 export async function saveProjectSnapshot(
   projectId: string,
+  moduleId: string,
   data: unknown,
   label: string,
   pinned = false,
@@ -82,6 +154,7 @@ export async function saveProjectSnapshot(
   const snapshot: ProjectRevisionSnapshot = {
     id: crypto.randomUUID(),
     projectId,
+    scopeId: moduleScopeId(projectId, moduleId),
     createdAt: new Date().toISOString(),
     label,
     pinned,
@@ -89,12 +162,13 @@ export async function saveProjectSnapshot(
   };
   const database = await openDatabase();
   try {
+    await ensureScopeBackfill(database);
     let transaction = database.transaction(STORE_NAME, "readwrite");
     let completion = transactionComplete(transaction);
     transaction.objectStore(STORE_NAME).put(snapshot);
     await completion;
 
-    const snapshots = await listProjectSnapshots(projectId);
+    const snapshots = await listProjectSnapshots(projectId, moduleId);
     const removableIds = snapshotIdsToPrune(snapshots);
     if (removableIds.length > 0) {
       transaction = database.transaction(STORE_NAME, "readwrite");
@@ -137,7 +211,7 @@ export async function deleteProjectSnapshot(id: string): Promise<void> {
 }
 
 export async function deleteProjectSnapshots(projectId: string): Promise<void> {
-  const snapshots = await listProjectSnapshots(projectId);
+  const snapshots = await listProjectSnapshotsAnywhere(projectId);
   const database = await openDatabase();
   try {
     const transaction = database.transaction(STORE_NAME, "readwrite");

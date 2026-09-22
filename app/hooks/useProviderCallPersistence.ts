@@ -22,12 +22,13 @@ function copyCalls(calls: readonly ProviderCallRecord[]): ProviderCallRecord[] {
 
 export function useProviderCallPersistence(
   projectId: string | null,
+  moduleId: string | null,
   store: Store,
 ): string | null {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (projectId == null) return;
+    if (projectId == null || moduleId == null) return;
 
     let disposed = false;
     let stopReaction: (() => void) | undefined;
@@ -35,7 +36,7 @@ export function useProviderCallPersistence(
 
     const initialize = async () => {
       try {
-        const stored = await loadProviderCalls(projectId);
+        const stored = await loadProviderCalls(projectId, moduleId);
         if (disposed) return;
 
         store.hydrateProviderCalls(
@@ -50,7 +51,7 @@ export function useProviderCallPersistence(
           () => copyCalls(store.providerCalls),
           (calls) => {
             saveQueue = saveQueue
-              .then(() => replaceProviderCalls(projectId, calls))
+              .then(() => replaceProviderCalls(projectId, moduleId, calls))
               .then(() => {
                 if (!disposed) setError(null);
               })
@@ -79,7 +80,7 @@ export function useProviderCallPersistence(
       disposed = true;
       stopReaction?.();
     };
-  }, [projectId, store]);
+  }, [projectId, moduleId, store]);
 
   return error;
 }

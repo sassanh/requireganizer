@@ -369,6 +369,7 @@ const MessageView = memo(function MessageView({
   toolCallsByCallId: Map<string, { name: string; args: unknown }>;
   toolResultsByCallId: Map<string, { text: string; isError: boolean }>;
 }) {
+  const store = useStore();
   const blocks = toBlocks(message.content);
 
   // Tool/thinking activity units: chips render in one row; the expanded
@@ -406,7 +407,7 @@ const MessageView = memo(function MessageView({
     const text = blockText(blocks, "text");
     const command = parseCommandMessage(text);
     if (command != null) {
-      return <CommandBubble summary={describeCommand(command)} command={command} />;
+      return <CommandBubble summary={describeCommand(command, store.stageLabel)} command={command} />;
     }
     return (
       <UserBubble text={text} index={index} busy={busy} onRevert={onRevert} />

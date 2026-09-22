@@ -45,7 +45,8 @@ import {
   subscribePresentation,
   useShownStore,
 } from "presentation";
-import { WORKFLOW_STAGE_LABELS, Status, WorkflowStage, StructuralFragment, useStore } from "store";
+import { useProject } from "provider";
+import { Status, WorkflowStage, StructuralFragment, useStore } from "store";
 import { isEnumMember } from "utilities";
 
 import AutomatedTests from "./AutomatedTests";
@@ -218,7 +219,7 @@ const FactoryTab = observer(function FactoryTab({
       disabled={store.isBusy || locked}
       {...(locked ? {} : { href: `?step=${tabStep}` })}
       value={tabStep}
-      label={WORKFLOW_STAGE_LABELS[tabStep]}
+      label={store.stageLabel(tabStep)}
       icon={<SlidingStatusIcon status={status} />}
       iconPosition="end"
       sx={[
@@ -286,13 +287,21 @@ interface FactoryProps {
 const Factory: React.FunctionComponent<FactoryProps> = ({ activeProject }) => {
   const store = useStore();
   const shown = useShownStore();
+  const { modulesEnabled, activeModuleId, activeModuleOpenStep, recordOpenStep } =
+    useProject();
 
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
 
   const step_ = searchParams.get("step");
-  const requested = isEnumMember(step_, WorkflowStage) ? step_ : WorkflowStage.ProductOverview;
+  // Each module remembers the stage it last showed; projects without
+  // modules keep opening at the first stage, exactly as before.
+  const requested = isEnumMember(step_, WorkflowStage)
+    ? step_
+    : modulesEnabled
+      ? activeModuleOpenStep
+      : WorkflowStage.ProductOverview;
   const step = store.resolveOpenStep(requested);
   const stepRef = useRef(step);
 
@@ -312,6 +321,16 @@ const Factory: React.FunctionComponent<FactoryProps> = ({ activeProject }) => {
     params.set("step", step);
     router.replace(`${pathname}?${params.toString()}`);
   }, [requested, step, router, pathname, searchParams]);
+
+  // The active module remembers the stage it is showing, so reopening or
+  // switching back lands there. Skipped while the URL still names another
+  // module: that render belongs to a switch in flight.
+  const moduleParam = searchParams.get("module");
+  useEffect(() => {
+    if (modulesEnabled && moduleParam !== activeModuleId) return;
+    if (step === activeModuleOpenStep) return;
+    recordOpenStep(step);
+  }, [step, activeModuleOpenStep, modulesEnabled, moduleParam, activeModuleId, recordOpenStep]);
   const handleStepUpdateRef = useRef(handleStepUpdate);
   const tabPulseRef = useRef({ tick: 0, completed: true });
   const presentationVersion = useSyncExternalStore(

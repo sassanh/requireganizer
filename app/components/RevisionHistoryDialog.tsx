@@ -13,21 +13,21 @@ import {
 } from "lib/revisionStorage";
 import { useStore } from "store";
 
-export default function RevisionHistoryDialog({ projectId, open, onClose }: { projectId: string; open: boolean; onClose: () => void }) {
+export default function RevisionHistoryDialog({ projectId, moduleId, open, onClose }: { projectId: string; moduleId: string; open: boolean; onClose: () => void }) {
   const store = useStore();
   const [items, setItems] = useState<ProjectRevisionSnapshot[]>([]);
   const [error, setError] = useState<string | null>(null);
   const refresh = useCallback(async () => {
-    try { setItems(await listProjectSnapshots(projectId)); setError(null); }
+    try { setItems(await listProjectSnapshots(projectId, moduleId)); setError(null); }
     catch { setError("Revision history is unavailable in browser storage."); }
-  }, [projectId]);
+  }, [projectId, moduleId]);
   // IndexedDB is an external source; refresh only when the dialog becomes visible.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (open) void refresh(); }, [open, refresh]);
 
   const restore = async (item: ProjectRevisionSnapshot) => {
     try {
-      await saveProjectSnapshot(projectId, getSnapshot(store), `Before restoring ${item.label}`);
+      await saveProjectSnapshot(projectId, moduleId, getSnapshot(store), `Before restoring ${item.label}`);
       store.import(item.data);
       onClose();
     } catch (caught) {

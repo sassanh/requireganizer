@@ -37,7 +37,7 @@ import {
   validateImplementationProfile,
 } from "contract-domain";
 import { UserFacingError } from "lib/errors";
-import { PROJECT_SCHEMA_VERSION } from "lib/projectSchema";
+import { MODULE_SCHEMA_VERSION } from "lib/projectSchema";
 import {
   assertSafeVirtualPath,
   isSafeVirtualPath,
@@ -48,8 +48,6 @@ import { uuid } from "utilities";
 
 
 import {
-  export as export_,
-  exportCode,
   generateAcceptanceCriteria,
   generateBoundaryDesign,
   generateImplementationProfile,
@@ -132,7 +130,7 @@ import {
 } from "./timeline/serialize";
 import { withSelf } from "./utilities";
 
-export { PROJECT_SCHEMA_VERSION } from "lib/projectSchema";
+export { MODULE_SCHEMA_VERSION, PROJECT_SCHEMA_VERSION } from "lib/projectSchema";
 const MAX_PROVIDER_CALL_HISTORY = 100;
 
 export interface PendingImpactChange {
@@ -390,9 +388,27 @@ export const ScaffoldFileModel = types.model({
   content: types.string,
 });
 
+/** The slice of a store another module needs to resolve a reference. */
+export interface FragmentLookupStore {
+  getCode(id: string): string | undefined;
+  getPath(id: string): string | undefined;
+}
+
+export interface SiblingModuleReference {
+  id: string;
+  store: FragmentLookupStore;
+}
+
+function findSiblingModule(
+  store: { siblingModules: readonly SiblingModuleReference[] },
+  id: string,
+): SiblingModuleReference | undefined {
+  return store.siblingModules.find((module) => module.store.getCode(id) != null);
+}
+
 export const FlatStore = types
   .model("Store", {
-    schemaVersion: types.optional(types.literal(PROJECT_SCHEMA_VERSION), PROJECT_SCHEMA_VERSION),
+    schemaVersion: types.optional(types.literal(MODULE_SCHEMA_VERSION), MODULE_SCHEMA_VERSION),
     isClean: types.optional(types.boolean, true),
     businessCounter: types.optional(types.number, 0),
     validationErrors: types.maybeNull(types.string),
@@ -416,6 +432,10 @@ export const FlatStore = types
     conversationSidebarOpen: false,
   })
   .volatile(() => ({
+    /** Module-mode copy follows this flag; volatile, never part of a snapshot. */
+    moduleMode: false as boolean,
+    /** Sibling modules of the open project, for display-level reference resolution. */
+    siblingModules: [] as SiblingModuleReference[],
     validationErrorDetails: null as string | null,
     providerCalls: [] as ProviderCallRecord[],
     pendingImpactChange: null as PendingImpactChange | null,
@@ -430,6 +450,22 @@ export const FlatStore = types
     return { get eventTarget() { return eventTarget; } };
   })
   .actions((self) => ({
+    setModuleContext({ moduleMode }: { moduleMode: boolean }) {
+      if (self.moduleMode === moduleMode) return;
+      self.moduleMode = moduleMode;
+    },
+    setSiblingModules(references: SiblingModuleReference[]) {
+      const current = self.siblingModules;
+      const unchanged =
+        current.length === references.length &&
+        current.every(
+          (reference, index) =>
+            reference.id === references[index].id &&
+            reference.store === references[index].store,
+        );
+      if (unchanged) return;
+      self.siblingModules = references;
+    },
     reset() {
       self.isClean = true;
       self.businessCounter = 0;
@@ -875,6 +911,19 @@ export const FlatStore = types
     },
   }))
   .views((self) => ({
+    /**
+     * The one display label for a workflow stage: in module mode the
+     * product-facing name of the first stage names the module's overview.
+     */
+    stageLabel(step: WorkflowStage): string {
+      if (self.moduleMode && step === WorkflowStage.ProductOverview) {
+        return "Module Overview";
+      }
+      return WORKFLOW_STAGE_LABELS[step];
+    },
+    get rootSubjectLabel(): string {
+      return self.moduleMode ? "root module" : "root product";
+    },
     get isBusy() {
       return self.businessCounter > 0;
     },
@@ -882,7 +931,7 @@ export const FlatStore = types
       return self.testScenarios.flatMap((scenario) => scenario.testCases);
     },
     get hasGeneratedScaffold() {
-      return self.projectSetup != null && self.scaffoldFiles.length > 0;
+      return hasGeneratedScaffoldIn(self.projectSetup, self.scaffoldFiles.length);
     },
     get contractsReady() {
       return (
@@ -897,7 +946,7 @@ export const FlatStore = types
     },
     data(step: WorkflowStage = LAST_WORKFLOW_STAGE, includeBuildArtifacts = false) {
       return {
-        schemaVersion: PROJECT_SCHEMA_VERSION,
+        schemaVersion: MODULE_SCHEMA_VERSION,
         ...(!isBefore(step, WorkflowStage.ProductOverview)
           ? { productOverview: self.productOverview }
           : {}),
@@ -1158,13 +1207,25 @@ export const FlatStore = types
       return WorkflowStage.ProductOverview;
     }
     return {
+      /**
+       * Cross-module references resolve at display level only: a code
+       * belongs to its module, so a miss falls through to the sibling
+       * modules while every workflow decision stays on the active one.
+       */
       getCode(id: string) {
-        return self.structuralFragmentsCache[id]?.getCode();
+        const own = self.structuralFragmentsCache[id]?.getCode();
+        if (own != null) return own;
+        return findSiblingModule(self, id)?.store.getCode(id);
       },
       getPath(id: string) {
         const fragment = self.structuralFragmentsCache[id];
-        if (fragment == null) return undefined;
-        return `?step=${WORKFLOW_STAGE_BY_STRUCTURAL_FRAGMENT[fragment.type]}#${fragment.getCode()}`;
+        if (fragment != null) {
+          return `?step=${WORKFLOW_STAGE_BY_STRUCTURAL_FRAGMENT[fragment.type]}#${fragment.getCode()}`;
+        }
+        const sibling = findSiblingModule(self, id);
+        const siblingPath = sibling?.store.getPath(id);
+        if (sibling == null || siblingPath == null) return undefined;
+        return `?module=${sibling.id}&${siblingPath.slice(1)}`;
       },
       get isProjectSetupOutdated() {
         return self.projectSetup != null && !self.projectSetupIsCurrent;
@@ -1260,7 +1321,7 @@ export const FlatStore = types
         return "This stage has no generate action.";
       }
       if (GENERATION_PREREQUISITE_BY_WORKFLOW_STAGE[step] == null) return null;
-      const reason = upstreamBlockerReason(step, `to generate ${WORKFLOW_STAGE_LABELS[step]}`);
+      const reason = upstreamBlockerReason(step, `to generate ${self.stageLabel(step)}`);
       if (reason != null) return reason;
       if (
         step === WorkflowStage.InterfaceContracts &&
@@ -1307,13 +1368,13 @@ export const FlatStore = types
         const status = self.getStepStatus(previous);
         if (status === Status.Pending || status === Status.Locked) {
           const blocker = self.firstPendingPredecessor(step) ?? previous;
-          return `Complete ${WORKFLOW_STAGE_LABELS[blocker]} ${tail}.`;
+          return `Complete ${self.stageLabel(blocker)} ${tail}.`;
         }
         if (status === Status.Outdated) {
-          return `Outdated ${WORKFLOW_STAGE_LABELS[previous]}. ${refreshGuidance(previous)} ${tail}.`;
+          return `Outdated ${self.stageLabel(previous)}. ${refreshGuidance(previous, self.stageLabel(previous))} ${tail}.`;
         }
         if (!stageIsApproved(previous)) {
-          return `Approve ${WORKFLOW_STAGE_LABELS[previous]} ${tail}.`;
+          return `Approve ${self.stageLabel(previous)} ${tail}.`;
         }
       }
       return null;
@@ -1496,7 +1557,7 @@ export const FlatStore = types
       if (step != null) {
         const reason = self.upstreamBlockerReason(
           step,
-          `before approving ${WORKFLOW_STAGE_LABELS[step]}`,
+          `before approving ${self.stageLabel(step)}`,
         );
         if (reason != null) throw new UserFacingError(reason);
       }
@@ -1584,7 +1645,7 @@ const aiFlows = {
 
 export const Store = FlatStore.actions(
   withSelf(aiFlows),
-).actions(withSelf({ import: import_, export: export_, exportCode }));
+).actions(withSelf({ import: import_ }));
 
 for (const [actionName, flow_] of Object.entries(aiFlows)) {
   const step = (
@@ -1597,6 +1658,24 @@ for (const [actionName, flow_] of Object.entries(aiFlows)) {
 
 export type FlatStore = Instance<typeof FlatStore>;
 export type Store = Instance<typeof Store>;
+
+/**
+ * The one way a stored module snapshot becomes a live store: creation
+ * goes through the import gate, so every consumer gets full validation.
+ */
+export function createModuleStore(snapshot: unknown): Store {
+  const store = Store.create({ productOverview: {} });
+  store.import(snapshot);
+  return store;
+}
+
+/** Whether a project setup with scaffold files is present — live store or stored snapshot. */
+export function hasGeneratedScaffoldIn(
+  projectSetup: unknown,
+  scaffoldFileCount: number,
+): boolean {
+  return projectSetup != null && scaffoldFileCount > 0;
+}
 
 /**
  * Run a stage's generator with an optional user hint. A plain function,

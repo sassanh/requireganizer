@@ -2,7 +2,7 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Type } from "@earendil-works/pi-ai";
 
 import { CANONICAL_WORKFLOW } from "ai-harness/workflow";
-import { PROJECT_SCHEMA_VERSION } from "lib/projectSchema";
+import { MODULE_SCHEMA_VERSION } from "lib/projectSchema";
 import { WORKFLOW_STAGE_LABELS, WorkflowStage } from "store/constants";
 import type { FlatStore } from "store/store";
 import { tryResolveArtifact } from "store/timeline/serialize";
@@ -109,7 +109,7 @@ export function buildReadTools(store: FlatStore): AgentTool[] {
       }
       const recordedSections = snapshot as Record<string, unknown>;
       const envelope: Record<string, unknown> = {
-        schemaVersion: PROJECT_SCHEMA_VERSION,
+        schemaVersion: MODULE_SCHEMA_VERSION,
       };
       // A stage's own hash names the inputs it was built from, so pairing
       // a stage with its own hash returns that full recorded snapshot.

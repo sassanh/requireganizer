@@ -1,4 +1,5 @@
 import { isRecord, parseJson } from "./json";
+import { LEGACY_MODULE_ID, parseProjectPayload, pickActiveModule } from "./moduleSchema";
 import { deleteProjectSnapshots } from "./revisionStorage";
 import { parseScaffoldFiles, ScaffoldFileData } from "./scaffold";
 
@@ -101,16 +102,28 @@ export function getProjectStorageKey(id: string): string {
   return `requireganizer:project:${id}`;
 }
 
-export function getTimelineStorageKey(id: string): string {
+export function getTimelineStorageKey(id: string, moduleId: string): string {
+  return `requireganizer:timeline:${id}::${moduleId}`;
+}
+
+/** The pre-module key; only the legacy module ever still reads it. */
+function getLegacyTimelineStorageKey(id: string): string {
   return `requireganizer:timeline:${id}`;
 }
 
-export function loadTimelineData(id: string): Record<string, unknown> | null {
+export function loadTimelineData(
+  id: string,
+  moduleId: string,
+): Record<string, unknown> | null {
   const storage = getBrowserStorage();
   if (storage == null) return null;
 
   try {
-    const source = storage.getItem(getTimelineStorageKey(id));
+    const source =
+      storage.getItem(getTimelineStorageKey(id, moduleId)) ??
+      (moduleId === LEGACY_MODULE_ID
+        ? storage.getItem(getLegacyTimelineStorageKey(id))
+        : null);
     if (source == null) return null;
     const value = parseJson(source, "Stored timeline");
     if (!isRecord(value) || value.version !== 2) return null;
@@ -124,9 +137,12 @@ export function loadTimelineData(id: string): Record<string, unknown> | null {
  * Returns false when the write failed (e.g. quota exceeded) so the timeline
  * controller can degrade by trimming history instead of surfacing an error.
  */
-export function saveTimelineData(id: string, data: unknown): boolean {
+export function saveTimelineData(id: string, moduleId: string, data: unknown): boolean {
   try {
-    requireBrowserStorage().setItem(getTimelineStorageKey(id), JSON.stringify(data));
+    requireBrowserStorage().setItem(
+      getTimelineStorageKey(id, moduleId),
+      JSON.stringify(data),
+    );
     return true;
   } catch {
     return false;
@@ -233,7 +249,14 @@ export function deleteProjectData(id: string): void {
     );
 
     storage.removeItem(projectKey);
-    storage.removeItem(getTimelineStorageKey(id));
+    storage.removeItem(getLegacyTimelineStorageKey(id));
+    // Every module's timeline is keyed under the project prefix; remove them all.
+    for (let index = storage.length - 1; index >= 0; index -= 1) {
+      const key = storage.key(index);
+      if (key != null && key.startsWith(`requireganizer:timeline:${id}::`)) {
+        storage.removeItem(key);
+      }
+    }
     storage.setItem(PROJECTS_INDEX_KEY, JSON.stringify(projects));
     void deleteProjectSnapshots(id).catch((error) => {
       console.error("Could not delete project revision snapshots.", error);
@@ -259,8 +282,16 @@ export function readStoredProjectView(
 ): StoredProjectView | null {
   if (data == null) return null;
 
-  const productOverview = isRecord(data.productOverview)
-    ? data.productOverview
+  let snapshot: Record<string, unknown>;
+  try {
+    snapshot = pickActiveModule(parseProjectPayload(data)).snapshot;
+  } catch {
+    // Stored bytes that are not a project at all expose nothing.
+    return null;
+  }
+
+  const productOverview = isRecord(snapshot.productOverview)
+    ? snapshot.productOverview
     : null;
   const name =
     typeof productOverview?.name === "string" ? productOverview.name : "";
@@ -268,7 +299,7 @@ export function readStoredProjectView(
   try {
     return {
       name,
-      scaffoldFiles: parseScaffoldFiles(data.scaffoldFiles ?? []),
+      scaffoldFiles: parseScaffoldFiles(snapshot.scaffoldFiles ?? []),
     };
   } catch {
     return { name, scaffoldFiles: [] };

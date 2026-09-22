@@ -42,7 +42,7 @@ export function buildRefreshComment(
 export default generator(
   function* (self, step: WorkflowStage, hint?: string) {
     if (step === WorkflowStage.Code) return;
-    const label = WORKFLOW_STAGE_LABELS[step];
+    const label = self.stageLabel(step);
     if (self.getStepStatus(step) === Status.Pending) {
       throw new UserFacingError(
         `${label} has not been generated yet; generate it first.`,
@@ -51,7 +51,7 @@ export default generator(
     if (self.stageIsLocked(step)) {
       const blocker = self.firstPendingPredecessor(step) ?? step;
       throw new UserFacingError(
-        `Complete ${WORKFLOW_STAGE_LABELS[blocker]} before refreshing ${label}.`,
+        `Complete ${self.stageLabel(blocker)} before refreshing ${label}.`,
       );
     }
     const { runAgentCommand } = yield* toGenerator(import("ai-agent/agent"));

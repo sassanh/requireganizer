@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { PROJECT_SCHEMA_VERSION } from "../app/lib/projectSchema";
+import { MODULE_SCHEMA_VERSION } from "../app/lib/projectSchema";
 import { WorkflowStage } from "../app/store/constants";
 import { Store, stageInputHash } from "../app/store/store";
 import type { FlatStore } from "../app/store/store";
 
 const emptyProject = {
-  schemaVersion: PROJECT_SCHEMA_VERSION,
+  schemaVersion: MODULE_SCHEMA_VERSION,
   productOverview: {
     name: null,
     purpose: null,

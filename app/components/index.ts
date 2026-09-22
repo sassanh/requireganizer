@@ -22,5 +22,6 @@ export { default as GenerationButton } from "./GenerationButton";
 export { default as ImpactConfirmationDialog } from "./ImpactConfirmationDialog";
 export { default as RevisionHistoryDialog } from "./RevisionHistoryDialog";
 export { default as ProjectActionsMenu } from "./ProjectActionsMenu";
+export { default as ModuleSwitcherDialog } from "./ModuleSwitcherDialog";
 export { default as ThinkingOverlayDialog } from "./ThinkingOverlayDialog";
 export { default as ConversationSidebar } from "./ConversationSidebar";

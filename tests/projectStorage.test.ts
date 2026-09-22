@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { MODULE_SCHEMA_VERSION } from "../app/lib/projectSchema";
 import {
   ProjectKeyValueStorage,
   ProjectStorageError,
@@ -9,7 +10,6 @@ import {
   readStoredProjectView,
   saveProjectBundleToStorage,
 } from "../app/lib/projectStorage";
-
 class MemoryStorage implements ProjectKeyValueStorage {
   readonly values = new Map<string, string>();
   failNextSetFor: string | null = null;
@@ -62,6 +62,7 @@ describe("project storage parsing", () => {
   it("extracts a safe code-view model", () => {
     assert.deepEqual(
       readStoredProjectView({
+        schemaVersion: MODULE_SCHEMA_VERSION,
         productOverview: { name: "Example" },
         scaffoldFiles: [{ path: "src/index.ts", content: "export {};" }],
       }),
@@ -75,10 +76,49 @@ describe("project storage parsing", () => {
   it("does not expose unsafe persisted scaffold paths", () => {
     assert.deepEqual(
       readStoredProjectView({
+        schemaVersion: MODULE_SCHEMA_VERSION,
         productOverview: { name: "Example" },
         scaffoldFiles: [{ path: "../outside", content: "secret" }],
       }),
       { name: "Example", scaffoldFiles: [] },
+    );
+  });
+
+  it("reads the active module out of a stored project payload", () => {
+    assert.deepEqual(
+      readStoredProjectView({
+        schemaVersion: 4,
+        modulesEnabled: true,
+        activeModuleId: "module-b",
+        modules: [
+          {
+            id: "module-a",
+            name: "Payments",
+            archivedAt: null,
+            openStep: "product-overview",
+            snapshot: {
+              schemaVersion: MODULE_SCHEMA_VERSION,
+              productOverview: { name: "Wrong module" },
+              scaffoldFiles: [{ path: "a.ts", content: "" }],
+            },
+          },
+          {
+            id: "module-b",
+            name: "Billing",
+            archivedAt: null,
+            openStep: "product-overview",
+            snapshot: {
+              schemaVersion: MODULE_SCHEMA_VERSION,
+              productOverview: { name: "Billing" },
+              scaffoldFiles: [{ path: "b.ts", content: "export {};" }],
+            },
+          },
+        ],
+      }),
+      {
+        name: "Billing",
+        scaffoldFiles: [{ path: "b.ts", content: "export {};" }],
+      },
     );
   });
 

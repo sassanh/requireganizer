@@ -12,8 +12,8 @@ import {
 } from "contract-domain";
 import { InvalidJsonError, isRecord } from "lib/json";
 import {
-  assertCurrentProjectSchema,
-  PROJECT_SCHEMA_VERSION,
+  assertModuleSnapshotSchema,
+  MODULE_SCHEMA_VERSION,
 } from "lib/projectSchema";
 import { parseScaffoldFiles } from "lib/scaffold";
 import type { Store } from "store";
@@ -61,9 +61,9 @@ function validateLocalDependencies(
 
 const importProject = (self_: unknown, value: unknown): void => {
   const self = self_ as Store;
-  assertCurrentProjectSchema(value);
+  assertModuleSnapshotSchema(value);
   if (!isRecord(value.productOverview)) throw new InvalidJsonError("Product overview must be an object.");  const candidateSnapshot = {
-    schemaVersion: PROJECT_SCHEMA_VERSION,
+    schemaVersion: MODULE_SCHEMA_VERSION,
     isClean: false,
     businessCounter: 0,
     validationErrors: null,

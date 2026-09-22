@@ -51,6 +51,11 @@ export interface SendTarget {
 
 export const undoShortcut: ShortcutSpec = { key: "z", mod: true };
 export const redoShortcut: ShortcutSpec = { key: "z", mod: true, shift: true };
+/**
+ * Opens the module switcher — or the one-time dialog that enables
+ * modules. Cmd+M is reserved by macOS (minimize), hence the Shift.
+ */
+export const switchModuleShortcut: ShortcutSpec = { key: "m", mod: true, shift: true };
 
 export const undoAction: Action<HistoryTarget> = {
   id: "timeline-undo",

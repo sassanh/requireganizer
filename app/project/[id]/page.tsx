@@ -13,11 +13,13 @@ import {
 } from "@mui/material";
 import { observer } from "mobx-react-lite";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
-import { Suspense, useEffect, useState } from "react";
+import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { switchModuleShortcut } from "actions/actions";
 import {
   ConversationSidebar,
+  ModuleSwitcherDialog,
   ProjectActionsMenu,
   ImpactConfirmationDialog,
   ProviderActivity,
@@ -26,6 +28,12 @@ import {
   ThinkingOverlayDialog,
   ValidationErrorAlert,
 } from "components";
+import {
+  isEditableTarget,
+  isOverlayTarget,
+  useShortcut,
+  type ShortcutBinding,
+} from "hooks/shortcuts";
 import { useProviderCallPersistence } from "hooks/useProviderCallPersistence";
 import { getProjectsIndex } from "lib/projectStorage";
 import { useProject } from "provider";
@@ -42,14 +50,22 @@ function Home() {
     consumeOverviewSeed,
     backToProjects,
     clearPersistenceError,
+    modulesEnabled,
+    activeModuleId,
+    activeModuleOpenStep,
+    switchModule,
   } = useProject();
   const params = useParams();
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [modulesOpen, setModulesOpen] = useState(false);
 
   const projectId = params?.id as string;
   const providerCallPersistenceError = useProviderCallPersistence(
     activeProject?.id === projectId ? projectId : null,
+    activeProject?.id === projectId && activeModuleId !== "" ? activeModuleId : null,
     store,
   );
 
@@ -71,6 +87,60 @@ function Home() {
     if (seed == null) return;
     void store.generateProductOverview(seed);
   }, [activeProject, projectId, consumeOverviewSeed, store]);
+
+  const openModules = useCallback(() => setModulesOpen(true), []);
+  const closeModules = useCallback(() => setModulesOpen(false), []);
+
+  const modulesBinding = useMemo<ShortcutBinding>(
+    () => ({
+      id: "show-modules",
+      ...switchModuleShortcut,
+      when: (event) =>
+        activeProject?.id === projectId &&
+        !isEditableTarget(event.target) &&
+        !isOverlayTarget(event.target),
+      action: openModules,
+    }),
+    [activeProject, projectId, openModules],
+  );
+  useShortcut(modulesBinding);
+
+  // `?module=` is the open project's module pointer: navigation into a
+  // module (deep link, back button) switches to it; whenever the interface
+  // itself switches, the effect below writes the pointer back.
+  const seenModuleParamRef = useRef<string | null>(null);
+  const pendingUrlModuleRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (activeProject?.id !== projectId || !modulesEnabled) return;
+    const inUrl = searchParams.get("module");
+    const seen = seenModuleParamRef.current;
+    seenModuleParamRef.current = inUrl;
+    if (inUrl === seen) return;
+    if (inUrl == null || inUrl === activeModuleId) return;
+    pendingUrlModuleRef.current = inUrl;
+    if (!switchModule(inUrl)) {
+      // Unknown id: the state-owns-URL effect below rewrites the pointer.
+      pendingUrlModuleRef.current = null;
+    }
+  }, [activeProject, projectId, modulesEnabled, searchParams, activeModuleId, switchModule]);
+
+  useEffect(() => {
+    if (activeProject?.id !== projectId || !modulesEnabled) return;
+    const inUrl = searchParams.get("module");
+    if (inUrl === activeModuleId) {
+      pendingUrlModuleRef.current = null;
+      return;
+    }
+    // A URL-driven switch is landing: the URL already names the destination.
+    if (pendingUrlModuleRef.current != null && pendingUrlModuleRef.current === inUrl) {
+      return;
+    }
+    const next = new URLSearchParams(searchParams.toString());
+    next.set("module", activeModuleId);
+    // Arriving from another module lands on that module's remembered stage.
+    if (inUrl != null) next.set("step", activeModuleOpenStep);
+    router.replace(`${pathname}?${next.toString()}`);
+  }, [activeProject, projectId, modulesEnabled, searchParams, activeModuleId, activeModuleOpenStep, router, pathname]);
 
   // For easier debugging store is saved under window.store variable in development environment
   useEffect(() => {
@@ -126,7 +196,7 @@ function Home() {
           >
             Projects
           </Button>
-        <ProjectActionsMenu />
+        <ProjectActionsMenu onShowModules={openModules} />
         <Typography variant="h6" sx={{ flexGrow: 1 }}>
           {activeProject.name}
         </Typography>
@@ -214,13 +284,15 @@ function Home() {
         </Box>
         {conversationOpen && <ConversationSidebar />}
       </Stack>
-      <ImpactConfirmationDialog projectId={activeProject.id} />
+      <ImpactConfirmationDialog projectId={activeProject.id} moduleId={activeModuleId} />
       <ThinkingOverlayDialog />
       <RevisionHistoryDialog
         projectId={activeProject.id}
+        moduleId={activeModuleId}
         open={historyOpen}
         onClose={() => setHistoryOpen(false)}
       />
+      <ModuleSwitcherDialog open={modulesOpen} onClose={closeModules} />
     </>
   );
 }

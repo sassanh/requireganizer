@@ -48,7 +48,7 @@ const BoundaryDesignView = () => {
             <CardContent component={Stack} spacing={1.5}>
               <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
                 <Chip size="small" label={subject.classification} />
-                {subject.id === design.rootSubjectId && <Chip size="small" color="primary" label="root product" />}
+                {subject.id === design.rootSubjectId && <Chip size="small" color="primary" label={store.rootSubjectLabel} />}
                 <Typography variant="caption" color="text.secondary">{subject.id}</Typography>
               </Stack>
               <TextField
