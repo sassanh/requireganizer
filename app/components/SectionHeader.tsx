@@ -26,7 +26,6 @@ import {
   type ShortcutBinding,
 } from "hooks/shortcuts";
 import {
-  GENERATION_PREREQUISITE_BY_WORKFLOW_STAGE,
   GENERATOR_ACTION_BY_WORKFLOW_STAGE,
   WORKFLOW_STAGES,
   Status,
@@ -37,6 +36,8 @@ import {
 } from "store";
 
 import GenerationButton from "./GenerationButton";
+import ImpactPanel from "./ImpactPanel";
+import ReviewControls from "./ReviewControls";
 import css from "./SectionHeader.module.css";
 
 export interface HeaderProps {
@@ -199,6 +200,11 @@ const Header: React.FunctionComponent<HeaderProps> = ({
           {listChangeText}
         </Typography>
       ) : null}
+      {store.getStepStatus(step) === Status.Waiting && store.frontier != null ? (
+        <Alert severity="info" sx={{ alignSelf: "stretch" }}>
+          Read-only until {store.stageLabel(store.frontier)} is complete.
+        </Alert>
+      ) : null}
       {store.canRefreshStep(step) ? (
         <Alert
           severity="warning"
@@ -217,13 +223,13 @@ const Header: React.FunctionComponent<HeaderProps> = ({
           }
         >
           {(() => {
-            const input = GENERATION_PREREQUISITE_BY_WORKFLOW_STAGE[step];
-            return input == null
-              ? `Its inputs changed since ${store.stageLabel(step)} was generated.`
-              : `${store.stageLabel(input)} changed since ${store.stageLabel(step)} was generated.`;
+            const outdated = store.outdatedItemIds(step).map((id) => store.getCode(id) ?? store.stageLabel(step));
+            return `${outdated.join(", ")} ${outdated.length === 1 ? "references" : "reference"} changed inputs and must be regenerated.`;
           })()}
         </Alert>
       ) : null}
+      <ImpactPanel step={step} />
+      <ReviewControls step={step} />
       {store.mechanicalIssuesForStage(step).map((issue, index) => (
         <Typography key={`${issue.itemId ?? "stage"}:${index}`} variant="body2" color="error">
           {issue.message}
@@ -246,9 +252,8 @@ const Header: React.FunctionComponent<HeaderProps> = ({
           >
             {refreshTarget != null ? (
               <Typography variant="body2" color="text.secondary">
-                Brings {store.stageLabel(refreshTarget)} in line with
-                the current inputs. Untouched items keep their approvals;
-                changed items return to draft for your review.
+                Regenerates the outdated items of {store.stageLabel(refreshTarget)}.
+                Each returns to draft for review, kept or changed.
               </Typography>
             ) : (
               <Typography variant="body2" color="text.secondary">

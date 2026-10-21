@@ -5,6 +5,7 @@ import { isAlive } from "mobx-state-tree";
 import { Fragment, useEffect, useRef, type MouseEvent, type ReactNode } from "react";
 
 import { useFragmentHash } from "hooks/useFragmentHash";
+import { useShownStore } from "presentation";
 import { FRAGMENT_CODES, Priority, StructuralFragment as StructuralFragmentName, useStore } from "store";
 import { type TestCase, StructuralFragment } from "store/models";
 
@@ -207,6 +208,7 @@ const FragmentShellContent = observer(function FragmentShellContent<
   ...props
 }: FragmentShellProps<Type>) {
   const store = useStore();
+  const shown = useShownStore();
   const hash = useFragmentHash();
 
   lastLiveCode.set(fragment, fragment.getCode());
@@ -214,8 +216,12 @@ const FragmentShellContent = observer(function FragmentShellContent<
   const fragmentId = fragment.id;
   const fragmentType = fragment.type;
   const fragmentPriority = fragment.priority ?? "";
-  const qualityIssues =
-    store?.mechanicalIssuesForItem(fragmentId).map(({ message }) => message) ?? [];
+  const qualityIssues = [
+    ...(store?.mechanicalIssuesForItem(fragmentId).map(({ message }) => message) ?? []),
+    ...(store?.reviewUnit(fragmentId)?.outdated === true
+      ? ["An item it references changed. Refresh the stage to regenerate it."]
+      : []),
+  ];
   const dependencies = [...fragment.dependencies].map((id) => {
     const linkedCode = store.getCode(id);
     return {
@@ -256,7 +262,7 @@ const FragmentShellContent = observer(function FragmentShellContent<
       code={code}
       type={fragmentType}
       priority={fragmentPriority}
-      approved={fragment.approval === "approved"}
+      approved={shown?.approvalOf(fragment.id) === "approved"}
       qualityIssues={qualityIssues}
       isDisabled={isDisabled}
       isHighlighted={isHighlighted}
@@ -361,55 +367,6 @@ function itemBody(fragment: StructuralFragment): ReactNode {
     type: fragment.type,
     content: fragment.content,
   });
-}
-
-/** MST-free picture of a still-live item, taken when its enter is queued. */
-export function freezeLiveFragment(
-  fragment: StructuralFragment,
-  {
-    list,
-    isDisabled,
-    store,
-  }: {
-    list: StructuralFragment[];
-    isDisabled: boolean;
-    store: {
-      getCode: (id: string) => string | undefined;
-      getPath: (id: string) => string | undefined;
-    };
-  },
-): void {
-  const fragmentType = fragment.type;
-  const dependencies = [...fragment.dependencies].map((id) => {
-    const linkedCode = store.getCode(id);
-    return {
-      id,
-      href: linkedCode ? `#${linkedCode}` : "#",
-      label: `${FRAGMENT_CODES[fragmentType]}-${list.findIndex(({ id: id_ }) => id_ === id) + 1
-        }`,
-    };
-  });
-  const references = [...fragment.references].map((reference) => ({
-    id: reference.id,
-    href: store.getPath(reference.id) ?? "#",
-    label: store.getCode(reference.id) ?? reference.id,
-  }));
-  rememberFrozenFragment(
-    fragment.id,
-    <FragmentFrame
-      id={fragment.id}
-      code={fragment.getCode()}
-      type={fragmentType}
-      priority={fragment.priority ?? ""}
-      approved={fragment.approval === "approved"}
-      isDisabled={isDisabled}
-      isHighlighted={false}
-      dependencies={dependencies}
-      references={references}
-    >
-      {itemBody(fragment)}
-    </FragmentFrame>,
-  );
 }
 
 /** Picture taken from the change's own snapshot, used when the live model

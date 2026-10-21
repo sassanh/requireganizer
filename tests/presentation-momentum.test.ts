@@ -217,7 +217,7 @@ describe("presentation rush boundaries", () => {
       kind: "ai",
       label: "Generated user stories",
     });
-    declareTimelineStep("markStageGenerated", {
+    declareTimelineStep("acknowledgeInputs", {
       kind: "ai",
       label: "Generated user stories",
     });
@@ -226,20 +226,18 @@ describe("presentation rush boundaries", () => {
     drainTurns();
     assert.equal(isPresenting(), false);
 
-    // Stage fingerprints are bookkeeping no element presents: marking a
-    // stage generated must queue no frames behind the visible items, or
-    // the dead frames steal the run's slowdown.
+    // Review bookkeeping no element presents: acknowledging a stage's
+    // inputs must queue no frames behind the visible items, or the dead
+    // frames steal the run's slowdown.
     const tickBefore = getPresentationTick();
-    real.markStageGenerated(WorkflowStage.UserStories);
+    real.acknowledgeInputs(WorkflowStage.UserStories);
     assert.equal(isPresenting(), false);
     assert.equal(getPresentationTick(), tickBefore);
 
     // The replica still catches up invisibly through the idle snapshot.
     await new Promise((resolve) => setTimeout(resolve, 20));
-    assert.equal(
-      shown.stageInputFingerprints.get(WorkflowStage.UserStories),
-      real.stageInputFingerprints.get(WorkflowStage.UserStories),
-    );
+    assert.deepEqual(shown.review, real.review);
+    assert.ok(real.review.acknowledgedInputs[WorkflowStage.UserStories] != null);
     resetPresentation();
   });
 });

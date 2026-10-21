@@ -13,9 +13,9 @@ Product Overview → User Stories → Requirements
 | Stage | Delivered artifact | Completion rule |
 | --- | --- | --- |
 | Product Overview | Product name, purpose, primary features, target users | The overview is complete, every item is approved, and it contains no implementation choice. Downstream generate waits until every item is approved. |
-| User Stories | Independently valuable user outcomes | Every primary feature has traceable coverage and every story is approved. |
-| Requirements | Atomic, solution-neutral obligations | Every story has traceable coverage and every requirement is approved. |
-| Acceptance Criteria | Observable pass/fail conditions | Every requirement has traceable coverage and every criterion is approved. |
+| User Stories | Independently valuable user outcomes | Every primary feature has traceable coverage, every story is approved, and every feature's coverage is approved. |
+| Requirements | Atomic, solution-neutral obligations | Every story has traceable coverage, every requirement is approved, and every story's coverage is approved. |
+| Acceptance Criteria | Observable pass/fail conditions | Every requirement has traceable coverage, every criterion is approved, and every requirement's coverage is approved. |
 | Boundary Design | Revisioned subjects, semantic interfaces/interactions, verification obligations, complete criterion coverage | The complete graph validates and is explicitly approved. |
 | Interface Contracts | Approved implementation profile; per-interface adapter, native/neutral contract and normalized index; per-subject protocol and harness binding; verification contracts | The profile and every formal bundle are explicitly approved. |
 | Test Scenarios | Behavioral or verification scenarios bound to exact contract revisions | Every scenario has one valid revision binding. |
@@ -24,11 +24,33 @@ Product Overview → User Stories → Requirements
 | Automated Tests | Executable tests generated into manifest-controlled targets | Every current structured case has a generated file fingerprint. |
 | Code | Future application implementation | This stage remains pending. Scaffold and tests never complete it. |
 
-Work moves in small complete iterations. An iteration may cover a whole stage or one fully worked slice of it; what matters is that everything it claims is finished and approved. One undecided item blocks its set — it waits for a later iteration instead of flowing downstream half-done. The person running the workspace chooses each iteration's scope: high-risk first, low-risk first, anything. The method is unopinionated about order. Priority labels are not part of the method and never scope generation or coverage.
+Nobody types artifact prose; reviewers **Request change** or **Approve**. Generate and rewrite produce **draft**. Downstream generate consumes only a fully approved stage.
 
-Writing quality for Product Overview, User Stories, Requirements, and Acceptance Criteria is judged by a reviewer separate from the helper that wrote the prose — nothing grades its own writing — against each stage's quality contract on the submit tool. Humans do not type artifact prose; they **Request change** or **Approve**. Generate and rewrite produce **draft**. The left bar is that stamp: muted until signed, green when approved. Coverage holes and dangling IDs stay as text under the item. After a rewrite of signed prose, the row shows a standing word-diff against the last signed text until it is approved again. A proposed removal stays on the page, struck through, until Approve deletes it. A stage line names kept / rewrote / added / dropped when more than one row changed. Formal contracts already show a semantic suite diff; whole-revision artifacts (boundary, profile, setup) are not prose rows. Tab lock is a later empty stage while an earlier stage is not completed (empty, unsigned, or stale); navigation and generate cannot open it. Tab timer is empty or missing coverage. Tab yellow is unsigned work or a stale upstream fingerprint. Tab green is mechanically complete and fully approved. Downstream generate consumes only a fully approved stage.
+Validators check IDs, allowed references, coverage of upstream IDs, and acyclic dependencies immediately in code. They do not parse sentence shape or ban words. Coverage holes remain standing after changes; they are not generate-time only.
 
-Validators check IDs, allowed references, coverage of upstream IDs, and acyclic dependencies immediately in code. They do not parse sentence shape or ban words. Coverage holes remain standing after changes; they are not generate-time only. Approval does not move fingerprints. An edit that leaves an item byte-identical to its last approved content stays approved automatically; any real change, however small, produces a new revision and returns the item to draft.
+## Progress
+
+A project is **in progress** or **complete**, derived from its stages and never stored. A stage is complete when its completion rule holds and every approval it needs is given. The frontier is the first stage that is not complete; a project without one is complete. Code is outside this workflow and does not count toward completion; code work waits until the project is complete.
+
+Only the frontier and the stages before it can change. Later stages are read-only: their work stays visible but cannot be edited, generated, or approved until the frontier reaches them. Changing an earlier stage, or any stage of a complete project, makes that stage the frontier. Before such a change applies, the application shows every later stage that holds work and requires confirmation.
+
+Modules are the slices of a product; within a module, the frontier advances one stage at a time. Priority labels are not part of the method and never scope generation or coverage.
+
+## Approval
+
+An approval records what was checked, who checked it (a person, or the reviewer model by name), and when. What was checked is the item's full content (its text, structured definition, and references) together with the exact revisions of the items it references. An item is approved only while that record matches. Any change to either, however small, returns the item to draft. Approval is not part of any revision, so approving never outdates other work.
+
+A stage's inputs are only the stages its items reference; earlier stages reach it through them. When an item changes, every item referencing it is outdated and must be regenerated before it can be approved again. The rewriter may keep an item word for word when the change does not affect it; the regenerated item returns to draft either way. An item kept unchanged keeps its revision, so the change reaches no further than the items that reference it.
+
+A rewritten item that was approved before can be restored to its signed version, which discards the rewrite; restoring an item proposed for removal withdraws the removal. The restored item is approved again only if the revisions it references have not changed since it was signed; otherwise it is a draft, reviewed against the new inputs.
+
+A change can also affect an item that does not reference the changed item. So when upstream revisions change, the stage's approved items that reference none of them need one impact approval: the change affects none of these items. It records the upstream changes and the items it covers. The reviewer approves it, or sends chosen items back to be regenerated, which returns them to draft.
+
+Approving every item does not attest that nothing is missing. In User Stories, Requirements, and Acceptance Criteria, each upstream item also needs a coverage approval: the items referencing it cover it fully. A coverage approval records the upstream item and the complete set of items referencing it, so changing the upstream item, or adding, removing, or changing any item referencing it, returns it to draft.
+
+Every reviewable stage, and every coverage and impact approval, has a quality contract. The writer checks its items against it before submitting. A reviewer model judges every draft against it, in a context separate from the model that wrote the items. The reviewer model is configured separately; without it there is no model verdict, and auto review is unavailable.
+
+Each stage runs in **manual** or **auto** review, switchable at any time. In auto review the reviewer model's approval is the approval. In manual review its verdict is a recommendation shown with the item, and a person approves or requests changes. A rejection leaves the item in draft with the reviewer's reason until a person requests a change or restores the signed version; nothing is rewritten automatically. A person can approve or reject any item in either mode. When a person's verdict and the model's differ, the item stays unapproved until the person decides, shown both verdicts and the model's reason; the decision records both verdicts. Switching modes affects only future decisions; approvals already given stay, each recording who gave it.
 
 ## Boundary invariants
 
@@ -36,12 +58,6 @@ The root product subject is mandatory. An internal subject needs explicit requir
 
 Every acceptance criterion maps to either a semantic interaction or a typed non-behavioral verification obligation. The graph cannot be approved with missing or inconsistent coverage.
 
-## Design scope
-
-The current design view — subjects, interfaces, test obligations — is the first version, not the whole of design. A domain model, operational deployment, threats, stored data, and day-to-day operation are recorded future debt and explicitly out of the first version. Platform and runtime names on the Implementation Profile are covered; hosting, environments, and topology are not.
-
 ## Revision bindings
 
-Every downstream artifact stores exact upstream revision IDs. A changed approved artifact produces a new revision; it never mutates an approved revision in place. Before a change that affects completed downstream work is applied, the application shows the dependency closure and requires confirmation. The current project is saved to IndexedDB first, and affected artifacts remain viewable but stale.
-
-The latest 20 unpinned snapshots per project are retained. Pinned snapshots are not pruned. A restore operation snapshots the current state before loading the selected revision.
+Every downstream artifact stores exact upstream revision IDs. A changed approved artifact produces a new revision; it never mutates an approved revision in place.

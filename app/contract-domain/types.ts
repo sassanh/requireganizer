@@ -9,13 +9,49 @@ export type JsonSchema = boolean | { [key: string]: JsonValue | undefined };
 
 export type ApprovalStatus = "draft" | "approved";
 
+/** Who gave an approval: a person, or the reviewer model by name. */
+export type Reviewer = { kind: "person" } | { kind: "model"; model: string };
+
+export type VerdictDecision = "approve" | "reject";
+
+/** The reviewer model's verdict on one exact state of a reviewable unit. */
+export interface ModelVerdict {
+  /** The unit's checked hash the verdict was given on. */
+  checked: string;
+  verdict: VerdictDecision;
+  reason: string;
+  model: string;
+  at: string;
+}
+
+/**
+ * What was checked, who checked it, and when. A unit is approved only while
+ * `checked` equals the unit's current checked hash; the record outlives
+ * changes as the signed version a rewrite can be restored to.
+ */
+export interface ApprovalRecord {
+  checked: string;
+  /** The approved content, for word diffs and restore. Null when the unit restores nothing. */
+  signed: JsonValue | null;
+  reviewer: Reviewer;
+  at: string;
+  /** The model verdict a person decided against, kept with the decision. */
+  overruled?: Omit<ModelVerdict, "checked" | "at">;
+  /**
+   * For a list item: the hash of its stage's inputs when it was approved.
+   * An approval given before the inputs changed is what impact review
+   * confirms; it is not part of what was checked.
+   */
+  inputs?: string;
+}
+
 export interface RevisionMetadata {
   id: string;
   revisionId: string;
   revision: number;
-  status: ApprovalStatus;
   createdAt: string;
-  approvedAt?: string;
+  approval?: ApprovalRecord | null;
+  verdict?: ModelVerdict | null;
 }
 
 export type SubjectClassification = "external" | "internal" | "composite";

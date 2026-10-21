@@ -4,7 +4,7 @@ import type { TestScenarioBinding } from "contract-domain";
 import { StructuralFragment } from "store/constants";
 import { uuid } from "utilities";
 
-import { StructuralFragmentModel } from "./StructuralFragment";
+import { type ReferenceData, StructuralFragmentModel } from "./StructuralFragment";
 import { TestCase, TestCaseModel } from "./TestCase";
 
 export type TestScenario = Instance<typeof TestScenarioModel>;
@@ -54,6 +54,24 @@ export const TestScenarioModel = types
     },
   }))
   .actions((self) => ({
+    /** Bring the scenario back to a signed version, revision identity included. */
+    restoreContent(signed: {
+      title: string;
+      description: string;
+      references: ReferenceData[];
+      dependencies: string[];
+      binding: TestScenarioBinding | null;
+      revisionId: string;
+    }) {
+      self.setData({
+        content: signed.title,
+        references: signed.references,
+        dependencies: signed.dependencies,
+      });
+      self.description = signed.description;
+      self.binding = cast(signed.binding);
+      self.revisionId = signed.revisionId;
+    },
     setTestCases(testCases: SnapshotIn<TestCase>[]) {
       self.testCases = cast(testCases);
     },

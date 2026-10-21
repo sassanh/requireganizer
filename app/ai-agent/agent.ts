@@ -5,7 +5,7 @@ import type {
   AgentOptions,
   AgentTool,
 } from "@earendil-works/pi-agent-core";
-import type { Usage } from "@earendil-works/pi-ai";
+import type { Model, Usage } from "@earendil-works/pi-ai";
 
 import type { ProviderCallMetadata } from "lib/types";
 import type { FlatStore } from "store/store";
@@ -92,11 +92,13 @@ function overlayBridge(
   };
 }
 
-function recordedMetadata(
+/** One provider-call record for a finished agent run, under the model that ran it. */
+export function recordedMetadata(
   operation: string,
   startedAt: number,
   collected: { usage: Usage[]; turns: number },
   outcome: "success" | "failed",
+  model: Pick<Model<"openai-responses">, "provider" | "id"> = zenGatewayModel,
 ): ProviderCallMetadata[] {
   if (collected.turns === 0) return [];
   const totals = collected.usage.reduce(
@@ -115,8 +117,8 @@ function recordedMetadata(
     protocolVersion: 6,
     startedAt: new Date(startedAt).toISOString(),
     durationMs: Date.now() - startedAt,
-    provider: zenGatewayModel.provider,
-    model: zenGatewayModel.id,
+    provider: model.provider,
+    model: model.id,
     outcome,
     toolCallCount: 0,
     finishReason: outcome === "success" ? "stop" : undefined,

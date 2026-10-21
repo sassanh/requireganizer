@@ -15,12 +15,6 @@ export default generator(
       comment,
     }: { testCase: TestCase; testScenario: TestScenario; comment?: string },
   ) {
-    if (self.isProjectSetupOutdated) {
-      throw new UserFacingError("Project Setup is stale. Refresh it before generating automated tests.");
-    }
-    if (testCase.approval !== "approved") {
-      throw new UserFacingError("Approve this test case before generating the automated test.");
-    }
     if (testCase.definition == null || testScenario.binding == null) {
       throw new UserFacingError("The selected case has no approved structured contract binding.");
     }

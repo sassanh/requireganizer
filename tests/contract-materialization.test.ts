@@ -14,7 +14,6 @@ const design = {
   id: "boundary",
   revisionId: "boundary-r1",
   revision: 1,
-  status: "approved",
   createdAt,
   requirementsRevisionId: "requirements-r1",
   acceptanceCriteriaRevisionId: "criteria-r1",
@@ -29,7 +28,6 @@ const profile: ImplementationProfile = {
   id: "profile",
   revisionId: "profile-r1",
   revision: 1,
-  status: "approved",
   createdAt,
   boundaryRevisionId: design.revisionId,
   platform: "Web",
@@ -88,8 +86,8 @@ const previous: ContractSuite = {
     id: "interface-bundle",
     revisionId: "interface-r1",
     revision: 1,
-    status: "approved",
     createdAt,
+    approval: { checked: "approved-content", signed: null, reviewer: { kind: "person" }, at: createdAt },
     interfaceId: "api",
     boundaryRevisionId: design.revisionId,
     profileRevisionId: profile.revisionId,
@@ -104,8 +102,8 @@ const previous: ContractSuite = {
     id: "subject-bundle",
     revisionId: "subject-r1",
     revision: 1,
-    status: "approved",
     createdAt,
+    approval: { checked: "approved-content", signed: null, reviewer: { kind: "person" }, at: createdAt },
     subjectId: "product",
     boundaryRevisionId: design.revisionId,
     profileRevisionId: profile.revisionId,
@@ -117,13 +115,13 @@ const previous: ContractSuite = {
 };
 
 describe("contract-suite materialization", () => {
-  it("preserves approved bundle revisions when their content is unchanged", () => {
+  it("keeps an unchanged bundle's revision and approval record", () => {
     const result = materializeContractSuite(proposal, design, profile, previous);
 
     assert.equal(result.interfaceContracts[0].revisionId, "interface-r1");
-    assert.equal(result.interfaceContracts[0].status, "approved");
+    assert.deepEqual(result.interfaceContracts[0].approval, previous.interfaceContracts[0].approval);
     assert.equal(result.subjectContracts[0].revisionId, "subject-r1");
-    assert.equal(result.subjectContracts[0].status, "approved");
+    assert.deepEqual(result.subjectContracts[0].approval, previous.subjectContracts[0].approval);
   });
 
   it("revises a changed interface and its revision-bound subject bundle", () => {
@@ -139,8 +137,8 @@ describe("contract-suite materialization", () => {
     }, design, profile, previous);
 
     assert.notEqual(result.interfaceContracts[0].revisionId, "interface-r1");
-    assert.equal(result.interfaceContracts[0].status, "draft");
+    assert.equal(result.interfaceContracts[0].approval, undefined);
     assert.notEqual(result.subjectContracts[0].revisionId, "subject-r1");
-    assert.equal(result.subjectContracts[0].status, "draft");
+    assert.equal(result.subjectContracts[0].approval, undefined);
   });
 });

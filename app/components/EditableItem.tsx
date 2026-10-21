@@ -2,6 +2,7 @@ import { StackProps } from "@mui/material";
 import { observer } from "mobx-react-lite";
 import { isAlive } from "mobx-state-tree";
 
+import { useShownStore } from "presentation";
 import { StructuralFragment } from "store/models";
 
 import FragmentShell from "./FragmentShell";
@@ -24,6 +25,7 @@ const EditableItemContent = observer(function EditableItemContent<
   onComment,
   ...props
 }: EditableItemProps<Type>) {
+  const shown = useShownStore();
   return (
     <FragmentShell
       isDisabled={isDisabled}
@@ -34,7 +36,7 @@ const EditableItemContent = observer(function EditableItemContent<
     >
       <StagedTextField
         committed={fragment.content}
-        lastSigned={fragment.lastSignedContent}
+        lastSigned={shown?.signedTextOf(fragment.id) ?? null}
         pendingRemoval={fragment.pendingRemoval}
         elementId={fragment.id}
         multiline

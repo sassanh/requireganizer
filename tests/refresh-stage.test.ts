@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { unprotect } from "mobx-state-tree";
-
 import { buildRefreshComment } from "../app/store/actions/ai-actions/refresh-stage";
 import {
-  OVERVIEW_NAME_QUALITY_ID,
-  OVERVIEW_PURPOSE_QUALITY_ID,
+  applyArtifactListProposal,
+  applyProductOverviewProposal,
+} from "../app/store/actions/ai-actions/utilities";
+import {
+  Priority,
   Status,
   StructuralFragment,
   WorkflowStage,
@@ -15,40 +16,10 @@ import {
 import { Store } from "../app/store/store";
 import type { FlatStore } from "../app/store/store";
 
-function storeWithStaleStories(): FlatStore {
-  const store = Store.create({
-    productOverview: {
-      name: "Plant Pal",
-      purpose: "Help people keep houseplants alive.",
-      primaryFeatures: [{ id: "feat-1", content: "Track watering" }],
-      targetUsers: [{ id: "user-1", content: "Busy plant owners" }],
-    },
-  }) as unknown as FlatStore;
-  store.approve(OVERVIEW_NAME_QUALITY_ID);
-  store.approve(OVERVIEW_PURPOSE_QUALITY_ID);
-  store.approve("feat-1");
-  store.approve("user-1");
-  store.setUserStories({
-    userStories: [
-      {
-        id: "story-1",
-        content:
-          "As a busy plant owner, I want watering reminders, so that plants stay alive.",
-        references: [
-          { id: "feat-1", type: StructuralFragment.PrimaryFeature },
-          { id: "user-1", type: StructuralFragment.TargetUser },
-        ],
-      },
-    ],
-  });
-  store.approve("story-1");
-  store.markStageGenerated(WorkflowStage.UserStories);
-  // The rename unapproves the overview itself, so review and approve it
-  // first: only then is refreshing the stale stories the next action.
-  store.setName({ name: "Plant Pal Pro" });
-  store.approve(OVERVIEW_NAME_QUALITY_ID);
-  assert.equal(store.getStepStatus(WorkflowStage.UserStories), Status.Outdated);
-  return store;
+function approveStage(store: FlatStore, step: WorkflowStage) {
+  for (const unit of store.stageUnits(step)) {
+    if (store.canApprove(unit.id)) store.approve(unit.id);
+  }
 }
 
 function storeWithDraftStories(): FlatStore {
@@ -60,102 +31,88 @@ function storeWithDraftStories(): FlatStore {
       targetUsers: [{ id: "user-1", content: "Busy plant owners" }],
     },
   }) as unknown as FlatStore;
-  store.setUserStories({
-    userStories: [
-      {
-        id: "story-1",
-        content:
-          "As a busy plant owner, I want watering reminders, so that plants stay alive.",
-        references: [
-          { id: "feat-1", type: StructuralFragment.PrimaryFeature },
-          { id: "user-1", type: StructuralFragment.TargetUser },
-        ],
-      },
-    ],
+  approveStage(store, WorkflowStage.ProductOverview);
+  applyArtifactListProposal(store, {
+    entityType: StructuralFragment.UserStory,
+    items: [{
+      key: "s0",
+      id: "story-1",
+      content: "As a busy plant owner, I want watering reminders, so that plants stay alive.",
+      priority: Priority.P1,
+      references: [
+        { id: "feat-1", type: StructuralFragment.PrimaryFeature },
+        { id: "user-1", type: StructuralFragment.TargetUser },
+      ],
+      dependencies: [],
+    }],
   });
-  store.markStageGenerated(WorkflowStage.UserStories);
-  assert.equal(store.getStepStatus(WorkflowStage.UserStories), Status.NeedsApproval);
   return store;
 }
 
-describe("stale stage refresh", () => {
+/** Approved stories whose feature was rewritten and approved since. */
+function storeWithOutdatedStories(): FlatStore {
+  const store = storeWithDraftStories();
+  approveStage(store, WorkflowStage.UserStories);
+  applyProductOverviewProposal(store, {
+    name: "Plant Pal",
+    purpose: "Help people keep houseplants alive.",
+    primaryFeatures: [{ id: "feat-1", content: "Track watering and feeding" }],
+    targetUsers: ["user-1"],
+  });
+  store.applyPendingImpactChange();
+  store.approve("feat-1");
+  assert.equal(store.getStepStatus(WorkflowStage.UserStories), Status.Outdated);
+  return store;
+}
+
+describe("outdated stage refresh", () => {
   it("names contract suites for targeted revision, everything else for refresh", () => {
     assert.equal(
       refreshGuidance(WorkflowStage.InterfaceContracts),
       "Revise the affected contracts",
     );
-    assert.equal(
-      refreshGuidance(WorkflowStage.Requirements),
-      "Refresh Requirements",
-    );
+    assert.equal(refreshGuidance(WorkflowStage.Requirements), "Refresh Requirements");
   });
 
-  it("tells the model what changed and how to touch it", () => {
-    const comment = buildRefreshComment(WorkflowStage.Requirements, "keep it short");
-    assert.ok(comment.includes("Requirements"));
-    assert.ok(comment.includes("byte-identical"));
-    assert.ok(comment.includes("keep it short"));
+  it("tells the model what to reconsider and passes the hint", () => {
+    const comment = buildRefreshComment(WorkflowStage.Requirements, "keep it short", [], ["REQ-2"]);
+    assert.match(comment, /Requirements/);
+    assert.match(comment, /Reconsider each outdated item \(REQ-2\)/);
+    assert.match(comment, /keep it word for word when the change does not affect it/);
+    assert.match(comment, /keep it short$/);
   });
 
-  it("works without a user hint", () => {
-    const comment = buildRefreshComment(WorkflowStage.Requirements);
-    assert.ok(comment.includes("Requirements"));
+  it("never promises that kept items keep their approval", () => {
+    assert.doesNotMatch(buildRefreshComment(WorkflowStage.Requirements), /approv/i);
   });
 
   it("hands the model the exact upstream change", () => {
-    const store = storeWithStaleStories();
-    const changes = store.stageInputChanges(WorkflowStage.UserStories);
-    assert.ok(
-      changes.some(
-        (change) => change.includes("Plant Pal") && change.includes("Plant Pal Pro"),
-      ),
-    );
-    const versions = store.stageInputVersions(WorkflowStage.UserStories);
-    assert.ok(versions != null);
-    assert.match(JSON.stringify(versions.previous), /Plant Pal"/);
-    assert.match(JSON.stringify(versions.current), /Plant Pal Pro/);
+    const store = storeWithOutdatedStories();
     const comment = buildRefreshComment(
       WorkflowStage.UserStories,
       undefined,
-      changes,
-      versions,
+      store.inputChanges(WorkflowStage.UserStories),
+      store.outdatedItemIds(WorkflowStage.UserStories).map((id) => store.getCode(id) ?? id),
     );
-    assert.ok(comment.includes("Upstream changes:"));
-    assert.ok(comment.includes("Plant Pal Pro"));
-    assert.ok(comment.includes("Previous inputs:"));
-    assert.ok(comment.includes("Current inputs:"));
+    assert.match(comment, /Upstream changes:/);
+    assert.match(comment, /Rewrote FEA-1: "Track watering" → "Track watering and feeding"/);
+    assert.match(comment, /\(US-1\)/);
   });
 
-  it("falls back to generic wording for hashes from before the content link", () => {
-    const store = storeWithStaleStories();
-    // Test-only write: the map changes through store actions in the app.
-    unprotect(store);
-    store.stageInputFingerprints.set(WorkflowStage.UserStories, "0".repeat(64));
-    assert.equal(store.getStepStatus(WorkflowStage.UserStories), Status.Outdated);
-    assert.deepEqual(store.stageInputChanges(WorkflowStage.UserStories), []);
-    const comment = buildRefreshComment(
-      WorkflowStage.UserStories,
-      undefined,
-      store.stageInputChanges(WorkflowStage.UserStories),
-    );
-    assert.ok(!comment.includes("Upstream changes:"));
-  });
-
-  it("offers no refresh when nothing is stale", () => {
-    const store = Store.create({
-      productOverview: {},
-    }) as unknown as FlatStore;
+  it("offers no refresh when nothing is outdated", () => {
+    const store = storeWithDraftStories();
     assert.equal(store.canRefreshStep(WorkflowStage.UserStories), false);
     assert.equal(store.stalePrerequisite(WorkflowStage.Requirements), null);
+    assert.equal(
+      store.cannotGenerateReason(WorkflowStage.Requirements),
+      "Complete User Stories to generate Requirements.",
+    );
   });
 
-  it("offers refresh for the outdated prerequisite", () => {
-    const store = storeWithStaleStories();
+  it("offers refresh for the outdated frontier", () => {
+    const store = storeWithOutdatedStories();
     assert.equal(store.canRefreshStep(WorkflowStage.UserStories), true);
-    assert.equal(
-      store.stalePrerequisite(WorkflowStage.Requirements),
-      WorkflowStage.UserStories,
-    );
+    assert.equal(store.stalePrerequisite(WorkflowStage.Requirements), WorkflowStage.UserStories);
     assert.equal(
       store.cannotGenerateReason(WorkflowStage.Requirements),
       "Outdated User Stories. Refresh User Stories to generate Requirements.",
@@ -163,36 +120,7 @@ describe("stale stage refresh", () => {
   });
 
   it("never offers refresh for contract suites", () => {
-    const store = storeWithStaleStories();
+    const store = storeWithOutdatedStories();
     assert.equal(store.canRefreshStep(WorkflowStage.InterfaceContracts), false);
-  });
-
-  it("asks for approval, not refresh, when work is unapproved with current inputs", () => {
-    const store = storeWithDraftStories();
-    assert.equal(store.canRefreshStep(WorkflowStage.UserStories), false);
-    assert.equal(store.stalePrerequisite(WorkflowStage.Requirements), null);
-    assert.equal(
-      store.cannotGenerateReason(WorkflowStage.Requirements),
-      "Approve Product Overview to generate Requirements.",
-    );
-  });
-
-  it("leads with refresh when work is both unapproved and stale", () => {
-    const store = storeWithDraftStories();
-    store.setName({ name: "Plant Pal Pro" });
-    store.approve(OVERVIEW_NAME_QUALITY_ID);
-    store.approve(OVERVIEW_PURPOSE_QUALITY_ID);
-    store.approve("feat-1");
-    store.approve("user-1");
-    assert.equal(store.getStepStatus(WorkflowStage.UserStories), Status.Outdated);
-    assert.equal(store.canRefreshStep(WorkflowStage.UserStories), true);
-    assert.equal(
-      store.stalePrerequisite(WorkflowStage.Requirements),
-      WorkflowStage.UserStories,
-    );
-    assert.equal(
-      store.cannotGenerateReason(WorkflowStage.Requirements),
-      "Outdated User Stories. Refresh User Stories to generate Requirements.",
-    );
   });
 });

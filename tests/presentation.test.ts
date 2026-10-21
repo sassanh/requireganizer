@@ -46,14 +46,14 @@ describe("presentation applyOp", () => {
 
   it("drops undefined instead of writing it onto string fields", () => {
     const tree = applyOpToTree(
-      { stageInputFingerprints: { "product-overview": "abc" } },
+      { review: { "product-overview": "abc" } },
       {
         kind: "update",
-        subject: "stageInputFingerprints/product-overview",
+        subject: "review/product-overview",
         value: undefined,
       },
     );
-    assert.deepEqual(tree.stageInputFingerprints, {});
+    assert.deepEqual(tree.review, {});
   });
 
   it("adds nested test cases by scenario id", () => {

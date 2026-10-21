@@ -3,6 +3,8 @@ import { WorkflowStage } from "store/constants";
 import { InvalidJsonError, isRecord } from "./json";
 import {
   assertModuleSnapshotSchema,
+  isModuleSchemaVersion,
+  LEGACY_MODULE_SCHEMA_VERSION,
   MODULE_SCHEMA_VERSION,
   PROJECT_SCHEMA_VERSION,
 } from "./projectSchema";
@@ -198,9 +200,9 @@ function parseRegistry(value: Record<string, unknown>): ModuleRegistry {
 
 /**
  * The one reader of stored project bytes: a schema 4 payload is
- * validated as a module registry, a schema 3 flat project wraps as the
- * single hidden legacy module, anything else fails with the accepted
- * versions named.
+ * validated as a module registry, a bare module snapshot (schema 5, or
+ * schema 3 migrated on load) wraps as the single hidden legacy module,
+ * anything else fails with the accepted versions named.
  */
 export function parseProjectPayload(value: unknown): ProjectPayload {
   if (!isRecord(value)) {
@@ -209,7 +211,7 @@ export function parseProjectPayload(value: unknown): ProjectPayload {
   if (value.schemaVersion === PROJECT_SCHEMA_VERSION) {
     return { schemaVersion: PROJECT_SCHEMA_VERSION, ...parseRegistry(value) };
   }
-  if (value.schemaVersion === MODULE_SCHEMA_VERSION) {
+  if (isModuleSchemaVersion(value.schemaVersion)) {
     assertModuleSnapshotSchema(value);
     return {
       schemaVersion: PROJECT_SCHEMA_VERSION,
@@ -227,7 +229,7 @@ export function parseProjectPayload(value: unknown): ProjectPayload {
     };
   }
   throw new InvalidJsonError(
-    `This import uses obsolete project schema ${JSON.stringify(value.schemaVersion)}. Requireganizer accepts schema ${MODULE_SCHEMA_VERSION} (single module) or ${PROJECT_SCHEMA_VERSION} (modular).`,
+    `This import uses obsolete project schema ${JSON.stringify(value.schemaVersion)}. Requireganizer accepts schema ${PROJECT_SCHEMA_VERSION} (modular), or ${MODULE_SCHEMA_VERSION} or ${LEGACY_MODULE_SCHEMA_VERSION} (single module).`,
   );
 }
 

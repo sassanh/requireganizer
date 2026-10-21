@@ -1,5 +1,6 @@
 import {
   CheckBox,
+  HourglassEmpty,
   Lock,
   NewReleases,
   RateReview,
@@ -31,6 +32,7 @@ import {
   HIGHLIGHT_MILLISECONDS,
   useStagedContent,
 } from "components/changeQueue";
+import CoveragePanel from "components/CoveragePanel";
 import { ITEM_MOTION_SECONDS } from "components/itemMotion";
 import { scrollPresentationIntoView } from "components/scrollFollower";
 import {
@@ -62,6 +64,7 @@ const ICONS = {
   [Status.NeedsApproval]: RateReview,
   [Status.Completed]: CheckBox,
   [Status.Locked]: Lock,
+  [Status.Waiting]: HourglassEmpty,
 };
 
 const ICON_COLOR = {
@@ -70,6 +73,7 @@ const ICON_COLOR = {
   [Status.NeedsApproval]: "warning.main",
   [Status.Completed]: "success.main",
   [Status.Locked]: "text.disabled",
+  [Status.Waiting]: "text.disabled",
 } as const;
 
 const SELECTED_ICON_COLOR = {
@@ -78,6 +82,7 @@ const SELECTED_ICON_COLOR = {
   [Status.NeedsApproval]: "warning.dark",
   [Status.Completed]: "success.dark",
   [Status.Locked]: "text.secondary",
+  [Status.Waiting]: "text.secondary",
 } as const;
 
 function MovingIcon({
@@ -460,6 +465,7 @@ const Factory: React.FunctionComponent<FactoryProps> = ({ activeProject }) => {
               structuralFragment={StructuralFragment.UserStory}
               onComment={store.handleComment}
             />
+            <CoveragePanel step={WorkflowStage.UserStories} />
           </AnimatedTabPanel>
 
           <AnimatedTabPanel
@@ -474,6 +480,7 @@ const Factory: React.FunctionComponent<FactoryProps> = ({ activeProject }) => {
               structuralFragment={StructuralFragment.Requirement}
               onComment={store.handleComment}
             />
+            <CoveragePanel step={WorkflowStage.Requirements} />
           </AnimatedTabPanel>
 
           <AnimatedTabPanel
@@ -488,6 +495,7 @@ const Factory: React.FunctionComponent<FactoryProps> = ({ activeProject }) => {
               structuralFragment={StructuralFragment.AcceptanceCriteria}
               onComment={store.handleComment}
             />
+            <CoveragePanel step={WorkflowStage.AcceptanceCriteria} />
           </AnimatedTabPanel>
 
           <AnimatedTabPanel

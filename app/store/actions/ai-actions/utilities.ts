@@ -38,7 +38,6 @@ import {
 } from "contract-domain";
 import { getUserFacingErrorMessage, isRateLimitError, isTimeoutError, UserFacingError } from "lib/errors";
 import { HarnessResult } from "lib/types";
-import { assertApproved } from "store/approval";
 import {
   OVERVIEW_NAME_QUALITY_ID,
   OVERVIEW_PURPOSE_QUALITY_ID,
@@ -46,79 +45,47 @@ import {
   Status,
   WorkflowStage,
   StructuralFragment,
+  isBefore,
 } from "store/constants";
 import { classifyListChange } from "store/listChange";
 import {
   dependenciesEqual,
   referencesEqual,
 } from "store/models/StructuralFragment";
+import { itemSetRevision } from "store/review";
 import type { FlatStore, TestCaseSnapshotInput, TestScenarioSnapshotInput } from "store/store";
 import { uuid } from "utilities";
 
-interface PriorItemState {
-  approval: ApprovalStatus;
-  lastSignedContent: string | null;
-  content: string;
-}
-
 /**
- * Approval for a rewritten item whose human-authored fields are unchanged.
- * Identical content keeps its state, and content matching the last approved
- * text restores approval — there is nothing left to review.
+ * The one way a proposal reaches project state. The update runs on a
+ * clone; when the result moves the frontier back while later stages hold
+ * work, the change waits for the person to confirm instead of applying.
  */
-function approvalForUnchangedItem(
-  prior: PriorItemState,
-  nextContent: string,
-): { approval: ApprovalStatus; lastSignedContent: string | null } {
-  const signed =
-    prior.lastSignedContent ??
-    (prior.approval === "approved" ? prior.content : null);
-  const reapproved = signed != null && nextContent === signed;
-  return {
-    approval: reapproved ? "approved" : prior.approval,
-    lastSignedContent: reapproved ? null : prior.lastSignedContent,
-  };
-}
-
-/** Last-approved text for a rewritten item, mirroring fragment dropApproval. */
-function signedContentOf(prior: PriorItemState | null): string | null {
-  if (prior == null) return null;
-  return (
-    prior.lastSignedContent ??
-    (prior.approval === "approved" ? prior.content : null)
-  );
-}
-
 export function applyAtomically(
   store: FlatStore,
   update: (candidate: FlatStore) => void,
-  impact?: {
-    sourceStep: WorkflowStage;
-    sourceLabel?: string;
-    summary: string;
-    includeSourceStep?: boolean;
-  },
+  summary = "Apply the change.",
 ): void {
   const candidate = clone(store);
   update(candidate);
+  candidate.settleAllAcknowledgedInputs();
   const snapshot = getSnapshot(candidate);
-  const affectedSteps = impact == null
-    ? []
-    : store.affectedDownstreamSteps(
-      impact.sourceStep,
-      impact.includeSourceStep,
-    );
-  if (impact != null && affectedSteps.length > 0) {
+  const from = store.frontier;
+  const to = candidate.frontier;
+  const movesBack = to != null && (from == null || isBefore(to, from));
+  const laterWork = movesBack ? candidate.laterStagesHoldingWork(to) : [];
+  if (to != null && laterWork.length > 0) {
+    const label = store.stageLabel(to);
     store.queueImpactChange({
-      sourceStep: impact.sourceStep,
-      sourceLabel: impact.sourceLabel ?? store.stageLabel(impact.sourceStep),
-      affectedSteps,
-      affectedArtifacts: affectedSteps.map((step) => ({
+      sourceStep: to,
+      sourceLabel: label,
+      affectedSteps: laterWork,
+      affectedArtifacts: laterWork.map((step) => ({
         step,
-        label: `${store.stageLabel(step)} artifacts`,
-        reason: `These artifacts consume ${impact.sourceLabel ?? store.stageLabel(impact.sourceStep)} and will remain viewable but stale until refreshed.`,
+        label: store.stageLabel(step),
+        reason: `Stays visible and read-only until ${label} is complete again.`,
       })),
-      summary: impact.summary,
+      summary,
       candidateSnapshot: snapshot,
     });
     return;
@@ -126,29 +93,33 @@ export function applyAtomically(
   applySnapshot(store, snapshot);
 }
 
-export type ArtifactApplyOptions = {
-  markGenerated?: boolean;
-};
+/** Approval of a formal artifact this operation builds on; the frontier normally guarantees it. */
+function requireApproved<T extends { id: string }>(
+  store: FlatStore,
+  artifact: T | null | undefined,
+  label: string,
+): asserts artifact is T {
+  if (artifact == null || store.approvalOf(artifact.id) !== "approved") {
+    throw new UserFacingError(`An approved ${label} is required.`);
+  }
+}
 
 export function applyProductOverviewProposal(
   store: FlatStore,
   proposal: ProductOverviewProposal,
-  options: ArtifactApplyOptions = {},
 ): void {
-  const markGenerated = options.markGenerated ?? true;
   applyAtomically(store, (candidate) => {
     const overview = candidate.productOverview;
+    const entry = (id: string, code: string) => ({
+      id,
+      code,
+      revision: candidate.revisionOf(id)!,
+    });
     const before = [
-      { id: OVERVIEW_NAME_QUALITY_ID, code: "Name" },
-      { id: OVERVIEW_PURPOSE_QUALITY_ID, code: "Purpose" },
-      ...overview.primaryFeatures.map((item) => ({
-        id: item.id,
-        code: item.getCode(),
-      })),
-      ...overview.targetUsers.map((item) => ({
-        id: item.id,
-        code: item.getCode(),
-      })),
+      entry(OVERVIEW_NAME_QUALITY_ID, "Name"),
+      entry(OVERVIEW_PURPOSE_QUALITY_ID, "Purpose"),
+      ...overview.primaryFeatures.map((item) => entry(item.id, item.getCode())),
+      ...overview.targetUsers.map((item) => entry(item.id, item.getCode())),
     ];
     const existingFeatures = new Map(
       overview.primaryFeatures.map((item) => [item.id, item] as const),
@@ -221,49 +192,22 @@ export function applyProductOverviewProposal(
     candidate.recordStageListChange(
       WorkflowStage.ProductOverview,
       classifyListChange(before, [
-        { id: OVERVIEW_NAME_QUALITY_ID, lastSignedContent: overview.lastSignedName },
-        { id: OVERVIEW_PURPOSE_QUALITY_ID, lastSignedContent: overview.lastSignedPurpose },
-        ...overview.primaryFeatures.map((item) => ({
-          id: item.id,
-          lastSignedContent: item.lastSignedContent,
-          pendingRemoval: item.pendingRemoval,
-        })),
-        ...overview.targetUsers.map((item) => ({
-          id: item.id,
-          lastSignedContent: item.lastSignedContent,
+        entry(OVERVIEW_NAME_QUALITY_ID, "Name"),
+        entry(OVERVIEW_PURPOSE_QUALITY_ID, "Purpose"),
+        ...[...overview.primaryFeatures, ...overview.targetUsers].map((item) => ({
+          ...entry(item.id, item.getCode()),
           pendingRemoval: item.pendingRemoval,
         })),
       ]),
     );
-    if (markGenerated) candidate.markStageGenerated(WorkflowStage.ProductOverview);
   });
 }
 
 export function applyArtifactListProposal(
   store: FlatStore,
   proposal: ArtifactListProposal,
-  options: ArtifactApplyOptions = {},
 ): void {
-  applyArtifactListProposals(store, [proposal], options);
-}
-
-export function applyArtifactListProposals(
-  store: FlatStore,
-  proposals: ArtifactListProposal[],
-  options: ArtifactApplyOptions = {},
-): void {
-  const markGenerated = options.markGenerated ?? true;
-  applyAtomically(store, (candidate) => {
-    const completedSteps = new Set<WorkflowStage>();
-    proposals.forEach((proposal) => {
-      const definition = getArtifactStageDefinition(proposal.entityType);
-      candidate.replaceArtifactList(proposal);
-      completedSteps.add(definition.step);
-    });
-    completedSteps.forEach((step) => {
-      if (markGenerated) candidate.markStageGenerated(step);
-    });
-  });
+  applyAtomically(store, (candidate) => candidate.replaceArtifactList(proposal));
 }
 
 export function applyFragmentRevisionProposal(
@@ -292,7 +236,6 @@ function revisionMetadata(previous?: { id: string; revision: number }): Revision
     id: previous?.id ?? uuid(),
     revisionId: uuid(),
     revision: (previous?.revision ?? 0) + 1,
-    status: "draft",
     createdAt: new Date().toISOString(),
   };
 }
@@ -317,12 +260,8 @@ export function applyBoundaryDesignProposal(
   proposal: BoundaryDesignProposal,
 ): void {
   const sourceRevisions = {
-    requirementsRevisionId: fingerprint(
-      store.requirements.map((item) => getSnapshot(item)),
-    ),
-    acceptanceCriteriaRevisionId: fingerprint(
-      store.acceptanceCriteria.map((item) => getSnapshot(item)),
-    ),
+    requirementsRevisionId: itemSetRevision(store.requirements),
+    acceptanceCriteriaRevisionId: itemSetRevision(store.acceptanceCriteria),
   };
   const design = materializeBoundaryDesign(
     proposal,
@@ -336,10 +275,11 @@ export function applyBoundaryDesignProposal(
   });
   applyAtomically(
     store,
-    (candidate) => candidate.setBoundaryDesign(design),
-    store.boundaryDesign == null
-      ? undefined
-      : { sourceStep: WorkflowStage.BoundaryDesign, summary: "Apply the new boundary-design revision." },
+    (candidate) => {
+      candidate.setBoundaryDesign(design);
+      candidate.acknowledgeInputs(WorkflowStage.BoundaryDesign);
+    },
+    "Apply the new boundary-design revision.",
   );
 }
 
@@ -359,7 +299,7 @@ export function applyImplementationProfileProposal(
   store: FlatStore,
   proposal: ImplementationProfileProposal,
 ): void {
-  assertApproved(store.boundaryDesign, "boundary design");
+  requireApproved(store, store.boundaryDesign, "boundary design");
   const profile = materializeImplementationProfile(
     proposal,
     store.boundaryDesign.revisionId,
@@ -367,15 +307,11 @@ export function applyImplementationProfileProposal(
   );
   applyAtomically(
     store,
-    (candidate) => candidate.setImplementationProfile(profile),
-    store.implementationProfile == null
-      ? undefined
-      : {
-        sourceStep: WorkflowStage.InterfaceContracts,
-        sourceLabel: "Implementation Profile",
-        summary: "Apply the new implementation-profile revision.",
-        includeSourceStep: true,
-      },
+    (candidate) => {
+      candidate.setImplementationProfile(profile);
+      candidate.acknowledgeInputs(WorkflowStage.InterfaceContracts);
+    },
+    "Apply the new implementation-profile revision.",
   );
 }
 
@@ -492,8 +428,8 @@ export function applyContractSuiteProposal(
   store: FlatStore,
   proposal: ContractSuiteProposal,
 ): void {
-  assertApproved(store.boundaryDesign, "boundary design");
-  assertApproved(store.implementationProfile, "implementation profile");
+  requireApproved(store, store.boundaryDesign, "boundary design");
+  requireApproved(store, store.implementationProfile, "implementation profile");
   if (
     store.implementationProfile.boundaryRevisionId !==
     store.boundaryDesign.revisionId
@@ -514,15 +450,11 @@ export function applyContractSuiteProposal(
     : formatContractSuiteDiff(store.contractSuite, suite);
   applyAtomically(
     store,
-    (candidate) => candidate.setContractSuite(suite),
-    store.contractSuite == null
-      ? undefined
-      : {
-        sourceStep: WorkflowStage.InterfaceContracts,
-        sourceLabel: "Formal Contracts",
-        summary: "Apply the reconciled formal-contract revision.",
-        includeSourceStep: true,
-      },
+    (candidate) => {
+      candidate.setContractSuite(suite);
+      candidate.acknowledgeInputs(WorkflowStage.InterfaceContracts);
+    },
+    "Apply the reconciled formal-contract revision.",
   );
   store.setContractRevisionDiff(revisionDiff);
 }
@@ -544,58 +476,47 @@ function resolveDependencies(
   ]));
 }
 
+/**
+ * A list item keeps its revision identity exactly while its content is
+ * unchanged; any change, however small, mints a new revision.
+ */
+function revisionIdentity(
+  prior: { revisionId: string; revision: number } | undefined,
+  same: boolean,
+): { revisionId: string; revision: number } {
+  return prior != null && same
+    ? { revisionId: prior.revisionId, revision: prior.revision }
+    : { revisionId: uuid(), revision: (prior?.revision ?? 0) + 1 };
+}
+
 export function applyTestScenarioProposal(
   store: FlatStore,
   proposal: TestScenarioListProposal,
 ): void {
-  if (!store.stageIsApproved(WorkflowStage.InterfaceContracts)) {
-    throw new Error("Approve the implementation profile and every formal contract first.");
+  if (!store.stageIsComplete(WorkflowStage.InterfaceContracts)) {
+    throw new UserFacingError("Approve the implementation profile and every formal contract first.");
   }
   const resolved = resolveDependencies(proposal.items);
   const previous = new Map(store.testScenarios.map((item) => [item.id, item]));
-  // A rewrite that changes nothing — same members, same wording, same
-  // bindings — applies silently instead of queueing a phantom impact
-  // confirmation for downstream stages.
-  let changed = proposal.items.length !== previous.size;
+  const generatedFromEmpty = previous.size === 0;
   const snapshots: TestScenarioSnapshotInput[] = proposal.items.map((item) => {
     const identity = resolved.get(item.key)!;
     const prior = previous.get(identity.id);
     const references = item.acceptanceCriteriaIds.map((id) => ({ id, type: StructuralFragment.AcceptanceCriteria }));
-    const textSame =
-      prior != null &&
-      item.title === prior.content &&
-      item.description === prior.description &&
-      referencesEqual(references, prior.references) &&
-      dependenciesEqual(identity.dependencies, prior.dependencies);
-    const bindingSame =
-      prior != null &&
-      fingerprint(item.binding) === fingerprint(prior.binding);
-    // Unchanged wording, or wording back on the last approved text: there
-    // is nothing left to review.
-    const signed = signedContentOf(prior ?? null);
-    const matchesSigned =
-      prior != null && signed != null && item.title === signed;
-    if (prior == null || (!textSame && !matchesSigned) || !bindingSame) {
-      changed = true;
-    }
-    if (prior == null || (!textSame && !matchesSigned)) {
-      return {
-        id: identity.id,
-        title: item.title,
-        description: item.description,
-        priority: item.priority as Priority,
-        references,
-        dependencies: identity.dependencies,
-        binding: item.binding,
-        revisionId: uuid(),
-        revision: (prior?.revision ?? 0) + 1,
-        approval: "draft",
-        lastSignedContent: signedContentOf(prior ?? null),
-        testCases: prior?.testCases.map((testCase) => getSnapshot(testCase)),
-      };
-    }
-    // Human-authored fields unchanged: keep review state, and only mint a
-    // new revision when the contract binding genuinely moved.
+    const content = {
+      title: item.title,
+      description: item.description,
+      references,
+      dependencies: identity.dependencies,
+      binding: item.binding,
+    };
+    const same = prior != null && fingerprint(content) === fingerprint({
+      title: prior.content,
+      description: prior.description,
+      references: prior.references.map(({ id, type }) => ({ id, type })),
+      dependencies: [...prior.dependencies],
+      binding: prior.binding,
+    });
     return {
       id: identity.id,
       title: item.title,
@@ -604,21 +525,24 @@ export function applyTestScenarioProposal(
       references,
       dependencies: identity.dependencies,
       binding: item.binding,
-      revisionId: bindingSame ? prior.revisionId : uuid(),
-      revision: bindingSame ? prior.revision : prior.revision + 1,
-      ...approvalForUnchangedItem(prior, item.title),
-      testCases: prior.testCases.map((testCase) => getSnapshot(testCase)),
+      ...revisionIdentity(prior, same),
+      approval: prior?.approval ?? null,
+      verdict: prior?.verdict ?? null,
+      basis: store.currentBasisOf({
+        type: StructuralFragment.TestScenario,
+        references,
+        binding: item.binding,
+      }),
+      testCases: prior?.testCases.map((testCase) => getSnapshot(testCase)),
     };
   });
   applyAtomically(
     store,
     (candidate) => {
       candidate.setTestScenarios(snapshots);
-      candidate.markStageGenerated(WorkflowStage.TestScenarios);
+      if (generatedFromEmpty) candidate.acknowledgeInputs(WorkflowStage.TestScenarios);
     },
-    store.testScenarios.length === 0 || !changed
-      ? undefined
-      : { sourceStep: WorkflowStage.TestScenarios, summary: "Apply the new revision-bound scenario set." },
+    "Apply the new revision-bound scenario set.",
   );
 }
 
@@ -627,9 +551,7 @@ export function applyTestCaseProposal(store: FlatStore, proposal: TestCaseListPr
   if (scenario == null) throw new Error(`Missing scenario ${proposal.scenarioId}.`);
   const resolved = resolveDependencies(proposal.items);
   const previous = new Map(scenario.testCases.map((item) => [item.id, item]));
-  // A rewrite that changes nothing applies silently instead of queueing a
-  // phantom impact confirmation for downstream stages.
-  let changed = proposal.items.length !== previous.size;
+  const generatedFromEmpty = store.testCases.length === 0;
   const cases: TestCaseSnapshotInput[] = proposal.items.map((item) => {
     const identity = resolved.get(item.key)!;
     const prior = previous.get(identity.id);
@@ -637,37 +559,20 @@ export function applyTestCaseProposal(store: FlatStore, proposal: TestCaseListPr
       { id: scenario.id, type: StructuralFragment.TestScenario },
       ...item.acceptanceCriteriaIds.map((id) => ({ id, type: StructuralFragment.AcceptanceCriteria })),
     ];
-    const textSame =
-      prior != null &&
-      item.title === prior.title &&
-      item.description === prior.content &&
-      fingerprint(item.definition) === fingerprint(prior.definition) &&
-      referencesEqual(references, prior.references) &&
-      dependenciesEqual(identity.dependencies, prior.dependencies);
-    // Wording back on the last approved text restores approval, like the
-    // fragment models do. A pure revert applies silently.
-    const signed = signedContentOf(prior ?? null);
-    const matchesSigned =
-      prior != null && signed != null && item.description === signed;
-    if (prior == null || (!textSame && !matchesSigned)) changed = true;
-    if (prior == null || (!textSame && !matchesSigned)) {
-      return {
-        id: identity.id,
-        title: item.title,
-        description: item.description,
-        priority: item.priority as Priority,
-        references,
-        dependencies: identity.dependencies,
-        definition: item.definition,
-        revisionId: uuid(),
-        revision: (prior?.revision ?? 0) + 1,
-        approval: "draft",
-        lastSignedContent: signedContentOf(prior ?? null),
-        generatedInputFingerprint: prior?.generatedInputFingerprint,
-      };
-    }
-    // Definition and wording unchanged: keep review state and revision, so
-    // generated tests stay in sync instead of phantom-going stale.
+    const content = {
+      title: item.title,
+      description: item.description,
+      definition: item.definition,
+      references,
+      dependencies: identity.dependencies,
+    };
+    const same = prior != null && fingerprint(content) === fingerprint({
+      title: prior.title,
+      description: prior.description,
+      definition: prior.definition,
+      references: prior.references.map(({ id, type }) => ({ id, type })),
+      dependencies: [...prior.dependencies],
+    });
     return {
       id: identity.id,
       title: item.title,
@@ -676,21 +581,20 @@ export function applyTestCaseProposal(store: FlatStore, proposal: TestCaseListPr
       references,
       dependencies: identity.dependencies,
       definition: item.definition,
-      revisionId: prior.revisionId,
-      revision: prior.revision,
-      ...approvalForUnchangedItem(prior, item.description),
-      generatedInputFingerprint: prior.generatedInputFingerprint,
+      ...revisionIdentity(prior, same),
+      approval: prior?.approval ?? null,
+      verdict: prior?.verdict ?? null,
+      basis: store.currentBasisOf({ type: StructuralFragment.TestCase, references }),
+      generatedInputFingerprint: prior?.generatedInputFingerprint,
     };
   });
   applyAtomically(
     store,
     (candidate) => {
       candidate.replaceTestCases(proposal.scenarioId, cases);
-      candidate.markStageGenerated(WorkflowStage.TestCases);
+      if (generatedFromEmpty) candidate.acknowledgeInputs(WorkflowStage.TestCases);
     },
-    scenario.testCases.length === 0 || !changed
-      ? undefined
-      : { sourceStep: WorkflowStage.TestCases, summary: `Apply regenerated cases for ${scenario.content}.` },
+    `Apply regenerated cases for ${scenario.content}.`,
   );
 }
 
@@ -698,10 +602,10 @@ export function applyProjectSetupProposal(
   store: FlatStore,
   proposal: ProjectSetupProposal,
 ): void {
-  assertApproved(store.boundaryDesign, "boundary design");
-  assertApproved(store.implementationProfile, "implementation profile");
-  if (store.contractSuite == null || !store.stageIsApproved(WorkflowStage.InterfaceContracts)) {
-    throw new Error("An approved contract suite is required before project setup.");
+  requireApproved(store, store.boundaryDesign, "boundary design");
+  requireApproved(store, store.implementationProfile, "implementation profile");
+  if (store.contractSuite == null || !store.stageIsComplete(WorkflowStage.InterfaceContracts)) {
+    throw new UserFacingError("An approved contract suite is required before project setup.");
   }
   const setup: ProjectSetup = { ...revisionMetadata(store.projectSetup ?? undefined), ...proposal };
   validateProjectSetup(
@@ -714,10 +618,11 @@ export function applyProjectSetupProposal(
   );
   applyAtomically(
     store,
-    (candidate) => candidate.setProjectSetup(setup),
-    store.projectSetup == null
-      ? undefined
-      : { sourceStep: WorkflowStage.ProjectSetup, summary: "Replace the project setup and scaffold manifest." },
+    (candidate) => {
+      candidate.setProjectSetup(setup);
+      candidate.acknowledgeInputs(WorkflowStage.ProjectSetup);
+    },
+    "Replace the project setup and scaffold manifest.",
   );
 }
 
@@ -736,6 +641,29 @@ export function describeError(error: unknown): string {
   }
   const stack = error.stack ?? "";
   return stack.length > 0 ? `${lines.join("\n")}\n\n${stack}` : lines.join("\n");
+}
+
+/**
+ * Review the stage a flow acted on (the frontier for a conversation turn)
+ * once its work is applied. A reviewer failure leaves the work in place
+ * and says so; it never fails the flow that wrote the work.
+ */
+async function reviewAfterFlow(
+  store: FlatStore,
+  target: WorkflowStage | null,
+  signal: AbortSignal,
+): Promise<void> {
+  const reviewed = target ?? store.frontier;
+  if (reviewed == null || store.pendingImpactChange != null) return;
+  const { reviewStageUnits } = await import("ai-agent/reviewer");
+  try {
+    await reviewStageUnits(store, reviewed);
+  } catch (error) {
+    if (signal.aborted) return;
+    store.setValidationError({
+      message: `The reviewer model could not review ${store.stageLabel(reviewed)}: ${getUserFacingErrorMessage(error, "the request failed")}. Run the review again.`,
+    });
+  }
 }
 
 /**
@@ -774,9 +702,16 @@ export function generator<
     operation,
     requirements = [],
     targetStep,
+    reviewAfter = true,
   }: {
     operation: string;
     requirements?: readonly Requirements[];
+    /**
+     * Whether the reviewer model reviews the acted-on stage once the flow
+     * succeeds. Every flow that writes work does; the review flow itself
+     * does not.
+     */
+    reviewAfter?: boolean;
     /**
      * The workflow stage this flow acts on, or a derivation from its
      * arguments, or null for conversation with no stage target. Every
@@ -829,7 +764,7 @@ export function generator<
         ? (targetStep as (...args: U) => WorkflowStage)(...args)
         : targetStep;
       if (target != null) {
-        const blockerReason = store.upstreamBlockerReason(
+        const blockerReason = store.stageBlockerReason(
           target,
           `before trying to ${operation}`,
         );
@@ -846,6 +781,9 @@ export function generator<
         },
         ...args,
       );
+      if (reviewAfter) {
+        yield reviewAfterFlow(store, target, abortController.signal) as unknown as Yield;
+      }
     } catch (error) {
       if (abortController?.signal.aborted) return;
       // Expected rule failures speak for themselves in the UI and need no

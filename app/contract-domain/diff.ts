@@ -1,11 +1,11 @@
 import type { ContractSuite } from "./types";
 
 const REVISION_METADATA_KEYS = new Set([
-  "approvedAt",
+  "approval",
   "createdAt",
   "revision",
   "revisionId",
-  "status",
+  "verdict",
 ]);
 
 const IDENTITY_KEYS = [

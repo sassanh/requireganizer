@@ -1,9 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it, mock } from "node:test";
 
+import { applyArtifactListProposal } from "../app/store/actions/ai-actions/utilities";
 import {
-  OVERVIEW_NAME_QUALITY_ID,
-  OVERVIEW_PURPOSE_QUALITY_ID,
   Priority,
   Status,
   StructuralFragment,
@@ -13,145 +12,127 @@ import { Store as StoreModel } from "../app/store/store";
 
 type TestStore = ReturnType<typeof StoreModel.create>;
 
-function overviewWithFeatures() {
-  return {
-    name: "Plant Pal",
-    purpose: "Help people keep houseplants alive.",
-    primaryFeatures: [{ id: "feat-1", content: "Track watering" }],
-    targetUsers: [{ id: "user-1", content: "Busy plant owners" }],
-  };
-}
-
-function storySnapshots() {
-  return {
-    userStories: [
-      {
-        id: "story-1",
-        content:
-          "As a busy plant owner, I want watering reminders, so that plants stay alive.",
-        references: [
-          { id: "feat-1", type: StructuralFragment.PrimaryFeature },
-          { id: "user-1", type: StructuralFragment.TargetUser },
-        ],
-      },
-    ],
-  };
-}
-
-function requirementSnapshots() {
-  return {
-    requirements: [
-      {
-        id: "req-1",
-        content: "The app reminds growers to water their plants.",
-        references: [{ id: "story-1", type: StructuralFragment.UserStory }],
-        priority: Priority.P1,
-      },
-    ],
-  };
-}
-
-function approveOverview(store: TestStore) {
-  store.approve(OVERVIEW_NAME_QUALITY_ID);
-  store.approve(OVERVIEW_PURPOSE_QUALITY_ID);
-  store.approve("feat-1");
-  store.approve("user-1");
-}
-
 function storeWithOverview(): TestStore {
   return StoreModel.create({
-    productOverview: overviewWithFeatures(),
+    productOverview: {
+      name: "Plant Pal",
+      purpose: "Help people keep houseplants alive.",
+      primaryFeatures: [{ id: "feat-1", content: "Track watering" }],
+      targetUsers: [{ id: "user-1", content: "Busy plant owners" }],
+    },
   }) as unknown as TestStore;
 }
 
-describe("upstream approval gate", () => {
-  it("names every earlier stage in the generate blocker, not just the direct input", () => {
+function approveStage(store: TestStore, step: WorkflowStage) {
+  for (const unit of store.stageUnits(step)) {
+    if (store.canApprove(unit.id)) store.approve(unit.id);
+  }
+}
+
+function generateStories(store: TestStore) {
+  applyArtifactListProposal(store as never, {
+    entityType: StructuralFragment.UserStory,
+    items: [{
+      key: "s0",
+      id: "story-1",
+      content: "As a busy plant owner, I want watering reminders, so that plants stay alive.",
+      priority: Priority.P1,
+      references: [
+        { id: "feat-1", type: StructuralFragment.PrimaryFeature },
+        { id: "user-1", type: StructuralFragment.TargetUser },
+      ],
+      dependencies: [],
+    }],
+  });
+}
+
+function generateRequirements(store: TestStore) {
+  applyArtifactListProposal(store as never, {
+    entityType: StructuralFragment.Requirement,
+    items: [{
+      key: "r0",
+      id: "req-1",
+      content: "The system must remind owners when watering is due.",
+      priority: Priority.P1,
+      references: [{ id: "story-1", type: StructuralFragment.UserStory }],
+      dependencies: [],
+    }],
+  });
+}
+
+describe("frontier gate", () => {
+  it("names the frontier in the generate blocker, not just the direct input", () => {
     const store = storeWithOverview();
-    store.setUserStories(storySnapshots());
-    store.markStageGenerated(WorkflowStage.UserStories);
     assert.equal(
       store.cannotGenerateReason(WorkflowStage.Requirements),
-      "Approve Product Overview to generate Requirements.",
+      "Complete Product Overview to generate Requirements.",
     );
   });
 
-  it("refuses an approval downstream of unapproved work", () => {
+  it("refuses an approval after the frontier", () => {
     const store = storeWithOverview();
-    store.setUserStories(storySnapshots());
-    store.markStageGenerated(WorkflowStage.UserStories);
-    assert.equal(store.getStepStatus(WorkflowStage.UserStories), Status.NeedsApproval);
+    approveStage(store, WorkflowStage.ProductOverview);
+    generateStories(store);
+    approveStage(store, WorkflowStage.UserStories);
+    generateRequirements(store);
+    // Reopen the overview: User Stories and Requirements fall behind the frontier.
+    store.setName({ name: "Plant Pal Pro" });
+    assert.equal(store.frontier, WorkflowStage.ProductOverview);
+    assert.equal(store.getStepStatus(WorkflowStage.Requirements), Status.Waiting);
     assert.throws(
-      () => store.approve("story-1"),
-      /Approve Product Overview before approving User Stories\./,
+      () => store.approve("req-1"),
+      /Complete Product Overview before approving Requirements\./,
     );
-    assert.equal(store.approvalOf("story-1"), "draft");
+    assert.equal(store.approvalOf("req-1"), "draft");
   });
 
-  it("approves downstream once upstream is approved", () => {
+  it("approves at the frontier", () => {
     const store = storeWithOverview();
-    store.setUserStories(storySnapshots());
-    store.markStageGenerated(WorkflowStage.UserStories);
-    approveOverview(store);
+    approveStage(store, WorkflowStage.ProductOverview);
+    generateStories(store);
     store.approve("story-1");
     assert.equal(store.approvalOf("story-1"), "approved");
   });
 
-  it("refuses a refresh downstream of unapproved work without reaching the agent", async (t) => {
+  it("refuses a refresh after the frontier without reaching the agent", async (t) => {
     const errorSpy = mock.method(console, "error");
     t.after(() => errorSpy.mock.restore());
     const store = storeWithOverview();
-    approveOverview(store);
-    store.setUserStories(storySnapshots());
-    store.setRequirements(requirementSnapshots());
+    approveStage(store, WorkflowStage.ProductOverview);
+    generateStories(store);
+    generateRequirements(store);
     await store.refreshStage(WorkflowStage.Requirements);
     assert.match(
       store.validationErrors ?? "",
-      /Approve User Stories before trying to refresh the stage\./,
+      /Complete User Stories before trying to refresh the stage\./,
     );
     assert.equal(store.validationErrorDetails, null);
     assert.equal(errorSpy.mock.callCount(), 0);
   });
 
-  it("refuses a comment downstream of unapproved work without reaching the agent", async () => {
+  it("refuses a comment after the frontier without reaching the agent", async () => {
     const store = storeWithOverview();
-    approveOverview(store);
-    store.setUserStories(storySnapshots());
-    store.setRequirements(requirementSnapshots());
+    approveStage(store, WorkflowStage.ProductOverview);
+    generateStories(store);
+    generateRequirements(store);
     const fragment = store.requirements[0]!;
     await store.handleComment({ fragment, comment: "Say it shorter." });
     assert.match(
       store.validationErrors ?? "",
-      /Approve User Stories before trying to apply the requested change\./,
+      /Complete User Stories before trying to apply the requested change\./,
     );
   });
 
-  it("refuses a generation blocked by an indirect unapproved stage", async () => {
+  it("refuses a generation while an earlier stage is incomplete", async () => {
     const store = storeWithOverview();
-    approveOverview(store);
-    store.setUserStories(storySnapshots());
-    store.approve("story-1");
-    store.markStageGenerated(WorkflowStage.UserStories);
-    store.setRequirements(requirementSnapshots());
-    store.markStageGenerated(WorkflowStage.Requirements);
+    approveStage(store, WorkflowStage.ProductOverview);
+    generateStories(store);
+    approveStage(store, WorkflowStage.UserStories);
+    generateRequirements(store);
     await store.generateAcceptanceCriteria();
     assert.match(
       store.validationErrors ?? "",
-      /Approve Requirements before trying to generate acceptance criteria items\./,
+      /Complete Requirements before trying to generate acceptance criteria items\./,
     );
-  });
-
-  it("leads with refresh when the blocker is both stale and unapproved", async () => {
-    const store = storeWithOverview();
-    approveOverview(store);
-    store.setUserStories(storySnapshots());
-    store.markStageGenerated(WorkflowStage.UserStories);
-    store.setName({ name: "Plant Pal Pro" });
-    store.approve(OVERVIEW_NAME_QUALITY_ID);
-    await store.refreshStage(WorkflowStage.Requirements);
-    assert.match(
-      store.validationErrors ?? "",
-      /Outdated User Stories\. Refresh User Stories before trying to refresh the stage\./,
-    );
-    assert.equal(store.validationErrorDetails, null);
   });
 });

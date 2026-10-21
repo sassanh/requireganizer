@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { buildResultTools } from "../app/ai-agent/result-tools";
-import { fingerprint } from "../app/contract-domain";
 import {
+  applyArtifactListProposal,
+  applyFragmentRevisionProposal,
   applyProductOverviewProposal,
   applyTestCaseProposal,
   applyTestScenarioProposal,
@@ -16,29 +17,43 @@ import {
   StructuralFragment,
   WorkflowStage,
 } from "../app/store/constants";
-import { Store, testDesignFingerprint, stageInputHash } from "../app/store/store";
+import { itemSetRevision } from "../app/store/review";
+import { Store } from "../app/store/store";
 import type { FlatStore } from "../app/store/store";
 
-const emptyRevisionId = fingerprint([]);
+const NOW = "2026-08-13T00:00:00.000Z";
+
+const OVERVIEW = {
+  name: "Plant Pal",
+  purpose: "Help people keep houseplants alive.",
+  primaryFeatures: [{ id: "feat-1", content: "Track watering" }],
+  targetUsers: [{ id: "user-1", content: "Busy plant owners" }],
+};
 
 function storeWithOverview(): FlatStore {
-  return Store.create({
-    productOverview: {
-      name: "Plant Pal",
-      purpose: "Help people keep houseplants alive.",
-      primaryFeatures: [
-        { id: "feat-1", content: "Track watering" },
-      ],
-      targetUsers: [{ id: "user-1", content: "Busy plant owners" }],
-    },
-  }) as unknown as FlatStore;
+  return Store.create({ productOverview: OVERVIEW }) as unknown as FlatStore;
 }
 
-function approveOverview(store: FlatStore) {
-  store.approve(OVERVIEW_NAME_QUALITY_ID);
-  store.approve(OVERVIEW_PURPOSE_QUALITY_ID);
-  store.productOverview.primaryFeatures.forEach((item) => store.approve(item.id));
-  store.productOverview.targetUsers.forEach((item) => store.approve(item.id));
+function approveStage(store: FlatStore, step: WorkflowStage) {
+  for (const unit of store.stageUnits(step)) {
+    if (store.canApprove(unit.id)) store.approve(unit.id);
+  }
+}
+
+function generate(
+  store: FlatStore,
+  entityType: StructuralFragment,
+  items: { id: string; content: string; references: { id: string; type: StructuralFragment }[] }[],
+) {
+  applyArtifactListProposal(store, {
+    entityType,
+    items: items.map((item, index) => ({
+      key: `k${index}`,
+      priority: Priority.P1,
+      dependencies: [],
+      ...item,
+    })),
+  });
 }
 
 describe("explicit approval", () => {
@@ -56,106 +71,90 @@ describe("explicit approval", () => {
       primaryFeatures: ["Track watering schedules"],
       targetUsers: ["Busy plant owners"],
     } as never);
-    assert.equal(store.productOverview.nameApproval, "draft");
+    assert.equal(store.approvalOf(OVERVIEW_NAME_QUALITY_ID), "draft");
     assert.equal(store.getStepStatus(WorkflowStage.ProductOverview), Status.NeedsApproval);
-    assert.equal(store.stageIsApproved(WorkflowStage.ProductOverview), false);
+    assert.equal(store.stageIsComplete(WorkflowStage.ProductOverview), false);
     assert.equal(store.canGenerateStep(WorkflowStage.UserStories), false);
     assert.equal(
       store.cannotGenerateReason(WorkflowStage.UserStories),
-      "Approve Product Overview to generate User Stories.",
+      "Complete Product Overview to generate User Stories.",
     );
   });
 
-  it("approves item by item and only then unlocks the next stage", () => {
+  it("approves item by item and only then advances the frontier", () => {
     const store = storeWithOverview();
     assert.equal(store.canApprove(OVERVIEW_NAME_QUALITY_ID), true);
     store.approve(OVERVIEW_NAME_QUALITY_ID);
     store.approve(OVERVIEW_PURPOSE_QUALITY_ID);
     store.approve("feat-1");
-    assert.equal(store.stageIsApproved(WorkflowStage.ProductOverview), false);
+    assert.equal(store.frontier, WorkflowStage.ProductOverview);
     store.approve("user-1");
-    assert.equal(store.stageIsApproved(WorkflowStage.ProductOverview), true);
+    assert.equal(store.frontier, WorkflowStage.UserStories);
     assert.equal(store.canGenerateStep(WorkflowStage.UserStories), true);
     assert.equal(store.canApprove("feat-1"), false);
   });
 
-  it("returns an approved item to draft when content is rewritten", () => {
+  it("shows a rewritten item's signed text until it is approved again", () => {
     const store = storeWithOverview();
-    approveOverview(store);
-    assert.equal(store.productOverview.nameApproval, "approved");
-    store.setName({ name: "Garden Pal" });
-    assert.equal(store.productOverview.nameApproval, "draft");
-    assert.equal(store.productOverview.lastSignedName, "Plant Pal");
-    assert.equal(store.stageIsApproved(WorkflowStage.ProductOverview), false);
-  });
-
-  it("keeps the last signed text across a second rewrite and clears it on approve", () => {
-    const store = storeWithOverview();
-    approveOverview(store);
+    approveStage(store, WorkflowStage.ProductOverview);
     store.setName({ name: "Garden Pal" });
     store.setName({ name: "Forest Pal" });
-    assert.equal(store.productOverview.lastSignedName, "Plant Pal");
+    assert.equal(store.approvalOf(OVERVIEW_NAME_QUALITY_ID), "draft");
+    assert.equal(store.signedTextOf(OVERVIEW_NAME_QUALITY_ID), "Plant Pal");
     store.approve(OVERVIEW_NAME_QUALITY_ID);
-    assert.equal(store.productOverview.lastSignedName, null);
-    assert.equal(store.productOverview.nameApproval, "approved");
+    assert.equal(store.signedTextOf(OVERVIEW_NAME_QUALITY_ID), null);
+    assert.equal(store.approvalOf(OVERVIEW_NAME_QUALITY_ID), "approved");
   });
 
-  it("does not capture last-signed text on a first draft", () => {
+  it("has no signed text on a first draft", () => {
     const store = storeWithOverview();
-    assert.equal(store.productOverview.nameApproval, "draft");
     store.setName({ name: "Garden Pal" });
-    assert.equal(store.productOverview.lastSignedName, null);
+    assert.equal(store.signedTextOf(OVERVIEW_NAME_QUALITY_ID), null);
   });
 
-  it("does not put last-signed text in the workflow fingerprint", () => {
-    const rewritten = storeWithOverview();
-    approveOverview(rewritten);
-    rewritten.setName({ name: "Garden Pal" });
-    const bornDraft = storeWithOverview();
-    bornDraft.setName({ name: "Garden Pal" });
-    assert.equal(rewritten.productOverview.lastSignedName, "Plant Pal");
-    assert.equal(bornDraft.productOverview.lastSignedName, null);
-    assert.equal(
-      stageInputHash(rewritten, WorkflowStage.UserStories),
-      stageInputHash(bornDraft, WorkflowStage.UserStories),
+  it("keeps approval out of every stage's inputs", () => {
+    const approved = storeWithOverview();
+    approveStage(approved, WorkflowStage.ProductOverview);
+    const draft = storeWithOverview();
+    assert.deepEqual(
+      approved.currentInputs(WorkflowStage.UserStories),
+      draft.currentInputs(WorkflowStage.UserStories),
     );
   });
 
   it("keeps a signed feature when the overview submit names only its id", () => {
     const store = storeWithOverview();
-    approveOverview(store);
+    approveStage(store, WorkflowStage.ProductOverview);
     applyProductOverviewProposal(store, {
       name: "Plant Pal",
       purpose: "Help people keep houseplants alive.",
       primaryFeatures: ["feat-1"],
       targetUsers: ["user-1"],
     });
-    const feature = store.productOverview.primaryFeatures[0]!;
-    assert.equal(feature.approval, "approved");
-    assert.equal(feature.lastSignedContent, null);
+    assert.equal(store.approvalOf("feat-1"), "approved");
+    assert.equal(store.signedTextOf("feat-1"), null);
     assert.equal(store.stageListChangeCaption(WorkflowStage.ProductOverview)?.text, null);
   });
 
-  it("shows a standing rewrite against last-signed feature text", () => {
+  it("shows a standing rewrite against the signed feature text", () => {
     const store = storeWithOverview();
-    approveOverview(store);
+    approveStage(store, WorkflowStage.ProductOverview);
     applyProductOverviewProposal(store, {
       name: "Plant Pal",
       purpose: "Help people keep houseplants alive.",
       primaryFeatures: [{ id: "feat-1", content: "Track watering and feeding" }],
       targetUsers: ["user-1"],
     });
-    const feature = store.productOverview.primaryFeatures[0]!;
-    assert.equal(feature.approval, "draft");
-    assert.equal(feature.lastSignedContent, "Track watering");
+    assert.equal(store.approvalOf("feat-1"), "draft");
+    assert.equal(store.signedTextOf("feat-1"), "Track watering");
     assert.equal(store.stageListChangeCaption(WorkflowStage.ProductOverview)?.grain, "item");
     assert.equal(store.stageListChangeCaption(WorkflowStage.ProductOverview)?.text, null);
   });
 
   it("keeps a removed feature until that removal is approved", () => {
     const store = storeWithOverview();
-    approveOverview(store);
-    store.reviseFragment({
+    approveStage(store, WorkflowStage.ProductOverview);
+    applyFragmentRevisionProposal(store, {
       entityType: StructuralFragment.PrimaryFeature,
       id: "feat-1",
       patch: { remove: true },
@@ -163,46 +162,20 @@ describe("explicit approval", () => {
     const feature = store.productOverview.primaryFeatures[0]!;
     assert.equal(store.productOverview.primaryFeatures.length, 1);
     assert.equal(feature.pendingRemoval, true);
-    assert.equal(feature.approval, "draft");
-    assert.equal(feature.lastSignedContent, "Track watering");
+    assert.equal(store.approvalOf("feat-1"), "draft");
+    assert.equal(store.signedTextOf("feat-1"), "Track watering");
     assert.equal(store.stageListChangeCaption(WorkflowStage.ProductOverview)?.grain, "item");
     store.approve("feat-1");
     assert.equal(store.productOverview.primaryFeatures.length, 0);
   });
 
-  it("does not change fingerprints when approving", () => {
-    const store = storeWithOverview();
-    store.setUserStories({
-      userStories: [
-        {
-          id: "story-1",
-          content: "As a busy plant owner, I want watering reminders, so that plants stay alive.",
-          references: [
-            { id: "feat-1", type: StructuralFragment.PrimaryFeature },
-            { id: "user-1", type: StructuralFragment.TargetUser },
-          ],
-        },
-      ],
-    });
-    store.markStageGenerated(WorkflowStage.UserStories);
-    const before = stageInputHash(store, WorkflowStage.UserStories);
-    approveOverview(store);
-    assert.equal(stageInputHash(store, WorkflowStage.UserStories), before);
-    assert.equal(store.getStepStatus(WorkflowStage.UserStories), Status.NeedsApproval);
-  });
-
-  it("keeps a draft revision draft on import", async () => {
+  it("keeps an unapproved revision unapproved on import", () => {
     const store = Store.create({ productOverview: {} }) as unknown as FlatStore & {
       import(value: unknown): void;
     };
     store.import({
-      schemaVersion: 3,
-      productOverview: {
-        name: "Plant Pal",
-        purpose: "Help people keep houseplants alive.",
-        primaryFeatures: [{ id: "feat-1", content: "Track watering" }],
-        targetUsers: [{ id: "user-1", content: "Busy plant owners" }],
-      },
+      schemaVersion: 5,
+      productOverview: OVERVIEW,
       userStories: [],
       requirements: [],
       acceptanceCriteria: [],
@@ -210,10 +183,9 @@ describe("explicit approval", () => {
         id: "boundary",
         revisionId: "boundary-r1",
         revision: 1,
-        status: "draft",
-        createdAt: "2026-08-13T00:00:00.000Z",
-        requirementsRevisionId: emptyRevisionId,
-        acceptanceCriteriaRevisionId: emptyRevisionId,
+        createdAt: NOW,
+        requirementsRevisionId: itemSetRevision([]),
+        acceptanceCriteriaRevisionId: itemSetRevision([]),
         rootSubjectId: "product",
         subjects: [
           {
@@ -239,62 +211,42 @@ describe("explicit approval", () => {
       testScenarios: [],
       projectSetup: null,
       scaffoldFiles: [],
-      stageInputFingerprints: {},
     });
-    assert.equal(store.boundaryDesign?.status, "draft");
-    assert.equal(store.stageIsApproved(WorkflowStage.BoundaryDesign), false);
+    assert.equal(store.approvalOf("boundary"), "draft");
+    assert.equal(store.stageIsComplete(WorkflowStage.BoundaryDesign), false);
   });
 });
 
-describe("identical-content approval", () => {
-  function storeWithStory(): FlatStore {
-    const store = storeWithOverview();
-    approveOverview(store);
-    store.setUserStories({
-      userStories: [
-        {
-          id: "story-1",
-          content: "As a plant owner, I want watering reminders.",
-          references: [{ id: "feat-1", type: StructuralFragment.PrimaryFeature }],
-        },
-      ],
-    });
-    store.approve("story-1");
-    return store;
-  }
-
+describe("scenario and case approval", () => {
+  /** Every stage through Interface Contracts complete, with current revision bindings. */
   function storeWithContracts(): FlatStore {
-    const store = storeWithStory();
-    store.setRequirements({
-      requirements: [
-        {
-          id: "req-1",
-          content: "The system must remind the owner on the watering due date.",
-          references: [{ id: "story-1", type: StructuralFragment.UserStory }],
-          priority: Priority.P1,
-        },
-      ],
-    });
-    store.approve("req-1");
-    store.setAcceptanceCriteria({
-      acceptanceCriteria: [
-        {
-          id: "ac-1",
-          content: "Given a due date, when it arrives, the owner is notified.",
-          references: [{ id: "req-1", type: StructuralFragment.Requirement }],
-          priority: Priority.P1,
-        },
-      ],
-    });
-    store.approve("ac-1");
+    const store = storeWithOverview();
+    approveStage(store, WorkflowStage.ProductOverview);
+    generate(store, StructuralFragment.UserStory, [{
+      id: "story-1",
+      content: "As a plant owner, I want watering reminders.",
+      references: [{ id: "feat-1", type: StructuralFragment.PrimaryFeature }],
+    }]);
+    approveStage(store, WorkflowStage.UserStories);
+    generate(store, StructuralFragment.Requirement, [{
+      id: "req-1",
+      content: "The system must remind the owner on the watering due date.",
+      references: [{ id: "story-1", type: StructuralFragment.UserStory }],
+    }]);
+    approveStage(store, WorkflowStage.Requirements);
+    generate(store, StructuralFragment.AcceptanceCriteria, [{
+      id: "ac-1",
+      content: "Given a due date, when it arrives, the owner is notified.",
+      references: [{ id: "req-1", type: StructuralFragment.Requirement }],
+    }]);
+    approveStage(store, WorkflowStage.AcceptanceCriteria);
     store.setBoundaryDesign({
       id: "boundary",
       revisionId: "boundary-r1",
       revision: 1,
-      status: "draft",
-      createdAt: "2026-08-13T00:00:00.000Z",
-      requirementsRevisionId: "req-r1",
-      acceptanceCriteriaRevisionId: "ac-r1",
+      createdAt: NOW,
+      requirementsRevisionId: itemSetRevision(store.requirements),
+      acceptanceCriteriaRevisionId: itemSetRevision(store.acceptanceCriteria),
       rootSubjectId: "product",
       subjects: [],
       interfaces: [],
@@ -309,169 +261,176 @@ describe("identical-content approval", () => {
       id: "profile",
       revisionId: "profile-r1",
       revision: 1,
-      status: "approved",
-      createdAt: "2026-08-13T00:00:00.000Z",
+      createdAt: NOW,
       boundaryRevisionId: "boundary-r1",
     } as never);
+    store.approve("profile");
     store.setContractSuite({
       id: "suite",
       revisionId: "suite-r1",
       revision: 1,
-      status: "approved",
-      createdAt: "2026-08-13T00:00:00.000Z",
+      createdAt: NOW,
       boundaryRevisionId: "boundary-r1",
       profileRevisionId: "profile-r1",
-      interfaceContracts: [{ id: "iface-1", status: "approved" }],
-      subjectContracts: [{ id: "subject-1", status: "approved" }],
+      interfaceContracts: [{
+        id: "iface-contract",
+        revisionId: "iface-r1",
+        revision: 1,
+        createdAt: NOW,
+        interfaceId: "iface",
+        boundaryRevisionId: "boundary-r1",
+        profileRevisionId: "profile-r1",
+      }],
+      subjectContracts: [{
+        id: "subject-contract",
+        revisionId: "subject-r1",
+        revision: 1,
+        createdAt: NOW,
+        subjectId: "product",
+        boundaryRevisionId: "boundary-r1",
+        profileRevisionId: "profile-r1",
+        interfaceContractRevisionIds: ["iface-r1"],
+      }],
       verificationContracts: [],
     } as never);
-    assert.equal(store.stageIsApproved(WorkflowStage.InterfaceContracts), true);
+    store.approve("iface-contract");
+    store.approve("subject-contract");
+    assert.equal(store.frontier, WorkflowStage.TestScenarios);
     return store;
   }
 
-  const binding = { scenarioKind: "behavioral" } as never;
+  const binding = {
+    kind: "behavioral" as const,
+    subjectId: "product",
+    interfaceIds: ["iface"],
+    boundaryRevisionId: "boundary-r1",
+    interfaceContractRevisionIds: ["iface-r1"],
+    subjectContractRevisionId: "subject-r1",
+  };
 
-  function scenarioProposal(title: string, id = "scenario-1") {
+  function scenarioProposal(
+    title: string,
+    { description = "Watering overdue path.", criteria = ["ac-1"] } = {},
+  ) {
     return {
-      items: [
-        {
-          key: "a",
-          id,
-          title,
-          description: "Watering overdue path.",
-          priority: "p0" as const,
-          acceptanceCriteriaIds: ["ac-1"],
-          binding,
-          dependencies: [],
-        },
-      ],
+      items: [{
+        key: "a",
+        id: "scenario-1",
+        title,
+        description,
+        priority: "p0" as const,
+        acceptanceCriteriaIds: criteria,
+        binding,
+        dependencies: [],
+      }],
     };
   }
 
-  const caseDefinition = {
-    kind: "behavioral",
-    subjectId: "plant",
-    initialFixture: {},
-  } as never;
+  function caseDefinition(scenarioRevisionId: string, trace: unknown[] = []) {
+    return {
+      kind: "behavioral",
+      scenarioRevisionId,
+      subjectId: "product",
+      initialFixture: {},
+      trace,
+      boundaryRevisionId: "boundary-r1",
+      interfaceContractRevisionIds: ["iface-r1"],
+      subjectContractRevisionId: "subject-r1",
+    } as never;
+  }
 
-  function caseProposal(description: string, scenarioId: string, id = "case-1") {
+  function caseProposal(description: string, scenarioId: string, definition: unknown) {
     return {
       scenarioId,
-      items: [
-        {
-          key: "c",
-          id,
-          title: "Overdue reminder",
-          description,
-          priority: "p0" as const,
-          acceptanceCriteriaIds: [],
-          definition: caseDefinition,
-          dependencies: [],
-        },
-      ],
+      items: [{
+        key: "c",
+        id: "case-1",
+        title: "Overdue reminder",
+        description,
+        priority: "p0" as const,
+        acceptanceCriteriaIds: ["ac-1"],
+        definition: definition as never,
+        dependencies: [],
+      }],
     };
   }
 
-  it("re-approves the overview name when an edit lands back on signed text", () => {
-    const store = storeWithOverview();
-    approveOverview(store);
-    store.setName({ name: "Garden Pal" });
-    assert.equal(store.productOverview.nameApproval, "draft");
-    store.setName({ name: "Plant Pal" });
-    assert.equal(store.productOverview.nameApproval, "approved");
-    assert.equal(store.productOverview.lastSignedName, null);
-  });
-
-  it("re-approves a fragment when a revision lands back on signed text", () => {
-    const store = storeWithStory();
-    store.reviseFragment({
-      entityType: StructuralFragment.UserStory,
-      id: "story-1",
-      patch: { content: "As a plant owner, I want feeding reminders." },
-    });
-    const story = store.userStories[0]!;
-    assert.equal(story.approval, "draft");
-    store.reviseFragment({
-      entityType: StructuralFragment.UserStory,
-      id: "story-1",
-      patch: { content: "As a plant owner, I want watering reminders." },
-    });
-    assert.equal(story.approval, "approved");
-    assert.equal(story.lastSignedContent, null);
-  });
-
-  it("keeps overview approval on an identical submit", () => {
-    const store = storeWithOverview();
-    approveOverview(store);
-    applyProductOverviewProposal(store, {
-      name: "Plant Pal",
-      purpose: "Help people keep houseplants alive.",
-      primaryFeatures: ["feat-1"],
-      targetUsers: ["user-1"],
-    });
-    assert.equal(store.productOverview.nameApproval, "approved");
-    assert.equal(store.productOverview.purposeApproval, "approved");
-    assert.equal(store.stageIsApproved(WorkflowStage.ProductOverview), true);
-  });
+  function storeWithApprovedScenario(): FlatStore {
+    const store = storeWithContracts();
+    applyTestScenarioProposal(store, scenarioProposal("Overdue watering"));
+    store.approve("scenario-1");
+    assert.equal(store.frontier, WorkflowStage.TestCases);
+    return store;
+  }
 
   it("carries scenario approval and revision across an identical rewrite", () => {
-    const store = storeWithContracts();
-    applyTestScenarioProposal(store, scenarioProposal("Overdue watering"));
-    const scenario = store.testScenarios[0]!;
-    store.approve(scenario.id);
-    const revisionId = scenario.revisionId;
-    const fingerprintBefore = testDesignFingerprint(store);
+    const store = storeWithApprovedScenario();
+    const revisionId = store.testScenarios[0]!.revisionId;
     applyTestScenarioProposal(store, scenarioProposal("Overdue watering"));
     assert.equal(store.pendingImpactChange, null);
-    assert.equal(store.testScenarios[0]!.approval, "approved");
-    assert.equal(store.testScenarios[0]!.lastSignedContent, null);
+    assert.equal(store.approvalOf("scenario-1"), "approved");
     assert.equal(store.testScenarios[0]!.revisionId, revisionId);
-    assert.equal(testDesignFingerprint(store), fingerprintBefore);
   });
 
-  it("drafts a changed scenario but re-approves its revert", () => {
-    const store = storeWithContracts();
-    applyTestScenarioProposal(store, scenarioProposal("Overdue watering"));
-    const scenario = store.testScenarios[0]!;
-    store.approve(scenario.id);
+  it("drafts a changed scenario and restores its signed version", () => {
+    const store = storeWithApprovedScenario();
+    const revisionId = store.testScenarios[0]!.revisionId;
     applyTestScenarioProposal(store, scenarioProposal("Missed watering"));
-    store.applyPendingImpactChange();
-    assert.equal(store.testScenarios[0]!.approval, "draft");
-    assert.equal(store.testScenarios[0]!.lastSignedContent, "Overdue watering");
-    applyTestScenarioProposal(store, scenarioProposal("Overdue watering"));
-    store.applyPendingImpactChange();
-    assert.equal(store.testScenarios[0]!.approval, "approved");
-    assert.equal(store.testScenarios[0]!.lastSignedContent, null);
+    assert.equal(store.approvalOf("scenario-1"), "draft");
+    assert.notEqual(store.testScenarios[0]!.revisionId, revisionId);
+    assert.equal(store.signedTextOf("scenario-1"), "Overdue watering");
+    store.restoreSigned("scenario-1");
+    assert.equal(store.approvalOf("scenario-1"), "approved");
+    assert.equal(store.testScenarios[0]!.revisionId, revisionId);
+  });
+
+  it("drafts a scenario whose description changed under the signed title", () => {
+    const store = storeWithApprovedScenario();
+    applyTestScenarioProposal(
+      store,
+      scenarioProposal("Overdue watering", { description: "Something entirely different." }),
+    );
+    assert.equal(store.approvalOf("scenario-1"), "draft");
   });
 
   it("carries case approval and generated status across an identical rewrite", () => {
-    const store = storeWithContracts();
-    applyTestScenarioProposal(store, scenarioProposal("Overdue watering"));
+    const store = storeWithApprovedScenario();
     const scenario = store.testScenarios[0]!;
-    store.approve(scenario.id);
-    applyTestCaseProposal(store, caseProposal("Reminder shows.", scenario.id));
+    const definition = caseDefinition(scenario.revisionId);
+    applyTestCaseProposal(store, caseProposal("Reminder shows.", scenario.id, definition));
     const testCase = scenario.testCases[0]!;
     store.approve(testCase.id);
     testCase.markGenerated(testCase.inputFingerprint!);
-    assert.equal(testCase.testStatus, "generated");
-    applyTestCaseProposal(store, caseProposal("Reminder shows.", scenario.id));
+    applyTestCaseProposal(store, caseProposal("Reminder shows.", scenario.id, definition));
     assert.equal(store.pendingImpactChange, null);
-    assert.equal(scenario.testCases[0]!.approval, "approved");
+    assert.equal(store.approvalOf("case-1"), "approved");
     assert.equal(scenario.testCases[0]!.testStatus, "generated");
   });
 
-  it("marks a changed case out of sync instead of silently keeping it", () => {
-    const store = storeWithContracts();
-    applyTestScenarioProposal(store, scenarioProposal("Overdue watering"));
+  it("drafts a case whose definition changed under the signed description", () => {
+    const store = storeWithApprovedScenario();
     const scenario = store.testScenarios[0]!;
-    store.approve(scenario.id);
-    applyTestCaseProposal(store, caseProposal("Reminder shows.", scenario.id));
+    applyTestCaseProposal(
+      store,
+      caseProposal("Reminder shows.", scenario.id, caseDefinition(scenario.revisionId)),
+    );
     const testCase = scenario.testCases[0]!;
     store.approve(testCase.id);
     testCase.markGenerated(testCase.inputFingerprint!);
-    applyTestCaseProposal(store, caseProposal("Reminder flashes.", scenario.id));
+    const revisionId = testCase.revisionId;
+    applyTestCaseProposal(
+      store,
+      caseProposal(
+        "Reminder shows.",
+        scenario.id,
+        caseDefinition(scenario.revisionId, [{ kind: "input", alias: "tick" }]),
+      ),
+    );
+    // Its generated test is later work: the change waits for confirmation.
+    assert.deepEqual(store.pendingImpactChange?.affectedSteps, [WorkflowStage.AutomatedTests]);
     store.applyPendingImpactChange();
-    assert.equal(scenario.testCases[0]!.approval, "draft");
+    assert.equal(store.approvalOf("case-1"), "draft");
+    assert.notEqual(scenario.testCases[0]!.revisionId, revisionId);
     assert.equal(scenario.testCases[0]!.testStatus, "out-of-sync");
   });
 });

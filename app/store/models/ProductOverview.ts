@@ -1,6 +1,6 @@
 import { cast, Instance, SnapshotIn, types } from "mobx-state-tree";
 
-import type { ApprovalStatus } from "contract-domain";
+import type { ApprovalRecord, ModelVerdict } from "contract-domain";
 import {
   StructuralFragment,
 } from "store/constants";
@@ -27,66 +27,21 @@ export const ProductOverviewModel = types
   .model("ProductOverview", {
     name: types.maybeNull(types.string),
     purpose: types.maybeNull(types.string),
-    nameApproval: types.optional(
-      types.enumeration<ApprovalStatus>(["draft", "approved"]),
-      "draft",
-    ),
-    purposeApproval: types.optional(
-      types.enumeration<ApprovalStatus>(["draft", "approved"]),
-      "draft",
-    ),
-    lastSignedName: types.optional(types.maybeNull(types.string), null),
-    lastSignedPurpose: types.optional(types.maybeNull(types.string), null),
+    nameApproval: types.optional(types.maybeNull(types.frozen<ApprovalRecord>()), null),
+    purposeApproval: types.optional(types.maybeNull(types.frozen<ApprovalRecord>()), null),
+    nameVerdict: types.optional(types.maybeNull(types.frozen<ModelVerdict>()), null),
+    purposeVerdict: types.optional(types.maybeNull(types.frozen<ModelVerdict>()), null),
     primaryFeatures: types.array(PrimaryFeatureModel),
     targetUsers: types.array(TargetUserModel),
   })
-  .preProcessSnapshot((snapshot) => {
-    if (snapshot == null || typeof snapshot !== "object") return snapshot;
-    const record = snapshot as Record<string, unknown>;
-    const {
-      nameQuality: _nameQuality,
-      purposeQuality: _purposeQuality,
-      nameIssues: _nameIssues,
-      purposeIssues: _purposeIssues,
-      ...rest
-    } = record;
-    return rest as typeof snapshot;
-  })
   .actions((self) => ({
-    uncheckName() {
-      if (self.nameApproval === "draft") return;
-      self.lastSignedName = self.name;
-      self.nameApproval = "draft";
+    setFieldApproval(field: "name" | "purpose", approval: ApprovalRecord | null) {
+      if (field === "name") self.nameApproval = approval;
+      else self.purposeApproval = approval;
     },
-    uncheckPurpose() {
-      if (self.purposeApproval === "draft") return;
-      self.lastSignedPurpose = self.purpose;
-      self.purposeApproval = "draft";
-    },
-    approveName() {
-      self.nameApproval = "approved";
-      self.lastSignedName = null;
-    },
-    approvePurpose() {
-      self.purposeApproval = "approved";
-      self.lastSignedPurpose = null;
-    },
-    // An edit landing back on the last approved text restores approval:
-    // there is nothing left to review.
-    reapproveNameIfMatchesSigned() {
-      if (self.lastSignedName != null && self.name === self.lastSignedName) {
-        self.nameApproval = "approved";
-        self.lastSignedName = null;
-      }
-    },
-    reapprovePurposeIfMatchesSigned() {
-      if (
-        self.lastSignedPurpose != null &&
-        self.purpose === self.lastSignedPurpose
-      ) {
-        self.purposeApproval = "approved";
-        self.lastSignedPurpose = null;
-      }
+    setFieldVerdict(field: "name" | "purpose", verdict: ModelVerdict | null) {
+      if (field === "name") self.nameVerdict = verdict;
+      else self.purposeVerdict = verdict;
     },
     setPrimaryFeatures({
       primaryFeatures,

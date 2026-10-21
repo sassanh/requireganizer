@@ -226,10 +226,10 @@ describe("presentation sequencer", () => {
   it("presents approve through the sequencer", () => {
     const { real, shown } = attachPair();
     real.setName({ name: "Acme" });
-    assert.equal(shown.productOverview.nameApproval, "draft");
+    assert.equal(shown.approvalOf("productOverview/name"), "draft");
     real.approve("productOverview/name");
-    assert.equal(real.productOverview.nameApproval, "approved");
-    assert.equal(shown.productOverview.nameApproval, "approved");
+    assert.equal(real.approvalOf("productOverview/name"), "approved");
+    assert.equal(shown.approvalOf("productOverview/name"), "approved");
     assert.equal(isPresenting(), true);
     const tick = getPresentationTick();
     claim(tick);

@@ -11,7 +11,7 @@ import {
 } from "components/membershipPresentation";
 import { useTestScenariosPresentation } from "components/TestScenarioList";
 import { useShownStore } from "presentation";
-import { useStore } from "store";
+import { useStore, WorkflowStage } from "store";
 import type { TestCase, TestScenario } from "store/models";
 
 const TestCaseRows = observer(function TestCaseRows({
@@ -91,7 +91,7 @@ function TestCaseRow({
         <GenerationButton
           size="small"
           variant="outlined"
-          disabled={busy || testCase.approval !== "approved"}
+          disabled={busy || !store.stageIsEditable(WorkflowStage.AutomatedTests)}
           onGenerate={() => {
             const realScenario = store.testScenarios.find(
               (entry) => entry.id === scenario.id,

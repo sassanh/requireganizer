@@ -1,7 +1,7 @@
 import type { Model } from "@earendil-works/pi-ai";
 
 export const ZEN_BASE_URL = "https://opencode.ai/zen/v1";
-export const ZEN_MODEL_ID = "muse-spark-1.3-contributor-free";
+export const ZEN_MODEL_ID = "nvidia/nemotron-3-ultra-550b-a55b:free";
 
 /**
  * The OpenCode Zen gateway model definition for the pi agent runtime.
@@ -34,3 +34,14 @@ export const zenGatewayModel: Model<"openai-responses"> = {
     sessionAffinityFormat: "openai-nosession",
   },
 };
+
+/**
+ * The reviewer model, configured separately from the writer through
+ * NEXT_PUBLIC_AI_REVIEWER_MODEL: a model id served by the same gateway and
+ * API. Without it there is no model verdict and auto review is unavailable.
+ */
+export const reviewerModel: Model<"openai-responses"> | null = (() => {
+  const id = process.env.NEXT_PUBLIC_AI_REVIEWER_MODEL?.trim();
+  if (id == null || id.length === 0) return null;
+  return { ...zenGatewayModel, id, name: id };
+})();

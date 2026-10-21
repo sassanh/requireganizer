@@ -20,7 +20,7 @@ export type ProjectSnapshot = {
   testScenarios: unknown[];
   projectSetup: unknown;
   scaffoldFiles: unknown[];
-  stageInputFingerprints: unknown;
+  review: unknown;
   conversation: unknown[];
   // Ephemeral fields the timeline excludes; preserved across restores.
   // `isClean` is bookkeeping flipped by undeclared side paths (imports,
@@ -46,7 +46,7 @@ export type StateTree = {
   testScenarios: Hash[];
   projectSetup: Hash | null;
   scaffoldFiles: Hash[];
-  stageInputFingerprints: Hash;
+  review: Hash;
   conversation: Hash[];
 };
 
@@ -90,18 +90,6 @@ function resolveArtifact(hash: Hash | null): unknown {
   return JSON.parse(json);
 }
 
-/**
- * The non-throwing read end of the content store: recorded hashes from
- * older formats resolve to nothing instead of failing, so callers fall
- * back to generic wording.
- */
-export function tryResolveArtifact(hash: Hash | null): unknown {
-  if (hash == null) return null;
-  const json = artifactStore.get(hash);
-  if (json == null) return null;
-  return JSON.parse(json) as unknown;
-}
-
 /** Mark-and-sweep: drop artifacts unreachable from the surviving nodes. */
 export function collectArtifactGarbage(
   states: readonly StateTree[],
@@ -121,20 +109,6 @@ export function collectArtifactGarbage(
     }
   };
   states.forEach((state) => visit(state));
-  // Stage input snapshots live one level deeper: each state's recorded
-  // fingerprints map names them, so resolve the map and keep every input
-  // it still names. Without this the sweep below would delete exactly the
-  // old content a refresh needs to describe.
-  for (const state of states) {
-    const recorded = tryResolveArtifact(state.stageInputFingerprints);
-    if (recorded != null && typeof recorded === "object" && !Array.isArray(recorded)) {
-      for (const hash of Object.values(recorded)) {
-        if (typeof hash === "string" && artifactStore.has(hash)) {
-          reachable.add(hash);
-        }
-      }
-    }
-  }
   for (const hash of artifactStore.keys()) {
     if (!reachable.has(hash)) artifactStore.delete(hash);
   }
@@ -172,7 +146,7 @@ export function captureState(snapshot: ProjectSnapshot): StateTree {
       ? null
       : putArtifact(snapshot.projectSetup),
     scaffoldFiles: hashArray(snapshot.scaffoldFiles),
-    stageInputFingerprints: putArtifact(snapshot.stageInputFingerprints),
+    review: putArtifact(snapshot.review),
     conversation: hashArray(snapshot.conversation),
   };
 }
@@ -202,7 +176,7 @@ export function resolveStateValues(state: StateTree): ResolvedState {
     testScenarios: state.testScenarios.map(resolveArtifact),
     projectSetup: resolveArtifact(state.projectSetup),
     scaffoldFiles: state.scaffoldFiles.map(resolveArtifact),
-    stageInputFingerprints: resolveArtifact(state.stageInputFingerprints),
+    review: resolveArtifact(state.review),
     conversation: state.conversation.map(resolveArtifact),
   };
 }
@@ -229,9 +203,15 @@ export function artifactCount(): number {
   return artifactStore.size;
 }
 
+/**
+ * Version of a persisted timeline. Stored histories of another version
+ * hold states of another project shape and start fresh instead.
+ */
+export const TIMELINE_VERSION = 3 as const;
+
 /** The persisted form of the conversation tree + the artifact store. */
 export type PersistedTimeline = {
-  version: 2;
+  version: typeof TIMELINE_VERSION;
   rootId: string;
   activeLeafId: string;
   nodes: unknown[];
@@ -242,7 +222,7 @@ export function exportTimelineData(
   payload: Omit<PersistedTimeline, "version" | "artifacts">,
 ): PersistedTimeline {
   return {
-    version: 2,
+    version: TIMELINE_VERSION,
     ...payload,
     artifacts: [...artifactStore.entries()],
   };

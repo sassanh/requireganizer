@@ -7,7 +7,7 @@ Requireganizer is a Next.js application with a MobX State Tree project model, an
 | Boundary | Responsibility |
 | --- | --- |
 | Screens and components | Review and edit artifacts, show statuses and impact, issue conversation commands. |
-| Project store | Own schema-v2 artifacts, exact revision bindings, fingerprints, the conversation transcript, virtual files, import/export, and atomic state transitions. |
+| Project store | Own schema-v4 module registries and per-module artifacts, exact revision bindings, the review gate (approvals, verdicts, bases, the frontier), the conversation transcript, virtual files, import/export, and atomic state transitions. |
 | Contract domain | Define boundary, formal-contract, structured-test, setup types and authoritative validation. |
 | AI agent (`app/ai-agent/`) | Run a continuous pi-agent conversation: one system prompt, short structured commands per user action, artifact reads through tools, and validated result tools that apply proposals. |
 | AI proxy (`app/api/ai/proxy`) | Stream LLM requests to the OpenCode Zen gateway with the server-held credential; never expose keys to the browser. |

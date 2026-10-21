@@ -87,7 +87,8 @@ const ModuleSection: React.FunctionComponent<PDFModuleSection> = ({
       <View style={styles.section}>
         <Text style={styles.title}>Implementation Profile</Text>
         <Text style={styles.item}>
-          {store.implementationProfile == null || store.implementationProfile.status !== "approved"
+          {store.implementationProfile == null ||
+          store.approvalOf(store.implementationProfile.id) !== "approved"
             ? "Not approved"
             : `${store.implementationProfile.language} - ${store.implementationProfile.framework}`}
         </Text>

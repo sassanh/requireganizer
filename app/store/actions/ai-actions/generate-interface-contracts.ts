@@ -11,7 +11,7 @@ import {
 export default generator(
   function* generateInterfaceContracts(self, hint?: string) {
     const { runAgentCommand } = yield* toGenerator(import("ai-agent/agent"));
-    if (self.implementationProfile.status !== "approved") {
+    if (self.approvalOf(self.implementationProfile.id) !== "approved") {
       throw new UserFacingError(
         "Approve the Implementation Profile before generating interface contracts.",
       );

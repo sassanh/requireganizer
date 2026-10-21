@@ -38,7 +38,7 @@ export function stepForSubject(subject: string): WorkflowStage | null {
  */
 export function isPresentableSubject(subject: string): boolean {
   return (
-    subject !== "stageInputFingerprints" &&
-    !subject.startsWith("stageInputFingerprints/")
+    subject !== "review" &&
+    !subject.startsWith("review/")
   );
 }

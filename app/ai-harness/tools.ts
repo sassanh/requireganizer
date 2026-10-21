@@ -5,6 +5,8 @@ import {
   getExistingTargetIds,
 } from "ai-harness/validation";
 import {
+  contractSuiteQualityContracts,
+  QUALITY_CONTRACTS,
   qualityContractForFragment,
   qualityContractForStage,
   withQualityContract,
@@ -380,8 +382,10 @@ export function buildBoundaryDesignTool({
   );
   return {
     name: "submit_boundary_design",
-    description:
+    description: withQualityContract(
       "Submit the complete semantic test-subject, interface, interaction, verification, and coverage graph.",
+      qualityContractForStage(WorkflowStage.BoundaryDesign),
+    ),
     parameters: objectSchema(
       {
         rootSubjectId: identifierSchema("The ID of the root product subject."),
@@ -568,7 +572,10 @@ export function buildBoundaryDesignTool({
 export function buildImplementationProfileTool(): HarnessToolDefinition {
   return {
     name: "submit_implementation_profile",
-    description: "Submit the complete open-ended implementation and test ecosystem profile.",
+    description: withQualityContract(
+      "Submit the complete open-ended implementation and test ecosystem profile.",
+      QUALITY_CONTRACTS["implementation-profile"],
+    ),
     parameters: objectSchema(
       {
         platform: nonEmptyString("Target platform and operating environment."),
@@ -650,8 +657,10 @@ export function buildContractSuiteTool(design: BoundaryDesign): HarnessToolDefin
   const obligationIds = design.verificationObligations.map(({ id }) => id);
   return {
     name: "submit_interface_contract_suite",
-    description:
+    description: contractSuiteQualityContracts().reduce(
+      (description, contract) => withQualityContract(description, contract),
       "Submit all per-interface adapter/formal/index bundles, subject protocol/harness bundles, and verification contracts.",
+    ),
     parameters: objectSchema(
       {
         interfaceContracts: {
@@ -911,7 +920,10 @@ export function buildTestScenarioListTool(
 ): HarnessToolDefinition {
   return {
     name: "submit_test_scenario_list",
-    description: "Submit the complete typed behavioral and verification scenario list.",
+    description: withQualityContract(
+      "Submit the complete typed behavioral and verification scenario list.",
+      qualityContractForStage(WorkflowStage.TestScenarios),
+    ),
     parameters: objectSchema(
       {
         items: {
@@ -1107,7 +1119,10 @@ export function buildTestCaseListTool({
         );
   return {
     name: "submit_test_case_list",
-    description: "Submit the complete structured test-case list for one bound scenario.",
+    description: withQualityContract(
+      "Submit the complete structured test-case list for one bound scenario.",
+      qualityContractForStage(WorkflowStage.TestCases),
+    ),
     parameters: objectSchema(
       {
         items: {
@@ -1170,8 +1185,10 @@ export function buildProjectSetupTool({
 }): HarnessToolDefinition {
   return {
     name: "submit_project_setup",
-    description:
+    description: withQualityContract(
       "Submit the complete build configuration, scaffold manifest, and minimal contract-bearing virtual filesystem.",
+      qualityContractForStage(WorkflowStage.ProjectSetup),
+    ),
     parameters: objectSchema(
       {
         boundaryRevisionId: { type: "string", enum: [design.revisionId] },

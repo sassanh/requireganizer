@@ -2,57 +2,44 @@ import { toGenerator } from "mobx-state-tree";
 
 import type { CommandStage } from "ai-agent/command";
 import { UserFacingError } from "lib/errors";
-import { Status, WORKFLOW_STAGE_LABELS, WorkflowStage } from "store/constants";
+import { WORKFLOW_STAGE_LABELS, WorkflowStage } from "store/constants";
+import { summarizeInputChanges, type InputChange } from "store/stageInputDiff";
 
 import { generator } from "./utilities";
 
 /**
- * The task comment for a stale-stage refresh, the single place that tells
- * the model what changed and how to touch it. The full-list tools already
- * accept bare ids for untouched items; the comment points at the upstream
- * change and orders minimal edits, so unaffected items resubmit
- * byte-identical and keep their approvals. The change list comes from the
- * store's recorded inputs; an empty list keeps the generic wording. Both
- * input versions travel in the comment so the model never fetches them.
+ * The task comment for a refresh, the single place that tells the model
+ * what changed and what it must regenerate. The full-list tools accept
+ * bare ids for kept items. Every regenerated item returns to draft, kept
+ * or changed; items the change did not reach through their references are
+ * confirmed separately by impact approval, so the comment never promises
+ * that anything keeps its approval.
  */
 export function buildRefreshComment(
   stage: WorkflowStage,
   hint?: string,
-  changes: string[] = [],
-  versions: { previous: unknown; current: unknown } | null = null,
+  changes: readonly InputChange[] = [],
+  outdatedCodes: readonly string[] = [],
 ): string {
   const label = WORKFLOW_STAGE_LABELS[stage];
+  const outdated = outdatedCodes.length === 0
+    ? ""
+    : ` Reconsider each outdated item (${outdatedCodes.join(", ")}) against its changed inputs; keep it word for word when the change does not affect it.`;
   const task =
     `The inputs of ${label} changed since it was generated. ` +
     `Bring ${label} in line with the current inputs: resubmit the complete set, ` +
-    `keeping every unaffected item byte-identical, and patch, add, or remove ` +
-    `only what the upstream change requires.`;
-  const listed = changes
-    .map((change) => change.trim())
-    .filter((change) => change.length > 0)
-    .map((change) => `- ${change}`)
-    .join("\n");
+    `and patch, add, or remove only what the upstream change requires.${outdated}`;
+  const listed = summarizeInputChanges(changes).map((line) => `- ${line}`).join("\n");
   const withChanges = listed === "" ? task : `${task} Upstream changes:\n${listed}`;
-  const withVersions = versions == null
-    ? withChanges
-    : `${withChanges}\nPrevious inputs: ${JSON.stringify(versions.previous)}\nCurrent inputs: ${JSON.stringify(versions.current)}`;
-  return hint != null && hint.trim().length > 0 ? `${withVersions} ${hint.trim()}` : withVersions;
+  return hint != null && hint.trim().length > 0 ? `${withChanges} ${hint.trim()}` : withChanges;
 }
 
 export default generator(
   function* (self, step: WorkflowStage, hint?: string) {
     if (step === WorkflowStage.Code) return;
     const label = self.stageLabel(step);
-    if (self.getStepStatus(step) === Status.Pending) {
-      throw new UserFacingError(
-        `${label} has not been generated yet; generate it first.`,
-      );
-    }
-    if (self.stageIsLocked(step)) {
-      const blocker = self.firstPendingPredecessor(step) ?? step;
-      throw new UserFacingError(
-        `Complete ${self.stageLabel(blocker)} before refreshing ${label}.`,
-      );
+    if (!self.canRefreshStep(step)) {
+      throw new UserFacingError(`${label} has nothing outdated to refresh.`);
     }
     const { runAgentCommand } = yield* toGenerator(import("ai-agent/agent"));
     yield* toGenerator(runAgentCommand(self, `refresh ${label}`, {
@@ -61,8 +48,8 @@ export default generator(
       comment: buildRefreshComment(
         step,
         hint,
-        self.stageInputChanges(step),
-        self.stageInputVersions(step),
+        self.inputChanges(step),
+        self.outdatedItemIds(step).map((id) => self.getCode(id) ?? id),
       ),
     }));
   },

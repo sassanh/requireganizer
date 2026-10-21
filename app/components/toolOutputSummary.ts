@@ -37,6 +37,10 @@ function summarizeToolOutput(
       return describeStageArtifacts(parsed as Record<string, unknown>, text);
     case "get_workflow_state":
       return "Read the workflow state.";
+    case "get_input_changes":
+      return Array.isArray(parsed)
+        ? `Read ${parsed.length} changed input${parsed.length === 1 ? "" : "s"}.`
+        : describeUnknownPayload(text);
     case "get_scaffold_files":
       return describeScaffoldFiles(parsed);
     default:

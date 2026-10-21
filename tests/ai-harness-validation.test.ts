@@ -280,12 +280,11 @@ const behavioralBinding = {
 const contracts = {
   boundaryRevisionId: "boundary-r1",
   interfaceContracts: [{
-    status: "approved",
     revisionId: "interface-r1",
     interfaceId: "api",
     adapter: { id: "calc-adapter", version: "1.0.0" },
   }],
-  subjectContracts: [{ status: "approved", revisionId: "subject-r1", subjectId: "calculator" }],
+  subjectContracts: [{ revisionId: "subject-r1", subjectId: "calculator" }],
   verificationContracts: [],
 };
 
@@ -421,20 +420,7 @@ describe("test-code request parsing", () => {
         ...validTestCodeRequest(),
         contracts: {
           ...contracts,
-          interfaceContracts: [{
-            ...contracts.interfaceContracts[0],
-            status: "draft",
-          }],
-        },
-      })),
-      /must be approved/,
-    );
-    assert.match(
-      parseError(() => parseTestCodeRequest({
-        ...validTestCodeRequest(),
-        contracts: {
-          ...contracts,
-          subjectContracts: [{ status: "approved", revisionId: "subject-r1", subjectId: "clock" }],
+          subjectContracts: [{ revisionId: "subject-r1", subjectId: "clock" }],
         },
       })),
       /do not exactly match the behavioral scenario binding/,
@@ -442,7 +428,7 @@ describe("test-code request parsing", () => {
     assert.match(
       parseError(() => parseTestCodeRequest({
         ...validTestCodeRequest(),
-        contracts: { ...contracts, verificationContracts: [{ status: "approved", revisionId: "v-1", verificationObligationId: "vo-1" }] },
+        contracts: { ...contracts, verificationContracts: [{ revisionId: "v-1", verificationObligationId: "vo-1" }] },
       })),
       /do not exactly match the behavioral scenario binding/,
     );
