@@ -11,6 +11,7 @@ import {
 } from "mobx-state-tree";
 import { createContext, useContext } from "react";
 
+import { reviewerModel } from "ai-agent/model";
 import { hydrateConversationThinking } from "ai-agent/thinking";
 import type {
   ArtifactListProposal,
@@ -24,8 +25,14 @@ import {
   type PersistedArtifactItem,
 } from "ai-harness/reconciliation";
 import {
+  type ApprovalRecord,
   type ApprovalStatus,
   type BoundaryDesign,
+  type JsonValue,
+  type ModelVerdict,
+  type RevisionMetadata,
+  type Reviewer,
+  type VerdictDecision,
   type ContractSuite,
   type ImplementationProfile,
   type ProjectSetup,
@@ -64,12 +71,12 @@ import {
   import as import_,
   refreshStage,
   requestStageChange,
+  reviewStage,
   reviseFormalContract,
   sendConversationMessage,
   regenerateLastReply,
 } from "./actions";
 import { hasPendingRetry, takePendingRetry } from "./actions/ai-actions/utilities";
-import { asApprovedRevision, asDraftRevision, isApproved } from "./approval";
 import {
   GENERATION_PREREQUISITE_BY_WORKFLOW_STAGE,
   GENERATOR_ACTION_BY_WORKFLOW_STAGE,
@@ -85,6 +92,7 @@ import {
   refreshGuidance,
   type GeneratorActionName,
   StructuralFragment as StructuralFragmentName,
+  isAfter,
   isBefore,
 } from "./constants";
 import {
@@ -121,13 +129,33 @@ import {
   TargetUser,
   TargetUserModel,
 } from "./models/ProductOverview";
-import { summarizeStageInputChange } from "./stageInputDiff";
-import { declareTimelineStep } from "./timeline/controller";
+import type { ReferenceData } from "./models/StructuralFragment";
 import {
-  hashArtifact,
-  putArtifact,
-  tryResolveArtifact,
-} from "./timeline/serialize";
+  COVERAGE_STAGE_BY_PARENT_TYPE,
+  COVERAGE_STAGES,
+  EMPTY_REVIEW_BOOK,
+  IMPACT_STAGES,
+  MISSING_REVISION,
+  PERSON,
+  PROGRESS_STAGES,
+  type ReviewBook,
+  type ReviewMode,
+  type ReviewUnit,
+  STAGE_INPUTS,
+  type StandaloneReview,
+  approvalRecord,
+  checkedHash,
+  coverageParentId,
+  coverageUnitId,
+  holds,
+  impactStage,
+  impactUnitId,
+  itemSetRevision,
+  proseRevision,
+  revisionListing,
+  signedText,
+} from "./review";
+import { declareTimelineStep } from "./timeline/controller";
 import { withSelf } from "./utilities";
 
 export { MODULE_SCHEMA_VERSION, PROJECT_SCHEMA_VERSION } from "lib/projectSchema";
@@ -156,8 +184,9 @@ export interface TestScenarioSnapshotInput {
   binding: TestScenarioBinding;
   revisionId: string;
   revision: number;
-  approval?: ApprovalStatus;
-  lastSignedContent?: string | null;
+  approval?: ApprovalRecord | null;
+  verdict?: ModelVerdict | null;
+  basis: Record<string, string> | null;
   testCases?: SnapshotIn<TestCase>[];
 }
 
@@ -171,8 +200,9 @@ export interface TestCaseSnapshotInput {
   definition: TestCaseDefinition;
   revisionId: string;
   revision: number;
-  approval?: ApprovalStatus;
-  lastSignedContent?: string | null;
+  approval?: ApprovalRecord | null;
+  verdict?: ModelVerdict | null;
+  basis: Record<string, string> | null;
   generatedInputFingerprint?: string | null;
 }
 
@@ -253,16 +283,11 @@ function createFragment(
   }
 }
 
-interface WorkflowInputSource {
-  productOverview: unknown;
-  userStories: readonly unknown[];
-  requirements: readonly unknown[];
-  acceptanceCriteria: readonly unknown[];
+interface TestDesignSource {
   boundaryDesign: BoundaryDesign | null;
   implementationProfile: ImplementationProfile | null;
   contractSuite: ContractSuite | null;
   testScenarios: readonly TestScenario[];
-  projectSetup: ProjectSetup | null;
 }
 
 function scenarioDesign(scenarios: readonly TestScenario[]) {
@@ -290,75 +315,7 @@ function scenarioDesign(scenarios: readonly TestScenario[]) {
   }));
 }
 
-const NON_INPUT_FINGERPRINT_KEYS = new Set([
-  "quality",
-  "qualityIssues",
-  "nameQuality",
-  "purposeQuality",
-  "nameIssues",
-  "purposeIssues",
-  "approval",
-  "nameApproval",
-  "purposeApproval",
-  "lastSignedContent",
-  "lastSignedName",
-  "lastSignedPurpose",
-  "pendingRemoval",
-  "status",
-  "approvedAt",
-]);
-
-function omitNonInputFields(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(omitNonInputFields);
-  if (value == null || typeof value !== "object") return value;
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>)
-      .filter(([key]) => !NON_INPUT_FINGERPRINT_KEYS.has(key))
-      .map(([key, item]) => [key, omitNonInputFields(item)]),
-  );
-}
-
-export function buildWorkflowInput(
-  source: WorkflowInputSource,
-  step: WorkflowStage,
-): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
-  if (step === WorkflowStage.ProductOverview) return result;
-  result.productOverview = omitNonInputFields(source.productOverview);
-  if (step === WorkflowStage.UserStories) return result;
-  result.userStories = omitNonInputFields(source.userStories);
-  if (step === WorkflowStage.Requirements) return result;
-  result.requirements = omitNonInputFields(source.requirements);
-  if (step === WorkflowStage.AcceptanceCriteria) return result;
-  result.acceptanceCriteria = omitNonInputFields(source.acceptanceCriteria);
-  if (step === WorkflowStage.BoundaryDesign) return result;
-  result.boundaryDesign = omitNonInputFields(source.boundaryDesign);
-  if (step === WorkflowStage.InterfaceContracts) return result;
-  result.implementationProfile = omitNonInputFields(source.implementationProfile);
-  result.contractSuite = omitNonInputFields(source.contractSuite);
-  if (step === WorkflowStage.TestScenarios) return result;
-  result.testScenarios = scenarioDesign(source.testScenarios).map(
-    ({ testCases: _testCases, ...scenario }) => scenario,
-  );
-  if (step === WorkflowStage.TestCases) return result;
-  result.testScenarios = scenarioDesign(source.testScenarios);
-  if (step === WorkflowStage.ProjectSetup) return result;
-  result.projectSetup = omitNonInputFields(source.projectSetup);
-  return result;
-}
-
-/**
- * The hash of the inputs a stage was generated from. The value is a link,
- * not just a checksum: recording writes the built inputs into the shared
- * content store, so the same hash later resolves the old content for the
- * refresh instruction. Hashes recorded before this link existed resolve
- * to nothing, and those stages fall back to generic wording.
- */
-export function stageInputHash(source: WorkflowInputSource, step: WorkflowStage) {
-  return hashArtifact(buildWorkflowInput(source, step));
-}
-
-export function testDesignFingerprint(source: WorkflowInputSource): string {
+export function testDesignFingerprint(source: TestDesignSource): string {
   return fingerprint({
     boundaryRevisionId: source.boundaryDesign?.revisionId,
     profileRevisionId: source.implementationProfile?.revisionId,
@@ -425,7 +382,7 @@ export const FlatStore = types
     testScenarios: types.array(TestScenarioModel),
     projectSetup: types.maybeNull(types.frozen<ProjectSetup>()),
     scaffoldFiles: types.array(ScaffoldFileModel),
-    stageInputFingerprints: types.map(types.string),
+    review: types.optional(types.frozen<ReviewBook>(), EMPTY_REVIEW_BOOK),
     stageListChanges: types.map(types.frozen<ListChange>()),
     systemMessage: types.maybeNull(types.string),
     conversation: types.optional(types.frozen<unknown[]>(), []),
@@ -481,7 +438,7 @@ export const FlatStore = types
       self.testScenarios = cast([]);
       self.projectSetup = null;
       self.scaffoldFiles = cast([]);
-      self.stageInputFingerprints.clear();
+      self.review = EMPTY_REVIEW_BOOK;
       self.stageListChanges.clear();
       self.systemMessage = null;
       self.pendingImpactChange = null;
@@ -582,9 +539,6 @@ export const FlatStore = types
       self.pendingImpactChange = null;
       applySnapshot(self, snapshot as SnapshotIn<typeof FlatStore>);
     },
-    markStageGenerated(step: WorkflowStage) {
-      self.stageInputFingerprints.set(step, putArtifact(buildWorkflowInput(self, step)));
-    },
     setScaffoldFiles(files: { path: string; content: string }[]) {
       self.scaffoldFiles = cast(parseScaffoldFiles(files));
     },
@@ -644,16 +598,10 @@ export const FlatStore = types
       }
     },
     setName({ name }: { name: string }) {
-      if (self.productOverview.name === name) return;
-      self.productOverview.uncheckName();
       self.productOverview.name = name;
-      self.productOverview.reapproveNameIfMatchesSigned();
     },
     setPurpose({ purpose }: { purpose: string }) {
-      if (self.productOverview.purpose === purpose) return;
-      self.productOverview.uncheckPurpose();
       self.productOverview.purpose = purpose;
-      self.productOverview.reapprovePurposeIfMatchesSigned();
     },
     // Revision 0 provenance is one-time: later generates never overwrite it.
     setOverviewSeed({ seed }: { seed: string }) {
@@ -708,53 +656,8 @@ export const FlatStore = types
     setBoundaryDesign(design: BoundaryDesign) {
       self.boundaryDesign = cast(design);
     },
-    updateBoundaryText(
-      collection: "subjects" | "interfaces" | "interactions" | "verificationObligations",
-      id: string,
-      field: string,
-      value: string,
-    ) {
-      if (self.boundaryDesign == null) return;
-      self.boundaryDesign = cast(asDraftRevision({
-        ...self.boundaryDesign,
-        [collection]: self.boundaryDesign[collection].map((item) =>
-          item.id === id ? { ...item, [field]: value } : item,
-        ),
-      }));
-    },
     setImplementationProfile(profile: ImplementationProfile) {
       self.implementationProfile = cast(profile);
-    },
-    updateImplementationProfile(
-      field:
-        | "platform"
-        | "runtime"
-        | "language"
-        | "framework"
-        | "moduleSystem"
-        | "buildEcosystem"
-        | "testEcosystem",
-      value: string,
-    ) {
-      if (self.implementationProfile == null) {
-        return;
-      }
-      self.implementationProfile = cast(asDraftRevision({
-        ...self.implementationProfile,
-        [field]: value,
-      }));
-    },
-    updateImplementationProfileConstraints(value: string) {
-      if (self.implementationProfile == null) {
-        return;
-      }
-      self.implementationProfile = cast(asDraftRevision({
-        ...self.implementationProfile,
-        constraints: value
-          .split(/\r?\n/)
-          .map((item) => item.trim())
-          .filter(Boolean),
-      }));
     },
     setContractSuite(suite: ContractSuite) {
       self.contractSuite = cast(suite);
@@ -772,8 +675,9 @@ export const FlatStore = types
           binding: scenario.binding,
           revisionId: scenario.revisionId,
           revision: scenario.revision,
-          approval: scenario.approval ?? "draft",
-          lastSignedContent: scenario.lastSignedContent ?? null,
+          approval: scenario.approval ?? null,
+          verdict: scenario.verdict ?? null,
+          basis: scenario.basis,
           testCases: scenario.testCases ?? [],
         })) as SnapshotIn<TestScenario>[],
       );
@@ -794,8 +698,9 @@ export const FlatStore = types
           definition: testCase.definition,
           revisionId: testCase.revisionId,
           revision: testCase.revision,
-          approval: testCase.approval ?? "draft",
-          lastSignedContent: testCase.lastSignedContent ?? null,
+          approval: testCase.approval ?? null,
+          verdict: testCase.verdict ?? null,
+          basis: testCase.basis,
           generatedInputFingerprint: testCase.generatedInputFingerprint ?? null,
         })),
       );
@@ -806,7 +711,6 @@ export const FlatStore = types
       self.testScenarios.forEach((scenario) =>
         scenario.testCases.forEach((testCase) => testCase.clearGenerated()),
       );
-      self.markStageGenerated(WorkflowStage.ProjectSetup);
     },
     markTestGenerated(testCaseId: string, inputFingerprint: string) {
       for (const scenario of self.testScenarios) {
@@ -817,97 +721,6 @@ export const FlatStore = types
         }
       }
       throw new Error(`Cannot mark missing test case ${testCaseId} as generated.`);
-    },
-  }))
-  .actions((self) => ({
-    replaceArtifactList({ entityType, items }: ArtifactListProposal) {
-      const list = {
-        [StructuralFragmentName.PrimaryFeature]: () => self.productOverview.primaryFeatures,
-        [StructuralFragmentName.TargetUser]: () => self.productOverview.targetUsers,
-        [StructuralFragmentName.Requirement]: () => self.requirements,
-        [StructuralFragmentName.UserStory]: () => self.userStories,
-        [StructuralFragmentName.AcceptanceCriteria]: () => self.acceptanceCriteria,
-        [StructuralFragmentName.TestScenario]: () => undefined,
-        [StructuralFragmentName.TestCase]: () => undefined,
-        [StructuralFragmentName.TestCode]: () => undefined,
-      }[entityType]();
-      if (list == null) throw new Error(`${entityType} requires a contract-first proposal.`);
-      const before: ListChangeBeforeItem[] = list.map((item) => ({
-        id: item.id,
-        code: item.getCode(),
-      }));
-      const existingById = new Map(list.map((item) => [item.id, item]));
-      const snapshots = materializeArtifactItems(items, uuid).map((item) => {
-        const existing = existingById.get(item.id);
-        if (existing == null) return getSnapshot(createFragment(entityType, item));
-        const { id: _id, ...update } = item;
-        existing.clearPendingRemoval();
-        existing.setData(update);
-        return getSnapshot(existing);
-      });
-      const keptIds = new Set(snapshots.map((item) => (item as { id: string }).id));
-      for (const existing of list) {
-        if (keptIds.has(existing.id)) continue;
-        existing.markPendingRemoval();
-        snapshots.push(getSnapshot(existing));
-      }
-      list.replace(snapshots as never[]);
-      const after: ListChangeAfterItem[] = list.map((item) => ({
-        id: item.id,
-        lastSignedContent: item.lastSignedContent,
-        pendingRemoval: item.pendingRemoval,
-      }));
-      self.recordStageListChange(
-        WORKFLOW_STAGE_BY_STRUCTURAL_FRAGMENT[entityType],
-        classifyListChange(before, after),
-      );
-    },
-    reviseFragment({ entityType, id, patch }: FragmentRevisionProposal) {
-      const list = {
-        [StructuralFragmentName.PrimaryFeature]: () => self.productOverview.primaryFeatures,
-        [StructuralFragmentName.TargetUser]: () => self.productOverview.targetUsers,
-        [StructuralFragmentName.Requirement]: () => self.requirements,
-        [StructuralFragmentName.UserStory]: () => self.userStories,
-        [StructuralFragmentName.AcceptanceCriteria]: () => self.acceptanceCriteria,
-        [StructuralFragmentName.TestScenario]: () => undefined,
-        [StructuralFragmentName.TestCase]: () => undefined,
-        [StructuralFragmentName.TestCode]: () => undefined,
-      }[entityType]();
-      const fragment = [
-        ...self.productOverview.primaryFeatures,
-        ...self.productOverview.targetUsers,
-        ...self.userStories,
-        ...self.requirements,
-        ...self.acceptanceCriteria,
-      ].find((candidate) => candidate.id === id);
-      if (fragment == null || fragment.type !== entityType) {
-        throw new Error(`Cannot revise missing ${entityType} fragment ${id}.`);
-      }
-      const before: ListChangeBeforeItem[] =
-        list == null
-          ? [{ id: fragment.id, code: fragment.getCode() }]
-          : list.map((item) => ({ id: item.id, code: item.getCode() }));
-      if (patch.remove === true) {
-        fragment.markPendingRemoval();
-      } else {
-        fragment.clearPendingRemoval();
-        fragment.setData({
-          content: patch.content,
-          priority: patch.priority,
-        });
-      }
-      const after: ListChangeAfterItem[] =
-        list == null
-          ? []
-          : list.map((item) => ({
-              id: item.id,
-              lastSignedContent: item.lastSignedContent,
-              pendingRemoval: item.pendingRemoval,
-            }));
-      self.recordStageListChange(
-        WORKFLOW_STAGE_BY_STRUCTURAL_FRAGMENT[entityType],
-        classifyListChange(before, after),
-      );
     },
   }))
   .views((self) => ({
@@ -971,9 +784,7 @@ export const FlatStore = types
           ? {
               projectSetup: self.projectSetup,
               scaffoldFiles: self.scaffoldFiles,
-              stageInputFingerprints: Object.fromEntries(
-                self.stageInputFingerprints.entries(),
-              ),
+              review: self.review,
             }
           : {}),
       };
@@ -1010,7 +821,522 @@ export const FlatStore = types
       );
     },
   }))
+  .views((self) => ({
+    /**
+     * Cross-module references resolve at display level only: a code
+     * belongs to its module, so a miss falls through to the sibling
+     * modules while every workflow decision stays on the active one.
+     */
+    getCode(id: string) {
+      const own = self.structuralFragmentsCache[id]?.getCode();
+      if (own != null) return own;
+      return findSiblingModule(self, id)?.store.getCode(id);
+    },
+    getPath(id: string) {
+      const fragment = self.structuralFragmentsCache[id];
+      if (fragment != null) {
+        return `?step=${WORKFLOW_STAGE_BY_STRUCTURAL_FRAGMENT[fragment.type]}#${fragment.getCode()}`;
+      }
+      const sibling = findSiblingModule(self, id);
+      const siblingPath = sibling?.store.getPath(id);
+      if (sibling == null || siblingPath == null) return undefined;
+      return `?module=${sibling.id}&${siblingPath.slice(1)}`;
+    },
+    get isProjectSetupOutdated() {
+      return self.projectSetup != null && !self.projectSetupIsCurrent;
+    },
+    stageListChange(step: WorkflowStage): ListChange | undefined {
+      return self.stageListChanges.get(step);
+    },
+    stageListChangeCaption(step: WorkflowStage) {
+      const change = self.stageListChanges.get(step);
+      if (change == null) return null;
+      return listChangeCaption(change);
+    },
+  }))
   .views((self) => {
+    // ---------------------------------------------------------------
+    // The review gate: every reviewable unit's revision, checked hash,
+    // outdated state, and approval are derived here and only here.
+    // ---------------------------------------------------------------
+    const contractBundle = (id: string) => {
+      const suite = self.contractSuite;
+      if (suite == null) return null;
+      return (
+        suite.interfaceContracts.find((item) => item.id === id) ??
+        suite.subjectContracts.find((item) => item.id === id) ??
+        suite.verificationContracts.find((item) => item.id === id) ??
+        null
+      );
+    };
+    const fragmentOf = (id: string): StructuralFragment | undefined =>
+      self.structuralFragmentsCache[id];
+    const isTestFragment = (fragment: StructuralFragment) =>
+      fragment.type === StructuralFragmentName.TestScenario ||
+      fragment.type === StructuralFragmentName.TestCase;
+
+    /** The current revision of any unit an item can reference. */
+    function revisionOf(id: string): string | null {
+      if (id === OVERVIEW_NAME_QUALITY_ID) {
+        return checkedHash({ name: self.productOverview.name });
+      }
+      if (id === OVERVIEW_PURPOSE_QUALITY_ID) {
+        return checkedHash({ purpose: self.productOverview.purpose });
+      }
+      const fragment = fragmentOf(id);
+      if (fragment != null) {
+        return isTestFragment(fragment)
+          ? (fragment as unknown as { revisionId: string }).revisionId
+          : proseRevision(fragment);
+      }
+      if (self.boundaryDesign?.id === id) return self.boundaryDesign.revisionId;
+      if (self.implementationProfile?.id === id) return self.implementationProfile.revisionId;
+      if (self.projectSetup?.id === id) return self.projectSetup.revisionId;
+      return contractBundle(id)?.revisionId ?? null;
+    }
+
+    /** The units an item was generated against: its references, plus the contracts a scenario binds. */
+    function referencedUnitIds(fragment: {
+      type: StructuralFragmentName;
+      references: readonly { id: string }[];
+      binding?: TestScenarioBinding | null;
+    }): string[] {
+      const ids = fragment.references.map(({ id }) => id);
+      const binding = fragment.binding;
+      if (fragment.type !== StructuralFragmentName.TestScenario || binding == null) {
+        return ids;
+      }
+      const suite = self.contractSuite;
+      if (self.boundaryDesign != null) ids.push(self.boundaryDesign.id);
+      if (binding.kind === "verification") {
+        const contract = suite?.verificationContracts.find(
+          (item) => item.verificationObligationId === binding.verificationObligationId,
+        );
+        if (contract != null) ids.push(contract.id);
+        return ids;
+      }
+      for (const interfaceId of binding.interfaceIds) {
+        const contract = suite?.interfaceContracts.find(
+          (item) => item.interfaceId === interfaceId,
+        );
+        if (contract != null) ids.push(contract.id);
+      }
+      const subject = suite?.subjectContracts.find(
+        (item) => item.subjectId === binding.subjectId,
+      );
+      if (subject != null) ids.push(subject.id);
+      return ids;
+    }
+
+    function currentBasisOf(fragment: Parameters<typeof referencedUnitIds>[0]): Record<string, string> {
+      return Object.fromEntries(
+        referencedUnitIds(fragment).map((id) => [id, revisionOf(id) ?? MISSING_REVISION]),
+      );
+    }
+
+    function fragmentIsOutdated(fragment: StructuralFragment): boolean {
+      const basis = fragment.basis;
+      if (basis == null) return true;
+      const current = currentBasisOf(fragment as never);
+      const keys = Object.keys(current);
+      if (keys.length !== Object.keys(basis).length) return true;
+      if (keys.some((key) => basis[key] !== current[key])) return true;
+      if (fragment.type === StructuralFragmentName.TestScenario) {
+        const binding = (fragment as TestScenario).binding;
+        return binding != null && !scenarioBindingIsCurrent(binding);
+      }
+      if (fragment.type === StructuralFragmentName.TestCase) {
+        const definition = (fragment as TestCase).definition;
+        return definition != null && !caseDefinitionIsCurrent(definition);
+      }
+      return false;
+    }
+
+    function scenarioBindingIsCurrent(binding: TestScenarioBinding): boolean {
+      const suite = self.contractSuite;
+      if (self.boundaryDesign == null || suite == null) return false;
+      if (binding.boundaryRevisionId !== self.boundaryDesign.revisionId) return false;
+      if (binding.kind === "verification") {
+        return suite.verificationContracts.some(
+          ({ revisionId }) => revisionId === binding.verificationContractRevisionId,
+        );
+      }
+      const interfaceRevisions = new Set(
+        suite.interfaceContracts.map(({ revisionId }) => revisionId),
+      );
+      return (
+        binding.interfaceContractRevisionIds.every((id) => interfaceRevisions.has(id)) &&
+        suite.subjectContracts.some(
+          ({ revisionId }) => revisionId === binding.subjectContractRevisionId,
+        )
+      );
+    }
+
+    function caseDefinitionIsCurrent(definition: TestCaseDefinition): boolean {
+      const suite = self.contractSuite;
+      if (self.boundaryDesign == null || suite == null) return false;
+      if (definition.kind === "verification") {
+        return suite.verificationContracts.some(
+          ({ revisionId }) => revisionId === definition.verificationContractRevisionId,
+        );
+      }
+      const interfaceRevisions = new Set(
+        suite.interfaceContracts.map(({ revisionId }) => revisionId),
+      );
+      return (
+        definition.boundaryRevisionId === self.boundaryDesign.revisionId &&
+        definition.interfaceContractRevisionIds.every((id) => interfaceRevisions.has(id)) &&
+        suite.subjectContracts.some(
+          ({ revisionId }) => revisionId === definition.subjectContractRevisionId,
+        )
+      );
+    }
+
+    /** What a reviewer reads and a restore writes back, per unit kind. */
+    function fragmentContent(fragment: StructuralFragment): JsonValue {
+      if (fragment.type === StructuralFragmentName.TestScenario) {
+        const scenario = fragment as TestScenario;
+        return {
+          title: scenario.content,
+          description: scenario.description,
+          references: scenario.references.map(({ id, type }) => ({ id, type })),
+          dependencies: [...scenario.dependencies],
+          binding: (scenario.binding ?? null) as JsonValue,
+          revisionId: scenario.revisionId,
+        };
+      }
+      if (fragment.type === StructuralFragmentName.TestCase) {
+        const testCase = fragment as TestCase;
+        return {
+          title: testCase.title,
+          description: testCase.description,
+          references: testCase.references.map(({ id, type }) => ({ id, type })),
+          dependencies: [...testCase.dependencies],
+          definition: (testCase.definition ?? null) as JsonValue,
+          revisionId: testCase.revisionId,
+        };
+      }
+      return {
+        content: fragment.content,
+        references: fragment.references.map(({ id, type }) => ({ id, type })),
+        dependencies: [...fragment.dependencies],
+      };
+    }
+
+    function artifactIsOutdated(id: string): boolean {
+      const design = self.boundaryDesign;
+      const profile = self.implementationProfile;
+      if (design?.id === id) {
+        return (
+          design.requirementsRevisionId !== itemSetRevision(self.requirements) ||
+          design.acceptanceCriteriaRevisionId !== itemSetRevision(self.acceptanceCriteria)
+        );
+      }
+      if (profile?.id === id) return profile.boundaryRevisionId !== design?.revisionId;
+      if (self.projectSetup?.id === id) return !self.projectSetupIsCurrent;
+      const suite = self.contractSuite;
+      const bundle = contractBundle(id);
+      if (bundle == null || suite == null) return false;
+      if (
+        bundle.boundaryRevisionId !== design?.revisionId ||
+        bundle.profileRevisionId !== profile?.revisionId
+      ) {
+        return true;
+      }
+      if ("interfaceContractRevisionIds" in bundle) {
+        const current = new Set(suite.interfaceContracts.map(({ revisionId }) => revisionId));
+        return bundle.interfaceContractRevisionIds.some((revisionId) => !current.has(revisionId));
+      }
+      return false;
+    }
+
+    // ---- Units ------------------------------------------------------
+
+    const LIST_STAGE_ITEMS: Partial<Record<WorkflowStage, () => readonly StructuralFragment[]>> = {
+      [WorkflowStage.UserStories]: () => self.userStories,
+      [WorkflowStage.Requirements]: () => self.requirements,
+      [WorkflowStage.AcceptanceCriteria]: () => self.acceptanceCriteria,
+      [WorkflowStage.TestScenarios]: () => self.testScenarios as unknown as StructuralFragment[],
+      [WorkflowStage.TestCases]: () =>
+        self.testScenarios.flatMap((scenario) => scenario.testCases) as unknown as StructuralFragment[],
+    };
+
+    /** The item-level units of a stage: what later stages consume. */
+    function itemUnitIds(step: WorkflowStage): string[] {
+      switch (step) {
+        case WorkflowStage.ProductOverview:
+          return [
+            OVERVIEW_NAME_QUALITY_ID,
+            OVERVIEW_PURPOSE_QUALITY_ID,
+            ...self.productOverview.primaryFeatures.map(({ id }) => id),
+            ...self.productOverview.targetUsers.map(({ id }) => id),
+          ];
+        case WorkflowStage.BoundaryDesign:
+          return self.boundaryDesign == null ? [] : [self.boundaryDesign.id];
+        case WorkflowStage.InterfaceContracts:
+          return [
+            ...(self.implementationProfile == null ? [] : [self.implementationProfile.id]),
+            ...(self.contractSuite?.interfaceContracts.map(({ id }) => id) ?? []),
+            ...(self.contractSuite?.subjectContracts.map(({ id }) => id) ?? []),
+            ...(self.contractSuite?.verificationContracts.map(({ id }) => id) ?? []),
+          ];
+        case WorkflowStage.ProjectSetup:
+          return self.projectSetup == null ? [] : [self.projectSetup.id];
+        case WorkflowStage.AutomatedTests:
+        case WorkflowStage.Code:
+          return [];
+        default:
+          return (LIST_STAGE_ITEMS[step]?.() ?? []).map(({ id }) => id);
+      }
+    }
+
+    /** A unit's content as a later stage sees it: prose in full, formal artifacts by revision. */
+    function inputContentOf(id: string): JsonValue {
+      if (id === OVERVIEW_NAME_QUALITY_ID) return { name: self.productOverview.name };
+      if (id === OVERVIEW_PURPOSE_QUALITY_ID) return { purpose: self.productOverview.purpose };
+      const fragment = fragmentOf(id);
+      if (fragment != null) return fragmentContent(fragment);
+      return { revisionId: revisionOf(id) };
+    }
+
+    function currentInputs(step: WorkflowStage): Record<string, JsonValue> {
+      return Object.fromEntries(
+        (STAGE_INPUTS[step] ?? []).flatMap((input) =>
+          itemUnitIds(input).map((id) => [id, inputContentOf(id)] as const),
+        ),
+      );
+    }
+
+    /** Inputs whose content differs from what the stage last acknowledged. */
+    function changedInputIds(step: WorkflowStage): string[] {
+      const acknowledged = self.review.acknowledgedInputs[step];
+      if (acknowledged == null) return [];
+      const current = currentInputs(step);
+      const ids = new Set([...Object.keys(acknowledged), ...Object.keys(current)]);
+      return [...ids]
+        .filter((id) =>
+          acknowledged[id] === undefined ||
+          current[id] === undefined ||
+          checkedHash(acknowledged[id]) !== checkedHash(current[id]),
+        )
+        .sort();
+    }
+
+    function liveItems(step: WorkflowStage): readonly StructuralFragment[] {
+      return (LIST_STAGE_ITEMS[step]?.() ?? []).filter(({ pendingRemoval }) => !pendingRemoval);
+    }
+
+    function inputsHash(step: WorkflowStage): string {
+      return checkedHash(currentInputs(step));
+    }
+
+    /**
+     * Approved items an upstream change did not reach through their
+     * references, approved before the inputs changed: what impact review
+     * confirms. Drafts are reviewed one by one against the current inputs.
+     */
+    function untouchedItems(step: WorkflowStage): StructuralFragment[] {
+      const changed = new Set(changedInputIds(step));
+      if (changed.size === 0) return [];
+      const current = inputsHash(step);
+      return liveItems(step).filter((item) => {
+        const approval = item.approval;
+        if (approval == null || fragmentIsOutdated(item)) return false;
+        if (approval.inputs === current) return false;
+        if (!holds(approval, checkedHash({ revision: revisionOf(item.id), basis: item.basis }))) {
+          return false;
+        }
+        return referencedUnitIds(item as never).every((id) => !changed.has(id));
+      });
+    }
+
+    function impactIsPending(step: WorkflowStage): boolean {
+      return IMPACT_STAGES.has(step) && untouchedItems(step).length > 0;
+    }
+
+    function impactChecked(step: WorkflowStage): string {
+      const current = currentInputs(step);
+      return checkedHash({
+        changes: changedInputIds(step).map((id) => [id, current[id] === undefined ? null : checkedHash(current[id])]),
+        items: revisionListing(untouchedItems(step).map((item) => [item.id, revisionOf(item.id)!] as const)),
+      });
+    }
+
+    function coverageParents(step: WorkflowStage): StructuralFragment[] {
+      switch (step) {
+        case WorkflowStage.UserStories:
+          return [...self.productOverview.primaryFeatures];
+        case WorkflowStage.Requirements:
+          return [...self.userStories];
+        case WorkflowStage.AcceptanceCriteria:
+          return [...self.requirements];
+        default:
+          return [];
+      }
+    }
+
+    function coverageStageOf(parentId: string): WorkflowStage | null {
+      const parent = fragmentOf(parentId);
+      if (parent == null) return null;
+      return COVERAGE_STAGE_BY_PARENT_TYPE[parent.type] ?? null;
+    }
+
+    function coverageChildren(parentId: string): StructuralFragment[] {
+      const step = coverageStageOf(parentId);
+      if (step == null) return [];
+      return liveItems(step).filter((item) =>
+        item.references.some(({ id }) => id === parentId),
+      );
+    }
+
+    function coverageChecked(parentId: string): string {
+      return checkedHash({
+        parent: [parentId, revisionOf(parentId)],
+        children: revisionListing(
+          coverageChildren(parentId).map((child) => [child.id, revisionOf(child.id)!] as const),
+        ),
+      });
+    }
+
+    function standalone(id: string): StandaloneReview {
+      return self.review.units[id] ?? { approval: null, verdict: null };
+    }
+
+    /** The one place a unit's review state is assembled. */
+    function reviewUnit(id: string): ReviewUnit | null {
+      const finish = (
+        unit: Omit<ReviewUnit, "approved">,
+      ): ReviewUnit => ({
+        ...unit,
+        approved: holds(unit.approval, unit.checked) && !unit.outdated && !unit.pendingRemoval,
+      });
+      if (id === OVERVIEW_NAME_QUALITY_ID || id === OVERVIEW_PURPOSE_QUALITY_ID) {
+        const field = id === OVERVIEW_NAME_QUALITY_ID ? "name" : "purpose";
+        const overview = self.productOverview;
+        const content = inputContentOf(id);
+        return finish({
+          id,
+          stage: WorkflowStage.ProductOverview,
+          kind: "field",
+          checked: revisionOf(id)!,
+          content,
+          outdated: false,
+          pendingRemoval: false,
+          approval: field === "name" ? overview.nameApproval : overview.purposeApproval,
+          verdict: field === "name" ? overview.nameVerdict : overview.purposeVerdict,
+        });
+      }
+      const coverageParent = coverageParentId(id);
+      if (coverageParent != null) {
+        const step = coverageStageOf(coverageParent);
+        if (step == null) return null;
+        const record = standalone(id);
+        return finish({
+          id,
+          stage: step,
+          kind: "coverage",
+          checked: coverageChecked(coverageParent),
+          content: {
+            parent: inputContentOf(coverageParent),
+            children: coverageChildren(coverageParent).map((child) => ({
+              id: child.id,
+              ...(fragmentContent(child) as Record<string, JsonValue>),
+            })),
+          },
+          outdated: false,
+          pendingRemoval: false,
+          approval: record.approval,
+          verdict: record.verdict,
+        });
+      }
+      const impact = impactStage(id);
+      if (impact != null) {
+        if (!impactIsPending(impact)) return null;
+        const record = standalone(id);
+        const acknowledged = self.review.acknowledgedInputs[impact] ?? {};
+        const current = currentInputs(impact);
+        return finish({
+          id,
+          stage: impact,
+          kind: "impact",
+          checked: impactChecked(impact),
+          content: {
+            changes: changedInputIds(impact).map((changedId) => ({
+              id: changedId,
+              before: acknowledged[changedId] ?? null,
+              after: current[changedId] ?? null,
+            })),
+            items: untouchedItems(impact).map((item) => ({
+              id: item.id,
+              ...(fragmentContent(item) as Record<string, JsonValue>),
+            })),
+          },
+          outdated: false,
+          pendingRemoval: false,
+          approval: record.approval,
+          verdict: record.verdict,
+        });
+      }
+      const fragment = fragmentOf(id);
+      if (fragment != null) {
+        return finish({
+          id,
+          stage: WORKFLOW_STAGE_BY_STRUCTURAL_FRAGMENT[fragment.type],
+          kind: "item",
+          checked: checkedHash({ revision: revisionOf(id), basis: fragment.basis }),
+          content: fragmentContent(fragment),
+          // Approving a removal never depends on the removed content being current.
+          outdated: !fragment.pendingRemoval && fragmentIsOutdated(fragment),
+          pendingRemoval: fragment.pendingRemoval,
+          approval: fragment.approval,
+          verdict: fragment.verdict,
+        });
+      }
+      const artifact =
+        self.boundaryDesign?.id === id ? self.boundaryDesign
+          : self.implementationProfile?.id === id ? self.implementationProfile
+            : self.projectSetup?.id === id ? self.projectSetup
+              : contractBundle(id);
+      if (artifact == null) return null;
+      const { approval: _approval, verdict: _verdict, ...content } = artifact as unknown as RevisionMetadata & Record<string, unknown>;
+      return finish({
+        id,
+        stage: self.boundaryDesign?.id === id
+          ? WorkflowStage.BoundaryDesign
+          : self.projectSetup?.id === id
+            ? WorkflowStage.ProjectSetup
+            : WorkflowStage.InterfaceContracts,
+        kind: "artifact",
+        checked: checkedHash(content),
+        content: content as JsonValue,
+        outdated: artifactIsOutdated(id),
+        pendingRemoval: false,
+        approval: artifact.approval ?? null,
+        verdict: artifact.verdict ?? null,
+      });
+    }
+
+    function stageUnitIds(step: WorkflowStage): string[] {
+      const ids = itemUnitIds(step);
+      if (COVERAGE_STAGES.has(step)) {
+        ids.push(...coverageParents(step).map(({ id }) => coverageUnitId(id)));
+      }
+      if (impactIsPending(step)) ids.push(impactUnitId(step));
+      return ids;
+    }
+
+    function stageUnits(step: WorkflowStage): ReviewUnit[] {
+      return stageUnitIds(step)
+        .map(reviewUnit)
+        .filter((unit): unit is ReviewUnit => unit != null);
+    }
+
+    // ---- Progress ---------------------------------------------------
+
+    function stageIssues(step: WorkflowStage) {
+      return self.mechanicalIssues.filter((issue) => issue.stage === step);
+    }
+
     function hasStepArtifacts(step: WorkflowStage): boolean {
       switch (step) {
         case WorkflowStage.ProductOverview:
@@ -1028,595 +1354,654 @@ export const FlatStore = types
         case WorkflowStage.TestScenarios:
           return self.testScenarios.length > 0;
         case WorkflowStage.TestCases:
-          return self.testScenarios.some(
-            ({ testCases }) => testCases.length > 0,
-          );
+          return self.testScenarios.some(({ testCases }) => testCases.length > 0);
         case WorkflowStage.ProjectSetup:
           return self.projectSetup != null;
         case WorkflowStage.AutomatedTests:
           return self.testScenarios.some((scenario) =>
             scenario.testCases.some(
-              ({ generatedInputFingerprint }) =>
-                generatedInputFingerprint != null,
+              ({ generatedInputFingerprint }) => generatedInputFingerprint != null,
             ),
           );
         case WorkflowStage.Code:
           return false;
       }
     }
-    function getStepStatus(step: WorkflowStage): Status {
-      if (stageIsLocked(step)) return Status.Locked;
-      const generated = self.stageInputFingerprints.get(step);
-      const inputIsOutdated =
-        generated != null && generated !== stageInputHash(self, step);
-      const stageIssues = self.mechanicalIssues.filter((issue) => issue.stage === step);
-      let status: Status;
-      let hasArtifacts: boolean;
+
+    /** The stage's completion rule, apart from approvals. */
+    function completionRuleHolds(step: WorkflowStage): boolean {
+      const clean = stageIssues(step).length === 0;
       switch (step) {
         case WorkflowStage.ProductOverview:
-          hasArtifacts = !self.productOverview.isEmpty;
-          status =
-            self.productOverview.isComplete && stageIssues.length === 0
-              ? Status.Completed
-              : Status.Pending;
-          break;
+          return self.productOverview.isComplete && clean;
         case WorkflowStage.UserStories:
-          hasArtifacts = self.userStories.length > 0;
-          status =
-            hasArtifacts && stageIssues.length === 0
-              ? Status.Completed
-              : Status.Pending;
-          break;
         case WorkflowStage.Requirements:
-          hasArtifacts = self.requirements.length > 0;
-          status =
-            hasArtifacts && stageIssues.length === 0
-              ? Status.Completed
-              : Status.Pending;
-          break;
         case WorkflowStage.AcceptanceCriteria:
-          hasArtifacts = self.acceptanceCriteria.length > 0;
-          status =
-            hasArtifacts && stageIssues.length === 0
-              ? Status.Completed
-              : Status.Pending;
-          break;
         case WorkflowStage.BoundaryDesign:
-          hasArtifacts = self.boundaryDesign != null;
-          status =
-            hasArtifacts && stageIssues.length === 0
-              ? Status.Completed
-              : Status.Pending;
-          break;
+          return hasStepArtifacts(step) && clean;
         case WorkflowStage.InterfaceContracts:
-          hasArtifacts =
-            self.implementationProfile != null || self.contractSuite != null;
-          status = self.contractsReady ? Status.Completed : Status.Pending;
-          if (
-            status === Status.Completed &&
-            (
-              self.contractSuite?.boundaryRevisionId !== self.boundaryDesign?.revisionId ||
-              self.contractSuite?.profileRevisionId !== self.implementationProfile?.revisionId ||
-              self.implementationProfile?.boundaryRevisionId !== self.boundaryDesign?.revisionId
-            )
-          ) {
-            status = Status.Outdated;
-          }
-          break;
+          return self.contractsReady;
         case WorkflowStage.TestScenarios:
-          hasArtifacts = self.testScenarios.length > 0;
-          status =
-            hasArtifacts &&
+          return (
+            self.testScenarios.length > 0 &&
             self.testScenarios.every(({ binding }) => binding != null) &&
-            stageIssues.length === 0
-              ? Status.Completed
-              : Status.Pending;
-          break;
-        case WorkflowStage.TestCases:
-          hasArtifacts = self.testScenarios.some(
-            ({ testCases }) => testCases.length > 0,
+            clean
           );
-          status =
+        case WorkflowStage.TestCases:
+          return (
             self.testScenarios.length > 0 &&
             self.testScenarios.every(
               (scenario) =>
                 scenario.testCases.length > 0 &&
                 scenario.testCases.every(({ definition }) => definition != null),
             ) &&
-            stageIssues.length === 0
-              ? Status.Completed
-              : Status.Pending;
-          break;
-        case WorkflowStage.ProjectSetup:
-          hasArtifacts = self.projectSetup != null;
-          status = self.projectSetup == null ? Status.Pending : Status.Completed;
-          if (status === Status.Completed && !self.projectSetupIsCurrent) {
-            status = Status.Outdated;
-          }
-          break;
-        case WorkflowStage.AutomatedTests: {
-          const hasGeneratedTests = self.testScenarios.some((scenario) =>
-            scenario.testCases.some(
-              ({ generatedInputFingerprint }) =>
-                generatedInputFingerprint != null,
-            ),
+            clean
           );
-          hasArtifacts = hasGeneratedTests;
-          if (
-            self.projectSetup == null ||
-            self.testScenarios.reduce((count, scenario) => count + scenario.testCases.length, 0) === 0
-          ) {
-            status = Status.Pending;
-          } else if (!self.projectSetupIsCurrent) {
-            status = hasGeneratedTests ? Status.Outdated : Status.Pending;
-          } else {
-            const statuses = self.testScenarios.reduce<Array<"not-generated" | "generated" | "out-of-sync">>(
-              (result, scenario) => [
-                ...result,
-                ...Array.from(scenario.testCases).map((testCase) => testCase.testStatus),
-              ],
-              [],
-            );
-            status = statuses.every((testStatus) => testStatus === "generated")
-              ? Status.Completed
-              : statuses.some((testStatus) => testStatus === "out-of-sync")
-                ? Status.Outdated
-                : Status.Pending;
-          }
-          break;
+        case WorkflowStage.ProjectSetup:
+          return self.projectSetup != null;
+        case WorkflowStage.AutomatedTests: {
+          const cases = self.testScenarios.flatMap((scenario) => [...scenario.testCases]);
+          return (
+            self.projectSetup != null &&
+            self.projectSetupIsCurrent &&
+            cases.length > 0 &&
+            cases.every(({ testStatus }) => testStatus === "generated")
+          );
         }
         case WorkflowStage.Code:
-          hasArtifacts = false;
-          status = Status.Pending;
-          break;
+          return false;
       }
-      if (hasArtifacts && inputIsOutdated) return Status.Outdated;
-      // Complete but unapproved is not stale: it needs review, not a
-      // refresh. Outdated stays reserved for genuinely changed inputs.
-      if (
-        status === Status.Completed &&
-        step !== WorkflowStage.AutomatedTests &&
-        step !== WorkflowStage.Code &&
-        !(self as unknown as { stageIsApproved: (stage: WorkflowStage) => boolean }).stageIsApproved(step)
-      ) {
-        return Status.NeedsApproval;
-      }
-      return status;
     }
-    function firstPendingPredecessor(step: WorkflowStage): WorkflowStage | null {
-      for (const previous of WORKFLOW_STAGES) {
-        if (previous === step) return null;
-        if (getStepStatus(previous) === Status.Pending) return previous;
-      }
-      return null;
+
+    function stageIsComplete(step: WorkflowStage): boolean {
+      return completionRuleHolds(step) && stageUnits(step).every(({ approved }) => approved);
     }
-    function stageIsLocked(step: WorkflowStage): boolean {
-      if (hasStepArtifacts(step)) return false;
-      for (const previous of WORKFLOW_STAGES) {
-        if (previous === step) return false;
-        if (getStepStatus(previous) !== Status.Completed) return true;
-      }
-      return false;
-    }
-    function resolveOpenStep(step: WorkflowStage): WorkflowStage {
-      if (!stageIsLocked(step)) return step;
-      const index = WORKFLOW_STAGES.indexOf(step);
-      for (let i = index - 1; i >= 0; i--) {
-        if (!stageIsLocked(WORKFLOW_STAGES[i])) return WORKFLOW_STAGES[i];
-      }
-      return WorkflowStage.ProductOverview;
-    }
+
     return {
-      /**
-       * Cross-module references resolve at display level only: a code
-       * belongs to its module, so a miss falls through to the sibling
-       * modules while every workflow decision stays on the active one.
-       */
-      getCode(id: string) {
-        const own = self.structuralFragmentsCache[id]?.getCode();
-        if (own != null) return own;
-        return findSiblingModule(self, id)?.store.getCode(id);
+      revisionOf,
+      currentBasisOf,
+      scenarioBindingIsCurrent,
+      caseDefinitionIsCurrent,
+      reviewUnit,
+      stageUnits,
+      stageUnitIds,
+      itemUnitIds,
+      currentInputs,
+      inputsHash,
+      changedInputIds,
+      /** Each changed input of a stage, with its content before and after. */
+      inputChanges(step: WorkflowStage): { id: string; code: string | null; before: JsonValue; after: JsonValue }[] {
+        const acknowledged = self.review.acknowledgedInputs[step] ?? {};
+        const current = currentInputs(step);
+        return changedInputIds(step).map((id) => ({
+          id,
+          code: self.getCode(id) ?? null,
+          before: acknowledged[id] ?? null,
+          after: current[id] ?? null,
+        }));
       },
-      getPath(id: string) {
-        const fragment = self.structuralFragmentsCache[id];
-        if (fragment != null) {
-          return `?step=${WORKFLOW_STAGE_BY_STRUCTURAL_FRAGMENT[fragment.type]}#${fragment.getCode()}`;
-        }
-        const sibling = findSiblingModule(self, id);
-        const siblingPath = sibling?.store.getPath(id);
-        if (sibling == null || siblingPath == null) return undefined;
-        return `?module=${sibling.id}&${siblingPath.slice(1)}`;
+      untouchedItemIds(step: WorkflowStage): string[] {
+        return untouchedItems(step).map(({ id }) => id);
       },
-      get isProjectSetupOutdated() {
-        return self.projectSetup != null && !self.projectSetupIsCurrent;
+      coverageChildIds(parentId: string): string[] {
+        return coverageChildren(parentId).map(({ id }) => id);
+      },
+      coverageParentIds(step: WorkflowStage): string[] {
+        return COVERAGE_STAGES.has(step) ? coverageParents(step).map(({ id }) => id) : [];
+      },
+      outdatedItemIds(step: WorkflowStage): string[] {
+        return stageUnits(step)
+          .filter(({ outdated }) => outdated)
+          .map(({ id }) => id);
+      },
+      hasStepArtifacts,
+      completionRuleHolds,
+      stageIsComplete,
+      laterStagesHoldingWork(step: WorkflowStage | null): WorkflowStage[] {
+        const start = step == null ? WORKFLOW_STAGES.length : WORKFLOW_STAGES.indexOf(step) + 1;
+        return WORKFLOW_STAGES.slice(start).filter(
+          (later) => later !== WorkflowStage.Code && hasStepArtifacts(later),
+        );
       },
       mechanicalIssuesForStage(step: WorkflowStage): MechanicalIssue[] {
-        return self.mechanicalIssues.filter((issue) => issue.stage === step);
+        return stageIssues(step);
       },
       mechanicalIssuesForItem(id: string): MechanicalIssue[] {
         return self.mechanicalIssues.filter((issue) => issue.itemId === id);
       },
-      stageListChange(step: WorkflowStage): ListChange | undefined {
-        return self.stageListChanges.get(step);
-      },
-      stageListChangeCaption(step: WorkflowStage) {
-        const change = self.stageListChanges.get(step);
-        if (change == null) return null;
-        return listChangeCaption(change);
-      },
-      hasStepArtifacts,
-      firstPendingPredecessor,
-      stageIsLocked,
-      resolveOpenStep,
-      getStepStatus,
-    };
-  })
-  .views((self) => {
-    const contractBundle = (id: string) => {
-      const suite = self.contractSuite;
-      if (suite == null) return null;
-      return (
-        suite.interfaceContracts.find((item) => item.id === id) ??
-        suite.subjectContracts.find((item) => item.id === id) ??
-        suite.verificationContracts.find((item) => item.id === id) ??
-        null
-      );
-    };
-    const allApproved = (values: readonly ApprovalStatus[]): boolean =>
-      values.length > 0 && values.every(isApproved);
-    const approvalOf = (id: string): ApprovalStatus | null => {
-      if (id === OVERVIEW_NAME_QUALITY_ID) return self.productOverview.nameApproval;
-      if (id === OVERVIEW_PURPOSE_QUALITY_ID) return self.productOverview.purposeApproval;
-      const fragment = self.structuralFragmentsCache[id];
-      if (fragment != null) return fragment.approval;
-      if (self.boundaryDesign?.id === id) return self.boundaryDesign.status;
-      if (self.implementationProfile?.id === id) return self.implementationProfile.status;
-      if (self.projectSetup?.id === id) return self.projectSetup.status;
-      return contractBundle(id)?.status ?? null;
-    };
-    const stageIsApproved = (step: WorkflowStage): boolean => {
-      switch (step) {
-        case WorkflowStage.ProductOverview:
-          return (
-            isApproved(self.productOverview.nameApproval) &&
-            isApproved(self.productOverview.purposeApproval) &&
-            allApproved(self.productOverview.primaryFeatures.map((item) => item.approval)) &&
-            allApproved(self.productOverview.targetUsers.map((item) => item.approval))
-          );
-        case WorkflowStage.UserStories:
-          return allApproved(self.userStories.map((item) => item.approval));
-        case WorkflowStage.Requirements:
-          return allApproved(self.requirements.map((item) => item.approval));
-        case WorkflowStage.AcceptanceCriteria:
-          return allApproved(self.acceptanceCriteria.map((item) => item.approval));
-        case WorkflowStage.BoundaryDesign:
-          return isApproved(self.boundaryDesign?.status);
-        case WorkflowStage.InterfaceContracts:
-          return (
-            self.contractsReady &&
-            isApproved(self.implementationProfile?.status) &&
-            allApproved([
-              ...(self.contractSuite?.interfaceContracts.map((item) => item.status) ?? []),
-              ...(self.contractSuite?.subjectContracts.map((item) => item.status) ?? []),
-              ...(self.contractSuite?.verificationContracts.map((item) => item.status) ?? []),
-            ])
-          );
-        case WorkflowStage.TestScenarios:
-          return allApproved(self.testScenarios.map((item) => item.approval));
-        case WorkflowStage.TestCases:
-          return allApproved(
-            self.testScenarios.flatMap((scenario) =>
-              scenario.testCases.map((item) => item.approval),
-            ),
-          );
-        case WorkflowStage.ProjectSetup:
-          return isApproved(self.projectSetup?.status);
-        case WorkflowStage.AutomatedTests:
-        case WorkflowStage.Code:
-          return false;
-      }
-    };
-    const cannotGenerateReason = (step: WorkflowStage): string | null => {
-      if (GENERATOR_ACTION_BY_WORKFLOW_STAGE[step] == null) {
-        return "This stage has no generate action.";
-      }
-      if (GENERATION_PREREQUISITE_BY_WORKFLOW_STAGE[step] == null) return null;
-      const reason = upstreamBlockerReason(step, `to generate ${self.stageLabel(step)}`);
-      if (reason != null) return reason;
-      if (
-        step === WorkflowStage.InterfaceContracts &&
-        self.implementationProfile != null &&
-        !isApproved(self.implementationProfile.status)
-      ) {
-        return "Approve the implementation profile to generate Interface Contracts.";
-      }
-      return null;
-    };
-    /**
-     * The workflow stage an approval belongs to, so approvals can be
-     * gated on upstream work like every other stage-targeted action.
-     * Unknown ids belong to no stage and stay ungated.
-     */
-    const approvalStep = (id: string): WorkflowStage | null => {
-      if (id === OVERVIEW_NAME_QUALITY_ID || id === OVERVIEW_PURPOSE_QUALITY_ID) {
-        return WorkflowStage.ProductOverview;
-      }
-      const fragment = self.structuralFragmentsCache[id];
-      if (fragment != null) {
-        return WORKFLOW_STAGE_BY_STRUCTURAL_FRAGMENT[fragment.type];
-      }
-      if (self.boundaryDesign?.id === id) return WorkflowStage.BoundaryDesign;
-      if (self.implementationProfile?.id === id) {
-        return WorkflowStage.InterfaceContracts;
-      }
-      if (self.projectSetup?.id === id) return WorkflowStage.ProjectSetup;
-      if (contractBundle(id) != null) return WorkflowStage.InterfaceContracts;
-      return null;
-    };
-    /**
-     * The first reason nothing may happen in this step yet, walking every
-     * earlier stage in order. Unapproved work upstream blocks approvals,
-     * comments, refreshes, and generations alike; each gate phrases the
-     * shared finding with its own action tail. Ordering matches the
-     * workflow: unfinished work first, then stale inputs, then unapproved
-     * work. Staleness leads because approving work that is already out of
-     * line with its inputs only attests it before its rewrite.
-     */
-    const upstreamBlockerReason = (step: WorkflowStage, tail: string): string | null => {
-      for (const previous of WORKFLOW_STAGES) {
-        if (previous === step) return null;
-        const status = self.getStepStatus(previous);
-        if (status === Status.Pending || status === Status.Locked) {
-          const blocker = self.firstPendingPredecessor(step) ?? previous;
-          return `Complete ${self.stageLabel(blocker)} ${tail}.`;
-        }
-        if (status === Status.Outdated) {
-          return `Outdated ${self.stageLabel(previous)}. ${refreshGuidance(previous, self.stageLabel(previous))} ${tail}.`;
-        }
-        if (!stageIsApproved(previous)) {
-          return `Approve ${self.stageLabel(previous)} ${tail}.`;
-        }
-      }
-      return null;
-    };
-    /**
-     * Whether a stage's inputs genuinely changed since it was generated.
-     * This is narrower than an Outdated status, which also covers work
-     * that is complete but not yet approved. Only input staleness calls
-     * for a refresh; unapproved work with current inputs calls for review.
-     */
-    const stageInputsOutdated = (step: WorkflowStage): boolean => {
-      switch (step) {
-        case WorkflowStage.Code:
-        case WorkflowStage.InterfaceContracts:
-        case WorkflowStage.AutomatedTests:
-          return false;
-        case WorkflowStage.ProjectSetup:
-          return self.projectSetup != null && !self.projectSetupIsCurrent;
-        default: {
-          const generated = self.stageInputFingerprints.get(step);
-          return (
-            generated != null &&
-            self.hasStepArtifacts(step) &&
-            generated !== stageInputHash(self, step)
-          );
-        }
-      }
-    };
-    /**
-     * Stages the refresh flow supports: anything with a whole-stage
-     * revise path whose inputs genuinely changed. Contract suites revise
-     * one exact target at a time by design, and test output regenerates
-     * per case, so neither refreshes whole. Merely unapproved work with
-     * current inputs never qualifies; it needs review, not a rewrite.
-     */
-    const canRefreshStep = (step: WorkflowStage): boolean => {
-      if (
-        step === WorkflowStage.Code ||
-        step === WorkflowStage.InterfaceContracts ||
-        step === WorkflowStage.AutomatedTests
-      ) {
-        return false;
-      }
-      return stageInputsOutdated(step);
-    };
-    /**
-     * The stale prerequisite blocking this step's generation, when
-     * refreshing it is actually the next action. Staleness leads for the
-     * same reason as in the blocker walk: refresh first, review after.
-     * Approval state does not matter here; the dialog and the message
-     * stay consistent by sharing this gate.
-     */
-    const stalePrerequisite = (step: WorkflowStage): WorkflowStage | null => {
-      const prerequisite = GENERATION_PREREQUISITE_BY_WORKFLOW_STAGE[step];
-      if (prerequisite == null || !canRefreshStep(prerequisite)) {
-        return null;
-      }
-      return prerequisite;
-    };
-    /**
-     * One sentence per upstream change since the stage was generated, for
-     * the refresh instruction. Empty when the recorded inputs resolve to
-     * nothing: hashes from before the content link cannot name their
-     * change, and the instruction falls back to generic wording.
-     */
-    const stageInputChanges = (step: WorkflowStage): string[] => {
-      const recorded = self.stageInputFingerprints.get(step);
-      if (recorded == null) return [];
-      const previous = tryResolveArtifact(recorded);
-      if (
-        previous == null ||
-        typeof previous !== "object" ||
-        Array.isArray(previous)
-      ) {
-        return [];
-      }
-      return summarizeStageInputChange(
-        previous as Record<string, unknown>,
-        buildWorkflowInput(self, step),
-      );
-    };
-    /**
-     * Both input versions for the refresh instruction: the recorded inputs
-     * the stage was generated from and the current ones. Null when the
-     * recorded inputs resolve to nothing.
-     */
-    const stageInputVersions = (
-      step: WorkflowStage,
-    ): { previous: unknown; current: unknown } | null => {
-      const recorded = self.stageInputFingerprints.get(step);
-      if (recorded == null) return null;
-      const previous = tryResolveArtifact(recorded);
-      if (
-        previous == null ||
-        typeof previous !== "object" ||
-        Array.isArray(previous)
-      ) {
-        return null;
-      }
-      return { previous, current: buildWorkflowInput(self, step) };
-    };
-
-    return {
-      approvalOf,
-      approvalStep,
-      stageIsApproved,
-      cannotGenerateReason,
-      upstreamBlockerReason,
-      canRefreshStep,
-      stalePrerequisite,
-      stageInputChanges,
-      stageInputVersions,
-      canRetryFailedOperation(): boolean {
-        return hasPendingRetry();
-      },
-      canApprove(id: string): boolean {
-        if (self.isBusy) return false;
-        const status = approvalOf(id);
-        if (status == null || status === "approved") return false;
-        if (id === OVERVIEW_NAME_QUALITY_ID) {
-          return (self.productOverview.name?.trim().length ?? 0) > 0;
-        }
-        if (id === OVERVIEW_PURPOSE_QUALITY_ID) {
-          return (self.productOverview.purpose?.trim().length ?? 0) > 0;
-        }
-        const fragment = self.structuralFragmentsCache[id];
-        if (fragment != null) {
-          if (fragment.pendingRemoval) return true;
-          return fragment.content.trim().length > 0;
-        }
-        return true;
-      },
-      canGenerateStep(step: WorkflowStage): boolean {
-        return cannotGenerateReason(step) == null;
-      },
-      generatorActionForStep(step: WorkflowStage): GeneratorActionName | null {
-        if (
-          step === WorkflowStage.InterfaceContracts &&
-          self.implementationProfile != null
-        ) {
-          return "generateInterfaceContracts";
-        }
-        return GENERATOR_ACTION_BY_WORKFLOW_STAGE[step];
+      reviewModeOf(step: WorkflowStage): ReviewMode {
+        return self.review.modes[step] ?? "manual";
       },
     };
   })
   .views((self) => ({
+    /** The first stage that is not complete; null when the project is complete. */
+    get frontier(): WorkflowStage | null {
+      return PROGRESS_STAGES.find((step) => !self.stageIsComplete(step)) ?? null;
+    },
+  }))
+  .views((self) => {
+    /** Whether the stage can change at all: the frontier and everything before it. */
+    function stageIsEditable(step: WorkflowStage): boolean {
+      if (step === WorkflowStage.Code) return false;
+      return self.frontier == null || !isAfter(step, self.frontier);
+    }
+    function getStepStatus(step: WorkflowStage): Status {
+      if (step === WorkflowStage.Code) return Status.Pending;
+      const current = self.frontier;
+      if (current == null || isBefore(step, current)) return Status.Completed;
+      if (step !== current) {
+        return self.hasStepArtifacts(step) ? Status.Waiting : Status.Locked;
+      }
+      if (!self.hasStepArtifacts(step)) return Status.Pending;
+      if (self.stageUnits(step).some(({ outdated }) => outdated)) return Status.Outdated;
+      if (!self.completionRuleHolds(step)) return Status.Pending;
+      return Status.NeedsApproval;
+    }
+    return {
+      get isComplete(): boolean {
+        return self.frontier == null;
+      },
+      getStepStatus,
+      stageIsEditable,
+      /** Why nothing may happen in a stage after the frontier, phrased as the next action. */
+      stageBlockerReason(step: WorkflowStage, tail: string): string | null {
+        if (stageIsEditable(step)) return null;
+        const blocker = self.frontier!;
+        const label = self.stageLabel(blocker);
+        if (self.outdatedItemIds(blocker).length > 0) {
+          return `Outdated ${label}. ${refreshGuidance(blocker, label)} ${tail}.`;
+        }
+        return `Complete ${label} ${tail}.`;
+      },
+      stageIsLocked(step: WorkflowStage): boolean {
+        return getStepStatus(step) === Status.Locked;
+      },
+      resolveOpenStep(step: WorkflowStage): WorkflowStage {
+        if (getStepStatus(step) !== Status.Locked) return step;
+        return self.frontier ?? WorkflowStage.ProductOverview;
+      },
+    };
+  })
+  .views((self) => {
+    function approvalOf(id: string): ApprovalStatus | null {
+      const unit = self.reviewUnit(id);
+      if (unit == null) return null;
+      return unit.approved ? "approved" : "draft";
+    }
+    function cannotGenerateReason(step: WorkflowStage): string | null {
+      if (GENERATOR_ACTION_BY_WORKFLOW_STAGE[step] == null) {
+        return "This stage has no generate action.";
+      }
+      const reason = self.stageBlockerReason(step, `to generate ${self.stageLabel(step)}`);
+      if (reason != null) return reason;
+      if (
+        step === WorkflowStage.InterfaceContracts &&
+        self.implementationProfile != null &&
+        approvalOf(self.implementationProfile.id) !== "approved"
+      ) {
+        return "Approve the implementation profile to generate Interface Contracts.";
+      }
+      return null;
+    }
+    /** Whether the unit can be approved now, by anyone; a person's click also waits for idle. */
+    function isApprovable(id: string): boolean {
+      const unit = self.reviewUnit(id);
+      if (unit == null || unit.approved || unit.outdated) return false;
+      if (!self.stageIsEditable(unit.stage)) return false;
+      switch (unit.kind) {
+        case "field":
+          return Object.values(unit.content as Record<string, string | null>)
+            .some((value) => (value?.trim().length ?? 0) > 0);
+        case "item": {
+          if (unit.pendingRemoval) return true;
+          const fragment = self.structuralFragmentsCache[id];
+          return fragment != null && fragment.content.trim().length > 0;
+        }
+        case "coverage":
+          return self.coverageChildIds(coverageParentId(id)!).length > 0;
+        case "impact":
+          return self.outdatedItemIds(unit.stage).length === 0;
+        case "artifact":
+          return true;
+      }
+    }
+    function currentVerdictOf(id: string): ModelVerdict | null {
+      const unit = self.reviewUnit(id);
+      if (unit == null || !holds(unit.verdict, unit.checked)) return null;
+      return unit.verdict;
+    }
+    return {
+      /** Draft, approved, or null for an id that names no reviewable unit. */
+      approvalOf,
+      /** The model verdict on the unit's current state, if any. */
+      currentVerdictOf,
+      cannotGenerateReason,
+      canGenerateStep(step: WorkflowStage): boolean {
+        return cannotGenerateReason(step) == null;
+      },
+      stageIsApproved(step: WorkflowStage): boolean {
+        return self.stageIsComplete(step);
+      },
+      /** The signed text a draft shows its standing diff against. */
+      signedTextOf(id: string): string | null {
+        const unit = self.reviewUnit(id);
+        if (unit == null || unit.approved || unit.approval?.signed == null) return null;
+        return signedText(unit.approval.signed, self.structuralFragmentsCache[id]?.type ?? null);
+      },
+    canRestore(id: string): boolean {
+      if (self.isBusy) return false;
+      const unit = self.reviewUnit(id);
+      if (unit == null || unit.approved || unit.approval?.signed == null) return false;
+      if (!self.stageIsEditable(unit.stage)) return false;
+      return (
+        unit.pendingRemoval ||
+        checkedHash(unit.approval.signed) !== checkedHash(unit.content)
+      );
+    },
+    isApprovable,
+    canApprove(id: string): boolean {
+      return !self.isBusy && isApprovable(id);
+    },
+    /** Units with no current model verdict that a reviewer could decide now. */
+    unitsAwaitingReview(step: WorkflowStage): ReviewUnit[] {
+      if (!self.stageIsEditable(step)) return [];
+      return self.stageUnits(step).filter((unit) => {
+        if (unit.approved || unit.outdated || holds(unit.verdict, unit.checked)) return false;
+        if (unit.kind === "impact") return self.outdatedItemIds(step).length === 0;
+        if (unit.kind === "coverage") {
+          return self.coverageChildIds(coverageParentId(unit.id)!).length > 0;
+        }
+        return true;
+      });
+    },
+    /** Approving now would overrule the reviewer model: the person decides explicitly. */
+    approvalNeedsDecision(id: string): boolean {
+      const unit = self.reviewUnit(id);
+      return unit != null && holds(unit.verdict, unit.checked) && unit.verdict!.verdict === "reject";
+    },
+    /** Requesting a change now would overrule the reviewer model's approval. */
+    changeRequestNeedsDecision(id: string): boolean {
+      const unit = self.reviewUnit(id);
+      return unit != null && holds(unit.verdict, unit.checked) && unit.verdict!.verdict === "approve";
+    },
+    /** Outdated work in an editable stage is what a refresh regenerates. */
+    canRefreshStep(step: WorkflowStage): boolean {
+      if (step === WorkflowStage.Code || step === WorkflowStage.AutomatedTests) return false;
+      return self.stageIsEditable(step) && self.outdatedItemIds(step).length > 0;
+    },
+    /** The frontier stage a generate request must refresh first. */
+    stalePrerequisite(step: WorkflowStage): WorkflowStage | null {
+      const prerequisite = GENERATION_PREREQUISITE_BY_WORKFLOW_STAGE[step];
+      if (prerequisite == null || prerequisite !== self.frontier) return null;
+      return self.outdatedItemIds(prerequisite).length > 0 ? prerequisite : null;
+    },
+    canRetryFailedOperation(): boolean {
+      return hasPendingRetry();
+    },
+    generatorActionForStep(step: WorkflowStage): GeneratorActionName | null {
+      if (
+        step === WorkflowStage.InterfaceContracts &&
+        self.implementationProfile != null
+      ) {
+        return "generateInterfaceContracts";
+      }
+      return GENERATOR_ACTION_BY_WORKFLOW_STAGE[step];
+    },
     json(step: WorkflowStage) {
       return JSON.stringify(self.data(step));
     },
-    affectedDownstreamSteps(
-      sourceStep: WorkflowStage,
-      includeSourceStep = false,
-    ): WorkflowStage[] {
-      return WORKFLOW_STAGES.slice(
-        WORKFLOW_STAGES.indexOf(sourceStep) + (includeSourceStep ? 0 : 1),
-      ).filter(
-        (step) =>
-          step !== WorkflowStage.Code &&
-          (
-            self.getStepStatus(step) !== Status.Pending ||
-            self.hasStepArtifacts(step)
-          ),
-      );
-    },
-  }))
-  .actions((self) => ({
-    /**
-     * Re-run the rate-limited attempt. The re-dispatch is a fresh flow,
-     * so gates and history treat it like pressing the original button
-     * again; a missing attempt is a silent no-op.
-     */
-    retryFailedOperation() {
-      const attempt = takePendingRetry();
-      if (attempt == null) return null;
-      return attempt();
-    },
-    approve(id: string) {
-      const step = self.approvalStep(id);
-      if (step != null) {
-        const reason = self.upstreamBlockerReason(
-          step,
-          `before approving ${self.stageLabel(step)}`,
-        );
-        if (reason != null) throw new UserFacingError(reason);
-      }
-      if (!self.canApprove(id)) {
-        throw new Error(`Cannot approve ${id}.`);
-      }
-      if (id === OVERVIEW_NAME_QUALITY_ID) {
-        self.productOverview.approveName();
-        return;
-      }
-      if (id === OVERVIEW_PURPOSE_QUALITY_ID) {
-        self.productOverview.approvePurpose();
-        return;
-      }
-      const fragment = self.structuralFragmentsCache[id];
-      if (fragment != null) {
-        if (fragment.pendingRemoval) {
-          const stage = WORKFLOW_STAGE_BY_STRUCTURAL_FRAGMENT[fragment.type];
-          const previous = self.stageListChanges.get(stage);
-          self.removeEarlyFragment(fragment);
-          if (previous != null) {
-            self.recordStageListChange(stage, {
-              ...previous,
-              dropped: previous.dropped.filter((item) => item.id !== id),
-            });
-          }
+    };
+  })
+  .actions((self) => {
+    /** Write a unit's approval to whatever carries it. */
+    function writeApproval(unit: ReviewUnit, approval: ApprovalRecord | null): void {
+      switch (unit.kind) {
+        case "field":
+          self.productOverview.setFieldApproval(
+            unit.id === OVERVIEW_NAME_QUALITY_ID ? "name" : "purpose",
+            approval,
+          );
           return;
-        }
-        fragment.approve();
-        return;
+        case "item":
+          self.structuralFragmentsCache[unit.id]!.setApproval(approval);
+          return;
+        case "coverage":
+        case "impact":
+          writeStandalone(unit.id, { approval });
+          return;
+        case "artifact":
+          writeArtifact(unit.id, { approval });
+          return;
       }
+    }
+    function writeVerdict(unit: ReviewUnit, verdict: ModelVerdict | null): void {
+      switch (unit.kind) {
+        case "field":
+          self.productOverview.setFieldVerdict(
+            unit.id === OVERVIEW_NAME_QUALITY_ID ? "name" : "purpose",
+            verdict,
+          );
+          return;
+        case "item":
+          self.structuralFragmentsCache[unit.id]!.setVerdict(verdict);
+          return;
+        case "coverage":
+        case "impact":
+          writeStandalone(unit.id, { verdict });
+          return;
+        case "artifact":
+          writeArtifact(unit.id, { verdict });
+          return;
+      }
+    }
+    function writeStandalone(id: string, patch: Partial<StandaloneReview>): void {
+      const current = self.review.units[id] ?? { approval: null, verdict: null };
+      self.review = {
+        ...self.review,
+        units: { ...self.review.units, [id]: { ...current, ...patch } },
+      };
+    }
+    function writeArtifact(id: string, patch: Pick<RevisionMetadata, "approval"> | Pick<RevisionMetadata, "verdict">): void {
       if (self.boundaryDesign?.id === id) {
-        self.boundaryDesign = cast(asApprovedRevision(self.boundaryDesign));
+        self.boundaryDesign = cast({ ...self.boundaryDesign, ...patch });
         return;
       }
       if (self.implementationProfile?.id === id) {
-        self.implementationProfile = cast(asApprovedRevision(self.implementationProfile));
+        self.implementationProfile = cast({ ...self.implementationProfile, ...patch });
         return;
       }
       if (self.projectSetup?.id === id) {
-        self.projectSetup = cast(asApprovedRevision(self.projectSetup));
+        self.projectSetup = cast({ ...self.projectSetup, ...patch });
         return;
       }
-      if (self.contractSuite != null) {
-        self.contractSuite = cast({
-          ...self.contractSuite,
-          interfaceContracts: self.contractSuite.interfaceContracts.map((item) =>
-            item.id === id ? asApprovedRevision(item) : item,
-          ),
-          subjectContracts: self.contractSuite.subjectContracts.map((item) =>
-            item.id === id ? asApprovedRevision(item) : item,
-          ),
-          verificationContracts: self.contractSuite.verificationContracts.map((item) =>
-            item.id === id ? asApprovedRevision(item) : item,
-          ),
+      const suite = self.contractSuite;
+      if (suite == null) return;
+      const update = <T extends { id: string }>(items: T[]): T[] =>
+        items.map((item) => (item.id === id ? { ...item, ...patch } : item));
+      self.contractSuite = cast({
+        ...suite,
+        interfaceContracts: update(suite.interfaceContracts),
+        subjectContracts: update(suite.subjectContracts),
+        verificationContracts: update(suite.verificationContracts),
+      });
+    }
+    function acknowledgeInputs(step: WorkflowStage): void {
+      if (STAGE_INPUTS[step] == null) return;
+      self.review = {
+        ...self.review,
+        acknowledgedInputs: {
+          ...self.review.acknowledgedInputs,
+          [step]: self.currentInputs(step),
+        },
+      };
+    }
+    /**
+     * Once nothing in a list stage still answers an upstream change — no
+     * outdated item, no untouched item awaiting impact approval — the
+     * stage has absorbed it, so the change stops being described.
+     */
+    function settleAcknowledgedInputs(step: WorkflowStage): void {
+      if (!IMPACT_STAGES.has(step)) return;
+      if (self.changedInputIds(step).length === 0) return;
+      if (self.outdatedItemIds(step).length > 0) return;
+      if (self.untouchedItemIds(step).length > 0) return;
+      acknowledgeInputs(step);
+    }
+    function grantApproval(unit: ReviewUnit, reviewer: Reviewer, overruled: ModelVerdict | null): void {
+      if (unit.kind === "item" && unit.pendingRemoval) {
+        removeFragment(unit.id);
+        settleAcknowledgedInputs(unit.stage);
+        return;
+      }
+      writeApproval(
+        unit,
+        approvalRecord(
+          unit.checked,
+          unit.kind === "item" || unit.kind === "field" ? unit.content : null,
+          reviewer,
+          overruled,
+          unit.kind === "item" && IMPACT_STAGES.has(unit.stage)
+            ? self.inputsHash(unit.stage)
+            : undefined,
+        ),
+      );
+      if (unit.kind === "impact") acknowledgeInputs(unit.stage);
+      settleAcknowledgedInputs(unit.stage);
+    }
+    function removeFragment(id: string): void {
+      const fragment = self.structuralFragmentsCache[id]!;
+      const stage = WORKFLOW_STAGE_BY_STRUCTURAL_FRAGMENT[fragment.type];
+      const previous = self.stageListChanges.get(stage);
+      self.removeEarlyFragment(fragment);
+      if (previous != null) {
+        self.recordStageListChange(stage, {
+          ...previous,
+          dropped: previous.dropped.filter((item) => item.id !== id),
         });
       }
-    },
-  }));
+    }
+    return {
+      /**
+       * Re-run the rate-limited attempt. The re-dispatch is a fresh flow,
+       * so gates and history treat it like pressing the original button
+       * again; a missing attempt is a silent no-op.
+       */
+      retryFailedOperation() {
+        const attempt = takePendingRetry();
+        if (attempt == null) return null;
+        return attempt();
+      },
+      acknowledgeInputs,
+      settleAcknowledgedInputs,
+      /** Write an approval record as given; migration is the one caller that bypasses the gates. */
+      recordApproval(id: string, approval: ApprovalRecord) {
+        const unit = self.reviewUnit(id);
+        if (unit != null) writeApproval(unit, approval);
+      },
+      settleAllAcknowledgedInputs() {
+        IMPACT_STAGES.forEach(settleAcknowledgedInputs);
+      },
+      /**
+       * Approve a unit as a person. Overruling a current model rejection
+       * needs `decided`: the person was shown both verdicts and chose.
+       */
+      approve(id: string, { decided = false }: { decided?: boolean } = {}) {
+        const unit = self.reviewUnit(id);
+        if (unit == null) throw new Error(`Cannot approve ${id}.`);
+        const reason = self.stageBlockerReason(
+          unit.stage,
+          `before approving ${self.stageLabel(unit.stage)}`,
+        );
+        if (reason != null) throw new UserFacingError(reason);
+        if (!self.canApprove(id)) throw new Error(`Cannot approve ${id}.`);
+        const verdict = self.currentVerdictOf(id);
+        if (verdict?.verdict === "reject" && !decided) {
+          throw new UserFacingError(
+            `The reviewer model recommends a change: ${verdict.reason} Decide whether to approve anyway.`,
+          );
+        }
+        grantApproval(unit, PERSON, verdict?.verdict === "reject" ? verdict : null);
+      },
+      /** Bring a rewritten or removed item back to its signed version. */
+      restoreSigned(id: string) {
+        if (!self.canRestore(id)) throw new Error(`Cannot restore ${id}.`);
+        const unit = self.reviewUnit(id)!;
+        const signed = unit.approval!.signed as Record<string, unknown>;
+        if (unit.kind === "field") {
+          if (id === OVERVIEW_NAME_QUALITY_ID) self.productOverview.name = signed.name as string | null;
+          else self.productOverview.purpose = signed.purpose as string | null;
+          return;
+        }
+        const fragment = self.structuralFragmentsCache[id]!;
+        fragment.clearPendingRemoval();
+        if (fragment.type === StructuralFragmentName.TestScenario) {
+          (fragment as TestScenario).restoreContent(signed as never);
+        } else if (fragment.type === StructuralFragmentName.TestCase) {
+          (fragment as TestCase).restoreContent(signed as never);
+        } else {
+          fragment.setData({
+            content: signed.content as string,
+            references: signed.references as ReferenceData[],
+            dependencies: signed.dependencies as string[],
+          });
+        }
+      },
+      /**
+       * Send untouched items back: the person withdraws their approval, and
+       * they stay outdated until regenerated. The signed content stays for
+       * the standing diff.
+       */
+      sendBackForRegeneration(ids: readonly string[]) {
+        for (const id of ids) {
+          const unit = self.reviewUnit(id);
+          if (unit?.kind !== "item" || !self.stageIsEditable(unit.stage)) {
+            throw new Error(`Cannot send back ${id}.`);
+          }
+          const fragment = self.structuralFragmentsCache[id]!;
+          if (unit.approval != null) {
+            fragment.setApproval({
+              ...unit.approval,
+              checked: checkedHash({ withdrawn: unit.approval.checked }),
+            });
+          }
+          fragment.setBasis(null);
+        }
+      },
+      setReviewMode(step: WorkflowStage, mode: ReviewMode) {
+        if (mode === "auto" && reviewerModel == null) {
+          throw new UserFacingError("Set NEXT_PUBLIC_AI_REVIEWER_MODEL to use auto review.");
+        }
+        self.review = {
+          ...self.review,
+          modes: { ...self.review.modes, [step]: mode },
+        };
+        if (mode !== "auto") return;
+        // Switching to auto lets the reviewer model decide the drafts it
+        // already approved; approvals already given stay as they are.
+        for (const unit of self.stageUnits(step)) {
+          const verdict = holds(unit.verdict, unit.checked) ? unit.verdict : null;
+          if (verdict?.verdict === "approve" && self.isApprovable(unit.id)) {
+            grantApproval(unit, { kind: "model", model: verdict.model }, null);
+          }
+        }
+      },
+      /**
+       * Record reviewer-model verdicts. A verdict given on a state the unit
+       * has since left is dropped. In auto review an approving verdict is
+       * the approval.
+       */
+      recordVerdicts(
+        verdicts: readonly { id: string; checked: string; verdict: VerdictDecision; reason: string }[],
+        model: string,
+      ) {
+        const at = new Date().toISOString();
+        for (const entry of verdicts) {
+          const unit = self.reviewUnit(entry.id);
+          if (unit == null || unit.checked !== entry.checked) continue;
+          const verdict: ModelVerdict = {
+            checked: entry.checked,
+            verdict: entry.verdict,
+            reason: entry.reason,
+            model,
+            at,
+          };
+          writeVerdict(unit, verdict);
+          if (
+            verdict.verdict === "approve" &&
+            self.reviewModeOf(unit.stage) === "auto" &&
+            self.isApprovable(unit.id)
+          ) {
+            grantApproval(self.reviewUnit(unit.id)!, { kind: "model", model }, null);
+          }
+        }
+      },
+    };
+  })
+  .actions((self) => {
+    function listOf(entityType: StructuralFragmentName) {
+      return {
+        [StructuralFragmentName.PrimaryFeature]: () => self.productOverview.primaryFeatures,
+        [StructuralFragmentName.TargetUser]: () => self.productOverview.targetUsers,
+        [StructuralFragmentName.Requirement]: () => self.requirements,
+        [StructuralFragmentName.UserStory]: () => self.userStories,
+        [StructuralFragmentName.AcceptanceCriteria]: () => self.acceptanceCriteria,
+        [StructuralFragmentName.TestScenario]: () => undefined,
+        [StructuralFragmentName.TestCase]: () => undefined,
+        [StructuralFragmentName.TestCode]: () => undefined,
+      }[entityType]();
+    }
+    const listChangeEntry = (item: StructuralFragment) => ({
+      id: item.id,
+      code: item.getCode(),
+      revision: proseRevision(item),
+      pendingRemoval: item.pendingRemoval,
+    });
+    return {
+      /**
+       * Apply a complete regenerated list. Every listed item was written
+       * against the current inputs, so each records them as its basis; a
+       * stage generated from empty acknowledges its inputs.
+       */
+      replaceArtifactList({ entityType, items }: ArtifactListProposal) {
+        const list = listOf(entityType);
+        if (list == null) throw new Error(`${entityType} requires a contract-first proposal.`);
+        const stage = WORKFLOW_STAGE_BY_STRUCTURAL_FRAGMENT[entityType];
+        const generatedFromEmpty = list.length === 0;
+        const before = list.map(listChangeEntry);
+        const existingById = new Map(list.map((item) => [item.id, item]));
+        const snapshots = materializeArtifactItems(items, uuid).map((item) => {
+          const existing = existingById.get(item.id);
+          if (existing == null) return getSnapshot(createFragment(entityType, item));
+          const { id: _id, ...update } = item;
+          existing.clearPendingRemoval();
+          existing.setData(update);
+          return getSnapshot(existing);
+        });
+        const keptIds = new Set(snapshots.map((item) => (item as { id: string }).id));
+        for (const existing of list) {
+          if (keptIds.has(existing.id)) continue;
+          existing.markPendingRemoval();
+          snapshots.push(getSnapshot(existing));
+        }
+        list.replace(snapshots as never[]);
+        for (const item of list) {
+          if (!item.pendingRemoval) item.setBasis(self.currentBasisOf(item));
+        }
+        self.recordStageListChange(stage, classifyListChange(before, list.map(listChangeEntry)));
+        if (generatedFromEmpty) self.acknowledgeInputs(stage);
+      },
+      /** Apply one regenerated or removed item; a rewrite records its basis. */
+      reviseFragment({ entityType, id, patch }: FragmentRevisionProposal) {
+        const list = listOf(entityType);
+        const fragment = [
+          ...self.productOverview.primaryFeatures,
+          ...self.productOverview.targetUsers,
+          ...self.userStories,
+          ...self.requirements,
+          ...self.acceptanceCriteria,
+        ].find((candidate) => candidate.id === id);
+        if (fragment == null || fragment.type !== entityType) {
+          throw new Error(`Cannot revise missing ${entityType} fragment ${id}.`);
+        }
+        const before = (list ?? [fragment]).map(listChangeEntry);
+        if (patch.remove === true) {
+          fragment.markPendingRemoval();
+        } else {
+          fragment.clearPendingRemoval();
+          fragment.setData({
+            content: patch.content,
+            priority: patch.priority,
+          });
+          fragment.setBasis(self.currentBasisOf(fragment));
+        }
+        self.recordStageListChange(
+          WORKFLOW_STAGE_BY_STRUCTURAL_FRAGMENT[entityType],
+          classifyListChange(before, (list ?? []).map(listChangeEntry)),
+        );
+      },
+    };
+  });
 
 // Every AI flow, under the property name it is assigned on the store. The
 // timeline declares each of these as a step: the property name admits the
@@ -1641,6 +2026,7 @@ const aiFlows = {
   generateTestCode,
   handleOverviewFieldComment,
   requestStageChange,
+  reviewStage,
 };
 
 export const Store = FlatStore.actions(

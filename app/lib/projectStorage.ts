@@ -1,3 +1,5 @@
+import { TIMELINE_VERSION } from "store/timeline/serialize";
+
 import { isRecord, parseJson } from "./json";
 import { LEGACY_MODULE_ID, parseProjectPayload, pickActiveModule } from "./moduleSchema";
 import { deleteProjectSnapshots } from "./revisionStorage";
@@ -126,7 +128,7 @@ export function loadTimelineData(
         : null);
     if (source == null) return null;
     const value = parseJson(source, "Stored timeline");
-    if (!isRecord(value) || value.version !== 2) return null;
+    if (!isRecord(value) || value.version !== TIMELINE_VERSION) return null;
     return value;
   } catch {
     return null;

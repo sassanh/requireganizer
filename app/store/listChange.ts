@@ -19,11 +19,12 @@ export type ListChangeCaption = {
 export type ListChangeBeforeItem = {
   id: string;
   code: string;
+  revision: string;
 };
 
 export type ListChangeAfterItem = {
   id: string;
-  lastSignedContent: string | null;
+  revision: string;
   pendingRemoval?: boolean;
 };
 
@@ -47,7 +48,7 @@ export function classifyListChange(
       dropped.push({ id: item.id, code: previous.code });
       continue;
     }
-    if (item.lastSignedContent != null) {
+    if (item.revision !== previous.revision) {
       changed.push(item.id);
     } else {
       kept.push(item.id);

@@ -1,6 +1,6 @@
 # Artifact contracts
 
-Every generated artifact has a stable artifact ID and, where approval matters, an immutable revision ID. Downstream artifacts name the exact revisions they consume. Application-owned IDs, revision metadata, timestamps, hashes, and output paths are never accepted from a model proposal unless the operation explicitly requires an existing allowed identity.
+Every generated artifact has a stable artifact ID and, where approval matters, an immutable revision ID. Its revision metadata carries the approval record and the reviewer model's verdict, never a stored status. Downstream artifacts name the exact revisions they consume. Application-owned IDs, revision metadata, timestamps, hashes, and output paths are never accepted from a model proposal unless the operation explicitly requires an existing allowed identity.
 
 ## Boundary Design
 
@@ -56,6 +56,6 @@ Automated-test generation receives the exact structured case, scenario binding, 
 
 ## Project schema and recovery
 
-Project exports use schema version 3. Imports with another schema version are rejected with the reason shown to the user. Imports rerun graph, schema, revision, dependency, coverage, contract, case, and scaffold validation before replacing live state.
+Project exports use schema version 4, which wraps one schema 5 snapshot per module. Imports accept schema 4, or a single module of schema 5, or of schema 3 migrated on load; any other version is rejected with the reason shown to the user. Imports rerun graph, schema, revision, dependency, coverage, contract, case, and scaffold validation before replacing live state; a stale artifact is validated against itself rather than against an upstream that has moved on.
 
 Before an upstream revision invalidates completed downstream work, Requireganizer presents the affected artifacts and saves a complete recovery snapshot. Stale artifacts remain readable but cannot be used for generation. IndexedDB retains the latest 20 unpinned snapshots per project and every pinned snapshot.

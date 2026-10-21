@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 
 import { MODULE_SCHEMA_VERSION } from "../app/lib/projectSchema";
 import { WorkflowStage } from "../app/store/constants";
-import { Store, stageInputHash } from "../app/store/store";
+import { Store } from "../app/store/store";
 import type { FlatStore } from "../app/store/store";
 
 const emptyProject = {
@@ -23,7 +23,6 @@ const emptyProject = {
   testScenarios: [],
   projectSetup: null,
   scaffoldFiles: [],
-  stageInputFingerprints: {},
 };
 
 describe("overview seed as revision 0", () => {
@@ -36,13 +35,13 @@ describe("overview seed as revision 0", () => {
     assert.equal(store.overviewSeed, "A plant care helper.");
   });
 
-  it("keeps the seed out of workflow fingerprints", () => {
+  it("keeps the seed out of every stage's inputs", () => {
     const seeded = Store.create({ productOverview: {} }) as unknown as FlatStore;
     seeded.setOverviewSeed({ seed: "A plant care helper." });
     const plain = Store.create({ productOverview: {} }) as unknown as FlatStore;
-    assert.equal(
-      stageInputHash(seeded, WorkflowStage.UserStories),
-      stageInputHash(plain, WorkflowStage.UserStories),
+    assert.deepEqual(
+      seeded.currentInputs(WorkflowStage.UserStories),
+      plain.currentInputs(WorkflowStage.UserStories),
     );
   });
 

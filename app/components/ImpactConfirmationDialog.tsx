@@ -3,6 +3,7 @@ import { observer } from "mobx-react-lite";
 import { getSnapshot } from "mobx-state-tree";
 import { useState } from "react";
 
+import { reviewerModel } from "ai-agent/model";
 import { saveProjectSnapshot } from "lib/revisionStorage";
 import { useStore } from "store";
 
@@ -23,6 +24,7 @@ const ImpactConfirmationDialog = ({ projectId, moduleId }: { projectId: string; 
         `Before ${change.sourceLabel} revision`,
       );
       store.applyPendingImpactChange();
+      if (reviewerModel != null && store.frontier != null) void store.reviewStage(store.frontier);
     } catch (error) {
       store.setValidationError({
         message: "The change was not applied because a recovery snapshot could not be saved.",
@@ -34,7 +36,7 @@ const ImpactConfirmationDialog = ({ projectId, moduleId }: { projectId: string; 
   };
   return (
     <Dialog open={change != null} maxWidth="sm" fullWidth onClose={saving ? undefined : store.cancelPendingImpactChange}>
-      <DialogTitle>Confirm downstream impact</DialogTitle>
+      <DialogTitle>Reopen {change?.sourceLabel}</DialogTitle>
       <DialogContent>
         <Alert severity="warning" sx={{ mb: 2 }}>{change?.summary}</Alert>
         <List dense>
@@ -54,11 +56,11 @@ const ImpactConfirmationDialog = ({ projectId, moduleId }: { projectId: string; 
             </AccordionDetails>
           </Accordion>
         )}
-        <Alert severity="info">A complete recovery snapshot will be saved before this revision is applied.</Alert>
+        <Alert severity="info">A recovery snapshot is saved before the change applies.</Alert>
       </DialogContent>
       <DialogActions>
         <Button disabled={saving} onClick={store.cancelPendingImpactChange}>Cancel</Button>
-        <Button disabled={saving} variant="contained" color="warning" onClick={apply}>{saving ? "Saving snapshot…" : "Save snapshot and apply"}</Button>
+        <Button disabled={saving} variant="contained" color="warning" onClick={apply}>{saving ? "Saving snapshot…" : "Save snapshot and reopen"}</Button>
       </DialogActions>
     </Dialog>
   );

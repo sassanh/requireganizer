@@ -1421,7 +1421,6 @@ export function validateContractSuiteProposal(
       id: `proposal-interface-${candidate.interfaceId}`,
       revisionId: `proposal-interface-revision-${candidate.interfaceId}`,
       revision: 1,
-      status: "draft",
       createdAt,
       interfaceId: candidate.interfaceId,
       boundaryRevisionId: design.revisionId,
@@ -1443,7 +1442,6 @@ export function validateContractSuiteProposal(
       id: `proposal-subject-${candidate.subjectId}`,
       revisionId: `proposal-subject-revision-${candidate.subjectId}`,
       revision: 1,
-      status: "draft",
       createdAt,
       subjectId: candidate.subjectId,
       boundaryRevisionId: design.revisionId,
@@ -1463,7 +1461,6 @@ export function validateContractSuiteProposal(
       id: `proposal-verification-${candidate.verificationObligationId}`,
       revisionId: `proposal-verification-revision-${candidate.verificationObligationId}`,
       revision: 1,
-      status: "draft",
       createdAt,
       verificationObligationId: candidate.verificationObligationId,
       boundaryRevisionId: design.revisionId,
@@ -2022,8 +2019,7 @@ export function validateScenarioBinding(
     );
     if (
       contract == null ||
-      contract.verificationObligationId !== binding.verificationObligationId ||
-      contract.status !== "approved"
+      contract.verificationObligationId !== binding.verificationObligationId
     ) {
       fail("Verification scenario references a mismatched verification contract.");
     }
@@ -2041,8 +2037,8 @@ export function validateScenarioBinding(
     const contract = suite.interfaceContracts.find(
       (candidate) => candidate.interfaceId === interfaceId,
     );
-    if (contract == null || contract.status !== "approved") {
-      fail(`Scenario interface ${interfaceId} does not have an approved contract.`);
+    if (contract == null) {
+      fail(`Scenario interface ${interfaceId} has no contract.`);
     }
     return contract.revisionId;
   });
@@ -2057,8 +2053,8 @@ export function validateScenarioBinding(
   const subjectContract = suite.subjectContracts.find(
     ({ revisionId }) => revisionId === binding.subjectContractRevisionId,
   );
-  if (subjectContract?.subjectId !== subject.id || subjectContract.status !== "approved") {
-    fail("Behavioral scenario must bind the approved subject protocol contract.");
+  if (subjectContract?.subjectId !== subject.id) {
+    fail("Behavioral scenario must bind its subject's protocol contract.");
   }
 }
 
@@ -2672,13 +2668,6 @@ export function validateProjectSetup(
 ): void {
   const isInsideRoot = (path: string, roots: readonly string[]) =>
     roots.some((root) => path.startsWith(`${root}/`));
-  if (
-    suite.interfaceContracts.some(({ status }) => status !== "approved") ||
-    suite.subjectContracts.some(({ status }) => status !== "approved") ||
-    suite.verificationContracts.some(({ status }) => status !== "approved")
-  ) {
-    fail("Project setup requires an entirely approved contract suite.");
-  }
   if (
     setup.boundaryRevisionId !== design.revisionId ||
     setup.contractSuiteRevisionId !== suite.revisionId ||

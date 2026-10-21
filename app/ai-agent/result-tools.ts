@@ -52,6 +52,7 @@ import type {
 import { UserFacingError } from "lib/errors";
 import {
   applyArtifactListProposal,
+  applyAtomically,
   applyBoundaryDesignProposal,
   applyContractSuiteProposal,
   applyFragmentRevisionProposal,
@@ -349,12 +350,12 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
       if (reason != null) throw new UserFacingError(reason);
       if (
         command.stage === WorkflowStage.InterfaceContracts &&
-        store.implementationProfile?.status !== "approved"
+        (store.implementationProfile == null ||
+          store.approvalOf(store.implementationProfile.id) !== "approved")
       ) {
         throw new UserFacingError("Approve the implementation profile first.");
       }
     }
-    const applyOptions = { markGenerated: true };
     const reviseTarget = command.kind === "revise"
       ? command.target ?? undefined
       : undefined;
@@ -372,7 +373,7 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
         const state = JSON.parse(store.json(WorkflowStage.ProductOverview)) as Record<string, unknown>;
         stageTools.push(agentTool(buildProductOverviewTool(state), async (args) => {
           const proposal = parseProductOverviewProposal(args, state);
-          applyProductOverviewProposal(store, proposal, applyOptions);
+          applyProductOverviewProposal(store, proposal);
           return "Product overview applied.";
         }));
         break;
@@ -397,7 +398,7 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
               expectedEntityType: fragmentType,
               state,
             });
-            applyArtifactListProposal(store, proposal, applyOptions);
+            applyArtifactListProposal(store, proposal);
             return `${definition.entityType} list applied.`;
           },
         ));
@@ -502,9 +503,6 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
         if (scenario == null || scenario.binding == null) {
           throw new Error("No test scenario with a contract binding is available.");
         }
-        if (command.kind === "generate" && scenario.approval !== "approved") {
-          throw new Error("Approve this scenario before generating its cases.");
-        }
         const snapshot = scenarioSnapshot(scenario);
         const scenarioBinding = snapshot.binding;
         if (scenarioBinding == null) {
@@ -570,7 +568,6 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
               id: "project-setup-proposal",
               revisionId: "project-setup-proposal-revision",
               revision: 1,
-              status: "draft",
               createdAt: "1970-01-01T00:00:00.000Z",
               ...proposal,
             };
@@ -607,8 +604,14 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
           if (typeof content !== "string" || content.trim().length === 0) {
             throw new Error("Replacement content is required.");
           }
-          if (field === "name") store.setName({ name: content });
-          else store.setPurpose({ purpose: content });
+          applyAtomically(
+            store,
+            (candidate) => {
+              if (field === "name") candidate.setName({ name: content });
+              else candidate.setPurpose({ purpose: content });
+            },
+            `Apply the revised product ${field}.`,
+          );
           return "Overview field applied.";
         },
       ));
@@ -650,12 +653,6 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
         store.boundaryDesign == null
       ) {
         throw new Error("Project setup, contracts, and an implementation profile are required.");
-      }
-      if (store.isProjectSetupOutdated) {
-        throw new Error("Project Setup is stale; refresh it before generating tests.");
-      }
-      if (testCase.approval !== "approved") {
-        throw new Error("Approve this test case before generating the automated test.");
       }
       if (testCase.definition == null) {
         throw new Error("The selected case has no approved structured contract binding.");

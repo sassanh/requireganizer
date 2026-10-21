@@ -47,6 +47,7 @@ export default defineConfig({
         items: [
           { text: "Artifact contracts", link: "/reference/artifacts" },
           { text: "Environment variables", link: "/reference/environment" },
+          { text: "Design scope", link: "/reference/design-scope" },
         ],
       },
     ],

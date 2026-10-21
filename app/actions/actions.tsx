@@ -249,11 +249,14 @@ export const selectPreviousAction: Action<void> = {
 export const approveShortcut: ShortcutSpec = { key: "a", mod: true };
 export const requestChangeShortcut: ShortcutSpec = { key: "c" };
 
-/** An approvable item: its guards plus the approval itself, read live. */
+/**
+ * An approvable item: its guards plus the approval itself, read live. The
+ * approval returns false when it waits on a decision instead of approving.
+ */
 export interface ApproveTarget {
   blocked: boolean;
   approvable: boolean;
-  approve: () => void;
+  approve: () => boolean;
 }
 
 export const approveAction: Action<ApproveTarget> = {
@@ -264,7 +267,7 @@ export const approveAction: Action<ApproveTarget> = {
   isEnabled: ({ blocked, approvable }) => !blocked && approvable,
   run: ({ approve }) => {
     try {
-      approve();
+      if (!approve()) return;
     } catch (error) {
       notify(getUserFacingErrorMessage(error, "Unable to approve."), "error");
       return;

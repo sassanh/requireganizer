@@ -20,34 +20,32 @@ const NameField = observer(function NameField() {
   const shown = useShownStore();
   const nameElementId = artifactElementId("productOverview-name");
   return (
-    <Box
-      sx={{ position: "relative" }}
-    >
+    <Box>
       <ApprovalFrame
         elementId={nameElementId}
-        approval={shown.productOverview.nameApproval}
+        approval={shown.approvalOf(OVERVIEW_NAME_QUALITY_ID)}
         getCopyText={() =>
           formatFieldCopy("Name", shown.productOverview.name ?? "")
         }
       >
         <StagedTextField
           committed={shown.productOverview.name || ""}
-          lastSigned={shown.productOverview.lastSignedName}
+          lastSigned={shown.signedTextOf(OVERVIEW_NAME_QUALITY_ID)}
           elementId={artifactElementId("productOverview-name")}
           fullWidth
           label="Name"
           slotProps={{ input: { readOnly: true } }}
         />
+        <Stack sx={{ position: "absolute", right: 8, bottom: 8 }}>
+          <ApprovalMark
+            id={OVERVIEW_NAME_QUALITY_ID}
+            onRequestChange={(comment) =>
+              store.handleOverviewFieldComment({ field: "name", comment })
+            }
+            requestChangeDisabled={store.isBusy}
+          />
+        </Stack>
       </ApprovalFrame>
-      <Stack sx={{ position: "absolute", right: 8, bottom: 8 }}>
-        <ApprovalMark
-          id={OVERVIEW_NAME_QUALITY_ID}
-          onRequestChange={(comment) =>
-            store.handleOverviewFieldComment({ field: "name", comment })
-          }
-          requestChangeDisabled={store.isBusy}
-        />
-      </Stack>
       <QualityIssues
         issues={store.mechanicalIssuesForItem(OVERVIEW_NAME_QUALITY_ID).map(({ message }) => message)}
         inset={false}
@@ -61,19 +59,17 @@ const PurposeField = observer(function PurposeField() {
   const shown = useShownStore();
   const purposeElementId = artifactElementId("productOverview-purpose");
   return (
-    <Box
-      sx={{ position: "relative" }}
-    >
+    <Box>
       <ApprovalFrame
         elementId={purposeElementId}
-        approval={shown.productOverview.purposeApproval}
+        approval={shown.approvalOf(OVERVIEW_PURPOSE_QUALITY_ID)}
         getCopyText={() =>
           formatFieldCopy("Purpose", shown.productOverview.purpose ?? "")
         }
       >
         <StagedTextField
           committed={shown.productOverview.purpose || ""}
-          lastSigned={shown.productOverview.lastSignedPurpose}
+          lastSigned={shown.signedTextOf(OVERVIEW_PURPOSE_QUALITY_ID)}
           elementId={artifactElementId("productOverview-purpose")}
           fullWidth
           multiline
@@ -81,16 +77,16 @@ const PurposeField = observer(function PurposeField() {
           placeholder="Summarize the key features and objectives of the software in a comprehensive overview..."
           slotProps={{ input: { readOnly: true } }}
         />
+        <Stack sx={{ position: "absolute", right: 8, bottom: 8 }}>
+          <ApprovalMark
+            id={OVERVIEW_PURPOSE_QUALITY_ID}
+            onRequestChange={(comment) =>
+              store.handleOverviewFieldComment({ field: "purpose", comment })
+            }
+            requestChangeDisabled={store.isBusy}
+          />
+        </Stack>
       </ApprovalFrame>
-      <Stack sx={{ position: "absolute", right: 8, bottom: 8 }}>
-        <ApprovalMark
-          id={OVERVIEW_PURPOSE_QUALITY_ID}
-          onRequestChange={(comment) =>
-            store.handleOverviewFieldComment({ field: "purpose", comment })
-          }
-          requestChangeDisabled={store.isBusy}
-        />
-      </Stack>
       <QualityIssues
         issues={store.mechanicalIssuesForItem(OVERVIEW_PURPOSE_QUALITY_ID).map(({ message }) => message)}
         inset={false}

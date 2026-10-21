@@ -37,7 +37,6 @@ const flatSnapshot = {
   testScenarios: [],
   projectSetup: null,
   scaffoldFiles: [],
-  stageInputFingerprints: {},
 };
 
 function entry(
@@ -50,7 +49,7 @@ function entry(
 }
 
 describe("project payload parsing", () => {
-  it("wraps a flat schema 3 project as the single hidden legacy module", () => {
+  it("wraps a bare module snapshot as the single hidden legacy module", () => {
     const payload = parseProjectPayload(flatSnapshot);
     assert.equal(payload.schemaVersion, PROJECT_SCHEMA_VERSION);
     assert.equal(payload.modulesEnabled, false);
@@ -123,10 +122,10 @@ describe("project payload parsing", () => {
     );
   });
 
-  it("names both accepted versions when a payload is obsolete", () => {
+  it("names every accepted version when a payload is obsolete", () => {
     assert.throws(
       () => parseProjectPayload({ schemaVersion: 2 }),
-      /obsolete project schema 2.*schema 3.*or 4/,
+      /obsolete project schema 2.*schema 4 \(modular\), or 5 or 3 \(single module\)/,
     );
     assert.throws(
       () => parseProjectPayload({ notAProject: true }),
@@ -145,7 +144,7 @@ describe("project payload parsing", () => {
             entry("module-a", "One", null, { schemaVersion: 2 }),
           ],
         }),
-      /obsolete module schema 2.*schema 3 only/,
+      /obsolete module schema 2.*module schema 5, or 3 migrated on load/,
     );
   });
 });

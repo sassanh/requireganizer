@@ -9,7 +9,7 @@ import {
 import { observer } from "mobx-react-lite";
 
 import { GenerationButton } from "components";
-import { useStore } from "store";
+import { useStore, WorkflowStage } from "store";
 import type { TestScenario } from "store/models";
 
 import ApprovalMark from "./ApprovalMark";
@@ -80,7 +80,7 @@ export default observer(function TestCaseScenarioAccordions({
                     {scenario.testCases.length === 0 ? (
                       <GenerationButton
                         endIcon={<Build />}
-                        disabled={store.isBusy || scenario.approval !== "approved"}
+                        disabled={store.isBusy || !store.canGenerateStep(WorkflowStage.TestCases)}
                         onGenerate={() => {
                           const real = store.testScenarios.find(
                             (entry) => entry.id === scenario.id,

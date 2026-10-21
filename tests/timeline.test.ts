@@ -35,8 +35,8 @@ import {
   collectArtifactGarbage,
   importTimelineData,
   putArtifact,
+  TIMELINE_VERSION,
   restoreSnapshot,
-  tryResolveArtifact,
   type PersistedTimeline,
 } from "../app/store/timeline/serialize";
 
@@ -99,7 +99,7 @@ function snapshotOf(store: StoreInstance): Record<string, unknown> {
         testScenarios: store.testScenarios,
         projectSetup: store.projectSetup,
         scaffoldFiles: store.scaffoldFiles,
-        stageInputFingerprints: Object.fromEntries(store.stageInputFingerprints),
+        review: store.review,
         conversation: store.conversation,
       },
       // A fresh store leaves maybeNull(frozen) props undefined while a
@@ -153,7 +153,7 @@ describe("timeline serialization", () => {
       testScenarios: [] as unknown[],
       projectSetup: null,
       scaffoldFiles: [] as unknown[],
-      stageInputFingerprints: {},
+      review: {},
       conversation: [
         { role: "user", content: [{ type: "text", text: "q" }], timestamp: 1 },
       ],
@@ -177,29 +177,6 @@ describe("timeline serialization", () => {
     assert.ok((stateB.productOverview ?? "").length <= 20);
   });
 
-  it("keeps stage input snapshots reachable through recorded fingerprints", () => {
-    const recordedInput = { productOverview: { name: "Plant Pal" } };
-    const inputHash = putArtifact(recordedInput);
-    const state = captureState({
-      schemaVersion: 3,
-      businessCounter: 0,
-      productOverview: { name: "Plant Pal Pro", purpose: null },
-      userStories: [],
-      requirements: [],
-      acceptanceCriteria: [],
-      boundaryDesign: null,
-      implementationProfile: null,
-      contractSuite: null,
-      testScenarios: [],
-      projectSetup: null,
-      scaffoldFiles: [],
-      stageInputFingerprints: { [WorkflowStage.UserStories]: inputHash },
-      conversation: [],
-    } as never);
-    collectArtifactGarbage([state]);
-    assert.deepEqual(tryResolveArtifact(inputHash), recordedInput);
-  });
-
   it("strips legacy ephemeral fields from imported node states", () => {
     const state = captureState({
       schemaVersion: 3,
@@ -214,7 +191,7 @@ describe("timeline serialization", () => {
       testScenarios: [],
       projectSetup: null,
       scaffoldFiles: [],
-      stageInputFingerprints: {},
+      review: {},
       conversation: [],
     } as never);
     const payload = {
@@ -881,7 +858,7 @@ describe("timeline controller", () => {
 
     const snapshot = getTimelineSnapshot();
     assert.ok(snapshot != null, "an attached timeline always exports");
-    assert.equal(snapshot.version, 2);
+    assert.equal(snapshot.version, TIMELINE_VERSION);
     assert.ok(snapshot.nodes.length >= 2, "root plus recorded turns");
     assert.ok(snapshot.rootId.length > 0);
     assert.equal(snapshot.activeLeafId !== snapshot.rootId, true);

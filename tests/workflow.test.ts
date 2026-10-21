@@ -8,7 +8,7 @@ import {
   formatQualityContract,
   qualityContractForFragment,
   qualityContractForStage,
-  STAGE_QUALITY_CONTRACTS,
+  QUALITY_CONTRACTS,
 } from "../app/ai-harness/workflow";
 import {
   GENERATION_PREREQUISITE_BY_WORKFLOW_STAGE,
@@ -114,7 +114,17 @@ describe("canonical engineering workflow", () => {
     assert.equal(store.getStepStatus(WorkflowStage.UserStories), Status.Pending);
   });
 
-  it("does not lock a later stage that already has artifacts", async () => {
+  it("refuses auto review while no reviewer model is configured", async () => {
+    const { Store: StoreModel } = await import("../app/store/store");
+    const store = StoreModel.create({ productOverview: {} });
+    assert.throws(
+      () => store.setReviewMode(WorkflowStage.UserStories, "auto"),
+      /Set NEXT_PUBLIC_AI_REVIEWER_MODEL to use auto review/,
+    );
+    assert.equal(store.reviewModeOf(WorkflowStage.UserStories), "manual");
+  });
+
+  it("keeps a later stage that holds work visible but waiting", async () => {
     const { Store: StoreModel } = await import("../app/store/store");
     const store = StoreModel.create({ productOverview: {} });
     store.setUserStories({
@@ -130,7 +140,8 @@ describe("canonical engineering workflow", () => {
     });
     assert.equal(store.hasStepArtifacts(WorkflowStage.UserStories), true);
     assert.equal(store.stageIsLocked(WorkflowStage.UserStories), false);
-    assert.equal(store.getStepStatus(WorkflowStage.UserStories), Status.Pending);
+    assert.equal(store.getStepStatus(WorkflowStage.UserStories), Status.Waiting);
+    assert.equal(store.stageIsEditable(WorkflowStage.UserStories), false);
   });
 
   it("system prompt labels project data untrusted and requires tool-based reads", () => {
@@ -146,32 +157,40 @@ describe("canonical engineering workflow", () => {
     assert.match(prompt, /Generate produces draft/);
     assert.doesNotMatch(prompt, /Separate user outcomes from implementation details/);
     assert.equal(
-      prompt.includes(STAGE_QUALITY_CONTRACTS[WorkflowStage.UserStories].objective),
+      prompt.includes(QUALITY_CONTRACTS[WorkflowStage.UserStories].objective),
       false,
     );
   });
 
-  it("gives product overview, stories, requirements, and criteria a quality contract", () => {
+  it("gives every reviewable stage, coverage, and impact a quality contract", () => {
     assert.equal(
       qualityContractForStage(WorkflowStage.ProductOverview),
-      STAGE_QUALITY_CONTRACTS[WorkflowStage.ProductOverview],
+      QUALITY_CONTRACTS[WorkflowStage.ProductOverview],
     );
     assert.equal(
       qualityContractForFragment(StructuralFragment.PrimaryFeature),
-      STAGE_QUALITY_CONTRACTS[WorkflowStage.ProductOverview],
+      QUALITY_CONTRACTS[WorkflowStage.ProductOverview],
     );
     assert.equal(
       qualityContractForFragment(StructuralFragment.UserStory),
-      STAGE_QUALITY_CONTRACTS[WorkflowStage.UserStories],
+      QUALITY_CONTRACTS[WorkflowStage.UserStories],
     );
-    assert.equal(qualityContractForStage(WorkflowStage.BoundaryDesign), null);
+    assert.equal(
+      qualityContractForStage(WorkflowStage.BoundaryDesign),
+      QUALITY_CONTRACTS[WorkflowStage.BoundaryDesign],
+    );
+    assert.equal(qualityContractForStage(WorkflowStage.InterfaceContracts), null);
+    assert.equal(qualityContractForStage(WorkflowStage.AutomatedTests), null);
+    for (const subject of ["coverage", "impact", "implementation-profile"] as const) {
+      assert.ok(QUALITY_CONTRACTS[subject].qualityRules.length > 0, subject);
+    }
     const formatted = formatQualityContract(
-      STAGE_QUALITY_CONTRACTS[WorkflowStage.UserStories],
+      QUALITY_CONTRACTS[WorkflowStage.UserStories],
     );
     assert.match(formatted, /Objective:/);
     assert.match(formatted, /Judge the claim, not the vocabulary/);
     assert.ok(
-      formatted.includes(STAGE_QUALITY_CONTRACTS[WorkflowStage.UserStories].objective),
+      formatted.includes(QUALITY_CONTRACTS[WorkflowStage.UserStories].objective),
     );
   });
 });

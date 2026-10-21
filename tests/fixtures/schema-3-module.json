@@ -1,0 +1,203 @@
+{
+  "schemaVersion": 3,
+  "isClean": true,
+  "businessCounter": 0,
+  "validationErrors": null,
+  "productOverview": {
+    "name": "Plant Pal",
+    "purpose": "Help people keep houseplants alive.",
+    "nameApproval": "approved",
+    "purposeApproval": "approved",
+    "lastSignedName": null,
+    "lastSignedPurpose": null,
+    "primaryFeatures": [
+      {
+        "id": "feat-1",
+        "type": "primary_feature",
+        "content": "Track watering",
+        "priority": null,
+        "references": [],
+        "dependencies": [],
+        "approval": "approved",
+        "lastSignedContent": null,
+        "pendingRemoval": false
+      },
+      {
+        "id": "feat-2",
+        "type": "primary_feature",
+        "content": "Track feeding",
+        "priority": null,
+        "references": [],
+        "dependencies": [],
+        "approval": "approved",
+        "lastSignedContent": null,
+        "pendingRemoval": false
+      }
+    ],
+    "targetUsers": [
+      {
+        "id": "user-1",
+        "type": "target_user",
+        "content": "Busy plant owners",
+        "priority": null,
+        "references": [],
+        "dependencies": [],
+        "approval": "approved",
+        "lastSignedContent": null,
+        "pendingRemoval": false
+      }
+    ]
+  },
+  "overviewSeed": null,
+  "userStories": [
+    {
+      "id": "story-1",
+      "type": "user_story",
+      "content": "As a busy plant owner, I want watering reminders.",
+      "priority": "p1",
+      "references": [
+        {
+          "id": "feat-1",
+          "type": "primary_feature"
+        },
+        {
+          "id": "user-1",
+          "type": "target_user"
+        }
+      ],
+      "dependencies": [],
+      "approval": "approved",
+      "lastSignedContent": null,
+      "pendingRemoval": false
+    },
+    {
+      "id": "story-2",
+      "type": "user_story",
+      "content": "As a busy plant owner, I want feeding reminders.",
+      "priority": "p1",
+      "references": [
+        {
+          "id": "feat-2",
+          "type": "primary_feature"
+        },
+        {
+          "id": "user-1",
+          "type": "target_user"
+        }
+      ],
+      "dependencies": [],
+      "approval": "approved",
+      "lastSignedContent": null,
+      "pendingRemoval": false
+    }
+  ],
+  "requirements": [
+    {
+      "id": "req-1",
+      "type": "requirement",
+      "content": "The system must remind owners when watering is due.",
+      "priority": "p1",
+      "references": [
+        {
+          "id": "story-1",
+          "type": "user_story"
+        }
+      ],
+      "dependencies": [],
+      "approval": "approved",
+      "lastSignedContent": null,
+      "pendingRemoval": false
+    },
+    {
+      "id": "req-2",
+      "type": "requirement",
+      "content": "The system must remind owners when feeding is due, by notification.",
+      "priority": "p1",
+      "references": [
+        {
+          "id": "story-2",
+          "type": "user_story"
+        }
+      ],
+      "dependencies": [],
+      "approval": "draft",
+      "lastSignedContent": "The system must remind owners when feeding is due.",
+      "pendingRemoval": false
+    }
+  ],
+  "acceptanceCriteria": [
+    {
+      "id": "ac-1",
+      "type": "acceptance_criteria",
+      "content": "Given a due watering date, the owner is notified.",
+      "priority": "p1",
+      "references": [
+        {
+          "id": "req-1",
+          "type": "requirement"
+        }
+      ],
+      "dependencies": [],
+      "approval": "approved",
+      "lastSignedContent": null,
+      "pendingRemoval": false
+    },
+    {
+      "id": "ac-2",
+      "type": "acceptance_criteria",
+      "content": "Given a due feeding date, the owner is notified.",
+      "priority": "p1",
+      "references": [
+        {
+          "id": "req-2",
+          "type": "requirement"
+        }
+      ],
+      "dependencies": [],
+      "approval": "approved",
+      "lastSignedContent": null,
+      "pendingRemoval": false
+    }
+  ],
+  "testScenarios": [],
+  "scaffoldFiles": [],
+  "stageInputFingerprints": {
+    "product-overview": "44136fa355b3678a1146",
+    "user-stories": "04429189132965ffcc6a",
+    "requirements": "ab1e09daab9ba4e4ff73",
+    "acceptance-criteria": "ddae3bb2ed490b4ebc0d"
+  },
+  "stageListChanges": {
+    "user-stories": {
+      "kept": [],
+      "changed": [],
+      "added": [
+        "story-1",
+        "story-2"
+      ],
+      "dropped": []
+    },
+    "requirements": {
+      "kept": [
+        "req-1"
+      ],
+      "changed": [
+        "req-2"
+      ],
+      "added": [],
+      "dropped": []
+    },
+    "acceptance-criteria": {
+      "kept": [],
+      "changed": [],
+      "added": [
+        "ac-1",
+        "ac-2"
+      ],
+      "dropped": []
+    }
+  },
+  "systemMessage": null,
+  "conversation": [],
+  "conversationSidebarOpen": false
+}

@@ -5,7 +5,7 @@ The AI harness is the validation boundary inside a continuous pi-agent conversat
 ## Turn lifecycle
 
 1. The client verifies completion and revision prerequisites for the command.
-2. The agent loop runs server-proxied streaming turns: read tools (`get_workflow_state`, `get_stage_artifacts`, `get_scaffold_files`) let the model inspect live project state, and `communicate` lets it ask one concise question.
+2. The agent loop runs server-proxied streaming turns: read tools (`get_workflow_state`, `get_stage_artifacts`, `get_input_changes`, `get_scaffold_files`) let the model inspect live project state, including the frontier, outdated items, and each changed input before and after, and `communicate` lets it ask one concise question.
 3. Every turn carries the **full submission toolset**: one result tool (`submit_*`) per stage whose prerequisites currently hold, plus `activate_stage_result_tool` as an escape hatch that validates prerequisites and reports what is missing. Construction is the gate — stages with unmet prerequisites stay absent until the workflow unlocks them. Free-form turns and command turns share this toolset; a command contributes only its own extras (revision targets, the test-code channel). Re-issuing a command whose turn ended in an error replaces that dead attempt instead of duplicating it.
 4. Every turn is grafted into the **conversation tree**: a turn node holds the messages the turn appended plus a hash-reference to the full store state after it. The visible conversation is the active root-to-leaf path; forks are children; rewind, cancel, branch switching, undo, and redo are tree walks. Rewinding reverts artifacts and conversation together (state before the message's turn); committing a rewind grafts a new child while the discarded path remains a switchable sibling branch.
 5. The harness validates the submitted proposal independently of schema acceptance — parsers and contract-domain validators are authoritative.
@@ -13,6 +13,10 @@ The AI harness is the validation boundary inside a continuous pi-agent conversat
 7. A valid proposal is materialized with application-owned IDs, revisions, and content hashes, then applied atomically.
 
 Provider schema acceptance is not a correctness signal. Runtime validation is authoritative.
+
+## Reviewer model
+
+Once a flow has applied work, the reviewer model reviews the stage it acted on: every unit with no current verdict that can be decided now. It runs as a separate agent with a fresh context, the read tools, and one `submit_verdicts` tool; it never sees the writer's conversation and has no submit tool of the writer's. Each unit arrives with the quality contract it is judged against. A submission that skips or repeats a unit is returned to the model to complete. Verdicts are recorded against the exact state each unit was reviewed in; in auto review an approving verdict is the approval. A reviewer failure leaves the applied work in place and says so. The reviewer model is `NEXT_PUBLIC_AI_REVIEWER_MODEL`; without it no review runs.
 
 ## Adapter and schema safety
 

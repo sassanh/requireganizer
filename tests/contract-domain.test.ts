@@ -26,9 +26,7 @@ const metadata = {
   id: "boundary",
   revisionId: "boundary-r1",
   revision: 1,
-  status: "approved" as const,
   createdAt: "2026-08-13T00:00:00.000Z",
-  approvedAt: "2026-08-13T00:01:00.000Z",
 };
 
 const design: BoundaryDesign = {

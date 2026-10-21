@@ -5,6 +5,7 @@
 | `AI_API_KEY` | None | Provider-neutral bearer token. Takes precedence when set. |
 | `OPENCODE_API_KEY` | None | OpenCode Zen token used when `AI_API_KEY` is unset. |
 | `AI_BASE_URL` | `https://opencode.ai/zen/v1` | Base URL for an OpenAI-compatible API. |
+| `NEXT_PUBLIC_AI_REVIEWER_MODEL` | None | Reviewer model id, served by the same endpoint and API as the conversation model. Unset means no model verdicts and no auto review. Read at build time. |
 
 When neither key variable is set, the default endpoint receives `public` as its bearer credential. Other providers normally require `AI_API_KEY`. The conversation model is pinned in `app/ai-agent/model.ts`; Requireganizer does not silently change models because model identity affects output quality, caching, and reproducibility.
 

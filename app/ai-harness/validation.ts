@@ -805,29 +805,24 @@ export function parseTestCodeRequest(value: unknown): TestCodeRequest {
   const interfaceContracts = contractRecords("interfaceContracts");
   const subjectContracts = contractRecords("subjectContracts");
   const verificationContracts = contractRecords("verificationContracts");
-  const approvedRevision = (
+  const contractRevision = (
     contract: Record<string, unknown>,
     label: string,
-  ): string => {
-    if (contract.status !== "approved") {
-      throw new InvalidJsonError(`${label} must be approved.`);
-    }
-    return requiredSingleLineString(contract, "revisionId", label);
-  };
+  ): string => requiredSingleLineString(contract, "revisionId", label);
   const interfaceRevisionIds = interfaceContracts.map((contract, index) =>
-    approvedRevision(
+    contractRevision(
       contract,
       `Test-code request.contracts.interfaceContracts[${index}]`,
     ),
   );
   const subjectRevisionIds = subjectContracts.map((contract, index) =>
-    approvedRevision(
+    contractRevision(
       contract,
       `Test-code request.contracts.subjectContracts[${index}]`,
     ),
   );
   const verificationRevisionIds = verificationContracts.map((contract, index) =>
-    approvedRevision(
+    contractRevision(
       contract,
       `Test-code request.contracts.verificationContracts[${index}]`,
     ),

@@ -16,7 +16,9 @@ function suite(summary: string, revisionId: string): ContractSuite {
       id: "interface-contract",
       revisionId: `${revisionId}-interface`,
       revision: 1,
-      status: revisionId === "suite-r1" ? "approved" : "draft",
+      approval: revisionId === "suite-r1"
+        ? { checked: "suite-r1-interface", signed: null, reviewer: { kind: "person" }, at: "2026-08-13T00:00:00.000Z" }
+        : null,
       createdAt: "2026-08-13T00:00:00.000Z",
       interfaceId: "calculator-api",
       boundaryRevisionId: "boundary-r1",
@@ -54,6 +56,6 @@ describe("contract artifact diff", () => {
     assert.ok(result.includes('- /interfaceContracts/interfaceId=calculator-api/formalContract/summary: "Adds two values."'));
     assert.ok(result.includes('+ /interfaceContracts/interfaceId=calculator-api/formalContract/summary: "Adds decimal values."'));
     assert.doesNotMatch(result, /suite-r2-interface/);
-    assert.doesNotMatch(result, /\/status/);
+    assert.doesNotMatch(result, /\/approval/);
   });
 });

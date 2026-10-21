@@ -4,18 +4,18 @@ import { describe, it } from "node:test";
 import { classifyListChange, listChangeCaption } from "../app/store/listChange";
 
 describe("list change classification", () => {
-  it("treats last-signed rows as rewrites and pending-removal rows as drops", () => {
+  it("treats revised rows as rewrites and pending-removal rows as drops", () => {
     const change = classifyListChange(
       [
-        { id: "a", code: "US-1" },
-        { id: "b", code: "US-2" },
-        { id: "c", code: "US-3" },
+        { id: "a", code: "US-1", revision: "a1" },
+        { id: "b", code: "US-2", revision: "b1" },
+        { id: "c", code: "US-3", revision: "c1" },
       ],
       [
-        { id: "a", lastSignedContent: "old a" },
-        { id: "b", lastSignedContent: null },
-        { id: "c", lastSignedContent: null, pendingRemoval: true },
-        { id: "d", lastSignedContent: null },
+        { id: "a", revision: "a2" },
+        { id: "b", revision: "b1" },
+        { id: "c", revision: "c1", pendingRemoval: true },
+        { id: "d", revision: "d1" },
       ],
     );
     assert.deepEqual(change.changed, ["a"]);

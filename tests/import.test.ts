@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { fingerprint } from "../app/contract-domain";
 import {
   assertModuleSnapshotSchema,
   MODULE_SCHEMA_VERSION,
 } from "../app/lib/projectSchema";
+import { itemSetRevision } from "../app/store/review";
 
 const emptyProject = {
   schemaVersion: MODULE_SCHEMA_VERSION,
@@ -24,7 +24,6 @@ const emptyProject = {
   testScenarios: [],
   projectSetup: null,
   scaffoldFiles: [],
-  stageInputFingerprints: {},
 };
 
 describe("module snapshot import", () => {
@@ -32,7 +31,7 @@ describe("module snapshot import", () => {
     assert.doesNotThrow(() => assertModuleSnapshotSchema(emptyProject));
     assert.throws(
       () => assertModuleSnapshotSchema({ ...emptyProject, schemaVersion: 1 }),
-      /obsolete module schema 1.*schema 3 only/,
+      /obsolete module schema 1.*module schema 5, or 3 migrated on load/,
     );
   });
 
@@ -53,20 +52,19 @@ describe("module snapshot import", () => {
     assert.equal(reloaded.systemMessage, message);
   });
 
-  it("does not rewrite a draft revision to approved", async () => {
+  it("does not turn an unapproved revision into an approved one", async () => {
     const { Store } = await import("../app/store/store");
     const reloaded = Store.create({ productOverview: {} }) as unknown as {
       import(value: unknown): void;
-      boundaryDesign: { status: string } | null;
+      approvalOf(id: string): string | null;
     };
-    const emptyRevisionId = fingerprint([]);
+    const emptyRevisionId = itemSetRevision([]);
     reloaded.import({
       ...emptyProject,
       boundaryDesign: {
         id: "boundary",
         revisionId: "boundary-r1",
         revision: 1,
-        status: "draft",
         createdAt: "2026-08-13T00:00:00.000Z",
         requirementsRevisionId: emptyRevisionId,
         acceptanceCriteriaRevisionId: emptyRevisionId,
@@ -91,7 +89,7 @@ describe("module snapshot import", () => {
         coverage: [],
       },
     });
-    assert.equal(reloaded.boundaryDesign?.status, "draft");
+    assert.equal(reloaded.approvalOf("boundary"), "draft");
   });
 
   it("ignores a leftover description field and does not persist it", async () => {

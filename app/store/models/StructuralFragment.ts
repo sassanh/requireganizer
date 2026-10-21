@@ -1,6 +1,6 @@
 import { cast, getParent, Instance, isAlive, types } from "mobx-state-tree";
 
-import type { ApprovalStatus } from "contract-domain";
+import type { ApprovalRecord, ModelVerdict } from "contract-domain";
 import { uuid } from "utilities";
 
 import {
@@ -66,56 +66,41 @@ const HalfStructuralFragmentModel = types
     priority: types.maybeNull(types.enumeration(Object.values(Priority))),
     references: types.array(ReferenceModel),
     dependencies: types.array(types.string),
-    approval: types.optional(
-      types.enumeration<ApprovalStatus>(["draft", "approved"]),
-      "draft",
+    /** The last approval: current only while it matches the item's checked hash. */
+    approval: types.optional(types.maybeNull(types.frozen<ApprovalRecord>()), null),
+    /** The reviewer model's latest verdict, current under the same rule. */
+    verdict: types.optional(types.maybeNull(types.frozen<ModelVerdict>()), null),
+    /**
+     * The revision of every unit this item references, recorded when the
+     * item was last generated. Null means unknown: the item is outdated
+     * until it is regenerated.
+     */
+    basis: types.optional(
+      types.maybeNull(types.frozen<Record<string, string>>()),
+      {},
     ),
-    lastSignedContent: types.optional(types.maybeNull(types.string), null),
     pendingRemoval: types.optional(types.boolean, false),
   })
-  .preProcessSnapshot((snapshot) => {
-    if (snapshot == null || typeof snapshot !== "object") return snapshot;
-    const record = snapshot as Record<string, unknown>;
-    const { quality: _quality, qualityIssues: _qualityIssues, ...rest } = record;
-    return rest as typeof snapshot;
-  })
   .actions((self) => ({
-    dropApproval() {
-      if (self.approval === "draft") return;
-      self.lastSignedContent = self.content;
-      self.approval = "draft";
-    },
-    approve() {
-      self.approval = "approved";
-      self.lastSignedContent = null;
-      self.pendingRemoval = false;
-    },
     clearPendingRemoval() {
       self.pendingRemoval = false;
     },
-    // An edit landing back on the last approved text restores approval:
-    // there is nothing left to review.
-    reapproveIfMatchesSigned() {
-      if (
-        !self.pendingRemoval &&
-        self.lastSignedContent != null &&
-        self.content === self.lastSignedContent
-      ) {
-        self.approval = "approved";
-        self.lastSignedContent = null;
-      }
+    markPendingRemoval() {
+      self.pendingRemoval = true;
+    },
+    setApproval(approval: ApprovalRecord | null) {
+      self.approval = approval;
+    },
+    setVerdict(verdict: ModelVerdict | null) {
+      self.verdict = verdict;
+    },
+    setBasis(basis: Record<string, string> | null) {
+      self.basis = basis;
     },
   }))
   .actions((self) => ({
-    markPendingRemoval() {
-      self.dropApproval();
-      self.pendingRemoval = true;
-    },
     setContent(newContent: string) {
-      if (self.content === newContent) return;
-      self.dropApproval();
       self.content = newContent;
-      self.reapproveIfMatchesSigned();
     },
     setPriority(newPriority: Priority) {
       self.priority = newPriority;
@@ -132,17 +117,13 @@ const HalfStructuralFragmentModel = types
       references,
       dependencies,
     }: StructuralFragmentUpdate) {
-      if (content !== undefined && content !== self.content) {
-        self.dropApproval();
-        self.content = content;
-      }
+      if (content !== undefined) self.content = content;
       if (priority !== undefined) self.priority = priority;
       if (references !== undefined)
         self.references = cast(
           references.map((reference) => ReferenceModel.create(reference)),
         );
       if (dependencies !== undefined) self.dependencies = cast(dependencies);
-      self.reapproveIfMatchesSigned();
     },
   }));
 

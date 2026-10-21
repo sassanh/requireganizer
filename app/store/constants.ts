@@ -183,6 +183,8 @@ export enum Status {
   Outdated = "outdated",
   Locked = "locked",
   NeedsApproval = "needs-approval",
+  /** Holds work but waits, read-only, until the frontier reaches it. */
+  Waiting = "waiting",
 }
 
 export const OVERVIEW_NAME_QUALITY_ID = "productOverview/name";

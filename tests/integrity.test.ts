@@ -3,6 +3,10 @@ import { describe, it } from "node:test";
 
 import { buildResultTools } from "../app/ai-agent/result-tools";
 import {
+  applyArtifactListProposal,
+  applyProductOverviewProposal,
+} from "../app/store/actions/ai-actions/utilities";
+import {
   OVERVIEW_NAME_QUALITY_ID,
   OVERVIEW_PURPOSE_QUALITY_ID,
   Priority,
@@ -14,7 +18,7 @@ import {
   collectMechanicalIssues,
   uncoveredIds,
 } from "../app/store/integrity";
-import { Store, stageInputHash } from "../app/store/store";
+import { Store } from "../app/store/store";
 import type { FlatStore } from "../app/store/store";
 
 function storeWithOverview(): FlatStore {
@@ -103,29 +107,56 @@ describe("mechanical coverage", () => {
 
 });
 
+function approveStage(store: FlatStore, step: WorkflowStage) {
+  for (const unit of store.stageUnits(step)) {
+    if (store.canApprove(unit.id)) store.approve(unit.id);
+  }
+}
+
+function generate(
+  store: FlatStore,
+  entityType: StructuralFragment,
+  items: { id: string; content: string; references: { id: string; type: StructuralFragment }[] }[],
+) {
+  applyArtifactListProposal(store, {
+    entityType,
+    items: items.map((item, index) => ({
+      key: `k${index}`,
+      priority: Priority.P1,
+      dependencies: [],
+      ...item,
+    })),
+  });
+}
+
+const STORY = {
+  id: "story-1",
+  content: "As a busy plant owner, I want watering reminders, so that plants stay alive.",
+  references: [
+    { id: "feat-1", type: StructuralFragment.PrimaryFeature },
+    { id: "user-1", type: StructuralFragment.TargetUser },
+  ],
+};
+
 describe("standing approval and coverage on the store", () => {
-  it("yellows a filled overview until every item is approved", () => {
+  it("marks a filled overview as needing approval until every item is approved", () => {
     const store = storeWithOverview();
     assert.equal(store.getStepStatus(WorkflowStage.ProductOverview), Status.NeedsApproval);
-    store.approve(OVERVIEW_NAME_QUALITY_ID);
-    store.approve(OVERVIEW_PURPOSE_QUALITY_ID);
-    store.approve("feat-1");
-    store.approve("user-1");
-    assert.equal(
-      store.getStepStatus(WorkflowStage.ProductOverview),
-      Status.Completed,
-    );
+    approveOverview(store);
+    assert.equal(store.getStepStatus(WorkflowStage.ProductOverview), Status.Completed);
   });
 
   it("returns an item to draft when its content is rewritten", () => {
-    const store = storeWithStories();
+    const store = storeWithOverview();
     approveOverview(store);
-    store.approve("story-1");
-    assert.equal(store.userStories[0].approval, "approved");
-    store.userStories[0].setContent(
-      "As a busy plant owner, I want a rewritten outcome, so that plants stay alive.",
-    );
-    assert.equal(store.userStories[0].approval, "draft");
+    generate(store, StructuralFragment.UserStory, [STORY]);
+    approveStage(store, WorkflowStage.UserStories);
+    assert.equal(store.approvalOf("story-1"), "approved");
+    generate(store, StructuralFragment.UserStory, [{
+      ...STORY,
+      content: "As a busy plant owner, I want a rewritten outcome, so that plants stay alive.",
+    }]);
+    assert.equal(store.approvalOf("story-1"), "draft");
     assert.equal(store.getStepStatus(WorkflowStage.UserStories), Status.NeedsApproval);
   });
 
@@ -134,23 +165,20 @@ describe("standing approval and coverage on the store", () => {
     store.approve(OVERVIEW_NAME_QUALITY_ID);
     store.approve(OVERVIEW_PURPOSE_QUALITY_ID);
     store.setName({ name: "Garden Pal" });
-    assert.equal(store.productOverview.nameApproval, "draft");
+    assert.equal(store.approvalOf(OVERVIEW_NAME_QUALITY_ID), "draft");
     store.setPurpose({ purpose: "Help gardeners too." });
-    assert.equal(store.productOverview.purposeApproval, "draft");
+    assert.equal(store.approvalOf(OVERVIEW_PURPOSE_QUALITY_ID), "draft");
   });
 
   it("does not complete stories that miss a primary feature", () => {
     const store = storeWithOverview();
-    store.setUserStories({
-      userStories: [
-        {
-          id: "story-1",
-          content: "As an owner, I want a journal, so that I remember care.",
-          references: [{ id: "user-1", type: StructuralFragment.TargetUser }],
-          priority: Priority.P1,
-        },
-      ],
-    });
+    approveOverview(store);
+    generate(store, StructuralFragment.UserStory, [{
+      id: "story-1",
+      content: "As an owner, I want a journal, so that I remember care.",
+      references: [{ id: "user-1", type: StructuralFragment.TargetUser }],
+    }]);
+    approveStage(store, WorkflowStage.UserStories);
     assert.equal(store.getStepStatus(WorkflowStage.UserStories), Status.Pending);
     assert.ok(
       store
@@ -160,77 +188,49 @@ describe("standing approval and coverage on the store", () => {
   });
 
   it("does not complete criteria that miss a requirement", () => {
-    const store = storeWithStories();
-    store.setRequirements({
-      requirements: [
-        {
-          id: "req-1",
-          content: "The system must remind the owner on the watering due date.",
-          references: [{ id: "story-1", type: StructuralFragment.UserStory }],
-          priority: Priority.P1,
-        },
-      ],
-    });
-    store.setAcceptanceCriteria({
-      acceptanceCriteria: [
-        {
-          id: "ac-1",
-          content: "Given a due date, when it arrives, the owner is notified.",
-          references: [{ id: "story-1", type: StructuralFragment.UserStory }],
-          priority: Priority.P1,
-        },
-      ],
-    });
-    assert.equal(
-      store.getStepStatus(WorkflowStage.AcceptanceCriteria),
-      Status.Pending,
-    );
+    const store = storeWithOverview();
+    approveOverview(store);
+    generate(store, StructuralFragment.UserStory, [STORY]);
+    approveStage(store, WorkflowStage.UserStories);
+    generate(store, StructuralFragment.Requirement, [{
+      id: "req-1",
+      content: "The system must remind the owner on the watering due date.",
+      references: [{ id: "story-1", type: StructuralFragment.UserStory }],
+    }]);
+    approveStage(store, WorkflowStage.Requirements);
+    generate(store, StructuralFragment.AcceptanceCriteria, [{
+      id: "ac-1",
+      content: "Given a due date, when it arrives, the owner is notified.",
+      references: [{ id: "story-1", type: StructuralFragment.UserStory }],
+    }]);
+    approveStage(store, WorkflowStage.AcceptanceCriteria);
+    assert.equal(store.getStepStatus(WorkflowStage.AcceptanceCriteria), Status.Pending);
   });
 
-  it("does not yellow a downstream stage when only approval changes", () => {
-    const store = storeWithStories();
+  it("leaves later stages untouched when only approval changes", () => {
+    const store = storeWithOverview();
     approveOverview(store);
-    store.approve("story-1");
-    store.setRequirements({
-      requirements: [
-        {
-          id: "req-1",
-          content: "The system must remind the owner on the watering due date.",
-          references: [{ id: "story-1", type: StructuralFragment.UserStory }],
-          priority: Priority.P1,
-        },
-      ],
-    });
-    store.setAcceptanceCriteria({
-      acceptanceCriteria: [
-        {
-          id: "ac-1",
-          content: "Given a due date, when it arrives, the owner is notified.",
-          references: [{ id: "req-1", type: StructuralFragment.Requirement }],
-          priority: Priority.P1,
-        },
-      ],
-    });
-    store.approve("req-1");
-    store.markStageGenerated(WorkflowStage.Requirements);
-    assert.equal(store.getStepStatus(WorkflowStage.Requirements), Status.Completed);
-    const before = stageInputHash(store, WorkflowStage.Requirements);
-    store.approve("ac-1");
-    assert.equal(
-      stageInputHash(store, WorkflowStage.Requirements),
-      before,
-    );
-    assert.equal(store.getStepStatus(WorkflowStage.Requirements), Status.Completed);
+    generate(store, StructuralFragment.UserStory, [STORY]);
+    const inputs = store.currentInputs(WorkflowStage.Requirements);
+    approveStage(store, WorkflowStage.UserStories);
+    assert.deepEqual(store.currentInputs(WorkflowStage.Requirements), inputs);
   });
 
-  it("yellows a stage when upstream content changes", () => {
-    const store = storeWithStories();
+  it("outdates the items that reference changed upstream content", () => {
+    const store = storeWithOverview();
     approveOverview(store);
-    store.approve("story-1");
-    store.markStageGenerated(WorkflowStage.UserStories);
-    assert.equal(store.getStepStatus(WorkflowStage.UserStories), Status.Completed);
-    store.setName({ name: "Garden Pal" });
+    generate(store, StructuralFragment.UserStory, [STORY]);
+    approveStage(store, WorkflowStage.UserStories);
+    applyProductOverviewProposal(store, {
+      name: "Plant Pal",
+      purpose: "Help people keep houseplants alive.",
+      primaryFeatures: [{ id: "feat-1", content: "Track watering and light" }],
+      targetUsers: ["user-1"],
+    });
+    store.applyPendingImpactChange();
+    store.approve("feat-1");
     assert.equal(store.getStepStatus(WorkflowStage.UserStories), Status.Outdated);
+    assert.deepEqual(store.outdatedItemIds(WorkflowStage.UserStories), ["story-1"]);
   });
 });
 
@@ -253,8 +253,8 @@ describe("generate apply", () => {
       store.getStepStatus(WorkflowStage.ProductOverview),
       Status.NeedsApproval,
     );
-    assert.equal(store.productOverview.nameApproval, "draft");
-    assert.equal(store.stageIsApproved(WorkflowStage.ProductOverview), false);
+    assert.equal(store.approvalOf(OVERVIEW_NAME_QUALITY_ID), "draft");
+    assert.equal(store.stageIsComplete(WorkflowStage.ProductOverview), false);
     assert.equal(store.canGenerateStep(WorkflowStage.UserStories), false);
   });
 });

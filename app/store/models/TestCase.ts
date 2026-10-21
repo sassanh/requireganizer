@@ -10,6 +10,7 @@ import { StructuralFragment } from "store/constants";
 import { uuid } from "utilities";
 
 import {
+  type ReferenceData,
   StructuralFragmentModel,
   StructuralFragmentUpdate,
   dependenciesEqual,
@@ -86,6 +87,23 @@ export const TestCaseModel = types
       self.definition = cast(definition);
       self.revision += 1;
       self.revisionId = uuid();
+    },
+    /** Bring the case back to a signed version, revision identity included. */
+    restoreContent(signed: {
+      title: string;
+      description: string;
+      definition: TestCaseDefinition | null;
+      references: ReferenceData[];
+      dependencies: string[];
+      revisionId: string;
+    }) {
+      self.title = signed.title;
+      self.description = signed.description;
+      self.content = signed.description;
+      self.definition = cast(signed.definition);
+      self.setReferences(signed.references);
+      self.setDependencies(signed.dependencies);
+      self.revisionId = signed.revisionId;
     },
     markGenerated(inputFingerprint: string) {
       self.generatedInputFingerprint = inputFingerprint;

@@ -205,7 +205,7 @@ export const SUBJECT_KEYS = [
   "testCases",
   "projectSetup",
   "scaffoldFiles",
-  "stageInputFingerprints",
+  "review",
 ] as const;
 
 function snapshotItemId(snapshot: unknown): string | undefined {
