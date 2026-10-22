@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import {
   providerCallExportBaseName,
+  providerCallToCurl,
   providerCallsToCsv,
 } from "../app/lib/providerCallExport";
 import type { ProviderCallRecord } from "../app/lib/types";
@@ -45,5 +46,22 @@ describe("provider call export", () => {
       "my-project-demo-provider-calls",
     );
     assert.equal(providerCallExportBaseName("***"), "project-provider-calls");
+  });
+
+  it("renders a provider call as a runnable curl command", () => {
+    assert.equal(
+      providerCallToCurl(call),
+      [
+        'curl "${AI_BASE_URL:-https://opencode.ai/zen/v1}/responses" \\',
+        '  -H "Authorization: Bearer ${AI_API_KEY:-${OPENCODE_API_KEY:-public}}" \\',
+        '  -H "Content-Type: application/json" \\',
+        `  --data-raw '{"model":"model","input":"<request input not recorded>","stream":true}'`,
+      ].join("\n"),
+    );
+  });
+
+  it("escapes shell quotes in the curl request body", () => {
+    const curl = providerCallToCurl({ ...call, model: "model'quoted" });
+    assert.ok(curl.includes(`"model":"model'\\''quoted"`));
   });
 });
