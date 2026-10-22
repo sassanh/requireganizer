@@ -15,25 +15,61 @@ function displayKey(key: string): string {
 }
 
 /**
- * Short readable shortcut: Cmd+Z on macOS, Ctrl+Z elsewhere, Enter, C.
- * Client-only on purpose: the button fills it in after mounting so the
- * server render stays identical everywhere.
+ * Short readable shortcut: ⌘Z on macOS, Ctrl+Z elsewhere, Enter, C.
+ * Platform-dependent on purpose: only render this where the server markup
+ * can omit it (closed menus, hover-only tooltips). Putting it in server
+ * HTML would hydrate from Ctrl+Z to ⌘Z on macOS.
  */
 export function shortcutText(spec: ShortcutSpec): string {
-  const mac = isMacPlatform();
-  const wantCtrl = spec.ctrl ?? (spec.mod === true && !mac);
-  const wantMeta = spec.meta ?? (spec.mod === true && mac);
+  const { mac, ctrl, meta, alt, shift } = resolveModifiers(spec);
+  if (mac) {
+    // Apple's own menu order — Control, Option, Shift, Command — and no
+    // plus signs between the glyphs.
+    const glyphs: string[] = [];
+    if (ctrl) glyphs.push("⌃");
+    if (alt) glyphs.push("⌥");
+    if (shift) glyphs.push("⇧");
+    if (meta) glyphs.push("⌘");
+    glyphs.push(displayKey(spec.key));
+    return glyphs.join("");
+  }
   const parts: string[] = [];
-  if (wantCtrl) parts.push("Ctrl");
-  if (wantMeta) parts.push("Cmd");
-  if (spec.alt === true) parts.push("Alt");
-  if (spec.shift === true) parts.push("Shift");
+  if (ctrl) parts.push("Ctrl");
+  if (meta) parts.push("Cmd");
+  if (alt) parts.push("Alt");
+  if (shift) parts.push("Shift");
   parts.push(displayKey(spec.key));
   return parts.join("+");
 }
 
-/** Button hint: name plus shortcut when the action has one. */
-export function actionHint(name: string, shortcut?: ShortcutSpec): string {
-  if (shortcut == null) return name;
-  return `${name} (${shortcutText(shortcut)})`;
+/**
+ * Spelled-out shortcut for assistive technology, following the same order
+ * as the visible glyphs: "Command Shift M", "Control Z", "Enter".
+ */
+export function shortcutWords(spec: ShortcutSpec): string {
+  const { mac, ctrl, meta, alt, shift } = resolveModifiers(spec);
+  const parts: string[] = [];
+  if (ctrl) parts.push("Control");
+  if (mac) {
+    if (alt) parts.push("Option");
+    if (shift) parts.push("Shift");
+    if (meta) parts.push("Command");
+  } else {
+    if (meta) parts.push("Command");
+    if (alt) parts.push("Alt");
+    if (shift) parts.push("Shift");
+  }
+  parts.push(displayKey(spec.key));
+  return parts.join(" ");
+}
+
+function resolveModifiers(spec: ShortcutSpec) {
+  const mac = isMacPlatform();
+  return {
+    mac,
+    ctrl: spec.ctrl ?? (spec.mod === true && !mac),
+    meta: spec.meta ?? (spec.mod === true && mac),
+    alt: spec.alt === true,
+    shift: spec.shift === true,
+  };
 }

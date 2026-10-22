@@ -11,14 +11,13 @@ import {
   DialogTitle,
   Stack,
   TextField,
-  Tooltip,
   Typography,
 } from "@mui/material";
 import { observer } from "mobx-react-lite";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { ActionTooltip } from "actions/ActionHint";
 import { generateNextShortcut, prepareGenerateAction } from "actions/actions";
-import { actionHint } from "actions/shortcutText";
 import {
   isEditableTarget,
   isOverlayTarget,
@@ -167,11 +166,9 @@ const Header: React.FunctionComponent<HeaderProps> = ({
         <div className={css.headerNext}>
           {nextStep && nextStepGeneratorAction ? (
             <>
-              <Tooltip
-                title={actionHint(
-                  `Generate ${store.stageLabel(nextStep)}`,
-                  generateNextShortcut,
-                )}
+              <ActionTooltip
+                name={`Generate ${store.stageLabel(nextStep)}`}
+                shortcut={generateNextShortcut}
               >
                 <span>
                   <GenerationButton
@@ -185,7 +182,7 @@ const Header: React.FunctionComponent<HeaderProps> = ({
                     {store.stageLabel(nextStep)}
                   </GenerationButton>
                 </span>
-              </Tooltip>
+              </ActionTooltip>
             </>
           ) : null}
         </div>
