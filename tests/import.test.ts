@@ -35,6 +35,17 @@ describe("module snapshot import", () => {
     );
   });
 
+  it("rejects a review book missing its sections", async () => {
+    const { Store } = await import("../app/store/store");
+    const reloaded = Store.create({ productOverview: {} }) as unknown as {
+      import(value: unknown): void;
+    };
+    assert.throws(
+      () => reloaded.import({ ...emptyProject, review: {} }),
+      /Review units must be an object/,
+    );
+  });
+
   it("keeps the pending system message through an import round trip", async () => {
     const { Store } = await import("../app/store/store");
     const message = "Which evaluation rule should I document?";

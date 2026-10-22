@@ -18,7 +18,7 @@ import {
 import { parseScaffoldFiles } from "lib/scaffold";
 import type { Store } from "store";
 import { StructuralFragment } from "store/constants";
-import { EMPTY_REVIEW_BOOK } from "store/review";
+import { EMPTY_REVIEW_BOOK, type ReviewBook, type StandaloneReview } from "store/review";
 import { testDesignFingerprint } from "store/store";
 
 import {
@@ -31,6 +31,61 @@ import {
 function array(value: unknown, label: string): unknown[] {
   if (!Array.isArray(value)) throw new InvalidJsonError(`${label} must be an array.`);
   return value;
+}
+
+function object(value: unknown, label: string): Record<string, unknown> {
+  if (!isRecord(value)) throw new InvalidJsonError(`${label} must be an object.`);
+  return value;
+}
+
+/**
+ * `review` is frozen in the store, so MST does not validate it. Read it
+ * through here: a book missing a section would otherwise crash the first
+ * stage-status or review-unit read after the import.
+ */
+function parseReviewBook(value: unknown): ReviewBook {
+  if (value == null) return EMPTY_REVIEW_BOOK;
+  const book = object(value, "Review state");
+  const units = object(book.units, "Review units");
+  const acknowledgedInputs = object(book.acknowledgedInputs, "Review acknowledged inputs");
+  const modes = object(book.modes, "Review modes");
+  const parsedUnits = Object.fromEntries(
+    Object.entries(units).map(([id, entry]) => {
+      const unit = object(entry, `Review unit ${id}`);
+      if (unit.approval != null && !isRecord(unit.approval)) {
+        throw new InvalidJsonError(`Review unit ${id} approval must be an object.`);
+      }
+      if (unit.verdict != null && !isRecord(unit.verdict)) {
+        throw new InvalidJsonError(`Review unit ${id} verdict must be an object.`);
+      }
+      return [
+        id,
+        {
+          approval: (unit.approval ?? null) as StandaloneReview["approval"],
+          verdict: (unit.verdict ?? null) as StandaloneReview["verdict"],
+        },
+      ] as const;
+    }),
+  ) as Record<string, StandaloneReview>;
+  const parsedAcknowledged = Object.fromEntries(
+    Object.entries(acknowledgedInputs).map(([step, inputs]) => [
+      step,
+      object(inputs, `Acknowledged inputs for ${step}`),
+    ]),
+  );
+  const parsedModes = Object.fromEntries(
+    Object.entries(modes).map(([step, mode]) => {
+      if (mode !== "manual" && mode !== "auto") {
+        throw new InvalidJsonError(`Review mode for ${step} must be "manual" or "auto".`);
+      }
+      return [step, mode] as const;
+    }),
+  ) as ReviewBook["modes"];
+  return {
+    units: parsedUnits,
+    acknowledgedInputs: parsedAcknowledged as ReviewBook["acknowledgedInputs"],
+    modes: parsedModes,
+  };
 }
 
 function validateLocalDependencies(
@@ -116,7 +171,7 @@ const importProject = (self_: unknown, value: unknown): void => {
     testScenarios: array(value.testScenarios, "Test scenarios"),
     projectSetup: value.projectSetup ?? null,
     scaffoldFiles: parseScaffoldFiles(value.scaffoldFiles ?? []),
-    review: isRecord(value.review) ? value.review : EMPTY_REVIEW_BOOK,
+    review: parseReviewBook(value.review),
     conversation: Array.isArray(value.conversation) ? value.conversation : [],
     conversationSidebarOpen: value.conversationSidebarOpen === true,
     // The AI's pending question survives reloads; it only clears when the
