@@ -1026,6 +1026,14 @@ function scheduleSave(): void {
   }, SAVE_DEBOUNCE_MS);
 }
 
+/** Drop a pending timeline write without touching the attached store. */
+export function clearTimelineSaveTimer(): void {
+  if (saveTimer != null) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+}
+
 /**
  * Reset the tree after a snapshot-replacing operation (project import) and
  * sweep artifacts unreachable from the new history.
