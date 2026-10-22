@@ -7,7 +7,7 @@ const STORE_NAME = "providerCalls";
 const PROJECT_INDEX = "byProject";
 const SCOPE_INDEX = "byScope";
 
-interface StoredProviderCall extends ProviderCallRecord {
+export interface StoredProviderCall extends ProviderCallRecord {
   projectId: string;
   /** `${projectId}::${moduleId}`; written since schema v2 of this database. */
   scopeId: string;
@@ -19,6 +19,13 @@ export class ProviderCallStorageError extends Error {
     this.name = "ProviderCallStorageError";
   }
 }
+
+export const PROVIDER_CALL_LOAD_ERROR_MESSAGE =
+  "Could not load AI provider activity.";
+export const PROVIDER_CALL_SAVE_ERROR_MESSAGE =
+  "Could not save AI provider activity.";
+export const PROVIDER_CALL_DELETE_ERROR_MESSAGE =
+  "Could not delete AI provider activity.";
 
 function requestResult<Value>(request: IDBRequest<Value>): Promise<Value> {
   return new Promise((resolve, reject) => {
@@ -110,9 +117,33 @@ function removeScopeRows(
   });
 }
 
-function toProviderCall(row: StoredProviderCall): ProviderCallRecord {
+export function toProviderCall(row: StoredProviderCall): ProviderCallRecord {
   const { projectId: _projectId, scopeId: _scopeId, ...call } = row;
   return call;
+}
+
+/**
+ * The order IndexedDB returns calls in: started time ascending, then call id
+ * by UTF-16 code unit, matching the store's `(projectId, id)` primary key.
+ */
+export function compareProviderCallsOldestFirst(
+  left: ProviderCallRecord,
+  right: ProviderCallRecord,
+): number {
+  const byStartedAt = left.startedAt.localeCompare(right.startedAt);
+  if (byStartedAt !== 0) return byStartedAt;
+  if (left.id < right.id) return -1;
+  if (left.id > right.id) return 1;
+  return 0;
+}
+
+/** Builds the row shape both the web store and the memory adapter persist. */
+export function toStoredProviderCall(
+  call: ProviderCallRecord,
+  projectId: string,
+  scopeId: string,
+): StoredProviderCall {
+  return { ...call, projectId, scopeId };
 }
 
 let scopeBackfill: Promise<void> | null = null;
@@ -177,14 +208,14 @@ export async function loadProviderCalls(
       await completion;
       return (rows as StoredProviderCall[])
         .map(toProviderCall)
-        .sort((left, right) => left.startedAt.localeCompare(right.startedAt));
+        .sort(compareProviderCallsOldestFirst);
     } finally {
       database.close();
     }
   } catch (error) {
     if (error instanceof ProviderCallStorageError) throw error;
     throw new ProviderCallStorageError(
-      "Could not load AI provider activity.",
+      PROVIDER_CALL_LOAD_ERROR_MESSAGE,
       error,
     );
   }
@@ -205,7 +236,7 @@ export async function replaceProviderCalls(
       const scopeId = moduleScopeId(projectId, moduleId);
       await removeScopeRows(store, scopeId);
       for (const call of calls) {
-        store.put({ ...call, projectId, scopeId } satisfies StoredProviderCall);
+        store.put(toStoredProviderCall(call, projectId, scopeId));
       }
       await completion;
     } finally {
@@ -214,7 +245,7 @@ export async function replaceProviderCalls(
   } catch (error) {
     if (error instanceof ProviderCallStorageError) throw error;
     throw new ProviderCallStorageError(
-      "Could not save AI provider activity.",
+      PROVIDER_CALL_SAVE_ERROR_MESSAGE,
       error,
     );
   }
@@ -236,7 +267,7 @@ export async function deleteProviderCallsForProject(
   } catch (error) {
     if (error instanceof ProviderCallStorageError) throw error;
     throw new ProviderCallStorageError(
-      "Could not delete AI provider activity.",
+      PROVIDER_CALL_DELETE_ERROR_MESSAGE,
       error,
     );
   }
