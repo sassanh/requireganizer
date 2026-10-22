@@ -9,6 +9,7 @@ import { sendOnEnter } from "./enterToSend";
 
 interface CommentButtonProps {
   disabled?: boolean;
+  /** Resolving to `false` keeps the box open: a decision dialog still owns the comment. */
   onSubmit: (comment: string) => unknown;
 }
 
@@ -32,6 +33,9 @@ const CommentButton = ({
   useEffect(() => {
     if (anchor === null) return;
     const onPointerDown = (event: Event) => {
+      // A pending submit may own the comment: an open decision dialog
+      // must not take the draft away when the person cancels.
+      if (isSubmitting) return;
       const target = event.target as Node | null;
       if (target == null || anchor.contains(target)) return;
       if (
@@ -44,7 +48,7 @@ const CommentButton = ({
     };
     document.addEventListener("mousedown", onPointerDown);
     return () => document.removeEventListener("mousedown", onPointerDown);
-  }, [anchor]);
+  }, [anchor, isSubmitting]);
 
   const handleCommentChange = useCallback(
     ({ target: { value } }: ChangeEvent<HTMLTextAreaElement>) =>
@@ -57,7 +61,8 @@ const CommentButton = ({
       if (isSubmitting || comment.trim().length === 0) return;
       setIsSubmitting(true);
       try {
-        await onSubmit(comment);
+        const result = await onSubmit(comment);
+        if (result === false) return;
         setComment("");
         setAnchor(null);
         buttonRef?.focus();

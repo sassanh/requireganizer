@@ -19,6 +19,7 @@ const ImpactPanel = observer(function ImpactPanel({ step }: { step: WorkflowStag
   if (store.reviewUnit(unitId) == null) return null;
   const changes = summarizeInputChanges(store.inputChanges(step));
   const items = store.untouchedItemIds(step);
+  const editable = store.stageIsEditable(step);
   return (
     <Alert
       severity="info"
@@ -43,7 +44,7 @@ const ImpactPanel = observer(function ImpactPanel({ step }: { step: WorkflowStag
               size="small"
               variant="outlined"
               startIcon={<Undo fontSize="small" />}
-              disabled={store.isBusy}
+              disabled={store.isBusy || !editable}
               onClick={() => store.sendBackForRegeneration([id])}
             >
               Send back {store.getCode(id) ?? id}

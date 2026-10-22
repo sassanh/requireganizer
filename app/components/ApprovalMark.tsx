@@ -1,11 +1,12 @@
 import { Restore } from "@mui/icons-material";
 import { Chip, IconButton, Stack, Tooltip } from "@mui/material";
 import { observer } from "mobx-react-lite";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { approveAction } from "actions/actions";
 import { ActionView } from "actions/ActionView";
 import type { ModelVerdict } from "contract-domain";
+import { getUserFacingErrorMessage } from "lib/errors";
 import { useStore } from "store";
 
 import CommentButton from "./CommentButton";
@@ -32,6 +33,8 @@ const ApprovalMark = observer(function ApprovalMark({
 }) {
   const store = useStore();
   const [decision, setDecision] = useState<PendingDecision | null>(null);
+  // Resolves the comment box's pending submit when a decision dialog closes.
+  const decisionResolver = useRef<((confirmed: boolean) => void) | null>(null);
   const unit = store?.reviewUnit(id);
   if (store == null || unit == null) return null;
   const canApprove = store.canApprove(id);
@@ -39,6 +42,10 @@ const ApprovalMark = observer(function ApprovalMark({
   const editable = store.stageIsEditable(unit.stage);
   const approvedBy = unit.approved ? unit.approval?.reviewer : null;
 
+  const settleDecision = (confirmed: boolean) => {
+    decisionResolver.current?.(confirmed);
+    decisionResolver.current = null;
+  };
   const approve = (): boolean => {
     if (verdict?.verdict === "reject") {
       setDecision({ kind: "approve", verdict });
@@ -47,10 +54,13 @@ const ApprovalMark = observer(function ApprovalMark({
     store.approve(id);
     return true;
   };
-  const requestChange = (comment: string): boolean => {
+  const requestChange = (comment: string): boolean | Promise<boolean> => {
     if (verdict?.verdict === "approve") {
       setDecision({ kind: "change", verdict, comment });
-      return true;
+      // Keep the typed comment until the person confirms or cancels.
+      return new Promise<boolean>((resolve) => {
+        decisionResolver.current = resolve;
+      });
     }
     onRequestChange?.(comment);
     return true;
@@ -102,15 +112,27 @@ const ApprovalMark = observer(function ApprovalMark({
       <DecisionDialog
         verdict={decision?.verdict ?? null}
         confirmLabel={decision?.kind === "change" ? "Request the change anyway" : "Approve anyway"}
-        onClose={() => setDecision(null)}
+        onClose={() => {
+          settleDecision(false);
+          setDecision(null);
+        }}
         onConfirm={() => {
           if (decision == null) return;
           if (decision.kind === "change") {
+            // The change flows are MST flows: they report their own
+            // failures through validation errors, so hand off and settle.
             onRequestChange?.(decision.comment);
+            settleDecision(true);
             return;
           }
-          store.approve(id, { decided: true });
-          notify("Approved");
+          try {
+            store.approve(id, { decided: true });
+            notify("Approved");
+            settleDecision(true);
+          } catch (error) {
+            notify(getUserFacingErrorMessage(error, "Unable to approve."), "error");
+            settleDecision(false);
+          }
         }}
       />
     </Stack>
