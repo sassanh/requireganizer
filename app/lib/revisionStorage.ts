@@ -18,6 +18,62 @@ export interface ProjectRevisionSnapshot {
   data: unknown;
 }
 
+export const REVISION_SNAPSHOT_MISSING_MESSAGE =
+  "Revision snapshot no longer exists.";
+export const REVISION_SNAPSHOT_LOAD_ERROR_MESSAGE =
+  "Could not load revision snapshots.";
+
+/**
+ * Newest first by creation time. Timestamps have millisecond resolution, so
+ * snapshots saved in the same millisecond are ordered by id, descending;
+ * callers that need save order across a tie generate increasing ids.
+ */
+export function compareRevisionSnapshotsNewestFirst(
+  left: Pick<ProjectRevisionSnapshot, "id" | "createdAt">,
+  right: Pick<ProjectRevisionSnapshot, "id" | "createdAt">,
+): number {
+  const byCreatedAt = right.createdAt.localeCompare(left.createdAt);
+  if (byCreatedAt !== 0) return byCreatedAt;
+  return right.id.localeCompare(left.id);
+}
+
+export function sortRevisionSnapshotsNewestFirst<
+  Snapshot extends Pick<ProjectRevisionSnapshot, "id" | "createdAt">,
+>(snapshots: readonly Snapshot[]): Snapshot[] {
+  return [...snapshots].sort(compareRevisionSnapshotsNewestFirst);
+}
+
+export interface RevisionSnapshotInput {
+  projectId: string;
+  moduleId: string;
+  data: unknown;
+  label: string;
+  pinned?: boolean;
+  id?: string;
+  now?: Date;
+}
+
+/** The one snapshot-record factory for web storage and the memory adapter. */
+export function createRevisionSnapshot({
+  projectId,
+  moduleId,
+  data,
+  label,
+  pinned = false,
+  id = crypto.randomUUID(),
+  now = new Date(),
+}: RevisionSnapshotInput): ProjectRevisionSnapshot {
+  return {
+    id,
+    projectId,
+    scopeId: moduleScopeId(projectId, moduleId),
+    createdAt: now.toISOString(),
+    label,
+    pinned,
+    data: structuredClone(data),
+  };
+}
+
 export function snapshotIdsToPrune(
   snapshots: readonly Pick<
     ProjectRevisionSnapshot,
@@ -25,9 +81,9 @@ export function snapshotIdsToPrune(
   >[],
   maximumUnpinned = MAX_UNPINNED,
 ): string[] {
-  return [...snapshots]
-    .filter((item) => !item.pinned)
-    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+  return sortRevisionSnapshotsNewestFirst(
+    snapshots.filter((item) => !item.pinned),
+  )
     .slice(maximumUnpinned)
     .map(({ id }) => id);
 }
@@ -116,7 +172,7 @@ async function listProjectSnapshotsAnywhere(projectId: string): Promise<ProjectR
       transaction.objectStore(STORE_NAME).index(PROJECT_INDEX).getAll(IDBKeyRange.only(projectId)),
     ) as ProjectRevisionSnapshot[];
     await completion;
-    return values.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return sortRevisionSnapshotsNewestFirst(values);
   } finally {
     database.close();
   }
@@ -138,7 +194,7 @@ export async function listProjectSnapshots(
         .getAll(IDBKeyRange.only(moduleScopeId(projectId, moduleId))),
     ) as ProjectRevisionSnapshot[];
     await completion;
-    return values.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return sortRevisionSnapshotsNewestFirst(values);
   } finally {
     database.close();
   }
@@ -151,15 +207,13 @@ export async function saveProjectSnapshot(
   label: string,
   pinned = false,
 ): Promise<ProjectRevisionSnapshot> {
-  const snapshot: ProjectRevisionSnapshot = {
-    id: crypto.randomUUID(),
+  const snapshot = createRevisionSnapshot({
     projectId,
-    scopeId: moduleScopeId(projectId, moduleId),
-    createdAt: new Date().toISOString(),
+    moduleId,
+    data,
     label,
     pinned,
-    data: structuredClone(data),
-  };
+  });
   const database = await openDatabase();
   try {
     await ensureScopeBackfill(database);
@@ -190,7 +244,7 @@ export async function setSnapshotPinned(id: string, pinned: boolean): Promise<vo
     const completion = transactionComplete(transaction);
     const store = transaction.objectStore(STORE_NAME);
     const snapshot = await requestResult(store.get(id)) as ProjectRevisionSnapshot | undefined;
-    if (snapshot == null) throw new Error("Revision snapshot no longer exists.");
+    if (snapshot == null) throw new Error(REVISION_SNAPSHOT_MISSING_MESSAGE);
     store.put({ ...snapshot, pinned });
     await completion;
   } finally {

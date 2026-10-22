@@ -32,6 +32,15 @@ export class ProjectStorageError extends Error {
   }
 }
 
+export const PROJECT_INDEX_SAVE_ERROR_MESSAGE =
+  "Could not save the projects index.";
+export const PROJECT_SAVE_ERROR_MESSAGE = "Could not save the project.";
+export const PROJECT_BUNDLE_SERIALIZE_ERROR_MESSAGE =
+  "Could not serialize the imported project.";
+export const PROJECT_BUNDLE_SAVE_ERROR_MESSAGE =
+  "Could not save the imported project.";
+export const PROJECT_DELETE_ERROR_MESSAGE = "Could not delete the project.";
+
 function getBrowserStorage(): Storage | null {
   if (typeof window === "undefined") return null;
   try {
@@ -80,6 +89,14 @@ export function parseProjectsIndex(source: string | null): ProjectMeta[] {
   }
 }
 
+/** Removes a project's index entry while keeping every other entry in order. */
+export function removeProjectFromIndex(
+  projects: readonly ProjectMeta[],
+  id: string,
+): ProjectMeta[] {
+  return projects.filter((project) => project.id !== id);
+}
+
 export function getProjectsIndex(): ProjectMeta[] {
   const storage = getBrowserStorage();
   if (storage == null) return [];
@@ -96,7 +113,7 @@ export function saveProjectsIndex(projects: ProjectMeta[]): void {
     requireBrowserStorage().setItem(PROJECTS_INDEX_KEY, JSON.stringify(projects));
   } catch (error) {
     if (error instanceof ProjectStorageError) throw error;
-    throw new ProjectStorageError("Could not save the projects index.", error);
+    throw new ProjectStorageError(PROJECT_INDEX_SAVE_ERROR_MESSAGE, error);
   }
 }
 
@@ -108,9 +125,29 @@ export function getTimelineStorageKey(id: string, moduleId: string): string {
   return `requireganizer:timeline:${id}::${moduleId}`;
 }
 
+/** Every module timeline of a project starts with this key prefix. */
+export function getTimelineStorageKeyPrefix(id: string): string {
+  return `requireganizer:timeline:${id}::`;
+}
+
 /** The pre-module key; only the legacy module ever still reads it. */
 function getLegacyTimelineStorageKey(id: string): string {
   return `requireganizer:timeline:${id}`;
+}
+
+/** The one reader of stored timeline bytes. */
+export function parseTimelineData(
+  source: string | null,
+): Record<string, unknown> | null {
+  if (source == null) return null;
+
+  try {
+    const value = parseJson(source, "Stored timeline");
+    if (!isRecord(value) || value.version !== TIMELINE_VERSION) return null;
+    return value;
+  } catch {
+    return null;
+  }
 }
 
 export function loadTimelineData(
@@ -126,10 +163,7 @@ export function loadTimelineData(
       (moduleId === LEGACY_MODULE_ID
         ? storage.getItem(getLegacyTimelineStorageKey(id))
         : null);
-    if (source == null) return null;
-    const value = parseJson(source, "Stored timeline");
-    if (!isRecord(value) || value.version !== TIMELINE_VERSION) return null;
-    return value;
+    return parseTimelineData(source);
   } catch {
     return null;
   }
@@ -151,15 +185,26 @@ export function saveTimelineData(id: string, moduleId: string, data: unknown): b
   }
 }
 
+/** The one reader of stored project bytes. */
+export function parseStoredProjectData(
+  source: string | null,
+): Record<string, unknown> | null {
+  if (source == null) return null;
+
+  try {
+    const value = parseJson(source, "Stored project");
+    return isRecord(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 export function loadProjectData(id: string): Record<string, unknown> | null {
   const storage = getBrowserStorage();
   if (storage == null) return null;
 
   try {
-    const source = storage.getItem(getProjectStorageKey(id));
-    if (source == null) return null;
-    const value = parseJson(source, "Stored project");
-    return isRecord(value) ? value : null;
+    return parseStoredProjectData(storage.getItem(getProjectStorageKey(id)));
   } catch {
     return null;
   }
@@ -173,7 +218,7 @@ export function saveProjectData(id: string, data: unknown): void {
     );
   } catch (error) {
     if (error instanceof ProjectStorageError) throw error;
-    throw new ProjectStorageError("Could not save the project.", error);
+    throw new ProjectStorageError(PROJECT_SAVE_ERROR_MESSAGE, error);
   }
 }
 
@@ -185,27 +230,44 @@ export function saveProjectBundle(
   saveProjectBundleToStorage(requireBrowserStorage(), id, data, projects);
 }
 
+export interface ProjectBundleSources {
+  projectSource: string;
+  indexSource: string;
+}
+
+/**
+ * The pure first half of a bundle write: serialize both records before either
+ * is stored, so a serialization failure leaves storage untouched.
+ */
+export function serializeProjectBundle(
+  data: unknown,
+  projects: ProjectMeta[],
+): ProjectBundleSources {
+  let projectSource: string | undefined;
+  let indexSource: string | undefined;
+  try {
+    projectSource = JSON.stringify(data);
+    indexSource = JSON.stringify(projects);
+  } catch (error) {
+    throw new ProjectStorageError(
+      PROJECT_BUNDLE_SERIALIZE_ERROR_MESSAGE,
+      error,
+    );
+  }
+  if (projectSource === undefined || indexSource === undefined) {
+    throw new ProjectStorageError(PROJECT_BUNDLE_SERIALIZE_ERROR_MESSAGE);
+  }
+  return { projectSource, indexSource };
+}
+
 export function saveProjectBundleToStorage(
   storage: ProjectKeyValueStorage,
   id: string,
   data: unknown,
   projects: ProjectMeta[],
 ): void {
+  const { projectSource, indexSource } = serializeProjectBundle(data, projects);
   const projectKey = getProjectStorageKey(id);
-  let projectSource: string | undefined;
-  let indexSource: string;
-  try {
-    projectSource = JSON.stringify(data);
-    indexSource = JSON.stringify(projects);
-  } catch (error) {
-    throw new ProjectStorageError(
-      "Could not serialize the imported project.",
-      error,
-    );
-  }
-  if (projectSource === undefined) {
-    throw new ProjectStorageError("Could not serialize the imported project.");
-  }
 
   let previousProjectSource: string | null = null;
   let previousIndexSource: string | null = null;
@@ -231,7 +293,7 @@ export function saveProjectBundleToStorage(
         rollbackError,
       );
     }
-    throw new ProjectStorageError("Could not save the imported project.", error);
+    throw new ProjectStorageError(PROJECT_BUNDLE_SAVE_ERROR_MESSAGE, error);
   }
 }
 
@@ -246,16 +308,18 @@ export function deleteProjectData(id: string): void {
     projectSource = storage.getItem(projectKey);
     indexSource = storage.getItem(PROJECTS_INDEX_KEY);
     capturedState = true;
-    const projects = parseProjectsIndex(indexSource).filter(
-      (project) => project.id !== id,
+    const projects = removeProjectFromIndex(
+      parseProjectsIndex(indexSource),
+      id,
     );
 
     storage.removeItem(projectKey);
     storage.removeItem(getLegacyTimelineStorageKey(id));
     // Every module's timeline is keyed under the project prefix; remove them all.
+    const timelinePrefix = getTimelineStorageKeyPrefix(id);
     for (let index = storage.length - 1; index >= 0; index -= 1) {
       const key = storage.key(index);
-      if (key != null && key.startsWith(`requireganizer:timeline:${id}::`)) {
+      if (key != null && key.startsWith(timelinePrefix)) {
         storage.removeItem(key);
       }
     }
@@ -275,7 +339,7 @@ export function deleteProjectData(id: string): void {
     } catch (rollbackError) {
       console.error("Could not roll back a failed project deletion.", rollbackError);
     }
-    throw new ProjectStorageError("Could not delete the project.", error);
+    throw new ProjectStorageError(PROJECT_DELETE_ERROR_MESSAGE, error);
   }
 }
 
