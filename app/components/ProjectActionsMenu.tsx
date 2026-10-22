@@ -24,8 +24,8 @@ import {
 import { saveAs } from "file-saver";
 import { useRef, useState, ChangeEvent } from "react";
 
+import { ShortcutLabel } from "actions/ActionHint";
 import { switchModuleShortcut } from "actions/actions";
-import { shortcutText } from "actions/shortcutText";
 import { parseJson } from "lib/json";
 import { useProject } from "provider";
 import { useStore } from "store";
@@ -212,17 +212,12 @@ export default function ProjectActionsMenu({
             primary={
               <Box
                 component="span"
-                sx={{ display: "flex", justifyContent: "space-between", gap: 2 }}
+                sx={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 2 }}
               >
                 <Box component="span">
                   {modulesEnabled ? "Modules" : "Enable modules"}
                 </Box>
-                <Box
-                  component="span"
-                  sx={{ color: "text.secondary", whiteSpace: "nowrap" }}
-                >
-                  {shortcutText(switchModuleShortcut)}
-                </Box>
+                <ShortcutLabel shortcut={switchModuleShortcut} />
               </Box>
             }
           />

@@ -1,20 +1,19 @@
 "use client";
 
 import {
+  Box,
   Button,
   IconButton,
   ListItemIcon,
   ListItemText,
   MenuItem,
-  Tooltip,
-  Typography,
   type ButtonProps,
   type IconButtonProps,
 } from "@mui/material";
 import { type Ref } from "react";
 
+import { ActionTooltip, ShortcutLabel } from "./ActionHint";
 import type { Action } from "./actions";
-import { actionHint, shortcutText } from "./shortcutText";
 
 interface IconButtonRepresentation<Target> {
   variant: "iconbutton";
@@ -61,9 +60,6 @@ export type ActionViewProps<Target> =
  */
 export function ActionView<Target>(props: ActionViewProps<Target>) {
   const { action, target } = props;
-  // Hint text only appears in the hover layer, never in the page markup,
-  // so reading the platform here cannot split the server render.
-  const hint = actionHint(action.name, action.shortcut);
   if (props.variant === "menuitem") {
     const { onSelect } = props;
     return (
@@ -78,9 +74,9 @@ export function ActionView<Target>(props: ActionViewProps<Target>) {
         <ListItemIcon>{action.icon}</ListItemIcon>
         <ListItemText>{action.name}</ListItemText>
         {action.shortcut == null ? null : (
-          <Typography variant="caption" color="text.secondary" sx={{ ml: 3 }}>
-            {shortcutText(action.shortcut)}
-          </Typography>
+          <Box sx={{ ml: 3 }}>
+            <ShortcutLabel shortcut={action.shortcut} />
+          </Box>
         )}
       </MenuItem>
     );
@@ -88,7 +84,7 @@ export function ActionView<Target>(props: ActionViewProps<Target>) {
   if (props.variant === "textbutton") {
     const { size, color, buttonVariant, ref } = props;
     return (
-      <Tooltip title={hint}>
+      <ActionTooltip name={action.name} shortcut={action.shortcut}>
         <span>
           <Button
             aria-label={action.name}
@@ -104,12 +100,12 @@ export function ActionView<Target>(props: ActionViewProps<Target>) {
             {action.name}
           </Button>
         </span>
-      </Tooltip>
+      </ActionTooltip>
     );
   }
   const { size, color, submit = false, loading, ref } = props;
   return (
-    <Tooltip title={hint}>
+    <ActionTooltip name={action.name} shortcut={action.shortcut}>
       <span>
         <IconButton
           aria-label={action.name}
@@ -125,6 +121,6 @@ export function ActionView<Target>(props: ActionViewProps<Target>) {
           {action.icon}
         </IconButton>
       </span>
-    </Tooltip>
+    </ActionTooltip>
   );
 }
