@@ -34,6 +34,6 @@ Behavioral cases declare one subject, one initial fixture, and an ordered asynch
 
 ## Metadata and diagnostics
 
-Every provider attempt records prompt/protocol versions, timing, outcome, model, selected tool, provider identifiers, normalized token usage, adapter IDs, interface-contract revisions, and subject-contract revisions. Logs are partitioned per project in IndexedDB and can be deleted or exported as JSON or CSV.
+Every provider attempt records prompt/protocol versions, timing, outcome, model, selected tool, provider identifiers, normalized token usage, adapter IDs, interface-contract revisions, and subject-contract revisions. Logs are partitioned per project in IndexedDB and can be deleted, exported as JSON or CSV, or copied as a cURL command. Because prompts are not recorded, a copied command keeps a placeholder where the request input would be.
 
 Development builds expose rejected raw responses behind **More details**. Production results omit that payload. A timeout has no model response to show.

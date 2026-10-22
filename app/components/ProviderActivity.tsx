@@ -2,6 +2,7 @@
 
 import {
   ChevronRight,
+  ContentCopy,
   DeleteOutlined,
   Download,
   InfoOutlined,
@@ -10,6 +11,7 @@ import {
   Accordion,
   AccordionDetails,
   AccordionSummary,
+  Alert,
   Badge,
   Box,
   Button,
@@ -20,6 +22,7 @@ import {
   DialogTitle,
   IconButton,
   Paper,
+  Snackbar,
   Stack,
   Tooltip,
   Typography,
@@ -29,6 +32,7 @@ import { useMemo, useState } from "react";
 
 import {
   providerCallExportBaseName,
+  providerCallToCurl,
   providerCallsToCsv,
 } from "lib/providerCallExport";
 import type { ProviderCallOutcome, ProviderCallRecord } from "lib/types";
@@ -101,6 +105,10 @@ export default function ProviderActivity({
   const [callToDelete, setCallToDelete] = useState<ProviderCallRecord | null>(
     null,
   );
+  const [copyStatus, setCopyStatus] = useState<{
+    message: string;
+    severity: "success" | "error";
+  } | null>(null);
   const summary = useMemo(() => {
     let inputTokens = 0;
     let cachedInputTokens = 0;
@@ -156,6 +164,17 @@ export default function ProviderActivity({
     saveAs(new Blob([content], { type }), `${baseName}.${format}`);
   };
 
+  const copyCurl = (call: ProviderCallRecord) => {
+    if (typeof navigator.clipboard?.writeText !== "function") {
+      setCopyStatus({ message: "Copy failed", severity: "error" });
+      return;
+    }
+    void navigator.clipboard.writeText(providerCallToCurl(call)).then(
+      () => setCopyStatus({ message: "cURL copied", severity: "success" }),
+      () => setCopyStatus({ message: "Copy failed", severity: "error" }),
+    );
+  };
+
   return (
     <>
       <Tooltip title="AI provider activity">
@@ -183,7 +202,8 @@ export default function ProviderActivity({
           <Stack spacing={2}>
             <Typography color="text.secondary" variant="body2">
               This project report is stored in this browser. It contains request
-              metadata, not prompts or model responses.
+              metadata, not prompts or model responses. A copied cURL command
+              includes a placeholder where the request input would be.
             </Typography>
 
             <Box
@@ -236,7 +256,7 @@ export default function ProviderActivity({
                       sx={{
                         minHeight: 64,
                         pl: 6,
-                        pr: 7,
+                        pr: 11,
                         "&.Mui-expanded": { minHeight: 64 },
                         "& .MuiAccordionSummary-expandIconWrapper": {
                           left: 12,
@@ -399,23 +419,55 @@ export default function ProviderActivity({
                       </Box>
                     </AccordionDetails>
                     </Accordion>
-                    <Tooltip title="Delete call">
-                      <IconButton
-                        aria-label={`Delete ${call.operation} call`}
-                        color="error"
-                        size="small"
-                        onClick={() => setCallToDelete(call)}
-                        sx={{
-                          position: "absolute",
-                          right: 12,
-                          top: 32,
-                          transform: "translateY(-50%)",
-                          zIndex: 1,
+                    <Stack
+                      direction="row"
+                      spacing={0.5}
+                      sx={{
+                        position: "absolute",
+                        right: 8,
+                        top: 32,
+                        transform: "translateY(-50%)",
+                        zIndex: 1,
+                      }}
+                    >
+                      <Tooltip
+                        title="Copy as cURL"
+                        slotProps={{
+                          popper: {
+                            sx: {
+                              zIndex: (theme) => theme.zIndex.tooltip + 4,
+                            },
+                          },
                         }}
                       >
-                        <DeleteOutlined fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
+                        <IconButton
+                          aria-label={`Copy ${call.operation} as cURL`}
+                          size="small"
+                          onClick={() => copyCurl(call)}
+                        >
+                          <ContentCopy fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip
+                        title="Delete call"
+                        slotProps={{
+                          popper: {
+                            sx: {
+                              zIndex: (theme) => theme.zIndex.tooltip + 4,
+                            },
+                          },
+                        }}
+                      >
+                        <IconButton
+                          aria-label={`Delete ${call.operation} call`}
+                          color="error"
+                          size="small"
+                          onClick={() => setCallToDelete(call)}
+                        >
+                          <DeleteOutlined fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </Stack>
                   </Box>
                 ))}
               </Stack>
@@ -516,6 +568,22 @@ export default function ProviderActivity({
           </Button>
         </DialogActions>
       </Dialog>
+
+      <Snackbar
+        open={copyStatus !== null}
+        autoHideDuration={2500}
+        onClose={() => setCopyStatus(null)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+        sx={(theme) => ({ zIndex: theme.zIndex.tooltip + 4 })}
+      >
+        <Alert
+          severity={copyStatus?.severity ?? "success"}
+          variant="filled"
+          sx={{ width: "100%" }}
+        >
+          {copyStatus?.message ?? ""}
+        </Alert>
+      </Snackbar>
     </>
   );
 }

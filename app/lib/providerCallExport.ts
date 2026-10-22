@@ -73,6 +73,27 @@ export function providerCallsToCsv(
   return [CSV_COLUMNS.join(","), ...rows].join("\r\n");
 }
 
+/**
+ * The activity store deliberately keeps request metadata only. This command
+ * mirrors the gateway request shape with a placeholder where the prompt would
+ * be, so it stays useful for endpoint, model, and auth debugging without
+ * pretending the original input was recorded.
+ */
+export function providerCallToCurl(call: ProviderCallRecord): string {
+  const body = JSON.stringify({
+    model: call.model,
+    input: "<request input not recorded>",
+    stream: true,
+  });
+  const quotedBody = `'${body.replaceAll("'", "'\\''")}'`;
+  return [
+    'curl "${AI_BASE_URL:-https://opencode.ai/zen/v1}/responses" \\',
+    '  -H "Authorization: Bearer ${AI_API_KEY:-${OPENCODE_API_KEY:-public}}" \\',
+    '  -H "Content-Type: application/json" \\',
+    `  --data-raw ${quotedBody}`,
+  ].join("\n");
+}
+
 export function providerCallExportBaseName(projectName: string): string {
   const safeName = projectName
     .trim()
