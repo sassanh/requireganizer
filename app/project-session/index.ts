@@ -5,5 +5,5 @@ export {
   type ExportableModule,
   type ModuleSummary,
   type ProjectSessionSnapshot,
-  type ProjectSessionStorage,
+  type ProjectSessionStatus,
 } from "./projectSession";

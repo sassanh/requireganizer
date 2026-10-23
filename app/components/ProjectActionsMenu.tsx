@@ -87,7 +87,7 @@ export default function ProjectActionsMenu({
 
     try {
       const data = parseJson(await file.text(), "Imported project");
-      importProjectFile(data);
+      await importProjectFile(data);
       setImportError(null);
     } catch (error) {
       console.error("Could not import project data.", error);

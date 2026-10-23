@@ -90,14 +90,15 @@ function resolveArtifact(hash: Hash | null): unknown {
   return JSON.parse(json);
 }
 
-/** Mark-and-sweep: drop artifacts unreachable from the surviving nodes. */
-export function collectArtifactGarbage(
+/** The hashes among `isArtifact` that the given states reference. */
+export function reachableArtifactHashes(
   states: readonly StateTree[],
-): void {
+  isArtifact: (hash: string) => boolean,
+): Set<Hash> {
   const reachable = new Set<Hash>();
   const visit = (value: unknown): void => {
     if (typeof value === "string") {
-      if (artifactStore.has(value)) reachable.add(value);
+      if (isArtifact(value)) reachable.add(value);
       return;
     }
     if (Array.isArray(value)) {
@@ -109,6 +110,16 @@ export function collectArtifactGarbage(
     }
   };
   states.forEach((state) => visit(state));
+  return reachable;
+}
+
+/** Mark-and-sweep: drop artifacts unreachable from the surviving nodes. */
+export function collectArtifactGarbage(
+  states: readonly StateTree[],
+): void {
+  const reachable = reachableArtifactHashes(states, (hash) =>
+    artifactStore.has(hash),
+  );
   for (const hash of artifactStore.keys()) {
     if (!reachable.has(hash)) artifactStore.delete(hash);
   }

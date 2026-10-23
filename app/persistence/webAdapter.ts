@@ -11,6 +11,7 @@ import {
   getProjectsIndex,
   loadProjectData,
   loadTimelineData,
+  updateProjectIndexEntry,
   saveProjectBundle,
   saveProjectData,
   saveProjectsIndex,
@@ -44,8 +45,16 @@ export class WebPersistenceAdapter implements PersistenceAdapter {
       saveProjectsIndex(projects);
     },
     load: async (projectId) => loadProjectData(projectId),
-    save: async (projectId, data) => {
+    save: async (projectId, data, indexUpdate) => {
       saveProjectData(projectId, data);
+      if (indexUpdate == null) return;
+      const projects = getProjectsIndex();
+      const updatedProjects = updateProjectIndexEntry(
+        projects,
+        projectId,
+        indexUpdate,
+      );
+      if (updatedProjects !== projects) saveProjectsIndex(updatedProjects);
     },
     saveBundle: async (projectId, data, projects) => {
       saveProjectBundle(projectId, data, projects);

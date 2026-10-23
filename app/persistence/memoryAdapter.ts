@@ -9,7 +9,7 @@ import type {
 import { moduleScopeId } from "../lib/moduleSchema";
 import {
   getTimelineStorageKey,
-  getTimelineStorageKeyPrefix,
+  isProjectTimelineStorageKey,
   parseProjectsIndex,
   parseStoredProjectData,
   parseTimelineData,
@@ -19,6 +19,7 @@ import {
   PROJECT_SAVE_ERROR_MESSAGE,
   ProjectStorageError,
   removeProjectFromIndex,
+  updateProjectIndexEntry,
   serializeProjectBundle,
 } from "../lib/projectStorage";
 import {
@@ -104,12 +105,29 @@ export class MemoryPersistenceAdapter implements PersistenceAdapter {
       this.projectsIndexSource = source;
     },
     load: async (projectId) => this.loadProjectData(projectId),
-    save: async (projectId, data) => {
+    save: async (projectId, data, indexUpdate) => {
       this.assertNoQueuedFailure("project-write", PROJECT_SAVE_ERROR_MESSAGE);
-      this.projectSources.set(
-        projectId,
-        this.serialize(data, PROJECT_SAVE_ERROR_MESSAGE) ?? "undefined",
-      );
+      const projectSource =
+        this.serialize(data, PROJECT_SAVE_ERROR_MESSAGE) ?? "undefined";
+      let updatedIndexSource: string | null = null;
+      if (indexUpdate != null) {
+        const projects = parseProjectsIndex(this.projectsIndexSource);
+        const updatedProjects = updateProjectIndexEntry(
+          projects,
+          projectId,
+          indexUpdate,
+        );
+        if (updatedProjects !== projects) {
+          updatedIndexSource = this.serialize(
+            updatedProjects,
+            PROJECT_INDEX_SAVE_ERROR_MESSAGE,
+          ) ?? null;
+        }
+      }
+      this.projectSources.set(projectId, projectSource);
+      if (updatedIndexSource != null) {
+        this.projectsIndexSource = updatedIndexSource;
+      }
     },
     saveBundle: async (projectId, data, projects) => {
       this.assertNoQueuedFailure(
@@ -303,9 +321,10 @@ export class MemoryPersistenceAdapter implements PersistenceAdapter {
   }
 
   private deleteTimelinesForProject(projectId: string): void {
-    const prefix = getTimelineStorageKeyPrefix(projectId);
     for (const key of [...this.timelineSources.keys()]) {
-      if (key.startsWith(prefix)) this.timelineSources.delete(key);
+      if (isProjectTimelineStorageKey(key, projectId)) {
+        this.timelineSources.delete(key);
+      }
     }
   }
 

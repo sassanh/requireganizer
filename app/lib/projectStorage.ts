@@ -96,6 +96,28 @@ export function removeProjectFromIndex(
   return projects.filter((project) => project.id !== id);
 }
 
+/** What a project save refreshes in its index entry; the stored name stays. */
+export type ProjectIndexUpdate = Pick<ProjectMeta, "description" | "updatedAt">;
+
+/**
+ * Refreshes one project's index entry in place, preserving the order, the
+ * stored name and every other entry. Returns the original array when the id
+ * is absent, so callers can avoid a write.
+ */
+export function updateProjectIndexEntry(
+  projects: ProjectMeta[],
+  projectId: string,
+  update: ProjectIndexUpdate,
+): ProjectMeta[] {
+  const index = projects.findIndex((project) => project.id === projectId);
+  if (index < 0) return projects;
+  return projects.map((project, position) =>
+    position === index
+      ? { ...project, description: update.description, updatedAt: update.updatedAt }
+      : project,
+  );
+}
+
 export function getProjectsIndex(): ProjectMeta[] {
   const storage = getBrowserStorage();
   if (storage == null) return [];
@@ -124,9 +146,14 @@ export function getTimelineStorageKey(id: string, moduleId: string): string {
   return `requireganizer:timeline:${id}::${moduleId}`;
 }
 
-/** Every module timeline of a project starts with this key prefix. */
-export function getTimelineStorageKeyPrefix(id: string): string {
-  return `requireganizer:timeline:${id}::`;
+/**
+ * Whether a storage key holds one of this project's module timelines. The
+ * module part must not contain the separator: otherwise project "a" would
+ * also claim the timelines of a project with the id "a::b".
+ */
+export function isProjectTimelineStorageKey(key: string, id: string): boolean {
+  const prefix = `requireganizer:timeline:${id}::`;
+  return key.startsWith(prefix) && !key.slice(prefix.length).includes("::");
 }
 
 /** The pre-module key; only the legacy module ever still reads it. */
@@ -314,11 +341,9 @@ export function deleteProjectData(id: string): void {
 
     storage.removeItem(projectKey);
     storage.removeItem(getLegacyTimelineStorageKey(id));
-    // Every module's timeline is keyed under the project prefix; remove them all.
-    const timelinePrefix = getTimelineStorageKeyPrefix(id);
     for (let index = storage.length - 1; index >= 0; index -= 1) {
       const key = storage.key(index);
-      if (key != null && key.startsWith(timelinePrefix)) {
+      if (key != null && isProjectTimelineStorageKey(key, id)) {
         storage.removeItem(key);
       }
     }

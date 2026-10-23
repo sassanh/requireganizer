@@ -19,13 +19,9 @@ import {
   type ProjectExportFormat,
 } from "lib/projectExport";
 import {
-  getProjectsIndex,
-  loadProjectData,
-  loadTimelineData,
-  saveProjectData,
-  saveProjectsIndex,
-  saveTimelineData,
-} from "lib/projectStorage";
+  type PersistenceAdapter,
+  webPersistence,
+} from "persistence";
 import {
   attachPresentation,
   presentationStoreContext,
@@ -34,7 +30,7 @@ import {
 import {
   moduleSummaries,
   ProjectSession,
-  type ProjectSessionStorage,
+  type ProjectSessionStatus,
 } from "project-session";
 import { hasGeneratedScaffoldIn, Store, storeContext } from "store";
 import { WorkflowStage } from "store/constants";
@@ -45,8 +41,11 @@ import { theme } from "./theme";
 export type { ModuleSummary } from "project-session";
 
 interface ProjectContextValue {
+  status: ProjectSessionStatus;
   activeProject: { id: string, name: string } | null;
   persistenceError: string | null;
+  /** The one storage adapter every component and the session use. */
+  persistence: PersistenceAdapter;
   selectProject: (id: string, name: string, options?: { overviewSeed?: string }) => void;
   consumeOverviewSeed: (projectId: string) => string | null;
   backToProjects: () => void;
@@ -65,58 +64,40 @@ interface ProjectContextValue {
   switchModule: (id: string) => boolean;
   archiveModule: (id: string) => void;
   recordOpenStep: (step: WorkflowStage) => void;
-  importProjectFile: (data: unknown) => void;
+  importProjectFile: (data: unknown) => Promise<void>;
   exportProject: (format: ProjectExportFormat) => Promise<void>;
   exportCodeArchive: (format: CodeArchiveFormat) => void;
 }
 
-const projectContext = createContext<ProjectContextValue>({
-  activeProject: null,
-  persistenceError: null,
-  selectProject: () => { },
-  consumeOverviewSeed: () => null,
-  backToProjects: () => { },
-  clearPersistenceError: () => { },
-  modules: [],
-  modulesEnabled: false,
-  activeModuleId: "",
-  activeModuleOpenStep: WorkflowStage.ProductOverview,
-  codeExportAvailable: false,
-  enableModules: () => { },
-  addModule: () => { },
-  switchModule: () => false,
-  archiveModule: () => { },
-  recordOpenStep: () => { },
-  importProjectFile: () => { },
-  exportProject: async () => { },
-  exportCodeArchive: () => { },
-});
+const projectContext = createContext<ProjectContextValue | null>(null);
 
-export const useProject = () => useContext(projectContext);
+export const useProject = (): ProjectContextValue => {
+  const value = useContext(projectContext);
+  if (value == null) {
+    throw new Error("useProject must be used inside Providers.");
+  }
+  return value;
+};
+
+/** The shared storage adapter exposed by the session. */
+export const usePersistence = (): PersistenceAdapter =>
+  useProject().persistence;
 
 let isStoreReloadNeeded = true;
-
-const projectSessionStorage: ProjectSessionStorage = {
-  loadProjectData,
-  saveProjectData,
-  getProjectsIndex,
-  saveProjectsIndex,
-  loadTimelineData,
-  saveTimelineData,
-};
 
 export default function Providers({ children }: { children: React.ReactNode }) {
   useUndoRedoKeyboardShortcuts();
   const [session] = useState(() => {
     isStoreReloadNeeded = false;
-    return new ProjectSession(projectSessionStorage);
+    return new ProjectSession(webPersistence);
   });
   const sessionState = useSyncExternalStore(
     session.subscribe,
     session.getSnapshot,
     session.getSnapshot,
   );
-  const { activeProject, persistenceError, registry, store } = sessionState;
+  const { status, activeProject, persistenceError, registry, store } =
+    sessionState;
   const [shown] = useState(() => Store.create(getSnapshot(store)));
 
   useEffect(() => {
@@ -208,8 +189,10 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     });
 
   const contextValue: ProjectContextValue = {
+    status,
     activeProject,
     persistenceError,
+    persistence: session.persistence,
     selectProject: session.selectProject,
     consumeOverviewSeed: session.consumeOverviewSeed,
     backToProjects: session.backToProjects,

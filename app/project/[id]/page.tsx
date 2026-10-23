@@ -35,8 +35,7 @@ import {
   type ShortcutBinding,
 } from "hooks/shortcuts";
 import { useProviderCallPersistence } from "hooks/useProviderCallPersistence";
-import { getProjectsIndex } from "lib/projectStorage";
-import { useProject } from "provider";
+import { usePersistence, useProject } from "provider";
 import { Factory } from "screens";
 import { Store, useStore } from "store";
 
@@ -44,6 +43,7 @@ function Home() {
   const store = useStore();
   const conversationOpen = store.conversationSidebarOpen;
   const {
+    status,
     activeProject,
     persistenceError,
     selectProject,
@@ -55,6 +55,7 @@ function Home() {
     activeModuleOpenStep,
     switchModule,
   } = useProject();
+  const persistence = usePersistence();
   const params = useParams();
   const router = useRouter();
   const pathname = usePathname();
@@ -70,23 +71,30 @@ function Home() {
   );
 
   useEffect(() => {
-    if (projectId && activeProject?.id !== projectId) {
-      const projects = getProjectsIndex();
+    if (!projectId || activeProject?.id === projectId) return;
+    let cancelled = false;
+    void persistence.projects.list().then((projects) => {
+      if (cancelled) return;
       const projectMeta = projects.find((p) => p.id === projectId);
       if (projectMeta) {
-        selectProject(projectMeta.id, projectMeta.name);
+        void selectProject(projectMeta.id, projectMeta.name);
       } else {
         router.push("/");
       }
-    }
-  }, [projectId, activeProject, selectProject, router]);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, activeProject, selectProject, router, persistence]);
 
   useEffect(() => {
-    if (activeProject?.id !== projectId) return;
+    // While loading, `store` is still the previous one; the seed waits for
+    // the project's own store.
+    if (status !== "ready" || activeProject?.id !== projectId) return;
     const seed = consumeOverviewSeed(projectId);
     if (seed == null) return;
     void store.generateProductOverview(seed);
-  }, [activeProject, projectId, consumeOverviewSeed, store]);
+  }, [status, activeProject, projectId, consumeOverviewSeed, store]);
 
   const openModules = useCallback(() => setModulesOpen(true), []);
   const closeModules = useCallback(() => setModulesOpen(false), []);
@@ -149,7 +157,11 @@ function Home() {
     }
   }, [store]);
 
-  if (!activeProject || activeProject.id !== projectId) {
+  if (
+    status !== "ready" ||
+    !activeProject ||
+    activeProject.id !== projectId
+  ) {
     return null; // Return null while loading to avoid flashing the selector or empty state
   }
 

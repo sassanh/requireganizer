@@ -4,11 +4,10 @@ import { reaction } from "mobx";
 import { useEffect, useState } from "react";
 
 import {
-  loadProviderCalls,
   mergeProviderCalls,
-  replaceProviderCalls,
 } from "lib/providerCallStorage";
 import type { ProviderCallRecord } from "lib/types";
+import { usePersistence } from "provider";
 import type { Store } from "store";
 
 const MAX_PROVIDER_CALL_HISTORY = 100;
@@ -25,6 +24,7 @@ export function useProviderCallPersistence(
   moduleId: string | null,
   store: Store,
 ): string | null {
+  const persistence = usePersistence();
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -36,7 +36,10 @@ export function useProviderCallPersistence(
 
     const initialize = async () => {
       try {
-        const stored = await loadProviderCalls(projectId, moduleId);
+        const stored = await persistence.providerCalls.load(
+          projectId,
+          moduleId,
+        );
         if (disposed) return;
 
         store.hydrateProviderCalls(
@@ -51,7 +54,9 @@ export function useProviderCallPersistence(
           () => copyCalls(store.providerCalls),
           (calls) => {
             saveQueue = saveQueue
-              .then(() => replaceProviderCalls(projectId, moduleId, calls))
+              .then(() =>
+                persistence.providerCalls.replace(projectId, moduleId, calls),
+              )
               .then(() => {
                 if (!disposed) setError(null);
               })
@@ -80,7 +85,7 @@ export function useProviderCallPersistence(
       disposed = true;
       stopReaction?.();
     };
-  }, [projectId, moduleId, store]);
+  }, [persistence, projectId, moduleId, store]);
 
   return error;
 }

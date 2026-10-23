@@ -5,29 +5,27 @@ import { getSnapshot } from "mobx-state-tree";
 import { useCallback, useEffect, useState } from "react";
 
 import {
-  deleteProjectSnapshot,
-  listProjectSnapshots,
   type ProjectRevisionSnapshot,
-  saveProjectSnapshot,
-  setSnapshotPinned,
 } from "lib/revisionStorage";
+import { usePersistence } from "provider";
 import { useStore } from "store";
 
 export default function RevisionHistoryDialog({ projectId, moduleId, open, onClose }: { projectId: string; moduleId: string; open: boolean; onClose: () => void }) {
+  const persistence = usePersistence();
   const store = useStore();
   const [items, setItems] = useState<ProjectRevisionSnapshot[]>([]);
   const [error, setError] = useState<string | null>(null);
   const refresh = useCallback(async () => {
-    try { setItems(await listProjectSnapshots(projectId, moduleId)); setError(null); }
+    try { setItems(await persistence.revisions.list(projectId, moduleId)); setError(null); }
     catch { setError("Revision history is unavailable in browser storage."); }
-  }, [projectId, moduleId]);
+  }, [persistence, projectId, moduleId]);
   // IndexedDB is an external source; refresh only when the dialog becomes visible.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (open) void refresh(); }, [open, refresh]);
 
   const restore = async (item: ProjectRevisionSnapshot) => {
     try {
-      await saveProjectSnapshot(projectId, moduleId, getSnapshot(store), `Before restoring ${item.label}`);
+      await persistence.revisions.save(projectId, moduleId, getSnapshot(store), `Before restoring ${item.label}`);
       store.import(item.data);
       onClose();
     } catch (caught) {
@@ -44,10 +42,10 @@ export default function RevisionHistoryDialog({ projectId, moduleId, open, onClo
           {items.map((item) => (
             <ListItem key={item.id} divider secondaryAction={
               <Stack direction="row">
-                <Tooltip title={item.pinned ? "Unpin" : "Pin"}><IconButton onClick={async () => { await setSnapshotPinned(item.id, !item.pinned); await refresh(); }}><PushPin color={item.pinned ? "primary" : "inherit"} /></IconButton></Tooltip>
+                <Tooltip title={item.pinned ? "Unpin" : "Pin"}><IconButton onClick={async () => { await persistence.revisions.setPinned(item.id, !item.pinned); await refresh(); }}><PushPin color={item.pinned ? "primary" : "inherit"} /></IconButton></Tooltip>
                 <Tooltip title="Download"><IconButton onClick={() => saveAs(new Blob([JSON.stringify(item.data, null, 2)], { type: "application/json" }), `requireganizer-revision-${item.createdAt}.json`)}><Download /></IconButton></Tooltip>
                 <Tooltip title="Restore"><IconButton onClick={() => restore(item)}><Restore /></IconButton></Tooltip>
-                <Tooltip title="Delete"><IconButton color="error" onClick={async () => { if (!window.confirm("Delete this recovery snapshot?")) return; await deleteProjectSnapshot(item.id); await refresh(); }}><Delete /></IconButton></Tooltip>
+                <Tooltip title="Delete"><IconButton color="error" onClick={async () => { if (!window.confirm("Delete this recovery snapshot?")) return; await persistence.revisions.delete(item.id); await refresh(); }}><Delete /></IconButton></Tooltip>
               </Stack>
             }>
               <ListItemText primary={item.label} secondary={`${new Date(item.createdAt).toLocaleString()}${item.pinned ? " · pinned" : ""}`} />

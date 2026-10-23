@@ -4,12 +4,13 @@ import { getSnapshot } from "mobx-state-tree";
 import { useState } from "react";
 
 import { reviewerModel } from "ai-agent/model";
-import { saveProjectSnapshot } from "lib/revisionStorage";
+import { usePersistence } from "provider";
 import { useStore } from "store";
 
 import CodeBlock from "./CodeBlock";
 
 const ImpactConfirmationDialog = ({ projectId, moduleId }: { projectId: string; moduleId: string }) => {
+  const persistence = usePersistence();
   const store = useStore();
   const [saving, setSaving] = useState(false);
   const change = store.pendingImpactChange;
@@ -17,7 +18,7 @@ const ImpactConfirmationDialog = ({ projectId, moduleId }: { projectId: string; 
     if (change == null) return;
     setSaving(true);
     try {
-      await saveProjectSnapshot(
+      await persistence.revisions.save(
         projectId,
         moduleId,
         getSnapshot(store),

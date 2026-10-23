@@ -18,6 +18,7 @@ import {
   collectArtifactGarbage,
   exportTimelineData,
   importTimelineData,
+  reachableArtifactHashes,
   resolveStateValues,
   restoreSnapshot,
   sameState,
@@ -36,14 +37,29 @@ import {
 } from "./tree";
 import { ProductOverviewModel } from "../models/ProductOverview";
 
-export type TimelinePersistence = {
-  load: () => unknown;
-  save: (data: PersistedTimeline) => boolean;
+export type TimelineWriteTarget = {
+  save: (data: PersistedTimeline) => boolean | Promise<boolean>;
 };
 
-export type AttachTimelineOptions = {
-  persistence?: TimelinePersistence;
-};
+/**
+ * Attach either a writable timeline together with the data the session
+ * loaded, or neither. The two always travel together: a target without
+ * loaded data would suppress saves forever, and loaded data without a target
+ * has nowhere to write.
+ */
+export type AttachTimelineOptions =
+  | {
+      persistence: TimelineWriteTarget;
+      /**
+       * The stored timeline handed in by the session. `null` means there is
+       * no stored history.
+       */
+      loaded: unknown;
+    }
+  | {
+      persistence?: undefined;
+      loaded?: undefined;
+    };
 
 type Source = { kind: "user" | "ai" | "system"; label: string };
 
@@ -95,7 +111,8 @@ let openTurn: {
   rootCallId: number;
   beforeState: StateTree;
 } | null = null;
-let persistence: TimelinePersistence | null = null;
+let persistence: TimelineWriteTarget | null = null;
+let attachmentSerial = 0;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 const SAVE_DEBOUNCE_MS = 600;
 
@@ -112,8 +129,6 @@ let rewindSavedLeafId: string | null = null;
 let disposer: (() => void) | null = null;
 
 const tree: ConversationTree = { nodes: new Map(), rootId: "", activeLeafId: "" };
-
-const attachedInstances = new WeakSet<object>();
 
 function seedRoot(label: string): void {
   const snapshot = snapshotNow() as unknown as { conversation: unknown[] };
@@ -751,23 +766,25 @@ function closeOpenTurn(
 }
 
 /**
- * Attach the timeline to a store instance. Idempotent per instance. The
+ * Attach the timeline to a store instance. A no-op while that store is the
+ * attached one; attaching another store replaces the attachment. The
  * store is used from outside only (middleware, getSnapshot, applySnapshot)
  * — it knows nothing about hashes or the timeline. When a persistence
- * adapter is provided, the tree is restored from it and every change is
- * flushed back (debounced; `flushTimeline` forces an immediate write).
+ * adapter is provided, the store timeline must have already been loaded by
+ * the session and is handed in through `loaded`; every change is flushed
+ * back (debounced; `flushTimeline` forces an immediate write).
  */
 export function attachTimeline(
   store: AttachedStore,
   options?: AttachTimelineOptions,
 ): void {
-  if (attachedInstances.has(store)) return;
-  attachedInstances.add(store);
+  if (attachedStore === store) return;
   disposer?.();
   if (saveTimer != null) {
     clearTimeout(saveTimer);
     saveTimer = null;
   }
+  attachmentSerial += 1;
   persistence = options?.persistence ?? null;
   attachedStore = store;
   tree.nodes.clear();
@@ -814,31 +831,29 @@ export function attachTimeline(
   });
   disposer = addMiddleware(store as never, middleware);
 
-  // Restore the persisted tree when available; otherwise seed the root.
+  // Restore the timeline data the session loaded; otherwise seed the root.
   let restored = false;
-  if (persistence != null) {
+  const saved = options?.loaded;
+  if (saved != null) {
     try {
-      const saved = persistence.load();
-      if (saved != null) {
-        const payload = importTimelineData(saved as PersistedTimeline);
-        tree.rootId = payload.rootId;
-        tree.activeLeafId = payload.activeLeafId;
-        for (const raw of payload.nodes) {
-          const node = raw as TurnNode;
-          if (
-            typeof node?.id === "string" &&
-            typeof node?.label === "string" &&
-            node?.state != null
-          ) {
-            tree.nodes.set(node.id, node);
-          }
+      const payload = importTimelineData(saved as PersistedTimeline);
+      tree.rootId = payload.rootId;
+      tree.activeLeafId = payload.activeLeafId;
+      for (const raw of payload.nodes) {
+        const node = raw as TurnNode;
+        if (
+          typeof node?.id === "string" &&
+          typeof node?.label === "string" &&
+          node?.state != null
+        ) {
+          tree.nodes.set(node.id, node);
         }
-        if (!tree.nodes.has(tree.rootId)) throw new Error("Missing root node.");
-        if (!tree.nodes.has(tree.activeLeafId)) {
-          tree.activeLeafId = tree.rootId;
-        }
-        restored = true;
       }
+      if (!tree.nodes.has(tree.rootId)) throw new Error("Missing root node.");
+      if (!tree.nodes.has(tree.activeLeafId)) {
+        tree.activeLeafId = tree.rootId;
+      }
+      restored = true;
     } catch (error) {
       console.warn("Stored timeline was invalid; starting fresh.", error);
       tree.nodes.clear();
@@ -999,22 +1014,66 @@ export function getTimelineSnapshot(): PersistedTimeline | null {
 }
 
 /**
- * Immediately persist the tree. On quota failure, prunes to the active path
- * and retries once.
+ * Prune a captured timeline payload the way `pruneTree` prunes the live tree,
+ * keeping only the artifacts the surviving states reference. The payload's
+ * own nodes are not mutated.
  */
-export function flushTimeline(): void {
+function prunePersistedTimeline(
+  payload: PersistedTimeline,
+): PersistedTimeline | null {
+  const captured: ConversationTree = {
+    rootId: payload.rootId,
+    activeLeafId: payload.activeLeafId,
+    nodes: new Map(
+      payload.nodes.map((raw) => [(raw as TurnNode).id, raw as TurnNode]),
+    ),
+  };
+  if (!captured.nodes.has(captured.activeLeafId)) return null;
+  pruneTree(captured);
+  const nodes = [...captured.nodes.values()];
+  const artifactHashes = new Set(payload.artifacts.map(([hash]) => hash));
+  const reachable = reachableArtifactHashes(
+    nodes.map((node) => node.state),
+    (hash) => artifactHashes.has(hash),
+  );
+  return {
+    ...payload,
+    nodes,
+    artifacts: payload.artifacts.filter(([hash]) => reachable.has(hash)),
+  };
+}
+
+/**
+ * Immediately persist the tree. The first write is issued synchronously,
+ * before the returned promise exists. On a resolved `false`, prune a captured
+ * copy of that payload and retry the same target once. The retry does not
+ * depend on which store is attached by then, so leaving a module cannot lose
+ * its latest history. The live tree is pruned only while that attachment is
+ * still current.
+ */
+export async function flushTimeline(): Promise<void> {
   if (persistence == null || attachedStore == null) return;
+  const currentTarget = persistence;
+  const currentSerial = attachmentSerial;
   const payload = getTimelineSnapshot();
-  if (payload != null && persistence.save(payload)) {
-    return;
+  if (payload == null) return;
+
+  try {
+    if (await currentTarget.save(payload)) return;
+    const pruned = prunePersistedTimeline(payload);
+    if (pruned == null) {
+      console.warn("Could not persist the conversation timeline.");
+      return;
+    }
+    if (attachmentSerial === currentSerial) {
+      pruneTree(tree);
+      notify();
+    }
+    if (await currentTarget.save(pruned)) return;
+    console.warn("Could not persist the conversation timeline.");
+  } catch (error) {
+    console.warn("Could not persist the conversation timeline.", error);
   }
-  pruneTree(tree);
-  notify();
-  const retried = getTimelineSnapshot();
-  if (retried != null && persistence.save(retried)) {
-    return;
-  }
-  console.warn("Could not persist the conversation timeline.");
 }
 
 function scheduleSave(): void {
@@ -1022,7 +1081,7 @@ function scheduleSave(): void {
   if (saveTimer != null) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     saveTimer = null;
-    flushTimeline();
+    void flushTimeline();
   }, SAVE_DEBOUNCE_MS);
 }
 
@@ -1032,6 +1091,29 @@ export function clearTimelineSaveTimer(): void {
     clearTimeout(saveTimer);
     saveTimer = null;
   }
+}
+
+/**
+ * Release the attached store: stop recording and saving, and empty the
+ * history the interface shows. Call after flushing, when the store is no
+ * longer shown and the next one's history has not been loaded yet. A retry
+ * still in flight for the released store saves its own captured copy.
+ */
+export function detachTimeline(): void {
+  if (attachedStore == null) return;
+  disposer?.();
+  disposer = null;
+  clearTimelineSaveTimer();
+  attachmentSerial += 1;
+  persistence = null;
+  attachedStore = null;
+  tree.nodes.clear();
+  tree.rootId = "";
+  tree.activeLeafId = "";
+  openTurn = null;
+  tailMarker = null;
+  rewindSavedLeafId = null;
+  notify();
 }
 
 /**
