@@ -227,16 +227,23 @@ export async function replaceProviderCalls(
   calls: readonly ProviderCallRecord[],
 ): Promise<void> {
   try {
+    const scopeId = moduleScopeId(projectId, moduleId);
+    // Clone every row before touching storage: a call that cannot be cloned
+    // must leave the previous calls in place, not lose them to a committed
+    // delete followed by a failed put.
+    const rows = calls.map((call) =>
+      structuredClone(toStoredProviderCall(call, projectId, scopeId)),
+    );
+
     const database = await openDatabase();
     try {
       await ensureScopeBackfill(database);
       const transaction = database.transaction(STORE_NAME, "readwrite");
       const store = transaction.objectStore(STORE_NAME);
       const completion = transactionComplete(transaction);
-      const scopeId = moduleScopeId(projectId, moduleId);
       await removeScopeRows(store, scopeId);
-      for (const call of calls) {
-        store.put(toStoredProviderCall(call, projectId, scopeId));
+      for (const row of rows) {
+        store.put(row);
       }
       await completion;
     } finally {

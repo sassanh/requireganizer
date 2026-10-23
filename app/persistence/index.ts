@@ -12,3 +12,4 @@ export {
   type MemoryPersistenceAdapterOptions,
   type MemoryPersistenceFailure,
 } from "./memoryAdapter";
+export { WebPersistenceAdapter, webPersistence } from "./webAdapter";

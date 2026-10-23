@@ -2,7 +2,6 @@ import { TIMELINE_VERSION } from "store/timeline/serialize";
 
 import { isRecord, parseJson } from "./json";
 import { LEGACY_MODULE_ID, parseProjectPayload, pickActiveModule } from "./moduleSchema";
-import { deleteProjectSnapshots } from "./revisionStorage";
 import { parseScaffoldFiles, ScaffoldFileData } from "./scaffold";
 
 const PROJECTS_INDEX_KEY = "requireganizer:projects";
@@ -324,9 +323,6 @@ export function deleteProjectData(id: string): void {
       }
     }
     storage.setItem(PROJECTS_INDEX_KEY, JSON.stringify(projects));
-    void deleteProjectSnapshots(id).catch((error) => {
-      console.error("Could not delete project revision snapshots.", error);
-    });
   } catch (error) {
     try {
       if (capturedState) {
