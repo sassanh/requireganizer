@@ -9,23 +9,19 @@ import {
     Typography,
 } from "@mui/material";
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useState, Suspense } from "react";
+import { useCallback, useEffect, useRef, useState, Suspense } from "react";
 
 import { CodeBlock, FileTree } from "components";
 import {
-    loadProjectData,
     readStoredProjectView,
     StoredProjectView,
 } from "lib/projectStorage";
+import { usePersistence } from "provider";
 
 const EMPTY_PROJECT_VIEW: StoredProjectView = {
     name: "",
     scaffoldFiles: [],
 };
-
-function loadProjectView(projectId: string): StoredProjectView {
-    return readStoredProjectView(loadProjectData(projectId)) ?? EMPTY_PROJECT_VIEW;
-}
 
 function getCodeLanguage(path: string): string {
     const extension = path.split(".").pop()?.toLowerCase();
@@ -68,10 +64,12 @@ function getFileHref(projectId: string, path: string): string {
 function CodeViewerContent() {
     const params = useParams();
     const router = useRouter();
+    const persistence = usePersistence();
     const projectId = params?.id as string;
     const pathArray = params?.path as string[] | undefined;
 
     const [projectView, setProjectView] = useState<StoredProjectView | null>(null);
+    const requestRef = useRef(0);
     const { name: projectName, scaffoldFiles: files } =
         projectView ?? EMPTY_PROJECT_VIEW;
 
@@ -80,12 +78,16 @@ function CodeViewerContent() {
 
     const reloadData = useCallback(() => {
         if (!projectId) return;
-        setProjectView(loadProjectView(projectId));
-    }, [projectId]);
+        const request = requestRef.current + 1;
+        requestRef.current = request;
+        void persistence.projects.load(projectId).then((data) => {
+            if (request !== requestRef.current) return;
+            setProjectView(readStoredProjectView(data) ?? EMPTY_PROJECT_VIEW);
+        });
+    }, [persistence, projectId]);
 
     useEffect(() => {
         // Browser storage is unavailable during server rendering.
-        // eslint-disable-next-line react-hooks/set-state-in-effect
         reloadData();
     }, [reloadData]);
 

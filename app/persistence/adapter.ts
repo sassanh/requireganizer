@@ -1,4 +1,4 @@
-import type { ProjectMeta } from "../lib/projectStorage";
+import type { ProjectIndexUpdate, ProjectMeta } from "../lib/projectStorage";
 import type { ProjectRevisionSnapshot } from "../lib/revisionStorage";
 import type { ProviderCallRecord } from "../lib/types";
 
@@ -17,18 +17,27 @@ export interface ProjectDeleteResult {
 /**
  * The projects index and project payloads. Each project payload is the
  * registry plus every module snapshot, exactly as it is exported.
+ *
+ * A read issued after a write to the same key observes that write.
  */
 export interface ProjectPersistence {
   /**
    * Every stored project, in stored order. Resolves `[]` when nothing is
    * stored, when storage is unavailable, or when the stored index cannot be
    * read; malformed and duplicate entries are filtered out.
+   *
+   * A list issued after `saveIndex`, `save`, `saveBundle`, or `delete`
+   * observes that write.
    */
   list(): Promise<ProjectMeta[]>;
 
   /**
    * Replaces the projects index. Rejects with `ProjectStorageError` when
    * storage is unavailable or the index cannot be serialized or written.
+   *
+   * The write is issued before the returned promise is created; adapters
+   * must not reorder writes for the same key. Callers rely on this to keep
+   * the final flush during page unload synchronous.
    */
   saveIndex(projects: ProjectMeta[]): Promise<void>;
 
@@ -36,21 +45,42 @@ export interface ProjectPersistence {
    * The stored payload for one project. Resolves `null` when nothing is
    * stored for the id or the stored bytes are not a JSON object. This read
    * does not reject; unreadable or unavailable storage is reported as `null`.
+   *
+   * A load issued after a write to the same project observes that write.
    */
   load(projectId: string): Promise<Record<string, unknown> | null>;
 
   /**
-   * Writes one project payload, replacing any previous payload. Rejects with
-   * `ProjectStorageError` when storage is unavailable or the payload cannot
-   * be serialized or written.
+   * Writes one project payload, replacing any previous payload. When
+   * `indexUpdate` is given and the payload write succeeded, also refreshes the
+   * description and update time of that project's entry in the current
+   * projects index (its stored name is kept) with a read-modify-write
+   * performed inside the adapter. The rest of the index is preserved, so a
+   * stale caller copy can never resurrect or drop other projects. When the id
+   * is absent from the index, the index is left unchanged. A failed payload
+   * write leaves the index untouched.
+   *
+   * Rejects with `ProjectStorageError` when storage is unavailable or the
+   * payload or index cannot be serialized or written.
+   *
+   * The write is issued before the returned promise is created; adapters
+   * must not reorder writes for the same key. Callers rely on this to keep
+   * the final flush during page unload synchronous.
    */
-  save(projectId: string, data: unknown): Promise<void>;
+  save(
+    projectId: string,
+    data: unknown,
+    indexUpdate?: ProjectIndexUpdate,
+  ): Promise<void>;
 
   /**
    * Writes a project payload and the updated projects index together, for
    * creating or importing a project. Either both are stored or neither is.
    * Rejects with `ProjectStorageError` when the data cannot be serialized or
    * either write fails.
+   *
+   * Both writes are issued before the returned promise is created; adapters
+   * must not reorder writes for the same keys.
    */
   saveBundle(
     projectId: string,
@@ -75,12 +105,17 @@ export interface ProjectPersistence {
 /**
  * One timeline per project module. A timeline is written whole on every
  * save; the timeline controller trims history itself when a save fails.
+ *
+ * A read issued after a write to the same key observes that write.
  */
 export interface TimelinePersistence {
   /**
    * The stored timeline for one module. Resolves `null` when nothing is
    * stored, the stored bytes are not an object, or the timeline version is
    * not the current one.
+   *
+   * A load issued after a save for the same project and module observes that
+   * save, even while the save is still in flight.
    */
   load(
     projectId: string,
@@ -92,6 +127,10 @@ export interface TimelinePersistence {
    * the write fails — including a full or unavailable storage — rather than
    * rejecting, because the timeline controller relies on `false` to trim
    * history and retry.
+   *
+   * The write is issued before the returned promise is created; adapters
+   * must not reorder writes for the same key. Callers rely on this to keep
+   * the final flush during page unload synchronous.
    */
   save(projectId: string, moduleId: string, data: unknown): Promise<boolean>;
 }
@@ -116,6 +155,9 @@ export interface RevisionPersistence {
    * Stores a snapshot of the module's data and returns it. Unpinned
    * snapshots beyond the retention limit are pruned as part of the save,
    * while pinned snapshots are kept. Rejects when the storage write fails.
+   *
+   * The snapshot write is issued before the returned promise is created;
+   * adapters must not reorder writes for the same key.
    */
   save(
     projectId: string,
@@ -157,6 +199,9 @@ export interface ProviderCallPersistence {
    * significant because `load` orders the result. Rejects with
    * `ProviderCallStorageError` when storage is unavailable or the write
    * fails, leaving the previous calls in place.
+   *
+   * The write is issued before the returned promise is created; adapters
+   * must not reorder writes for the same keys.
    */
   replace(
     projectId: string,

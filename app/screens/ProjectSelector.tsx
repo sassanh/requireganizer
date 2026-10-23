@@ -25,13 +25,9 @@ import { ChangeEvent, useEffect, useRef, useState } from "react";
 import { PersistentAlert } from "components";
 import { parseJson } from "lib/json";
 import { parseProjectPayload, pickActiveModule } from "lib/moduleSchema";
-import {
-  getProjectsIndex,
-  ProjectMeta,
-  saveProjectBundle,
-  saveProjectsIndex,
-} from "lib/projectStorage";
-import { webPersistence, type ProjectDeleteResult } from "persistence";
+import { ProjectMeta } from "lib/projectStorage";
+import type { ProjectDeleteResult } from "persistence";
+import { usePersistence } from "provider";
 import { createModuleStore } from "store";
 
 interface ProjectSelectorProps {
@@ -45,6 +41,7 @@ function hasProjectName(projects: ProjectMeta[], name: string): boolean {
 }
 
 export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
+  const persistence = usePersistence();
   const [projects, setProjects] = useState<ProjectMeta[] | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newName, setNewName] = useState("");
@@ -54,16 +51,24 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
     null,
   );
   const importInputRef = useRef<HTMLInputElement>(null);
+  // Create and import await storage; a second submit meanwhile would pass
+  // the duplicate-name check against the not-yet-updated list.
+  const savingRef = useRef(false);
   const projectList = projects ?? [];
 
   useEffect(() => {
     // Browser storage is unavailable during server rendering. Loading it after
     // hydration keeps the initial markup deterministic.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setProjects(getProjectsIndex());
-  }, []);
+    let cancelled = false;
+    void persistence.projects.list().then((storedProjects) => {
+      if (!cancelled) setProjects(storedProjects);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [persistence]);
 
-  const handleCreate = (draftOverview: boolean) => {
+  const handleCreate = async (draftOverview: boolean) => {
     const name = newName.trim();
     if (!name || projects == null || hasProjectName(projectList, name)) return;
     const seed = overviewSeed.trim();
@@ -78,8 +83,10 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
     };
     const updatedProjects = [...projectList, meta];
 
+    if (savingRef.current) return;
+    savingRef.current = true;
     try {
-      saveProjectsIndex(updatedProjects);
+      await persistence.projects.saveIndex(updatedProjects);
       setProjects(updatedProjects);
       setDialogOpen(false);
       setNewName("");
@@ -89,13 +96,15 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
     } catch (storageError) {
       console.error("Could not create project.", storageError);
       setError("The project could not be saved in browser storage.");
+    } finally {
+      savingRef.current = false;
     }
   };
 
   const handleDelete = async (id: string) => {
     let result: ProjectDeleteResult;
     try {
-      result = await webPersistence.projects.delete(id);
+      result = await persistence.projects.delete(id);
       setProjects((current) =>
         (current ?? []).filter((project) => project.id !== id),
       );
@@ -118,8 +127,9 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
   const handleImport = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
-    if (!file) return;
+    if (!file || savingRef.current) return;
 
+    savingRef.current = true;
     try {
       const data = parseJson(await file.text(), "Imported project");
       const payload = parseProjectPayload(data);
@@ -150,7 +160,7 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
       };
 
       const updatedProjects = [...projectList, meta];
-      saveProjectBundle(id, payload, updatedProjects);
+      await persistence.projects.saveBundle(id, payload, updatedProjects);
       setProjects(updatedProjects);
       setError(null);
       onSelect(id, name);
@@ -161,6 +171,8 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
           ? importError.message
           : "The selected file is not a valid Requireganizer project.",
       );
+    } finally {
+      savingRef.current = false;
     }
   };
 

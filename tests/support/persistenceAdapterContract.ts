@@ -168,6 +168,83 @@ export function describePersistenceAdapterContract(
       });
     });
 
+    it("refreshes only one index entry with a project save, keeping its name", async () => {
+      const adapter = await createAdapter();
+      const first = projectMeta("project-1", "First");
+      const second = projectMeta("project-2", "Second");
+      await adapter.projects.saveIndex([first, second]);
+
+      const update = {
+        description: "Updated purpose",
+        updatedAt: "2026-10-23T10:00:00.000Z",
+      };
+      await adapter.projects.save(
+        "project-1",
+        projectPayload("First updated"),
+        update,
+      );
+
+      // The adapter reads the current index itself, so a caller that never
+      // saw project-2 cannot drop it.
+      assert.deepEqual(await adapter.projects.list(), [
+        { ...first, ...update },
+        second,
+      ]);
+    });
+
+    it("leaves the index untouched when a project payload write fails", async () => {
+      const adapter = await createAdapter();
+      const projects = [
+        projectMeta("project-1", "First"),
+        projectMeta("project-2", "Second"),
+      ];
+      await adapter.projects.saveIndex(projects);
+
+      await assert.rejects(
+        adapter.projects.save(
+          "project-1",
+          circularRecord(),
+          {
+            description: "Failed update",
+            updatedAt: "2026-10-23T10:00:00.000Z",
+          },
+        ),
+        ProjectStorageError,
+      );
+
+      assert.deepEqual(await adapter.projects.list(), projects);
+    });
+
+    it("observes a write from a read issued immediately after it", async () => {
+      const adapter = await createAdapter();
+      const payload = projectPayload("Read after write");
+      const before = projectMeta("project-1", "Before");
+      await adapter.projects.saveIndex([before]);
+      const update = {
+        description: "Read after write",
+        updatedAt: "2026-10-23T10:00:00.000Z",
+      };
+
+      const projectWrite = adapter.projects.save("project-1", payload, update);
+      const projectRead = adapter.projects.load("project-1");
+      const indexRead = adapter.projects.list();
+      assert.deepEqual(await projectRead, payload);
+      assert.deepEqual(await indexRead, [{ ...before, ...update }]);
+      await projectWrite;
+
+      const timeline = timelineData("read after write");
+      const timelineWrite = adapter.timelines.save(
+        "project-1",
+        "module-a",
+        timeline,
+      );
+      assert.deepEqual(
+        await adapter.timelines.load("project-1", "module-a"),
+        timeline,
+      );
+      assert.equal(await timelineWrite, true);
+    });
+
     it("loads non-object project payloads as null", async () => {
       const adapter = await createAdapter();
 
@@ -596,6 +673,27 @@ export function describePersistenceAdapterContract(
         (await adapter.providerCalls.load("project-2", "module-a")).length,
         1,
       );
+    });
+
+    it("keeps the timelines of a project whose id extends the deleted one", async () => {
+      const adapter = await createAdapter();
+      await adapter.projects.saveIndex([
+        projectMeta("a"),
+        projectMeta("a::b"),
+      ]);
+      await adapter.projects.save("a", projectPayload("A"));
+      await adapter.projects.save("a::b", projectPayload("A B"));
+      const kept = timelineData("kept");
+      assert.equal(await adapter.timelines.save("a::b", "module-c", kept), true);
+      assert.equal(
+        await adapter.timelines.save("a", "module-c", timelineData("removed")),
+        true,
+      );
+
+      await adapter.projects.delete("a");
+
+      assert.equal(await adapter.timelines.load("a", "module-c"), null);
+      assert.deepEqual(await adapter.timelines.load("a::b", "module-c"), kept);
     });
 
     it("deletes a missing project without error", async () => {

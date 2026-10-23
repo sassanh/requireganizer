@@ -18,6 +18,7 @@ import {
   cancelRewind,
   commitTimelineSegment,
   declareTimelineStep,
+  detachTimeline,
   endRewind,
   flushTimeline,
   getChangeFocus,
@@ -345,29 +346,28 @@ describe("timeline controller", () => {
     );
   });
 
-  it("persists the tree and restores it on a later attach", () => {
-    let stored: string | null = null;
+  it("persists the tree and restores it on a later attach", async () => {
+    let stored: PersistedTimeline | null = null;
     const persistence = {
-      load: () => (stored == null ? null : JSON.parse(stored)),
-      save: (data: unknown) => {
-        stored = JSON.stringify(data);
+      save: (data: PersistedTimeline) => {
+        stored = data;
         return true;
       },
     };
 
     const store = Store.create({ productOverview: {} }) as unknown as StoreInstance;
-    attachTimeline(store, { persistence });
+    attachTimeline(store, { persistence, loaded: null });
     store.setPurpose({ purpose: "v1" });
     commitTimelineSegment();
     store.setPurpose({ purpose: "v2" });
     commitTimelineSegment();
-    flushTimeline();
+    await flushTimeline();
 
     // Simulate a reload: fresh store hydrated from the project autosave.
     const reloaded = Store.create({
       productOverview: { purpose: "v2" },
     }) as unknown as StoreInstance;
-    attachTimeline(reloaded, { persistence });
+    attachTimeline(reloaded, { persistence, loaded: stored });
 
     assert.equal(reloaded.productOverview.purpose, "v2");
     assert.equal(getTimelineMeta().canUndo, true);
@@ -381,36 +381,206 @@ describe("timeline controller", () => {
 
   it("starts fresh when the persisted timeline is malformed", () => {
     const persistence = {
-      load: () => ({ version: 2, rootId: "x", activeLeafId: "y", nodes: "garbage", artifacts: [] }),
       save: () => true,
+    };
+    const malformed = {
+      version: 2,
+      rootId: "x",
+      activeLeafId: "y",
+      nodes: "garbage",
+      artifacts: [],
     };
 
     const store = Store.create({ productOverview: {} }) as unknown as StoreInstance;
-    attachTimeline(store, { persistence });
+    attachTimeline(store, { persistence, loaded: malformed });
 
     assert.equal(getTimelineMeta().entries.length, 1);
     assert.equal(getTimelineMeta().canUndo, false);
   });
 
-  it("prunes the tree instead of throwing when persistence quota is exceeded", () => {
+  it("retries a rejected save once with the pruned history", async () => {
+    const payloads: PersistedTimeline[] = [];
     const persistence = {
-      load: () => null,
-      save: () => false,
+      save: (data: PersistedTimeline) => {
+        payloads.push(data);
+        return payloads.length > 1;
+      },
     };
 
     const store = Store.create({ productOverview: {} }) as unknown as StoreInstance;
-    attachTimeline(store, { persistence });
-    for (let index = 0; index < 30; index += 1) {
-      store.setPurpose({ purpose: `value ${index}` });
+    attachTimeline(store, { persistence, loaded: null });
+    for (let index = 0; index < 5; index += 1) {
+      store.setPurpose({ purpose: `first branch ${index}` });
       commitTimelineSegment();
     }
+    undo();
+    undo();
+    store.setPurpose({ purpose: "second branch" });
+    commitTimelineSegment();
 
-    flushTimeline();
-    // The prune keeps the active path; everything else was dropped.
-    const entries = getTimelineMeta().entries;
-    assert.ok(entries.length >= 1);
+    await flushTimeline();
+    assert.equal(payloads.length, 2, "a rejected save is retried exactly once");
+    const [rejected, retried] = payloads;
+    // The abandoned branch is dropped from the retry, with its artifacts.
+    assert.ok(retried.nodes.length < rejected.nodes.length);
+    assert.ok(retried.artifacts.length < rejected.artifacts.length);
+    assert.ok(JSON.stringify(rejected).includes("first branch 4"));
+    assert.ok(!JSON.stringify(retried).includes("first branch 4"));
+    assert.ok(JSON.stringify(retried).includes("second branch"));
+    assert.equal(getTimelineSnapshot()?.nodes.length, retried.nodes.length);
+  });
+
+  it("retries a rejected save for a store that was detached meanwhile", async () => {
+    const leftSaves: PersistedTimeline[] = [];
+    let rejectFirst = true;
+    const left = {
+      save: async (data: PersistedTimeline) => {
+        leftSaves.push(data);
+        if (rejectFirst) {
+          rejectFirst = false;
+          return false;
+        }
+        return true;
+      },
+    };
+    const leftStore = Store.create({ productOverview: {} }) as unknown as StoreInstance;
+    attachTimeline(leftStore, { persistence: left, loaded: null });
+    leftStore.setPurpose({ purpose: "left history" });
+    commitTimelineSegment();
+
+    const flushed = flushTimeline();
+    // The first save is issued before flushTimeline returns.
+    assert.equal(leftSaves.length, 1);
+    detachTimeline();
+    const shownStore = Store.create({ productOverview: {} }) as unknown as StoreInstance;
+    attachTimeline(shownStore, { persistence: { save: () => true }, loaded: null });
+    shownStore.setPurpose({ purpose: "shown branch" });
+    commitTimelineSegment();
+    undo();
+    shownStore.setPurpose({ purpose: "shown history" });
+    commitTimelineSegment();
+    // A side branch exists, so a wrong prune of this tree would be visible.
+    const shownNodes = getTimelineSnapshot()?.nodes.length;
+    assert.equal(shownNodes, 3);
+    await flushed;
+
+    assert.equal(leftSaves.length, 2);
+    assert.ok(JSON.stringify(leftSaves[1]).includes("left history"));
+    // The retry never prunes the tree that is attached now.
+    assert.equal(getTimelineSnapshot()?.nodes.length, shownNodes);
+  });
+
+  it("neither records nor saves after the store is detached", async () => {
+    let saves = 0;
+    const persistence = {
+      save: () => {
+        saves += 1;
+        return true;
+      },
+    };
+    const store = Store.create({ productOverview: {} }) as unknown as StoreInstance;
+    attachTimeline(store, { persistence, loaded: null });
+    await flushTimeline();
+    const savesBefore = saves;
+
+    detachTimeline();
+    assert.equal(getTimelineMeta().entries.length, 0);
+    store.setPurpose({ purpose: "not recorded" });
+    commitTimelineSegment();
+    await flushTimeline();
+
+    assert.equal(saves, savesBefore);
+    assert.equal(getTimelineSnapshot(), null);
+    assert.equal(getTimelineMeta().entries.length, 0);
+  });
+
+  it("keeps the history when the attached store is attached again", () => {
+    const store = Store.create({ productOverview: {} }) as unknown as StoreInstance;
+    attachTimeline(store, { persistence: { save: () => true }, loaded: null });
+    store.setPurpose({ purpose: "kept history" });
+    commitTimelineSegment();
+    const entries = getTimelineMeta().entries.length;
+    assert.ok(entries > 1);
+
+    attachTimeline(store, { persistence: { save: () => true }, loaded: null });
+
+    assert.equal(getTimelineMeta().entries.length, entries);
+    assert.equal(getTimelineMeta().canUndo, true);
+  });
+
+  it("re-attaches a store that was detached", () => {
+    const store = Store.create({ productOverview: {} }) as unknown as StoreInstance;
+    attachTimeline(store, { persistence: { save: () => true }, loaded: null });
+    detachTimeline();
+    attachTimeline(store, { persistence: { save: () => true }, loaded: null });
+
+    store.setPurpose({ purpose: "recorded again" });
+    commitTimelineSegment();
+    assert.ok(JSON.stringify(getTimelineSnapshot()).includes("recorded again"));
+  });
+
+  it("retries on the captured target without pruning a newer attachment", async () => {
+    let releaseFirst!: (saved: boolean) => void;
+    const firstSave = new Promise<boolean>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let capturedSaves = 0;
+    const capturedTarget = {
+      save: () => {
+        capturedSaves += 1;
+        return capturedSaves === 1 ? firstSave : true;
+      },
+    };
+    const capturedStore = Store.create({
+      productOverview: {},
+    }) as unknown as StoreInstance;
+    attachTimeline(capturedStore, {
+      persistence: capturedTarget,
+      loaded: null,
+    });
+    capturedStore.setPurpose({ purpose: "old value" });
+    commitTimelineSegment();
+    capturedStore.setPurpose({ purpose: "old branch" });
+    commitTimelineSegment();
+    undo();
+    capturedStore.setPurpose({ purpose: "old active" });
+    commitTimelineSegment();
+
+    const flushing = flushTimeline();
+    assert.equal(capturedSaves, 1);
+
+    const newerStore = Store.create({
+      productOverview: {},
+    }) as unknown as StoreInstance;
+    attachTimeline(newerStore, {
+      persistence: { save: () => true },
+      loaded: null,
+    });
+    newerStore.setPurpose({ purpose: "new first" });
+    commitTimelineSegment();
+    newerStore.setPurpose({ purpose: "new branch" });
+    commitTimelineSegment();
+    undo();
+    newerStore.setPurpose({ purpose: "new active" });
+    commitTimelineSegment();
+    const newerEntries = getTimelineMeta().entries.length;
     assert.ok(
-      entries.every((entry) => entry.stateOnly || entry.messageCount > 0 || true),
+      getTimelineMeta().entries.some((entry) => entry.alternatives.length > 0),
+      "the newer tree has a branch for the old retry to preserve",
+    );
+
+    releaseFirst(false);
+    await flushing;
+
+    assert.equal(capturedSaves, 2, "the captured target retries");
+    assert.equal(
+      getTimelineMeta().entries.length,
+      newerEntries,
+      "the newer attachment is not pruned by the old retry",
+    );
+    assert.ok(
+      getTimelineMeta().entries.some((entry) => entry.alternatives.length > 0),
+      "the old retry does not prune the newer branch",
     );
   });
 
@@ -549,7 +719,8 @@ describe("timeline controller", () => {
       isClean: false,
     } as never);
     attachTimeline(fresh, {
-      persistence: { load: () => payload, save: () => true },
+      persistence: { save: () => true },
+      loaded: payload,
     });
 
     const labels = getTimelineMeta().entries.map((entry) => entry.label);
