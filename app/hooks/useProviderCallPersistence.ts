@@ -3,14 +3,9 @@
 import { reaction } from "mobx";
 import { useEffect, useState } from "react";
 
-import {
-  mergeProviderCalls,
-} from "lib/providerCallStorage";
 import type { ProviderCallRecord } from "lib/types";
 import { usePersistence } from "provider";
 import type { Store } from "store";
-
-const MAX_PROVIDER_CALL_HISTORY = 100;
 
 function copyCalls(calls: readonly ProviderCallRecord[]): ProviderCallRecord[] {
   return calls.map((call) => ({
@@ -42,13 +37,10 @@ export function useProviderCallPersistence(
         );
         if (disposed) return;
 
-        store.hydrateProviderCalls(
-          mergeProviderCalls(
-            stored,
-            copyCalls(store.providerCalls),
-            MAX_PROVIDER_CALL_HISTORY,
-          ),
-        );
+        // Saving starts from the merged list, so the stored history is never
+        // replaced by the calls recorded before it was read.
+        await store.hydrateProviderCalls(stored);
+        if (disposed) return;
 
         stopReaction = reaction(
           () => copyCalls(store.providerCalls),

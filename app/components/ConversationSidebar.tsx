@@ -54,16 +54,8 @@ import { ActionView } from "actions/ActionView";
 import { describeCommand, parseCommandMessage, type AiCommand } from "ai-agent/command";
 import { disclosedThinking } from "ai-agent/thinking";
 import { animationMs, isReducedMotion } from "components/animation";
+import { useTimeline } from "provider";
 import { useStore } from "store";
-import {
-  activateBranch,
-  beginRewind,
-  cancelRewind,
-  commitTimelineSegment,
-  getTimelineMeta,
-  jumpToNode,
-  onTimelineChange,
-} from "store/timeline/controller";
 
 import { sendOnEnter } from "./enterToSend";
 import { describeToolOutput } from "./toolOutputSummary";
@@ -647,6 +639,7 @@ function UserBubble({
 
 function ConversationSidebar() {
   const store = useStore();
+  const timeline = useTimeline();
   const messages = useMemo(
     () => (store.conversation ?? []) as unknown as ConversationMessage[],
     [store.conversation],
@@ -686,9 +679,9 @@ function ConversationSidebar() {
   // composer send commits the branch: the new turn is grafted under the
   // rewound node while the discarded path stays as a sibling branch.
   const timelineMeta = useSyncExternalStore(
-    onTimelineChange,
-    getTimelineMeta,
-    getTimelineMeta,
+    timeline.subscribe,
+    timeline.getMeta,
+    timeline.getMeta,
   );
   const isRewinding = timelineMeta.isRewinding;
   // The composer draft is lifted here so rewinding can prefill it with the
@@ -728,24 +721,19 @@ function ConversationSidebar() {
       rewoundIndexRef.current = index;
     }
     setComposerDraft(anchorText);
-    if (!beginRewind(index)) {
-      // Nothing to rewind to (message not bound to a timeline turn).
-      // Only clear the save we just made; a nested failure must leave the
-      // original pre-rewind save intact so cancel still heals to the first
-      // leaf.
-      if (!wasRewinding) {
-        setDraftBeforeRewind("");
-        rewoundIndexRef.current = null;
-      }
-      // On a nested failure the composer now holds the new anchor text;
-      // keep it — the user explicitly asked to rewrite that older message.
-      // Cancel will still restore the original draft.
-    } else if (wasRewinding) {
-      // Successful nested rewind: keep the original `rewoundIndexRef` for
-      // the blink on cancel, but the tree's `rewindSavedLeafId` is already
-      // preserved by the controller. `draftBeforeRewind` stays the original
-      // draft, `composerDraft` is the latest anchor.
-    }
+    void timeline.beginRewind(index).then((rewound) => {
+      // Nothing to rewind to (message not bound to a timeline turn). Only
+      // clear the save just made; a nested failure must leave the original
+      // pre-rewind save intact so cancel still heals to the first leaf. On a
+      // nested failure the composer keeps the new anchor text — the user
+      // explicitly asked to rewrite that older message — and cancel still
+      // restores the original draft. A successful nested rewind keeps the
+      // original `rewoundIndexRef` for the blink on cancel; the controller
+      // already preserves the pre-rewind leaf.
+      if (rewound || wasRewinding) return;
+      setDraftBeforeRewind("");
+      rewoundIndexRef.current = null;
+    });
   };
 
   // A stable identity keeps the memoized message list from re-rendering
@@ -772,15 +760,16 @@ function ConversationSidebar() {
     // rewound view, and the follow effect would otherwise yank the pane to
     // the bottom, cancelling the smooth reveal below.
     followsLatestRef.current = false;
-    cancelRewind();
+    const restored = timeline.cancelRewind();
     setComposerDraft(draftBeforeRewind);
     setDraftBeforeRewind("");
     const index = rewoundIndexRef.current;
     rewoundIndexRef.current = null;
     if (index == null) return;
-    // Runs after the restored transcript has painted, so the node exists.
-    setHighlightedIndex(index);
-  }, [busy, draftBeforeRewind]);
+    // Highlighted once the restored transcript is in the store; the effect
+    // runs after it has painted, so the node exists.
+    void restored.then(() => setHighlightedIndex(index));
+  }, [busy, draftBeforeRewind, timeline]);
 
   const clearRewind = useCallback(() => {
     setDraftBeforeRewind("");
@@ -867,13 +856,13 @@ function ConversationSidebar() {
         <ActionView
           variant="iconbutton"
           action={undoAction}
-          target={{ blocked: busy, available: timelineMeta.canUndo }}
+          target={{ blocked: busy, available: timelineMeta.canUndo, timeline }}
           size="small"
         />
         <ActionView
           variant="iconbutton"
           action={redoAction}
-          target={{ blocked: busy, available: timelineMeta.canRedo }}
+          target={{ blocked: busy, available: timelineMeta.canRedo, timeline }}
           size="small"
         />
         <Tooltip title="History">
@@ -895,7 +884,7 @@ function ConversationSidebar() {
               size="small"
               color="error"
               startIcon={<Stop />}
-              onClick={store.abortAiOperation}
+              onClick={() => void store.abortAiOperation()}
             >
               Stop
             </Button>
@@ -926,7 +915,7 @@ function ConversationSidebar() {
                   dense
                   selected={index === timelineMeta.entries.length - 1}
                   disabled={busy}
-                  onClick={() => jumpToNode(entry.id)}
+                  onClick={() => void timeline.jumpToNode(entry.id)}
                   sx={{ py: 0.25 }}
                 >
                   <Stack
@@ -1065,7 +1054,7 @@ function ConversationSidebar() {
             disabled={busy}
             onClick={() => {
               setBranchMenu(null);
-              activateBranch(alternative.id);
+              void timeline.activateBranch(alternative.id);
             }}
             sx={{ maxWidth: 340 }}
           >

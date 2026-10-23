@@ -11,13 +11,11 @@ import {
   parseProjectPayload,
   pickActiveModule,
   type ProjectPayload,
-  siblingModuleEntries,
   visibleModules,
 } from "lib/moduleSchema";
 import type { PersistenceAdapter } from "persistence";
 import {
   createModuleStore,
-  type SiblingModuleReference,
   Store,
 } from "store";
 import { WorkflowStage } from "store/constants";
@@ -27,6 +25,8 @@ import {
   detachTimeline,
   flushTimeline,
 } from "store/timeline/controller";
+
+import { type ExportableModule, SiblingModuleStores } from "./siblingStores";
 
 /** Streaming mutates the store every ~80ms; coalesce writes behind this delay. */
 export const PROJECT_SAVE_DEBOUNCE_MS = 800;
@@ -69,21 +69,9 @@ export type ProjectSessionSnapshot =
       store: Store;
     };
 
-/** The store a module export reads from. */
-export interface ExportableModule {
-  id: string;
-  name: string | null;
-  store: Store;
-}
-
 interface ProjectIdentity {
   id: string;
   name: string;
-}
-
-interface SiblingCacheEntry {
-  snapshot: Record<string, unknown>;
-  store: Store;
 }
 
 interface PendingOverviewSeed {
@@ -198,7 +186,7 @@ function isOpen(state: SessionState): state is OpenSessionState {
 export class ProjectSession {
   readonly persistence: PersistenceAdapter;
   private readonly listeners = new Set<() => void>();
-  private readonly siblingCache = new Map<string, SiblingCacheEntry>();
+  private readonly siblingStores = new SiblingModuleStores();
 
   private state: SessionState;
   private snapshot: ProjectSessionSnapshot;
@@ -441,52 +429,12 @@ export class ProjectSession {
     clearTimelineSaveTimer();
   };
 
-  private siblingStoreFor(
-    currentRegistry: ModuleRegistry,
-    entry: ModuleEntry,
-  ): Store | null {
-    const hit = this.siblingCache.get(entry.id);
-    if (hit != null && hit.snapshot === entry.snapshot) return hit.store;
-    let created: Store;
-    try {
-      created = createModuleStore(entry.snapshot);
-    } catch (error) {
-      console.error(`Module “${entry.name}” could not be read.`, error);
-      return null;
-    }
-    created.setModuleContext({ moduleMode: currentRegistry.modulesEnabled });
-    this.siblingCache.set(entry.id, { snapshot: entry.snapshot, store: created });
-    return created;
-  }
-
-  private buildSiblingStores(
-    currentRegistry: ModuleRegistry,
-  ): SiblingModuleReference[] {
-    for (const id of [...this.siblingCache.keys()]) {
-      const entry = currentRegistry.modules.find(
-        (module) => module.id === id,
-      );
-      if (entry == null || entry.archivedAt != null) {
-        this.siblingCache.delete(id);
-      }
-    }
-    const references: SiblingModuleReference[] = [];
-    for (const entry of siblingModuleEntries(currentRegistry)) {
-      const sibling = this.siblingStoreFor(currentRegistry, entry);
-      if (sibling != null) references.push({ id: entry.id, store: sibling });
-    }
-    return references;
-  }
-
   private syncModuleContext(): void {
     const state = this.state;
-    if (!isOpen(state)) {
-      state.store.setModuleContext({ moduleMode: false });
-      state.store.setSiblingModules([]);
-      return;
-    }
-    state.store.setModuleContext({ moduleMode: state.registry.modulesEnabled });
-    state.store.setSiblingModules(this.buildSiblingStores(state.registry));
+    this.siblingStores.applyModuleContext(
+      state.store,
+      isOpen(state) ? state.registry : null,
+    );
   }
 
   /**
@@ -848,17 +796,7 @@ export class ProjectSession {
   getExportModules = (): ExportableModule[] => {
     const state = this.state;
     if (!isOpen(state)) return [];
-    const modules: ExportableModule[] = [];
-    for (const entry of visibleModules(state.registry)) {
-      const name = state.registry.modulesEnabled ? entry.name : null;
-      if (entry.id === state.registry.activeModuleId) {
-        modules.push({ id: entry.id, name, store: state.store });
-        continue;
-      }
-      const sibling = this.siblingStoreFor(state.registry, entry);
-      if (sibling != null) modules.push({ id: entry.id, name, store: sibling });
-    }
-    return modules;
+    return this.siblingStores.exportModules(state.registry, state.store);
   };
 
   /**

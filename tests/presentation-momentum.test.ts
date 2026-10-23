@@ -30,6 +30,7 @@ import {
   attachTimeline,
   declareTimelineStep,
   resetTimeline,
+  timelineChangeSource,
 } from "../app/store/timeline/controller";
 
 describe("presentation momentum", () => {
@@ -124,7 +125,7 @@ function attachPairOn(step: WorkflowStage): {
     requestStep: () => {},
     isVisible: (next) => next === current,
   });
-  attachPresentation(shown, real);
+  attachPresentation(shown, real, timelineChangeSource);
   return {
     real,
     shown,

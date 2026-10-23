@@ -1,10 +1,12 @@
+import { useMemo } from "react";
+
 import {
   redoAction,
   redoShortcut,
   undoAction,
   undoShortcut,
 } from "actions/actions";
-import { redo, undo } from "store/timeline/controller";
+import type { TimelineClient } from "project-client";
 
 import {
   isEditableTarget,
@@ -21,21 +23,27 @@ import {
  * Safari claims cmd+z for "Undo Close Tab" and swallows it before the
  * page sees it; ctrl+z is the reliable undo there.
  */
-const UNDO_SHORTCUT: ShortcutBinding = {
-  id: undoAction.id,
-  ...undoShortcut,
-  when: (event) => !isEditableTarget(event.target),
-  action: undo,
-};
-
-const REDO_SHORTCUT: ShortcutBinding = {
-  id: redoAction.id,
-  ...redoShortcut,
-  when: (event) => !isEditableTarget(event.target),
-  action: redo,
-};
-
-export function useUndoRedoKeyboardShortcuts(): void {
-  useShortcut(UNDO_SHORTCUT);
-  useShortcut(REDO_SHORTCUT);
+export function useUndoRedoKeyboardShortcuts(
+  timeline: Pick<TimelineClient, "undo" | "redo">,
+): void {
+  const undoBinding = useMemo<ShortcutBinding>(
+    () => ({
+      id: undoAction.id,
+      ...undoShortcut,
+      when: (event) => !isEditableTarget(event.target),
+      action: () => void timeline.undo(),
+    }),
+    [timeline],
+  );
+  const redoBinding = useMemo<ShortcutBinding>(
+    () => ({
+      id: redoAction.id,
+      ...redoShortcut,
+      when: (event) => !isEditableTarget(event.target),
+      action: () => void timeline.redo(),
+    }),
+    [timeline],
+  );
+  useShortcut(undoBinding);
+  useShortcut(redoBinding);
 }

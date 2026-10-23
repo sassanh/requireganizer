@@ -18,7 +18,7 @@ import { copyTextForElement } from "components/copy";
 import { notify } from "components/notices";
 import { scrollIntoViewWithMargin, MARGIN_PIXELS } from "components/scrollFollower";
 import { getUserFacingErrorMessage } from "lib/errors";
-import { redo, undo } from "store/timeline/controller";
+import type { TimelineClient } from "project-client";
 
 import { SEND_SHORTCUT_SPEC, type ShortcutSpec } from "./shortcutText";
 
@@ -40,6 +40,7 @@ export interface Action<Target> {
 export interface HistoryTarget {
   blocked: boolean;
   available: boolean;
+  timeline: Pick<TimelineClient, "undo" | "redo">;
 }
 
 /** Text availability: blocked by busy work, offered when there is text. */
@@ -63,7 +64,7 @@ export const undoAction: Action<HistoryTarget> = {
   icon: <Undo fontSize="small" />,
   shortcut: undoShortcut,
   isEnabled: ({ blocked, available }) => !blocked && available,
-  run: () => undo(),
+  run: ({ timeline }) => void timeline.undo(),
 };
 
 export const redoAction: Action<HistoryTarget> = {
@@ -72,7 +73,7 @@ export const redoAction: Action<HistoryTarget> = {
   icon: <Redo fontSize="small" />,
   shortcut: redoShortcut,
   isEnabled: ({ blocked, available }) => !blocked && available,
-  run: () => redo(),
+  run: ({ timeline }) => void timeline.redo(),
 };
 
 function isSendable({ blocked, text }: SendTarget): boolean {
@@ -256,7 +257,8 @@ export const requestChangeShortcut: ShortcutSpec = { key: "c" };
 export interface ApproveTarget {
   blocked: boolean;
   approvable: boolean;
-  approve: () => boolean;
+  /** Resolves false when the approval waits for a decision instead. */
+  approve: () => Promise<boolean>;
 }
 
 export const approveAction: Action<ApproveTarget> = {
@@ -265,9 +267,9 @@ export const approveAction: Action<ApproveTarget> = {
   icon: <Check fontSize="small" />,
   shortcut: approveShortcut,
   isEnabled: ({ blocked, approvable }) => !blocked && approvable,
-  run: ({ approve }) => {
+  run: async ({ approve }) => {
     try {
-      if (!approve()) return;
+      if (!(await approve())) return;
     } catch (error) {
       notify(getUserFacingErrorMessage(error, "Unable to approve."), "error");
       return;

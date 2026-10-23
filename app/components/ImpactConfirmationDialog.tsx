@@ -24,7 +24,7 @@ const ImpactConfirmationDialog = ({ projectId, moduleId }: { projectId: string; 
         getSnapshot(store),
         `Before ${change.sourceLabel} revision`,
       );
-      store.applyPendingImpactChange();
+      await store.applyPendingImpactChange();
       if (reviewerModel != null && store.frontier != null) void store.reviewStage(store.frontier);
     } catch (error) {
       store.setValidationError({
@@ -36,7 +36,7 @@ const ImpactConfirmationDialog = ({ projectId, moduleId }: { projectId: string; 
     }
   };
   return (
-    <Dialog open={change != null} maxWidth="sm" fullWidth onClose={saving ? undefined : store.cancelPendingImpactChange}>
+    <Dialog open={change != null} maxWidth="sm" fullWidth onClose={saving ? undefined : () => void store.cancelPendingImpactChange()}>
       <DialogTitle>Reopen {change?.sourceLabel}</DialogTitle>
       <DialogContent>
         <Alert severity="warning" sx={{ mb: 2 }}>{change?.summary}</Alert>
@@ -60,7 +60,7 @@ const ImpactConfirmationDialog = ({ projectId, moduleId }: { projectId: string; 
         <Alert severity="info">A recovery snapshot is saved before the change applies.</Alert>
       </DialogContent>
       <DialogActions>
-        <Button disabled={saving} onClick={store.cancelPendingImpactChange}>Cancel</Button>
+        <Button disabled={saving} onClick={() => void store.cancelPendingImpactChange()}>Cancel</Button>
         <Button disabled={saving} variant="contained" color="warning" onClick={apply}>{saving ? "Saving snapshot…" : "Save snapshot and reopen"}</Button>
       </DialogActions>
     </Dialog>

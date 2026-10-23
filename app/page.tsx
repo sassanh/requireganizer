@@ -14,7 +14,7 @@ function LandingPage() {
         name: string,
         options?: { overviewSeed?: string },
     ) => {
-        selectProject(id, name, options);
+        void selectProject(id, name, options);
         router.push(`/project/${id}`);
     };
 

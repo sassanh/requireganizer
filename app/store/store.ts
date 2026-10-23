@@ -45,6 +45,7 @@ import {
 } from "contract-domain";
 import { UserFacingError } from "lib/errors";
 import { MODULE_SCHEMA_VERSION } from "lib/projectSchema";
+import { mergeProviderCalls } from "lib/providerCallStorage";
 import {
   assertSafeVirtualPath,
   isSafeVirtualPath,
@@ -76,7 +77,7 @@ import {
   sendConversationMessage,
   regenerateLastReply,
 } from "./actions";
-import { hasPendingRetry, takePendingRetry } from "./actions/ai-actions/utilities";
+import { bindFlowAction } from "./actions/ai-actions/utilities";
 import {
   GENERATION_PREREQUISITE_BY_WORKFLOW_STAGE,
   GENERATOR_ACTION_BY_WORKFLOW_STAGE,
@@ -340,6 +341,42 @@ class StoreEventEmitter {
   }
 }
 
+/**
+ * A rate-limited or timed-out attempt, as the store action call that
+ * repeats it. Data rather than a closure, so a replica can show that a
+ * retry is waiting.
+ */
+export interface PendingRetry {
+  action: string;
+  args: unknown[];
+}
+
+/**
+ * The volatile state the interface reads. It never enters a snapshot or a
+ * patch, so the authority sends it to replicas separately; every other
+ * volatile field is either derived on each side (module context) or
+ * machinery only the authority uses (abort handles).
+ */
+export interface ReplicatedVolatileState {
+  validationErrorDetails: string | null;
+  providerCalls: ProviderCallRecord[];
+  pendingImpactChange: PendingImpactChange | null;
+  contractRevisionDiff: string | null;
+  thinkingLabel: string | null;
+  thinkingText: string;
+  pendingRetry: PendingRetry | null;
+}
+
+const REPLICATED_VOLATILE_KEYS = [
+  "validationErrorDetails",
+  "providerCalls",
+  "pendingImpactChange",
+  "contractRevisionDiff",
+  "thinkingLabel",
+  "thinkingText",
+  "pendingRetry",
+] as const satisfies readonly (keyof ReplicatedVolatileState)[];
+
 export const ScaffoldFileModel = types.model({
   path: types.refinement("SafeVirtualFilePath", types.string, isSafeVirtualPath),
   content: types.string,
@@ -388,19 +425,25 @@ export const FlatStore = types
     conversation: types.optional(types.frozen<unknown[]>(), []),
     conversationSidebarOpen: false,
   })
-  .volatile(() => ({
+  .volatile((): ReplicatedVolatileState & {
+    moduleMode: boolean;
+    siblingModules: SiblingModuleReference[];
+    aiAbortController: AbortController | null;
+    activeAgent: { abort(): void } | null;
+  } => ({
     /** Module-mode copy follows this flag; volatile, never part of a snapshot. */
-    moduleMode: false as boolean,
+    moduleMode: false,
     /** Sibling modules of the open project, for display-level reference resolution. */
-    siblingModules: [] as SiblingModuleReference[],
-    validationErrorDetails: null as string | null,
-    providerCalls: [] as ProviderCallRecord[],
-    pendingImpactChange: null as PendingImpactChange | null,
-    contractRevisionDiff: null as string | null,
-    thinkingLabel: null as string | null,
+    siblingModules: [],
+    validationErrorDetails: null,
+    providerCalls: [],
+    pendingImpactChange: null,
+    contractRevisionDiff: null,
+    thinkingLabel: null,
     thinkingText: "",
-    aiAbortController: null as AbortController | null,
-    activeAgent: null as { abort(): void } | null,
+    pendingRetry: null,
+    aiAbortController: null,
+    activeAgent: null,
   }))
   .views(() => {
     const eventTarget = new StoreEventEmitter();
@@ -445,6 +488,7 @@ export const FlatStore = types
       self.contractRevisionDiff = null;
       self.thinkingLabel = null;
       self.thinkingText = "";
+      self.pendingRetry = null;
       self.aiAbortController = null;
       self.activeAgent = null;
       self.conversation = cast([]);
@@ -475,8 +519,13 @@ export const FlatStore = types
         ...calls.map((call) => ({ ...call, id: uuid() })),
       ].slice(-MAX_PROVIDER_CALL_HISTORY);
     },
-    hydrateProviderCalls(calls: ProviderCallRecord[]) {
-      self.providerCalls = calls.slice(-MAX_PROVIDER_CALL_HISTORY);
+    /** Take the stored calls, keeping any recorded since they were read. */
+    hydrateProviderCalls(stored: ProviderCallRecord[]) {
+      self.providerCalls = mergeProviderCalls(
+        stored,
+        self.providerCalls,
+        MAX_PROVIDER_CALL_HISTORY,
+      );
     },
     deleteProviderCall(id: string) {
       self.providerCalls = self.providerCalls.filter((call) => call.id !== id);
@@ -551,6 +600,10 @@ export const FlatStore = types
     removeScaffoldFile(path: string) {
       const index = self.scaffoldFiles.findIndex((file) => file.path === path);
       if (index >= 0) self.scaffoldFiles.splice(index, 1);
+    },
+    /** Replica only: take the authority's replicated volatile values. */
+    mirrorVolatileState(values: Partial<ReplicatedVolatileState>) {
+      Object.assign(self, values);
     },
   }))
   .actions((self) => ({
@@ -1637,7 +1690,7 @@ export const FlatStore = types
       return self.outdatedItemIds(prerequisite).length > 0 ? prerequisite : null;
     },
     canRetryFailedOperation(): boolean {
-      return hasPendingRetry();
+      return self.pendingRetry != null;
     },
     generatorActionForStep(step: WorkflowStage): GeneratorActionName | null {
       if (
@@ -1788,9 +1841,14 @@ export const FlatStore = types
        * again; a missing attempt is a silent no-op.
        */
       retryFailedOperation() {
-        const attempt = takePendingRetry();
+        const attempt = self.pendingRetry;
         if (attempt == null) return null;
-        return attempt();
+        self.pendingRetry = null;
+        const action = (self as unknown as Record<string, unknown>)[attempt.action];
+        if (typeof action !== "function") {
+          throw new Error(`Store has no action ${attempt.action}.`);
+        }
+        return (action as (...args: unknown[]) => unknown)(...attempt.args);
       },
       acknowledgeInputs,
       settleAcknowledgedInputs,
@@ -2034,6 +2092,7 @@ export const Store = FlatStore.actions(
 ).actions(withSelf({ import: import_ }));
 
 for (const [actionName, flow_] of Object.entries(aiFlows)) {
+  bindFlowAction(flow_, actionName);
   const step = (
     flow_ as { __timelineStep?: { kind: "ai"; label: string } }
   ).__timelineStep;
@@ -2044,6 +2103,13 @@ for (const [actionName, flow_] of Object.entries(aiFlows)) {
 
 export type FlatStore = Instance<typeof FlatStore>;
 export type Store = Instance<typeof Store>;
+
+/** The replicated volatile values of a store, as the authority sends them. */
+export function replicatedVolatileState(store: FlatStore): ReplicatedVolatileState {
+  const values: Partial<Record<keyof ReplicatedVolatileState, unknown>> = {};
+  for (const key of REPLICATED_VOLATILE_KEYS) values[key] = store[key];
+  return values as ReplicatedVolatileState;
+}
 
 /**
  * The one way a stored module snapshot becomes a live store: creation
@@ -2074,11 +2140,11 @@ export function hasGeneratedScaffoldIn(
  */
 export function generateStep(store: Store, step: WorkflowStage, hint?: string): void {
   if (step === WorkflowStage.TestCases) {
-    void store.generateTestCases(undefined, hint);
+    void store.generateTestCases(null, hint);
     return;
   }
   if (step === WorkflowStage.ProductOverview) {
-    void store.generateProductOverview(undefined, hint);
+    void store.generateProductOverview(null, hint);
     return;
   }
   const action = GENERATOR_ACTION_BY_WORKFLOW_STAGE[step];

@@ -20,6 +20,7 @@ import {
   attachTimeline,
   declareTimelineStep,
   resetTimeline,
+  timelineChangeSource,
 } from "../app/store/timeline/controller";
 
 function delay(ms: number): Promise<void> {
@@ -37,7 +38,7 @@ function attachPair(step: WorkflowStage = WorkflowStage.ProductOverview) {
     requestStep: () => {},
     isVisible: () => true,
   });
-  attachPresentation(shown, real);
+  attachPresentation(shown, real, timelineChangeSource);
   return { real, shown };
 }
 
@@ -198,7 +199,7 @@ describe("presentation sequencer", () => {
       },
       isVisible: (next) => next === step,
     });
-    attachPresentation(shown, real);
+    attachPresentation(shown, real, timelineChangeSource);
 
     real.setProductOverview({
       name: "Acme",

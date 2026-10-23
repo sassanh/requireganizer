@@ -21,10 +21,10 @@ const ReviewControls = observer(function ReviewControls({ step }: { step: Workfl
   const editable = store.stageIsEditable(step);
   const awaiting = configured ? store.unitsAwaitingReview(step).length : 0;
 
-  const changeMode = (mode: ReviewMode | null) => {
+  const changeMode = async (mode: ReviewMode | null) => {
     if (mode == null) return;
     try {
-      store.setReviewMode(step, mode);
+      await store.setReviewMode(step, mode);
     } catch (error) {
       notify(getUserFacingErrorMessage(error, "Unable to change the review mode."), "error");
       return;
@@ -46,7 +46,7 @@ const ReviewControls = observer(function ReviewControls({ step }: { step: Workfl
             exclusive
             value={store.reviewModeOf(step)}
             disabled={!configured || !editable || store.isBusy}
-            onChange={(_, mode: ReviewMode | null) => changeMode(mode)}
+            onChange={(_, mode: ReviewMode | null) => void changeMode(mode)}
           >
             <ToggleButton value="manual">Manual review</ToggleButton>
             <ToggleButton value="auto">Auto review</ToggleButton>

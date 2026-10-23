@@ -5,7 +5,7 @@ import { WorkflowStage } from "store";
 import { generator } from "./utilities";
 
 export default generator(
-  function* (self, seed?: string, hint?: string) {
+  function* (self, seed: string | null = null, hint?: string) {
     const { runAgentCommand } = yield* toGenerator(import("ai-agent/agent"));
     const trimmedSeed = seed?.trim();
     if (trimmedSeed != null && trimmedSeed.length > 0) {

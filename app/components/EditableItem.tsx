@@ -3,7 +3,7 @@ import { observer } from "mobx-react-lite";
 import { isAlive } from "mobx-state-tree";
 
 import { useShownStore } from "presentation";
-import { StructuralFragment } from "store/models";
+import { type FragmentReference, StructuralFragment } from "store/models";
 
 import FragmentShell from "./FragmentShell";
 import { StagedTextField } from "./TextChange";
@@ -13,7 +13,7 @@ interface EditableItemProps<Type extends StructuralFragment>
   isDisabled: boolean;
   list: Type[];
   fragment: Type;
-  onComment: (parameters: { fragment: Type; comment: string }) => void;
+  onComment: (parameters: { fragment: FragmentReference; comment: string }) => void;
 }
 
 const EditableItemContent = observer(function EditableItemContent<

@@ -7,6 +7,10 @@ Requireganizer is a Next.js application with a MobX State Tree project model, an
 | Boundary | Responsibility |
 | --- | --- |
 | Screens and components | Review and edit artifacts, show statuses and impact, issue conversation commands. |
+| Project host (`app/project-host/`) | The single writer of a project: owns the open session, the only writable store, its timeline, and the AI flows. In the browser it runs in the page. |
+| Project client (`app/project-client/`) | The replica the interface renders. Store actions called on it are forwarded to the host. |
+| Connection (`app/connection/`) | The JSON messages between host and client, and the in-process link that sends them. |
+| Persistence adapter (`app/persistence/`) | Store projects, module timelines, revisions, and provider calls behind one asynchronous interface. |
 | Project store | Own schema-v4 module registries and per-module artifacts, exact revision bindings, the review gate (approvals, verdicts, bases, the frontier), the conversation transcript, virtual files, import/export, and atomic state transitions. |
 | Contract domain | Define boundary, formal-contract, structured-test, setup types and authoritative validation. |
 | AI agent (`app/ai-agent/`) | Run a continuous pi-agent conversation: one system prompt, short structured commands per user action, artifact reads through tools, and validated result tools that apply proposals. |
@@ -33,6 +37,11 @@ app/ai-harness/        formal tool schemas, parsers, workflow definitions, test-
 app/ai-agent/          conversation engine: system prompt, commands, read/result tools, proxy client
 app/api/ai/proxy/      credential-holding streaming proxy to the LLM gateway
 app/store/             project model, status, client orchestration, import/export
+app/project-session/   the open project: modules, autosave, timeline attachment
+app/project-host/      the project authority that clients connect to
+app/project-client/    the replica the interface renders and the requests it sends
+app/connection/        host–client protocol and the in-process link
+app/persistence/       the storage adapter and its web and memory implementations
 app/lib/               browser persistence and safe filesystem utilities
 docs/                  VitePress product and engineering contracts
 tests/                 agent tools, domain, state, persistence, and rendering tests

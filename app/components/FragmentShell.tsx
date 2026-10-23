@@ -7,7 +7,7 @@ import { Fragment, useEffect, useRef, type MouseEvent, type ReactNode } from "re
 import { useFragmentHash } from "hooks/useFragmentHash";
 import { useShownStore } from "presentation";
 import { FRAGMENT_CODES, Priority, StructuralFragment as StructuralFragmentName, useStore } from "store";
-import { type TestCase, StructuralFragment } from "store/models";
+import { type FragmentReference, fragmentReference, type TestCase, StructuralFragment } from "store/models";
 
 import { ApprovalFrame } from "./ApprovalFrame";
 import ApprovalMark from "./ApprovalMark";
@@ -189,7 +189,7 @@ interface FragmentShellProps<Type extends StructuralFragment>
   isDisabled: boolean;
   list: Type[];
   fragment: Type;
-  onComment?: (parameters: { fragment: Type; comment: string }) => void;
+  onComment?: (parameters: { fragment: FragmentReference; comment: string }) => void;
   highlightSx?:
   | React.CSSProperties
   | ((theme: Theme) => React.CSSProperties);
@@ -254,7 +254,7 @@ const FragmentShellContent = observer(function FragmentShellContent<
 
   const handleComment = (comment: string) => {
     if (!isAlive(fragment)) return;
-    onComment?.({ fragment, comment });
+    onComment?.({ fragment: fragmentReference(fragment), comment });
   };
 
   const frame = (

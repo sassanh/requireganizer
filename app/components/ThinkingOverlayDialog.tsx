@@ -38,7 +38,7 @@ function ThinkingOverlayDialog() {
   return (
     <Dialog
       open={open}
-      onClose={store.abortAiOperation}
+      onClose={() => void store.abortAiOperation()}
       fullWidth
       maxWidth="sm"
       slotProps={{ paper: { sx: { minHeight: "40vh" } } }}
@@ -65,11 +65,11 @@ function ThinkingOverlayDialog() {
       <DialogActions>
         <Button
           startIcon={<Forum />}
-          onClick={() => store.setConversationSidebar(true)}
+          onClick={() => void store.setConversationSidebar(true)}
         >
           Open conversation pane
         </Button>
-        <Button onClick={store.abortAiOperation}>Stop</Button>
+        <Button onClick={() => void store.abortAiOperation()}>Stop</Button>
       </DialogActions>
     </Dialog>
   );

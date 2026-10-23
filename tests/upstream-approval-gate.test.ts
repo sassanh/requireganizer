@@ -116,7 +116,10 @@ describe("frontier gate", () => {
     generateStories(store);
     generateRequirements(store);
     const fragment = store.requirements[0]!;
-    await store.handleComment({ fragment, comment: "Say it shorter." });
+    await store.handleComment({
+      fragment: { id: fragment.id, type: fragment.type },
+      comment: "Say it shorter.",
+    });
     assert.match(
       store.validationErrors ?? "",
       /Complete User Stories before trying to apply the requested change\./,

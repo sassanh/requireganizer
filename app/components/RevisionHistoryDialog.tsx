@@ -26,7 +26,7 @@ export default function RevisionHistoryDialog({ projectId, moduleId, open, onClo
   const restore = async (item: ProjectRevisionSnapshot) => {
     try {
       await persistence.revisions.save(projectId, moduleId, getSnapshot(store), `Before restoring ${item.label}`);
-      store.import(item.data);
+      await store.import(item.data);
       onClose();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not restore the snapshot.");

@@ -54,6 +54,16 @@ export const ReferenceModel = types.model({
 
 export type StructuralFragment = Instance<typeof StructuralFragmentModel>;
 
+/** A fragment named by identity, as an action argument that crosses to the authority. */
+export interface FragmentReference {
+  id: string;
+  type: StructuralFragmentName;
+}
+
+export function fragmentReference(fragment: FragmentReference): FragmentReference {
+  return { id: fragment.id, type: fragment.type };
+}
+
 const HalfStructuralFragmentModel = types
   .model({
     id: types.optional(types.identifier, uuid),

@@ -93,18 +93,10 @@ function TestCaseRow({
           variant="outlined"
           disabled={busy || !store.stageIsEditable(WorkflowStage.AutomatedTests)}
           onGenerate={() => {
-            const realScenario = store.testScenarios.find(
-              (entry) => entry.id === scenario.id,
-            );
-            const realCase = realScenario?.testCases.find(
-              (entry) => entry.id === testCase.id,
-            );
-            if (realScenario != null && realCase != null) {
-              store.generateTestCode({
-                testCase: realCase,
-                testScenario: realScenario,
-              });
-            }
+            void store.generateTestCode({
+              testScenarioId: scenario.id,
+              testCaseId: testCase.id,
+            });
           }}
         >
           Generate test

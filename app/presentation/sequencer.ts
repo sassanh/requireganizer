@@ -3,10 +3,9 @@ import { applySnapshot, getSnapshot, onSnapshot } from "mobx-state-tree";
 import { WorkflowStage } from "store/constants";
 import type { Store } from "store/store";
 import {
-  getCurrentStepKind,
-  onChangeFocus,
   SUBJECT_KEYS,
   type ChangeFocusOp,
+  type ChangeSource,
 } from "store/timeline/controller";
 
 import { applyOpToTree } from "./applyOp";
@@ -322,19 +321,20 @@ export function noteVisibleStep(step: WorkflowStage): void {
 export function attachPresentation(
   presentation: Store,
   real: Store,
+  source: ChangeSource,
 ): () => void {
   replica = presentation;
   realStore = real;
   unsubFocus?.();
   unsubSnap?.();
-  unsubFocus = onChangeFocus((focus) => {
+  unsubFocus = source.onChangeFocus((focus) => {
     if (replica == null) return;
     const idle = isIdle();
     enqueueOps(focus.ops);
     if (idle) applyHead();
   });
   unsubSnap = onSnapshot(real, () => {
-    const kind = getCurrentStepKind();
+    const kind = source.currentStepKind();
     if (kind === "user") {
       if (isIdle()) {
         syncPresentationFrom(real);
