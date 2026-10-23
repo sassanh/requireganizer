@@ -26,13 +26,12 @@ import { PersistentAlert } from "components";
 import { parseJson } from "lib/json";
 import { parseProjectPayload, pickActiveModule } from "lib/moduleSchema";
 import {
-  deleteProjectData,
   getProjectsIndex,
   ProjectMeta,
   saveProjectBundle,
   saveProjectsIndex,
 } from "lib/projectStorage";
-import { deleteProviderCallsForProject } from "lib/providerCallStorage";
+import { webPersistence, type ProjectDeleteResult } from "persistence";
 import { createModuleStore } from "store";
 
 interface ProjectSelectorProps {
@@ -94,8 +93,9 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
   };
 
   const handleDelete = async (id: string) => {
+    let result: ProjectDeleteResult;
     try {
-      deleteProjectData(id);
+      result = await webPersistence.projects.delete(id);
       setProjects((current) =>
         (current ?? []).filter((project) => project.id !== id),
       );
@@ -107,10 +107,8 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
       return;
     }
 
-    try {
-      await deleteProviderCallsForProject(id);
-    } catch (storageError) {
-      console.error("Could not delete the project's provider activity.", storageError);
+    // Revision cleanup failures are only logged by the adapter.
+    if (result.unremoved.includes("providerCalls")) {
       setError(
         "The project was deleted, but its AI provider activity could not be removed from browser storage.",
       );
