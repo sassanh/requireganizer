@@ -22,14 +22,13 @@ import {
   MenuItem,
 } from "@mui/material";
 import { saveAs } from "file-saver";
-import { useRef, useState, ChangeEvent } from "react";
+import { useRef, useState, useSyncExternalStore, ChangeEvent } from "react";
 
 import { ShortcutLabel } from "actions/ActionHint";
 import { switchModuleShortcut } from "actions/actions";
 import { parseJson } from "lib/json";
 import { useProject } from "provider";
 import { useStore } from "store";
-import { getTimelineSnapshot } from "store/timeline/controller";
 
 import PersistentAlert from "./PersistentAlert";
 
@@ -49,7 +48,13 @@ export default function ProjectActionsMenu({
     importProjectFile,
     exportProject,
     exportCodeArchive,
+    timeline,
   } = useProject();
+  const timelineMeta = useSyncExternalStore(
+    timeline.subscribe,
+    timeline.getMeta,
+    timeline.getMeta,
+  );
   const inputRef = useRef<HTMLInputElement>(null);
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const [debugAnchor, setDebugAnchor] = useState<HTMLElement | null>(null);
@@ -69,8 +74,8 @@ export default function ProjectActionsMenu({
     );
   };
 
-  const exportTimeline = () => {
-    const snapshot = getTimelineSnapshot();
+  const exportTimeline = async () => {
+    const snapshot = await timeline.exportSnapshot();
     if (snapshot == null) return;
     saveAs(
       new Blob([JSON.stringify(snapshot, null, 2)], {
@@ -254,9 +259,9 @@ export default function ProjectActionsMenu({
         <MenuItem
           onClick={() => {
             close();
-            exportTimeline();
+            void exportTimeline();
           }}
-          disabled={getTimelineSnapshot() == null}
+          disabled={timelineMeta.entries.length === 0}
         >
           <ListItemIcon>
             <FileDownload fontSize="small" />

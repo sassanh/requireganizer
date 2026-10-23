@@ -1,14 +1,14 @@
 import { toGenerator } from "mobx-state-tree";
 
 import { WORKFLOW_STAGE_BY_STRUCTURAL_FRAGMENT } from "store";
-import { StructuralFragment } from "store/models";
+import type { FragmentReference } from "store/models/StructuralFragment";
 
 import { generator } from "./utilities";
 
 export default generator(
   function* (
     self,
-    { fragment, comment }: { fragment: StructuralFragment; comment: string },
+    { fragment, comment }: { fragment: FragmentReference; comment: string },
   ) {
     const { runAgentCommand } = yield* toGenerator(import("ai-agent/agent"));
     yield* toGenerator(runAgentCommand(self, "apply the requested change", {

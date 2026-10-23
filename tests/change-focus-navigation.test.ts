@@ -15,6 +15,7 @@ import {
   attachTimeline,
   declareTimelineStep,
   resetTimeline,
+  timelineChangeSource,
 } from "../app/store/timeline/controller";
 
 describe("change focus navigation", () => {
@@ -39,7 +40,7 @@ describe("change focus navigation", () => {
       },
       isVisible: (next) => next === step,
     });
-    attachPresentation(shown, real);
+    attachPresentation(shown, real, timelineChangeSource);
 
     real.setProductOverview({
       name: "Acme",

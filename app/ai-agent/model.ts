@@ -1,7 +1,7 @@
 import type { Model } from "@earendil-works/pi-ai";
 
 export const ZEN_BASE_URL = "https://opencode.ai/zen/v1";
-export const ZEN_MODEL_ID = "minimax/minimax-m3.1-flash:free";
+export const ZEN_MODEL_ID = "nvidia/nemotron-3-ultra-550b-a55b:free";
 
 /**
  * The OpenCode Zen gateway model definition for the pi agent runtime.

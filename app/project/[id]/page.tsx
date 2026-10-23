@@ -14,7 +14,7 @@ import {
 import { observer } from "mobx-react-lite";
 import Link from "next/link";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 
 import { switchModuleShortcut } from "actions/actions";
 import {
@@ -47,7 +47,6 @@ function Home() {
     activeProject,
     persistenceError,
     selectProject,
-    consumeOverviewSeed,
     backToProjects,
     clearPersistenceError,
     modulesEnabled,
@@ -87,15 +86,6 @@ function Home() {
     };
   }, [projectId, activeProject, selectProject, router, persistence]);
 
-  useEffect(() => {
-    // While loading, `store` is still the previous one; the seed waits for
-    // the project's own store.
-    if (status !== "ready" || activeProject?.id !== projectId) return;
-    const seed = consumeOverviewSeed(projectId);
-    if (seed == null) return;
-    void store.generateProductOverview(seed);
-  }, [status, activeProject, projectId, consumeOverviewSeed, store]);
-
   const openModules = useCallback(() => setModulesOpen(true), []);
   const closeModules = useCallback(() => setModulesOpen(false), []);
 
@@ -118,6 +108,10 @@ function Home() {
   // itself switches, the effect below writes the pointer back.
   const seenModuleParamRef = useRef<string | null>(null);
   const pendingUrlModuleRef = useRef<string | null>(null);
+  const [refusedUrlModules, noteRefusedUrlModule] = useReducer(
+    (count: number) => count + 1,
+    0,
+  );
   useEffect(() => {
     if (activeProject?.id !== projectId || !modulesEnabled) return;
     const inUrl = searchParams.get("module");
@@ -126,10 +120,12 @@ function Home() {
     if (inUrl === seen) return;
     if (inUrl == null || inUrl === activeModuleId) return;
     pendingUrlModuleRef.current = inUrl;
-    if (!switchModule(inUrl)) {
+    void switchModule(inUrl).then((switched) => {
+      if (switched || pendingUrlModuleRef.current !== inUrl) return;
       // Unknown id: the state-owns-URL effect below rewrites the pointer.
       pendingUrlModuleRef.current = null;
-    }
+      noteRefusedUrlModule();
+    });
   }, [activeProject, projectId, modulesEnabled, searchParams, activeModuleId, switchModule]);
 
   useEffect(() => {
@@ -148,7 +144,7 @@ function Home() {
     // Arriving from another module lands on that module's remembered stage.
     if (inUrl != null) next.set("step", activeModuleOpenStep);
     router.replace(`${pathname}?${next.toString()}`);
-  }, [activeProject, projectId, modulesEnabled, searchParams, activeModuleId, activeModuleOpenStep, router, pathname]);
+  }, [activeProject, projectId, modulesEnabled, searchParams, activeModuleId, activeModuleOpenStep, router, pathname, refusedUrlModules]);
 
   // For easier debugging store is saved under window.store variable in development environment
   useEffect(() => {
@@ -181,7 +177,7 @@ function Home() {
         <ValidationErrorAlert
           message={store.validationErrors}
           details={store.validationErrorDetails}
-          onClose={store.resetValidationErrors}
+          onClose={() => void store.resetValidationErrors()}
           onRetry={
             store.canRetryFailedOperation()
               ? () => {
@@ -231,7 +227,7 @@ function Home() {
             variant={conversationOpen ? "contained" : "outlined"}
             color={conversationOpen ? "primary" : "inherit"}
             aria-label="Agent"
-            onClick={() => store.setConversationSidebar(!conversationOpen)}
+            onClick={() => void store.setConversationSidebar(!conversationOpen)}
             sx={{ minWidth: 0, px: 1.25 }}
           >
             <Forum />
@@ -250,8 +246,8 @@ function Home() {
         <ProviderActivity
           calls={store.providerCalls}
           projectName={activeProject.name}
-          onDelete={store.deleteProviderCall}
-          onClear={store.clearProviderCalls}
+          onDelete={(id) => void store.deleteProviderCall(id)}
+          onClear={() => void store.clearProviderCalls()}
         />
         </Toolbar>
       </AppBar>

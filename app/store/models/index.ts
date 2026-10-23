@@ -5,6 +5,8 @@ export {
 
 export { type Requirement, RequirementModel } from "./Requirement";
 export {
+  type FragmentReference,
+  fragmentReference,
   type StructuralFragment,
   StructuralFragmentModel,
 } from "./StructuralFragment";

@@ -2,7 +2,6 @@ import { toGenerator } from "mobx-state-tree";
 
 import { UserFacingError } from "lib/errors";
 import { WorkflowStage } from "store";
-import type { TestCase, TestScenario } from "store/models";
 
 import { generator } from "./utilities";
 
@@ -10,11 +9,16 @@ export default generator(
   function* generateTestCode(
     self,
     {
-      testCase,
-      testScenario,
+      testScenarioId,
+      testCaseId,
       comment,
-    }: { testCase: TestCase; testScenario: TestScenario; comment?: string },
+    }: { testScenarioId: string; testCaseId: string; comment?: string },
   ) {
+    const testScenario = self.testScenarios.find(({ id }) => id === testScenarioId);
+    const testCase = testScenario?.testCases.find(({ id }) => id === testCaseId);
+    if (testScenario == null || testCase == null) {
+      throw new UserFacingError("The test case no longer exists.");
+    }
     if (testCase.definition == null || testScenario.binding == null) {
       throw new UserFacingError("The selected case has no approved structured contract binding.");
     }

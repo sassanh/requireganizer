@@ -2,12 +2,15 @@ import { toGenerator } from "mobx-state-tree";
 
 import { UserFacingError } from "lib/errors";
 import { WorkflowStage } from "store";
-import type { TestScenario } from "store/models";
 
 import { generator } from "./utilities";
 
 export default generator(
-  function* generateTestCases(self, target?: TestScenario, hint?: string) {
+  function* generateTestCases(self, scenarioId: string | null = null, hint?: string) {
+    const target = scenarioId == null
+      ? null
+      : self.testScenarios.find((scenario) => scenario.id === scenarioId);
+    if (target === undefined) throw new UserFacingError("The scenario no longer exists.");
     const scenarios = target == null ? [...self.testScenarios] : [target];
     const trimmedHint = hint?.trim();
     for (const scenario of scenarios) {

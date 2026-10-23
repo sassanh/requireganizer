@@ -11,6 +11,7 @@ import {
   StructuralFragment as StructuralFragmentName,
 } from "store";
 import {
+  type FragmentReference,
   type TestCase,
   StructuralFragment as StructuralFragmentModel,
 } from "store/models";
@@ -103,7 +104,7 @@ interface StructuralFragmentsProps<Type extends StructuralFragmentModel> {
   isDisabled: boolean;
   structuralFragment: Type["type"];
   title?: string;
-  onComment: (parameters: { fragment: Type; comment: string }) => void;
+  onComment: (parameters: { fragment: FragmentReference; comment: string }) => void;
 }
 
 const StructuralFragments = <Type extends StructuralFragmentModel>({

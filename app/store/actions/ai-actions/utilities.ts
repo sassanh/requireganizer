@@ -666,24 +666,16 @@ async function reviewAfterFlow(
   }
 }
 
+/** The store action each flow is assigned to; the store wiring binds it. */
+const flowActionNames = new WeakMap<object, string>();
+
 /**
- * The latest rate-limited attempt, waiting for its retry. Module state,
- * never store state: the closure is not serializable, so it stays out of
- * snapshots and the timeline entirely. It is always set and cleared
- * together with the visible error, so reads stay fresh.
+ * Record the store action a flow is assigned to, so a failed attempt can
+ * name the call that repeats it. Property keys survive minification,
+ * function names do not.
  */
-let pendingRetry: (() => unknown) | null = null;
-
-/** Whether a failed attempt is waiting for its retry. */
-export function hasPendingRetry(): boolean {
-  return pendingRetry != null;
-}
-
-/** Take the waiting retry, leaving none behind. */
-export function takePendingRetry(): (() => unknown) | null {
-  const attempt = pendingRetry;
-  pendingRetry = null;
-  return attempt;
+export function bindFlowAction(flowFunction: object, actionName: string): void {
+  flowActionNames.set(flowFunction, actionName);
 }
 
 export function generator<
@@ -727,12 +719,14 @@ export function generator<
     ...args: U
   ): Generator<Yield, void, Next> {
     if (store.isBusy) return;
+    const action = flowActionNames.get(flowFn);
+    if (action == null) throw new Error(`Unable to ${operation}: the flow is not a store action.`);
 
     let incrementedBusinessCounter = false;
     let abortController: AbortController | null = null;
     try {
       store.resetValidationErrors();
-      pendingRetry = null;
+      store.pendingRetry = null;
 
       function throwEmptyError(requirement: Requirements) {
         throw new UserFacingError(
@@ -799,7 +793,7 @@ export function generator<
             ? "The AI request timed out. Wait a moment, then try again."
             : null;
         if (retryMessage != null) {
-          pendingRetry = () => flowFn(store, ...args);
+          store.pendingRetry = { action, args };
           store.setValidationError({ message: retryMessage });
         } else {
           console.error(`Unable to ${operation}.`, error);

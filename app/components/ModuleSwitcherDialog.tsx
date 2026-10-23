@@ -49,12 +49,12 @@ export default function ModuleSwitcherDialog({
     onClose();
   };
 
-  const submitName = () => {
+  const submitName = async () => {
     try {
       if (modulesEnabled) {
-        addModule(nameDraft);
+        await addModule(nameDraft);
       } else {
-        enableModules(nameDraft);
+        await enableModules(nameDraft);
       }
       close();
     } catch (caught) {
@@ -127,7 +127,7 @@ export default function ModuleSwitcherDialog({
                       edge="end"
                       aria-label={`Archive ${module.name}`}
                       disabled={module.active || modules.length <= 1}
-                      onClick={() => archiveModule(module.id)}
+                      onClick={() => void archiveModule(module.id)}
                     >
                       <Archive fontSize="small" />
                     </IconButton>
@@ -139,7 +139,7 @@ export default function ModuleSwitcherDialog({
                 selected={module.active}
                 disabled={module.active}
                 onClick={() => {
-                  switchModule(module.id);
+                  void switchModule(module.id);
                   close();
                 }}
               >

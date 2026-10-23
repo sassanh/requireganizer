@@ -82,10 +82,7 @@ export default observer(function TestCaseScenarioAccordions({
                         endIcon={<Build />}
                         disabled={store.isBusy || !store.canGenerateStep(WorkflowStage.TestCases)}
                         onGenerate={() => {
-                          const real = store.testScenarios.find(
-                            (entry) => entry.id === scenario.id,
-                          );
-                          if (real != null) store.generateTestCases(real);
+                          void store.generateTestCases(scenario.id);
                         }}
                         sx={{ alignSelf: "end" }}
                       >

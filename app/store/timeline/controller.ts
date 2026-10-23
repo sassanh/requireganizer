@@ -61,7 +61,10 @@ export type AttachTimelineOptions =
       loaded?: undefined;
     };
 
-type Source = { kind: "user" | "ai" | "system"; label: string };
+/** Who opened a timeline turn. */
+export type StepKind = "user" | "ai" | "system";
+
+type Source = { kind: StepKind; label: string };
 
 /**
  * A step declaration: the only way an action may open a timeline turn.
@@ -206,6 +209,22 @@ export function onChangeFocus(
 export function getChangeFocus(): ChangeFocus {
   return changeFocus;
 }
+
+/**
+ * Where a presenter learns how the real store changed: the change focus of
+ * each finished turn, and the kind of turn whose change the store is
+ * applying right now. The timeline is the source next to the authority's
+ * store; a replica reports the same two facts as they arrive.
+ */
+export interface ChangeSource {
+  onChangeFocus(listener: (focus: ChangeFocus) => void): () => void;
+  currentStepKind(): StepKind | null;
+}
+
+export const timelineChangeSource: ChangeSource = {
+  onChangeFocus,
+  currentStepKind: getCurrentStepKind,
+};
 
 /** State-tree keys that can be subjects; conversation follows itself. */
 export const SUBJECT_KEYS = [

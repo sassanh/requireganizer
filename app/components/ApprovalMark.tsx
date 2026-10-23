@@ -46,12 +46,12 @@ const ApprovalMark = observer(function ApprovalMark({
     decisionResolver.current?.(confirmed);
     decisionResolver.current = null;
   };
-  const approve = (): boolean => {
+  const approve = async (): Promise<boolean> => {
     if (verdict?.verdict === "reject") {
       setDecision({ kind: "approve", verdict });
       return false;
     }
-    store.approve(id);
+    await store.approve(id);
     return true;
   };
   const requestChange = (comment: string): boolean | Promise<boolean> => {
@@ -85,7 +85,7 @@ const ApprovalMark = observer(function ApprovalMark({
       ) : null}
       {store.canRestore(id) ? (
         <Tooltip title="Restore the signed version">
-          <IconButton size="small" color="primary" onClick={() => store.restoreSigned(id)}>
+          <IconButton size="small" color="primary" onClick={() => void store.restoreSigned(id)}>
             <Restore fontSize="small" />
           </IconButton>
         </Tooltip>
@@ -116,7 +116,7 @@ const ApprovalMark = observer(function ApprovalMark({
           settleDecision(false);
           setDecision(null);
         }}
-        onConfirm={() => {
+        onConfirm={async () => {
           if (decision == null) return;
           if (decision.kind === "change") {
             // The change flows are MST flows: they report their own
@@ -126,7 +126,7 @@ const ApprovalMark = observer(function ApprovalMark({
             return;
           }
           try {
-            store.approve(id, { decided: true });
+            await store.approve(id, { decided: true });
             notify("Approved");
             settleDecision(true);
           } catch (error) {

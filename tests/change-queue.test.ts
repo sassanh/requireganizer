@@ -45,6 +45,7 @@ async function attachShown(store: import("../app/store/store").Store) {
     setPresentationNav,
   } = await import("../app/presentation");
   const { WorkflowStage } = await import("../app/store/constants");
+  const { timelineChangeSource } = await import("../app/store/timeline/controller");
   resetPresentation();
   const shown = Store.create(getSnapshot(store));
   setPresentationNav({
@@ -52,7 +53,7 @@ async function attachShown(store: import("../app/store/store").Store) {
     requestStep: () => {},
     isVisible: () => true,
   });
-  attachPresentation(shown, store);
+  attachPresentation(shown, store, timelineChangeSource);
   return shown;
 }
 
