@@ -39,6 +39,7 @@ import {
  * synchronous throws of those functions surface as rejected promises.
  */
 export class WebPersistenceAdapter implements PersistenceAdapter {
+  readonly traits = { singleProject: false, name: "browser storage" };
   readonly projects: ProjectPersistence = {
     list: async () => getProjectsIndex(),
     saveIndex: async (projects) => {

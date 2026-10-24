@@ -8,6 +8,8 @@ import type {
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import { applySnapshot, getSnapshot } from "mobx-state-tree";
 
+import { installGateway } from "../app/ai-agent/gateway";
+import { configureAiSettings, DEFAULT_AI_SETTINGS, fixedAiSettings } from "../app/ai-agent/settings";
 import { WorkflowStage } from "../app/store/constants";
 import { Store, generateStep } from "../app/store/store";
 import type { Store as StoreInstance } from "../app/store/store";
@@ -810,7 +812,21 @@ describe("timeline controller", () => {
 
   it("describes command branches as actions, not raw JSON", async () => {
     const store = newStore();
-    // First attempt fails (no provider in tests) but records the command.
+    // The provider fails the first attempt, which still records the command.
+    configureAiSettings(fixedAiSettings({ ...DEFAULT_AI_SETTINGS, apiKey: "test-key" }, {
+      missingApiKeyMessage: "Add a key.",
+      missingReviewerModelMessage: "Add a reviewer.",
+    }));
+    installGateway(() => {
+      const stream = createAssistantMessageEventStream();
+      const failed = assistantMessage([]);
+      stream.push({
+        type: "error",
+        reason: "error",
+        error: { ...failed, stopReason: "error", errorMessage: "The provider is unavailable." },
+      });
+      return stream;
+    });
     await store.generateProductOverview();
     // Regenerate replays the command onto a sibling branch.
     await store.regenerateLastReply(

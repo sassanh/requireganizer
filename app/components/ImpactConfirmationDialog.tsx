@@ -3,14 +3,13 @@ import { observer } from "mobx-react-lite";
 import { getSnapshot } from "mobx-state-tree";
 import { useState } from "react";
 
-import { reviewerModel } from "ai-agent/model";
-import { usePersistence } from "provider";
+import { useProject } from "projectContext";
 import { useStore } from "store";
 
 import CodeBlock from "./CodeBlock";
 
 const ImpactConfirmationDialog = ({ projectId, moduleId }: { projectId: string; moduleId: string }) => {
-  const persistence = usePersistence();
+  const { persistence, reviewerModel } = useProject();
   const store = useStore();
   const [saving, setSaving] = useState(false);
   const change = store.pendingImpactChange;

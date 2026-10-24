@@ -54,7 +54,7 @@ import { ActionView } from "actions/ActionView";
 import { describeCommand, parseCommandMessage, type AiCommand } from "ai-agent/command";
 import { disclosedThinking } from "ai-agent/thinking";
 import { animationMs, isReducedMotion } from "components/animation";
-import { useTimeline } from "provider";
+import { useTimeline } from "projectContext";
 import { useStore } from "store";
 
 import { sendOnEnter } from "./enterToSend";

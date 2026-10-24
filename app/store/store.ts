@@ -11,7 +11,7 @@ import {
 } from "mobx-state-tree";
 import { createContext, useContext } from "react";
 
-import { reviewerModel } from "ai-agent/model";
+import { aiSettings, reviewerModel } from "ai-agent/settings";
 import { hydrateConversationThinking } from "ai-agent/thinking";
 import type {
   ArtifactListProposal,
@@ -1927,8 +1927,8 @@ export const FlatStore = types
         }
       },
       setReviewMode(step: WorkflowStage, mode: ReviewMode) {
-        if (mode === "auto" && reviewerModel == null) {
-          throw new UserFacingError("Set NEXT_PUBLIC_AI_REVIEWER_MODEL to use auto review.");
+        if (mode === "auto" && reviewerModel() == null) {
+          throw new UserFacingError(aiSettings().missingReviewerModelMessage);
         }
         self.review = {
           ...self.review,

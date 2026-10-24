@@ -10,8 +10,13 @@
 /coverage
 /.test-dist
 
+# project server bundles
+/dist
+/.server-dist
+
 # next.js
 /.next/
+/.next-server/
 /out/
 
 # production

@@ -1,8 +1,8 @@
 import { Button, Stack, ToggleButton, ToggleButtonGroup, Tooltip } from "@mui/material";
 import { observer } from "mobx-react-lite";
 
-import { reviewerModel } from "ai-agent/model";
 import { getUserFacingErrorMessage } from "lib/errors";
+import { useProject } from "projectContext";
 import { useStore, WorkflowStage } from "store";
 import type { ReviewMode } from "store/review";
 
@@ -15,6 +15,7 @@ import { notify } from "./notices";
  */
 const ReviewControls = observer(function ReviewControls({ step }: { step: WorkflowStage }) {
   const store = useStore();
+  const { reviewerModel, missingReviewerModelMessage } = useProject();
   if (step === WorkflowStage.AutomatedTests || step === WorkflowStage.Code) return null;
   if (!store.hasStepArtifacts(step)) return null;
   const configured = reviewerModel != null;
@@ -36,10 +37,10 @@ const ReviewControls = observer(function ReviewControls({ step }: { step: Workfl
     <Stack direction="row" sx={{ alignItems: "center", justifyContent: "flex-end", gap: 1 }}>
       {awaiting > 0 && editable ? (
         <Button size="small" disabled={store.isBusy} onClick={() => void store.reviewStage(step)}>
-          Review {awaiting} with {reviewerModel!.id}
+          Review {awaiting} with {reviewerModel}
         </Button>
       ) : null}
-      <Tooltip title={configured ? "" : "Set NEXT_PUBLIC_AI_REVIEWER_MODEL to enable the reviewer model."}>
+      <Tooltip title={configured ? "" : missingReviewerModelMessage}>
         <span>
           <ToggleButtonGroup
             size="small"

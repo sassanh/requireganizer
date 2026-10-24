@@ -35,3 +35,7 @@ The quality workflow builds the docs through `pnpm run check`, but it does not p
 - A missing package during CI usually means `pnpm-lock.yaml` was not updated with `package.json`.
 - A deployment permission error usually means Pages is not configured for GitHub Actions or the workflow permissions were changed.
 - Broken internal links fail `pnpm run docs:build`; fix them before deployment.
+
+## The application
+
+`pnpm run build` writes the page build to `out/`, and `pnpm run cf:deploy` publishes `out/` as Cloudflare static assets, configured in `wrangler.jsonc`. Another static host works if it serves `project.html` for `/project` and `404.html` for unknown paths.

@@ -7,7 +7,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   type ProjectRevisionSnapshot,
 } from "lib/revisionStorage";
-import { usePersistence } from "provider";
+import { usePersistence } from "projectContext";
 import { useStore } from "store";
 
 export default function RevisionHistoryDialog({ projectId, moduleId, open, onClose }: { projectId: string; moduleId: string; open: boolean; onClose: () => void }) {
@@ -17,7 +17,7 @@ export default function RevisionHistoryDialog({ projectId, moduleId, open, onClo
   const [error, setError] = useState<string | null>(null);
   const refresh = useCallback(async () => {
     try { setItems(await persistence.revisions.list(projectId, moduleId)); setError(null); }
-    catch { setError("Revision history is unavailable in browser storage."); }
+    catch { setError(`Revision history is unavailable in ${persistence.traits.name}.`); }
   }, [persistence, projectId, moduleId]);
   // IndexedDB is an external source; refresh only when the dialog becomes visible.
   // eslint-disable-next-line react-hooks/set-state-in-effect

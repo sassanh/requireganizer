@@ -1,20 +1,20 @@
 # System overview
 
-Requireganizer is a Next.js application with a MobX State Tree project model, an agentic AI conversation runtime, IndexedDB recovery/activity stores, and a VitePress documentation site.
+Requireganizer is a Next.js application with a MobX State Tree project model, an agentic AI conversation runtime, and a VitePress documentation site. The interface builds to static files in one of two ways: a page build runs the project in the page with browser storage, and a server build is served by a Node project server that keeps one project in a file.
 
 ## Main boundaries
 
 | Boundary | Responsibility |
 | --- | --- |
 | Screens and components | Review and edit artifacts, show statuses and impact, issue conversation commands. |
-| Project host (`app/project-host/`) | The single writer of a project: owns the open session, the only writable store, its timeline, and the AI flows. In the browser it runs in the page. |
+| Project host (`app/project-host/`) | The single writer of a project: owns the open session, the only writable store, its timeline, and the AI flows. It runs in the page or in the project server. |
 | Project client (`app/project-client/`) | The replica the interface renders. Store actions called on it are forwarded to the host. |
-| Connection (`app/connection/`) | The JSON messages between host and client, and the in-process link that sends them. |
+| Connection (`app/connection/`) | The versioned JSON messages between host and client, and the in-process and WebSocket links that carry them. |
 | Persistence adapter (`app/persistence/`) | Store projects, module timelines, revisions, and provider calls behind one asynchronous interface. |
+| Project server (`server/`) | Serve one project from its file: the host with the file adapter, the WebSocket link its own pages connect to, and the static interface. |
 | Project store | Own schema-v4 module registries and per-module artifacts, exact revision bindings, the review gate (approvals, verdicts, bases, the frontier), the conversation transcript, virtual files, import/export, and atomic state transitions. |
 | Contract domain | Define boundary, formal-contract, structured-test, setup types and authoritative validation. |
-| AI agent (`app/ai-agent/`) | Run a continuous pi-agent conversation: one system prompt, short structured commands per user action, artifact reads through tools, and validated result tools that apply proposals. |
-| AI proxy (`app/api/ai/proxy`) | Stream LLM requests to the OpenCode Zen gateway with the server-held credential; never expose keys to the browser. |
+| AI agent (`app/ai-agent/`) | Run a continuous pi-agent conversation: one system prompt, short structured commands per user action, artifact reads through tools, and validated result tools that apply proposals. Models are called directly, from wherever the host runs. |
 | Browser databases | Partition provider calls and recovery snapshots per project. |
 
 ## Request path
@@ -34,14 +34,14 @@ The conversation transcript persists with the project; thinking and tool activit
 ```text
 app/contract-domain/   revisioned artifact types, schema projection, validation, hashing
 app/ai-harness/        formal tool schemas, parsers, workflow definitions, test-code guards
-app/ai-agent/          conversation engine: system prompt, commands, read/result tools, proxy client
-app/api/ai/proxy/      credential-holding streaming proxy to the LLM gateway
+app/ai-agent/          conversation engine: system prompt, commands, read/result tools, AI settings and endpoint calls
 app/store/             project model, status, client orchestration, import/export
 app/project-session/   the open project: modules, autosave, timeline attachment
 app/project-host/      the project authority that clients connect to
 app/project-client/    the replica the interface renders and the requests it sends
-app/connection/        host–client protocol and the in-process link
+app/connection/        host–client protocol and its in-process and WebSocket links
 app/persistence/       the storage adapter and its web and memory implementations
+server/                the project server: file adapter, WebSocket endpoint, command line
 app/lib/               browser persistence and safe filesystem utilities
 docs/                  VitePress product and engineering contracts
 tests/                 agent tools, domain, state, persistence, and rendering tests

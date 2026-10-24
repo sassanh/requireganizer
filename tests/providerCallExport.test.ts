@@ -52,8 +52,8 @@ describe("provider call export", () => {
     assert.equal(
       providerCallToCurl(call),
       [
-        'curl "${AI_BASE_URL:-https://opencode.ai/zen/v1}/responses" \\',
-        '  -H "Authorization: Bearer ${AI_API_KEY:-${OPENCODE_API_KEY:-public}}" \\',
+        'curl "${AI_BASE_URL:-https://openrouter.ai/api/v1}/responses" \\',
+        '  -H "Authorization: Bearer ${AI_API_KEY}" \\',
         '  -H "Content-Type: application/json" \\',
         `  --data-raw '{"model":"model","input":"<request input not recorded>","stream":true}'`,
       ].join("\n"),

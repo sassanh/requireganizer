@@ -70,6 +70,7 @@ export interface MemoryPersistenceAdapterOptions {
  * same kind of error their web counterparts throw.
  */
 export class MemoryPersistenceAdapter implements PersistenceAdapter {
+  readonly traits = { singleProject: false, name: "memory" };
   private projectsIndexSource: string | null = null;
   private readonly projectSources = new Map<string, string>();
   private readonly timelineSources = new Map<string, string>();

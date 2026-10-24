@@ -119,7 +119,7 @@ describe("canonical engineering workflow", () => {
     const store = StoreModel.create({ productOverview: {} });
     assert.throws(
       () => store.setReviewMode(WorkflowStage.UserStories, "auto"),
-      /Set NEXT_PUBLIC_AI_REVIEWER_MODEL to use auto review/,
+      /No reviewer model is configured/,
     );
     assert.equal(store.reviewModeOf(WorkflowStage.UserStories), "manual");
   });

@@ -68,7 +68,13 @@ function circularRecord(): Record<string, unknown> {
 export function describePersistenceAdapterContract(
   createAdapter: AdapterFactory,
 ): void {
-  describe("persistence adapter contract", () => {
+  describeProjectListContract(createAdapter);
+  describeModuleRecordsContract(createAdapter);
+}
+
+/** The contract of a storage that holds a list of projects. */
+export function describeProjectListContract(createAdapter: AdapterFactory): void {
+  describe("persistence adapter contract: project list", () => {
     it("reports empty reads when nothing is stored", async () => {
       const adapter = await createAdapter();
 
@@ -325,6 +331,139 @@ export function describePersistenceAdapterContract(
       assert.equal(await adapter.projects.load("project-2"), null);
     });
 
+    it("deletes everything stored for a project", async () => {
+      const adapter = await createAdapter();
+      await adapter.projects.saveIndex([
+        projectMeta("project-1"),
+        projectMeta("project-2"),
+      ]);
+      await adapter.projects.save("project-1", projectPayload("Deleted"));
+      await adapter.projects.save("project-2", projectPayload("Kept"));
+      await adapter.timelines.save(
+        "project-1",
+        "module-a",
+        timelineData("one"),
+      );
+      await adapter.timelines.save(
+        "project-1",
+        "module-b",
+        timelineData("two"),
+      );
+      await adapter.timelines.save(
+        "project-2",
+        "module-a",
+        timelineData("kept"),
+      );
+      const deletedRevision = await adapter.revisions.save(
+        "project-1",
+        "module-a",
+        { index: 1 },
+        "Deleted",
+      );
+      await adapter.revisions.save(
+        "project-1",
+        "module-b",
+        { index: 2 },
+        "Deleted too",
+      );
+      const keptRevision = await adapter.revisions.save(
+        "project-2",
+        "module-a",
+        { index: 3 },
+        "Kept",
+      );
+      await adapter.providerCalls.replace("project-1", "module-a", [
+        providerCall("call-a", "2026-10-22T09:00:00.000Z"),
+      ]);
+      await adapter.providerCalls.replace("project-2", "module-a", [
+        providerCall("call-b", "2026-10-22T10:00:00.000Z"),
+      ]);
+
+      const result = await adapter.projects.delete("project-1");
+      assert.deepEqual(result, { unremoved: [] });
+
+      assert.equal(await adapter.projects.load("project-1"), null);
+      assert.equal(
+        await adapter.timelines.load("project-1", "module-a"),
+        null,
+      );
+      assert.equal(
+        await adapter.timelines.load("project-1", "module-b"),
+        null,
+      );
+      assert.deepEqual(
+        (await adapter.projects.list()).map((project) => project.id),
+        ["project-2"],
+      );
+      assert.deepEqual(
+        await adapter.revisions.list("project-1", "module-a"),
+        [],
+      );
+      assert.deepEqual(
+        await adapter.revisions.list("project-1", "module-b"),
+        [],
+      );
+      assert.deepEqual(
+        await adapter.providerCalls.load("project-1", "module-a"),
+        [],
+      );
+      assert.equal(
+        (await adapter.revisions.list("project-2", "module-a"))[0].id,
+        keptRevision.id,
+      );
+      assert.equal(
+        (await adapter.revisions.list("project-2", "module-a")).some(
+          (snapshot) => snapshot.id === deletedRevision.id,
+        ),
+        false,
+      );
+
+      assert.deepEqual(await adapter.projects.load("project-2"), projectPayload("Kept"));
+      assert.deepEqual(
+        await adapter.timelines.load("project-2", "module-a"),
+        timelineData("kept"),
+      );
+      assert.equal(
+        (await adapter.providerCalls.load("project-2", "module-a")).length,
+        1,
+      );
+    });
+
+    it("keeps the timelines of a project whose id extends the deleted one", async () => {
+      const adapter = await createAdapter();
+      await adapter.projects.saveIndex([
+        projectMeta("a"),
+        projectMeta("a::b"),
+      ]);
+      await adapter.projects.save("a", projectPayload("A"));
+      await adapter.projects.save("a::b", projectPayload("A B"));
+      const kept = timelineData("kept");
+      assert.equal(await adapter.timelines.save("a::b", "module-c", kept), true);
+      assert.equal(
+        await adapter.timelines.save("a", "module-c", timelineData("removed")),
+        true,
+      );
+
+      await adapter.projects.delete("a");
+
+      assert.equal(await adapter.timelines.load("a", "module-c"), null);
+      assert.deepEqual(await adapter.timelines.load("a::b", "module-c"), kept);
+    });
+
+    it("deletes a missing project without error", async () => {
+      const adapter = await createAdapter();
+
+      assert.deepEqual(await adapter.projects.delete("missing"), {
+        unremoved: [],
+      });
+      assert.deepEqual(await adapter.projects.list(), []);
+    });
+  });
+}
+
+/** The contract of the per-module records: timelines, revisions, and provider calls. */
+export function describeModuleRecordsContract(createAdapter: AdapterFactory): void {
+  describe("persistence adapter contract: module records", () => {
     it("round-trips timelines per module and copies their data", async () => {
       const adapter = await createAdapter();
       const first = timelineData("first");
@@ -577,132 +716,5 @@ export function describePersistenceAdapterContract(
       assert.equal(reloaded[0].usage?.inputTokens, 10);
     });
 
-    it("deletes everything stored for a project", async () => {
-      const adapter = await createAdapter();
-      await adapter.projects.saveIndex([
-        projectMeta("project-1"),
-        projectMeta("project-2"),
-      ]);
-      await adapter.projects.save("project-1", projectPayload("Deleted"));
-      await adapter.projects.save("project-2", projectPayload("Kept"));
-      await adapter.timelines.save(
-        "project-1",
-        "module-a",
-        timelineData("one"),
-      );
-      await adapter.timelines.save(
-        "project-1",
-        "module-b",
-        timelineData("two"),
-      );
-      await adapter.timelines.save(
-        "project-2",
-        "module-a",
-        timelineData("kept"),
-      );
-      const deletedRevision = await adapter.revisions.save(
-        "project-1",
-        "module-a",
-        { index: 1 },
-        "Deleted",
-      );
-      await adapter.revisions.save(
-        "project-1",
-        "module-b",
-        { index: 2 },
-        "Deleted too",
-      );
-      const keptRevision = await adapter.revisions.save(
-        "project-2",
-        "module-a",
-        { index: 3 },
-        "Kept",
-      );
-      await adapter.providerCalls.replace("project-1", "module-a", [
-        providerCall("call-a", "2026-10-22T09:00:00.000Z"),
-      ]);
-      await adapter.providerCalls.replace("project-2", "module-a", [
-        providerCall("call-b", "2026-10-22T10:00:00.000Z"),
-      ]);
-
-      const result = await adapter.projects.delete("project-1");
-      assert.deepEqual(result, { unremoved: [] });
-
-      assert.equal(await adapter.projects.load("project-1"), null);
-      assert.equal(
-        await adapter.timelines.load("project-1", "module-a"),
-        null,
-      );
-      assert.equal(
-        await adapter.timelines.load("project-1", "module-b"),
-        null,
-      );
-      assert.deepEqual(
-        (await adapter.projects.list()).map((project) => project.id),
-        ["project-2"],
-      );
-      assert.deepEqual(
-        await adapter.revisions.list("project-1", "module-a"),
-        [],
-      );
-      assert.deepEqual(
-        await adapter.revisions.list("project-1", "module-b"),
-        [],
-      );
-      assert.deepEqual(
-        await adapter.providerCalls.load("project-1", "module-a"),
-        [],
-      );
-      assert.equal(
-        (await adapter.revisions.list("project-2", "module-a"))[0].id,
-        keptRevision.id,
-      );
-      assert.equal(
-        (await adapter.revisions.list("project-2", "module-a")).some(
-          (snapshot) => snapshot.id === deletedRevision.id,
-        ),
-        false,
-      );
-
-      assert.deepEqual(await adapter.projects.load("project-2"), projectPayload("Kept"));
-      assert.deepEqual(
-        await adapter.timelines.load("project-2", "module-a"),
-        timelineData("kept"),
-      );
-      assert.equal(
-        (await adapter.providerCalls.load("project-2", "module-a")).length,
-        1,
-      );
-    });
-
-    it("keeps the timelines of a project whose id extends the deleted one", async () => {
-      const adapter = await createAdapter();
-      await adapter.projects.saveIndex([
-        projectMeta("a"),
-        projectMeta("a::b"),
-      ]);
-      await adapter.projects.save("a", projectPayload("A"));
-      await adapter.projects.save("a::b", projectPayload("A B"));
-      const kept = timelineData("kept");
-      assert.equal(await adapter.timelines.save("a::b", "module-c", kept), true);
-      assert.equal(
-        await adapter.timelines.save("a", "module-c", timelineData("removed")),
-        true,
-      );
-
-      await adapter.projects.delete("a");
-
-      assert.equal(await adapter.timelines.load("a", "module-c"), null);
-      assert.deepEqual(await adapter.timelines.load("a::b", "module-c"), kept);
-    });
-
-    it("deletes a missing project without error", async () => {
-      const adapter = await createAdapter();
-
-      assert.deepEqual(await adapter.projects.delete("missing"), {
-        unremoved: [],
-      });
-      assert.deepEqual(await adapter.projects.list(), []);
-    });
   });
 }

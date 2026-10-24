@@ -3,30 +3,34 @@ import {
   getMembers,
   getSnapshot,
   type IJsonPatch,
-  isStateTreeNode,
   onPatch,
   onSnapshot,
-  tryResolve,
 } from "mobx-state-tree";
 
 import { setAgentSessionId } from "ai-agent/agent";
+import { aiSettings } from "ai-agent/settings";
 import {
   type ClientMessage,
   type HostApi,
   type HostEndpoint,
   type HostEvent,
+  type HostInfo,
   type HostLink,
   type HostMessage,
   PERSISTENCE_METHODS,
   type PersistenceCall,
   type RequestMessage,
+  resolveAddress,
   type ResponseMessage,
+  type SentRegistry,
   type StoreActionCall,
   type StoreEvent,
   type StoreImage,
+  type VolatileTextKey,
   type WireError,
 } from "connection";
 import type { ModuleRegistry } from "lib/moduleSchema";
+import type { StorageTraits } from "persistence";
 import type { ProjectSession, ProjectSessionSnapshot } from "project-session";
 import {
   replicatedVolatileState,
@@ -48,11 +52,29 @@ import {
   redo,
   undo,
 } from "store/timeline/controller";
+import { uuid } from "utilities";
 
 function wireError(error: unknown): WireError {
   return error instanceof Error
     ? { name: error.name, message: error.message }
     : { name: "Error", message: String(error) };
+}
+
+function hostInfo(storage: StorageTraits): HostInfo {
+  const settings = aiSettings();
+  return {
+    reviewerModel: settings.read().reviewerModel,
+    missingReviewerModelMessage: settings.missingReviewerModelMessage,
+    storage,
+  };
+}
+
+function sameHostInfo(left: HostInfo, right: HostInfo): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function snapshotsOf(registry: ModuleRegistry | null): Map<string, Record<string, unknown>> {
+  return new Map((registry?.modules ?? []).map((entry) => [entry.id, entry.snapshot]));
 }
 
 function sessionView(snapshot: ProjectSessionSnapshot) {
@@ -73,10 +95,12 @@ export class ProjectHost implements HostEndpoint {
   private readonly links = new Set<(message: HostMessage) => void>();
   private readonly disposers: (() => void)[] = [];
 
-  private shown: { id: number; store: Store; stopObserving: () => void } | null =
+  private shown: { id: string; store: Store; stopObserving: () => void } | null =
     null;
-  private nextStoreId = 0;
+  private sentHostInfo: HostInfo;
   private sentRegistry: ModuleRegistry | null = null;
+  /** The module snapshots every client holds, by module id. */
+  private sentSnapshots = new Map<string, Record<string, unknown>>();
   private sentVolatile: ReplicatedVolatileState | null = null;
   private pendingPatches: IJsonPatch[] = [];
   private pendingEvents: StoreEvent[] = [];
@@ -86,6 +110,7 @@ export class ProjectHost implements HostEndpoint {
 
   constructor(session: ProjectSession) {
     this.session = session;
+    this.sentHostInfo = hostInfo(session.persistence.traits);
     this.api = {
       selectProject: (id, name, options) =>
         session.selectProject(id, name, options),
@@ -116,9 +141,12 @@ export class ProjectHost implements HostEndpoint {
    */
   private startObserving(): void {
     const initial = this.session.getSnapshot();
+    this.sentHostInfo = hostInfo(this.session.persistence.traits);
     this.sentRegistry = initial.registry;
+    this.sentSnapshots = snapshotsOf(initial.registry);
     this.showStore(initial.store);
     this.disposers.push(
+      aiSettings().subscribe(() => this.hostInfoChanged()),
       this.session.subscribe(() => this.sessionChanged()),
       onTimelineChange(() => {
         // Sent with the change that moved the timeline, or on its own.
@@ -144,11 +172,13 @@ export class ProjectHost implements HostEndpoint {
     this.flushUpdate();
     this.links.add(send);
     const snapshot = this.session.getSnapshot();
+    send({ type: "event", event: { type: "host", info: this.sentHostInfo } });
     send({
       type: "event",
       event: {
         type: "session",
         session: sessionView(snapshot),
+        // A new client holds nothing yet, so it gets every snapshot.
         registry: snapshot.registry,
         store: this.storeImage(),
       },
@@ -160,6 +190,7 @@ export class ProjectHost implements HostEndpoint {
         update: {
           patches: [],
           volatile: {},
+          appended: {},
           stepKind: null,
           focus: null,
           timeline: getTimelineMeta(),
@@ -220,9 +251,9 @@ export class ProjectHost implements HostEndpoint {
     if (shown == null || shown.id !== call.store) {
       throw new Error("The module changed before the action reached it.");
     }
-    const target: unknown = tryResolve(shown.store, call.path);
-    if (target == null || !isStateTreeNode(target)) {
-      throw new Error(`No store node is at ${call.path === "" ? "the root" : call.path}.`);
+    const target = resolveAddress(shown.store, call.address);
+    if (target == null) {
+      throw new Error("The item the action was meant for no longer exists.");
     }
     if (!getMembers(target).actions.includes(call.name)) {
       throw new Error(`${call.name} is not a store action.`);
@@ -250,6 +281,13 @@ export class ProjectHost implements HostEndpoint {
     return group[call.method](...call.args);
   }
 
+  private hostInfoChanged(): void {
+    const info = hostInfo(this.session.persistence.traits);
+    if (sameHostInfo(info, this.sentHostInfo)) return;
+    this.sentHostInfo = info;
+    this.broadcast({ type: "host", info });
+  }
+
   private sessionChanged(): void {
     const snapshot = this.session.getSnapshot();
     const event: Extract<HostEvent, { type: "session" }> = {
@@ -258,7 +296,7 @@ export class ProjectHost implements HostEndpoint {
     };
     if (snapshot.registry !== this.sentRegistry) {
       this.sentRegistry = snapshot.registry;
-      event.registry = snapshot.registry;
+      event.registry = this.registryToSend(snapshot.registry);
     }
     if (snapshot.store !== this.shown?.store) {
       this.showStore(snapshot.store);
@@ -269,6 +307,21 @@ export class ProjectHost implements HostEndpoint {
     if (snapshot.status === "ready") {
       queueMicrotask(() => this.draftPendingOverview());
     }
+  }
+
+  /** The registry with every snapshot left out that all clients already hold. */
+  private registryToSend(registry: ModuleRegistry | null): SentRegistry | null {
+    const held = this.sentSnapshots;
+    this.sentSnapshots = snapshotsOf(registry);
+    if (registry == null) return null;
+    return {
+      ...registry,
+      modules: registry.modules.map((entry) => {
+        if (held.get(entry.id) !== entry.snapshot) return entry;
+        const { snapshot: _held, ...rest } = entry;
+        return rest;
+      }),
+    };
   }
 
   // A stable per-project session id gives the provider's prompt cache a
@@ -310,9 +363,8 @@ export class ProjectHost implements HostEndpoint {
     };
     store.eventTarget.on("stepUpdate", onStepUpdate);
 
-    this.nextStoreId += 1;
     this.shown = {
-      id: this.nextStoreId,
+      id: uuid(),
       store,
       stopObserving: () => {
         stopPatches();
@@ -351,11 +403,18 @@ export class ProjectHost implements HostEndpoint {
     if (shown == null) return;
     const current = replicatedVolatileState(shown.store);
     const volatile: Partial<Record<keyof ReplicatedVolatileState, unknown>> = {};
+    const appended: Partial<Record<VolatileTextKey, string>> = {};
     let volatileChanged = false;
     for (const key of Object.keys(current) as (keyof ReplicatedVolatileState)[]) {
-      if (current[key] !== this.sentVolatile?.[key]) {
-        volatile[key] = current[key];
-        volatileChanged = true;
+      const value = current[key];
+      const sent = this.sentVolatile?.[key];
+      if (value === sent) continue;
+      volatileChanged = true;
+      // Streamed text grows at its end; only the new part is sent.
+      if (typeof value === "string" && typeof sent === "string" && sent.length > 0 && value.startsWith(sent)) {
+        appended[key as VolatileTextKey] = value.slice(sent.length);
+      } else {
+        volatile[key] = value;
       }
     }
     if (
@@ -379,6 +438,7 @@ export class ProjectHost implements HostEndpoint {
       update: {
         patches,
         volatile: volatile as Partial<ReplicatedVolatileState>,
+        appended,
         stepKind: getCurrentStepKind(),
         focus,
         timeline,

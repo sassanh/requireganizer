@@ -1,7 +1,18 @@
-/**
- * Configure a reviewer model for the importing test file. Import it before
- * any app module: the configuration is read once, when the model module loads.
- */
-process.env.NEXT_PUBLIC_AI_REVIEWER_MODEL = "reviewer-model";
+import {
+  configureAiSettings,
+  DEFAULT_AI_SETTINGS,
+  fixedAiSettings,
+} from "../../app/ai-agent/settings";
+
+/** Configure a reviewer model for the importing test file. */
+configureAiSettings(
+  fixedAiSettings(
+    { ...DEFAULT_AI_SETTINGS, apiKey: "test-key", reviewerModel: "reviewer-model" },
+    {
+      missingApiKeyMessage: "No API key is configured for the AI endpoint.",
+      missingReviewerModelMessage: "No reviewer model is configured.",
+    },
+  ),
+);
 
 export {};

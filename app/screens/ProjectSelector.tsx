@@ -2,6 +2,7 @@ import {
   Add,
   Delete,
   FolderOpen,
+  Settings,
   Upload,
 } from "@mui/icons-material";
 import {
@@ -23,11 +24,14 @@ import Link from "next/link";
 import { ChangeEvent, useEffect, useRef, useState } from "react";
 
 import { PersistentAlert } from "components";
+import AiSettingsDialog from "components/AiSettingsDialog";
+import { PROJECT_HOST_LOCATION } from "deployment";
 import { parseJson } from "lib/json";
 import { parseProjectPayload, pickActiveModule } from "lib/moduleSchema";
 import { ProjectMeta } from "lib/projectStorage";
+import { projectHref } from "lib/routes";
 import type { ProjectDeleteResult } from "persistence";
-import { usePersistence } from "provider";
+import { useProject } from "projectContext";
 import { createModuleStore } from "store";
 
 interface ProjectSelectorProps {
@@ -41,9 +45,10 @@ function hasProjectName(projects: ProjectMeta[], name: string): boolean {
 }
 
 export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
-  const persistence = usePersistence();
+  const { persistence, storage } = useProject();
   const [projects, setProjects] = useState<ProjectMeta[] | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [overviewSeed, setOverviewSeed] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -67,6 +72,15 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
       cancelled = true;
     };
   }, [persistence]);
+
+  // A storage that holds one project has nothing to choose from: it opens.
+  const onlyProject = storage.singleProject && projects?.length === 1 ? projects[0]! : null;
+  const openedOnlyProjectRef = useRef(false);
+  useEffect(() => {
+    if (onlyProject == null || openedOnlyProjectRef.current) return;
+    openedOnlyProjectRef.current = true;
+    onSelect(onlyProject.id, onlyProject.name);
+  }, [onlyProject, onSelect]);
 
   const handleCreate = async (draftOverview: boolean) => {
     const name = newName.trim();
@@ -95,7 +109,7 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
       onSelect(id, name, draftOverview ? { overviewSeed: seed } : undefined);
     } catch (storageError) {
       console.error("Could not create project.", storageError);
-      setError("The project could not be saved in browser storage.");
+      setError(`The project could not be saved in ${persistence.traits.name}.`);
     } finally {
       savingRef.current = false;
     }
@@ -112,14 +126,14 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
       setError(null);
     } catch (storageError) {
       console.error("Could not delete project.", storageError);
-      setError("The project could not be deleted from browser storage.");
+      setError(`The project could not be deleted from ${persistence.traits.name}.`);
       return;
     }
 
     // Revision cleanup failures are only logged by the adapter.
     if (result.unremoved.includes("providerCalls")) {
       setError(
-        "The project was deleted, but its AI provider activity could not be removed from browser storage.",
+        `The project was deleted, but its AI provider activity could not be removed from ${persistence.traits.name}.`,
       );
     }
   };
@@ -176,6 +190,8 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
     }
   };
 
+  if (onlyProject != null) return null;
+
   return (
     <Stack
       sx={{
@@ -188,7 +204,9 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
     >
       <Typography variant="h3">Requireganizer</Typography>
       <Typography variant="body1" sx={{ color: "text.secondary" }}>
-        Select a project to continue, or create a new one.
+        {storage.singleProject
+          ? `Create the project ${storage.name} will hold, or import one.`
+          : "Select a project to continue, or create a new one."}
       </Typography>
 
       {error && (
@@ -222,21 +240,23 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
             <CardActions>
               <Button
                 component={Link}
-                href={`/project/${encodeURIComponent(project.id)}`}
+                href={projectHref(project.id)}
                 startIcon={<FolderOpen />}
                 onClick={() => onSelect(project.id, project.name)}
               >
                 Open
               </Button>
-              <IconButton
-                size="small"
-                color="error"
-                aria-label={`Delete ${project.name}`}
-                onClick={() => setProjectToDelete(project)}
-                sx={{ ml: "auto" }}
-              >
-                <Delete />
-              </IconButton>
+              {!storage.singleProject && (
+                <IconButton
+                  size="small"
+                  color="error"
+                  aria-label={`Delete ${project.name}`}
+                  onClick={() => setProjectToDelete(project)}
+                  sx={{ ml: "auto" }}
+                >
+                  <Delete />
+                </IconButton>
+              )}
             </CardActions>
           </Card>
         ))}
@@ -248,7 +268,7 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
           >
             Loading projects…
           </Typography>
-        ) : projects.length === 0 ? (
+        ) : projects.length === 0 && !storage.singleProject ? (
           <Typography
             variant="body1"
             sx={{ color: "text.secondary", textAlign: "center", py: 4 }}
@@ -284,7 +304,18 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
           accept=".json,application/json"
           onChange={handleImport}
         />
+        {PROJECT_HOST_LOCATION === "page" && (
+          <Button
+            size="large"
+            startIcon={<Settings />}
+            onClick={() => setAiSettingsOpen(true)}
+          >
+            AI settings
+          </Button>
+        )}
       </Stack>
+
+      <AiSettingsDialog open={aiSettingsOpen} onClose={() => setAiSettingsOpen(false)} />
 
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>New Project</DialogTitle>

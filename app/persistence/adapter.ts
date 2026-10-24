@@ -210,12 +210,21 @@ export interface ProviderCallPersistence {
   ): Promise<void>;
 }
 
+/** What the interface needs to know about a storage to describe it. */
+export interface StorageTraits {
+  /** The storage holds one project; there is no project list to choose from. */
+  singleProject: boolean;
+  /** How messages name the storage, such as "browser storage". */
+  name: string;
+}
+
 /**
  * All persistence the application needs, grouped by concern. Every member
  * is asynchronous so a project can also live in files served by a local
  * process or in a remote Durable Object.
  */
 export interface PersistenceAdapter {
+  readonly traits: StorageTraits;
   readonly projects: ProjectPersistence;
   readonly timelines: TimelinePersistence;
   readonly revisions: RevisionPersistence;

@@ -57,6 +57,7 @@ export interface TimelineLoadRecord {
  */
 export class ControllablePersistenceAdapter implements PersistenceAdapter {
   readonly inner: MemoryPersistenceAdapter;
+  readonly traits = { singleProject: false, name: "memory" };
   readonly projectWrites: ProjectWriteRecord[] = [];
   readonly projectLoads: ProjectLoadRecord[] = [];
   readonly timelineWrites: TimelineWriteRecord[] = [];

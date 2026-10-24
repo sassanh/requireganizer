@@ -8,7 +8,7 @@ import {
     Stack,
     Typography,
 } from "@mui/material";
-import { useParams, useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, Suspense } from "react";
 
 import { CodeBlock, FileTree } from "components";
@@ -16,7 +16,8 @@ import {
     readStoredProjectView,
     StoredProjectView,
 } from "lib/projectStorage";
-import { usePersistence } from "provider";
+import { projectCodeHref } from "lib/routes";
+import { usePersistence } from "projectContext";
 
 const EMPTY_PROJECT_VIEW: StoredProjectView = {
     name: "",
@@ -56,24 +57,18 @@ function getCodeLanguage(path: string): string {
     }
 }
 
-function getFileHref(projectId: string, path: string): string {
-    const encodedPath = path.split("/").map(encodeURIComponent).join("/");
-    return `/project/${encodeURIComponent(projectId)}/code/${encodedPath}`;
-}
-
 function CodeViewerContent() {
-    const params = useParams();
+    const searchParams = useSearchParams();
     const router = useRouter();
     const persistence = usePersistence();
-    const projectId = params?.id as string;
-    const pathArray = params?.path as string[] | undefined;
+    const projectId = searchParams.get("id") ?? "";
 
     const [projectView, setProjectView] = useState<StoredProjectView | null>(null);
     const requestRef = useRef(0);
     const { name: projectName, scaffoldFiles: files } =
         projectView ?? EMPTY_PROJECT_VIEW;
 
-    const selectedFile = pathArray ? pathArray.join("/") : null;
+    const selectedFile = searchParams.get("path");
 
 
     const reloadData = useCallback(() => {
@@ -92,7 +87,8 @@ function CodeViewerContent() {
     }, [reloadData]);
 
     useEffect(() => {
-        // Listen to localStorage changes across tabs
+        // Browser storage reports another tab's save; a project server's
+        // changes show when this tab is looked at again.
         const handleStorageChange = (e: StorageEvent) => {
             if (e.key === `requireganizer:project:${projectId}`) {
                 reloadData();
@@ -100,12 +96,16 @@ function CodeViewerContent() {
         };
 
         window.addEventListener("storage", handleStorageChange);
-        return () => window.removeEventListener("storage", handleStorageChange);
+        window.addEventListener("focus", reloadData);
+        return () => {
+            window.removeEventListener("storage", handleStorageChange);
+            window.removeEventListener("focus", reloadData);
+        };
     }, [projectId, reloadData]);
 
     useEffect(() => {
         if (files.length > 0 && !selectedFile) {
-            router.replace(getFileHref(projectId, files[0].path));
+            router.replace(projectCodeHref(projectId, files[0].path));
         }
     }, [files, selectedFile, projectId, router]);
 
@@ -177,7 +177,7 @@ function CodeViewerContent() {
                         <FileTree
                             files={files}
                             selectedFile={selectedFile}
-                            onSelectFile={(path) => router.push(getFileHref(projectId, path))}
+                            onSelectFile={(path) => router.push(projectCodeHref(projectId, path))}
                         />
                     </Box>
                 </Box>

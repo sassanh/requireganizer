@@ -18,7 +18,7 @@ import {
 } from "@mui/material";
 import { useState } from "react";
 
-import { useProject } from "provider";
+import { useProject } from "projectContext";
 
 interface ModuleSwitcherDialogProps {
   open: boolean;

@@ -47,7 +47,7 @@ import {
   subscribePresentation,
   useShownStore,
 } from "presentation";
-import { useProject } from "provider";
+import { useProject } from "projectContext";
 import { Status, WorkflowStage, StructuralFragment, useStore } from "store";
 import { isEnumMember } from "utilities";
 

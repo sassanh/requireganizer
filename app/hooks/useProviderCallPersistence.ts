@@ -4,7 +4,7 @@ import { reaction } from "mobx";
 import { useEffect, useState } from "react";
 
 import type { ProviderCallRecord } from "lib/types";
-import { usePersistence } from "provider";
+import { usePersistence } from "projectContext";
 import type { Store } from "store";
 
 function copyCalls(calls: readonly ProviderCallRecord[]): ProviderCallRecord[] {
@@ -56,7 +56,7 @@ export function useProviderCallPersistence(
                 console.error("Could not persist AI provider activity.", storageError);
                 if (!disposed) {
                   setError(
-                    "AI provider activity could not be saved in browser storage.",
+                    `AI provider activity could not be saved in ${persistence.traits.name}.`,
                   );
                 }
               });
@@ -67,7 +67,7 @@ export function useProviderCallPersistence(
       } catch (storageError) {
         console.error("Could not load AI provider activity.", storageError);
         if (!disposed) {
-          setError("AI provider activity could not be loaded from browser storage.");
+          setError(`AI provider activity could not be loaded from ${persistence.traits.name}.`);
         }
       }
     };
