@@ -15,7 +15,7 @@ export function projectCodeHref(projectId: string, path: string | null = null): 
 
 /**
  * A place in the open project, given as the store gives it: a query of the
- * project page and a fragment, such as `?step=user-stories#US-1`.
+ * project page and a fragment, such as `?step=user-stories#<item id>`.
  */
 export function projectPlaceHref(projectId: string, place: string): string {
   const url = new URL(place, "http://place.invalid/project");

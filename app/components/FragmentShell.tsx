@@ -98,7 +98,7 @@ function FragmentFrame({
       {...props}
       elementId={id}
       approval={approved === true ? "approved" : "draft"}
-      data-fragment-code={code === "" ? undefined : code}
+      data-fragment-link
       getCopyText={getCopyText}
       onClick={handleFrameClick}
       sx={[
@@ -125,7 +125,7 @@ function FragmentFrame({
         <Stack direction="row" data-fragment={`${type}:${id}`}>
           <Typography
             component={Link}
-            href={`#${code}`}
+            href={`#${id}`}
             underline="hover"
             variant="body1"
             sx={codeSx(priority)}
@@ -229,9 +229,8 @@ const FragmentShellContent = observer(function FragmentShellContent<
     const linkedCode = store.getCode(id);
     return {
       id,
-      href: linkedCode ? `#${linkedCode}` : "#",
-      label: `${FRAGMENT_CODES[fragmentType]}-${list.findIndex(({ id: id_ }) => id_ === id) + 1
-        }`,
+      href: linkedCode == null ? "#" : `#${id}`,
+      label: linkedCode ?? id,
     };
   });
   const references = [...fragment.references].map((reference) => {

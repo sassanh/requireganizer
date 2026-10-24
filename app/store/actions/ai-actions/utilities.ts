@@ -47,10 +47,11 @@ import {
   StructuralFragment,
   isBefore,
 } from "store/constants";
-import { classifyListChange } from "store/listChange";
+import { classifyListChange, regeneratedList } from "store/listChange";
 import {
   dependenciesEqual,
   referencesEqual,
+  type StructuralFragment as Fragment,
 } from "store/models/StructuralFragment";
 import { itemSetRevision } from "store/review";
 import type { FlatStore, TestCaseSnapshotInput, TestScenarioSnapshotInput } from "store/store";
@@ -169,18 +170,22 @@ export function applyProductOverviewProposal(
         typeof item === "string" ? [item] : item.id != null ? [item.id] : [],
       ),
     );
-    const featureSnapshots = proposal.primaryFeatures.map(toFeatureSnapshot);
-    for (const existing of overview.primaryFeatures) {
-      if (proposedFeatureIds.has(existing.id)) continue;
+    const drop = (existing: Fragment): unknown => {
       existing.markPendingRemoval();
-      featureSnapshots.push(getSnapshot(existing));
-    }
-    const userSnapshots = proposal.targetUsers.map(toUserSnapshot);
-    for (const existing of overview.targetUsers) {
-      if (proposedUserIds.has(existing.id)) continue;
-      existing.markPendingRemoval();
-      userSnapshots.push(getSnapshot(existing));
-    }
+      return getSnapshot(existing);
+    };
+    const featureSnapshots = regeneratedList(
+      overview.primaryFeatures,
+      proposal.primaryFeatures.map(toFeatureSnapshot),
+      proposedFeatureIds,
+      drop,
+    );
+    const userSnapshots = regeneratedList(
+      overview.targetUsers,
+      proposal.targetUsers.map(toUserSnapshot),
+      proposedUserIds,
+      drop,
+    );
     candidate.setName({ name: proposal.name });
     candidate.setPurpose({ purpose: proposal.purpose });
     candidate.setPrimaryFeatures({

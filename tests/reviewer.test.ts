@@ -13,7 +13,10 @@ import type {
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 
 import { reviewStageUnits } from "../app/ai-agent/reviewer";
-import { applyArtifactListProposal } from "../app/store/actions/ai-actions/utilities";
+import {
+  applyArtifactListProposal,
+  applyFragmentRevisionProposal,
+} from "../app/store/actions/ai-actions/utilities";
 import { Priority, StructuralFragment, WorkflowStage } from "../app/store/constants";
 import { coverageUnitId } from "../app/store/review";
 import { Store } from "../app/store/store";
@@ -150,6 +153,31 @@ describe("reviewer model", () => {
     assert.ok(tools.includes("submit_verdicts"));
     assert.equal(tools.some((name) => name.startsWith("submit_") && name !== "submit_verdicts"), false);
     assert.match(JSON.stringify(first.messages[0]), /independently valuable user outcomes/);
+  });
+
+  it("tells the reviewer which units are deletions", async () => {
+    const store = storeWithDraftStory();
+    applyFragmentRevisionProposal(store, {
+      entityType: StructuralFragment.UserStory,
+      id: "story-1",
+      patch: { remove: true },
+    });
+    const awaiting = store.unitsAwaitingReview(WorkflowStage.UserStories).map(({ id }) => id);
+    assert.ok(awaiting.includes("story-1"));
+    const streamFn = scripted([
+      verdictCall(awaiting.map((id) => ({ id, verdict: "approve" as const, reason: "Redundant." }))),
+      message([{ type: "text", text: "Done." }]),
+    ]);
+    await reviewStageUnits(store, WorkflowStage.UserStories, streamFn);
+    const prompt = JSON.parse(JSON.stringify(streamFn.contexts[0]!.messages[0])) as {
+      content: { type: string; text: string }[];
+    };
+    const units = (JSON.parse(prompt.content[0]!.text) as { units: { id: string; removal: boolean }[] }).units;
+    assert.deepEqual(
+      units.map(({ id, removal }) => ({ id, removal })),
+      awaiting.map((id) => ({ id, removal: id === "story-1" })),
+    );
+    assert.match(streamFn.contexts[0]!.systemPrompt ?? "", /proposed deletion/);
   });
 
   it("fails clearly when the reviewer submits nothing", async () => {

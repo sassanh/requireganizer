@@ -12,8 +12,8 @@ interface ApprovalFrameProps extends Omit<StackProps, "id"> {
   elementId: string;
   /** Staged approval state. Null renders the frame without a bar. */
   approval: ApprovalStatus | null;
-  /** Deep-link code (FEA-1) for URL copying. Absent means the frame has no fragment address. */
-  "data-fragment-code"?: string;
+  /** Marks a fragment card, linked to by its element id. Absent means the frame has no link of its own. */
+  "data-fragment-link"?: true;
   /** Renders this frame's content as clipboard text. Absent means the frame has nothing to copy. */
   getCopyText?: () => string;
 }

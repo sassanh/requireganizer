@@ -63,7 +63,7 @@ describe("cross-module display references", () => {
     const siblingStore = makeStore("feat-b");
     active.setSiblingModules([{ id: "module-b", store: siblingStore }]);
 
-    assert.equal(active.getPath("feat-a"), `?step=${WorkflowStage.ProductOverview}#${active.getCode("feat-a")}`);
+    assert.equal(active.getPath("feat-a"), `?step=${WorkflowStage.ProductOverview}#feat-a`);
     assert.equal(active.getCode("missing"), undefined);
     assert.equal(active.getPath("missing"), undefined);
   });
