@@ -22,6 +22,7 @@ interface PendingProjectWrite {
 export class ManualProjectWriteAdapter implements PersistenceAdapter {
   readonly inner = new MemoryPersistenceAdapter();
   readonly pending: PendingProjectWrite[] = [];
+  readonly traits = this.inner.traits;
 
   get projects(): ProjectPersistence {
     const inner = this.inner.projects;

@@ -4,21 +4,42 @@
 
 - Node.js 22.13 or newer
 - pnpm 11
-- An OpenAI-compatible chat-completions endpoint and model that support formal function tools
+- An API key for an OpenAI-compatible Responses API whose model supports function tools; the default endpoint is OpenRouter
 
-The default configuration uses the OpenCode Zen gateway and the `muse-spark-1.3-contributor-free` model through a continuous agentic conversation. Set provider credentials or override the endpoint in `.env.local` when needed.
+## Run it in the browser
 
-## Install and run
+The page build keeps projects in browser storage and calls the AI from the page with the key you enter under **AI settings**.
 
 ```bash
 pnpm install
+pnpm run build
+```
+
+Serve the static files in `out/` from any static host.
+
+## Run it with a project server
+
+The project server keeps one project in a file inside your repository, runs the AI with the key from its environment, and serves the interface.
+
+```bash
+pnpm install
+pnpm run server:build
+cd path/to/your/repository
+AI_API_KEY=your-key node path/to/requireganizer/dist/requireganizer.mjs
+```
+
+Without a path, the server uses the nearest `requireganizer.json` in the current folder or a folder above it, or creates one in the current folder; pass a path to use another file. It prints the address and opens the browser. The project file holds only the project; its history stays in the state directory.
+
+See [environment variables](/reference/environment) for the AI settings.
+
+## Develop
+
+```bash
 cp .env.example .env.local
 pnpm run dev
 ```
 
-Open `http://localhost:3000`.
-
-The values in `.env.example` are usable defaults. Change the provider URL, model, timeout, or optional key in `.env.local` if you operate a different compatible endpoint. See [environment variables](/reference/environment) for the full reference.
+`pnpm run dev` runs the server build with hot reload on `http://127.0.0.1:3000`, serving the project in `local/requireganizer.json`; pass a path to serve another. `pnpm run dev:browser` runs the page build instead.
 
 ## Run the quality gate
 

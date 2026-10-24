@@ -14,9 +14,9 @@ import type { ReviewUnit } from "store/review";
 import type { FlatStore } from "store/store";
 
 import { recordedMetadata } from "./agent";
-import { reviewerModel } from "./model";
-import { proxyStreamFn } from "./proxy-stream";
+import { gatewayStream } from "./gateway";
 import { buildReadTools } from "./read-tools";
+import { reviewerModel } from "./settings";
 
 const REVIEWER_SYSTEM_PROMPT = `You review work another model wrote in Requireganizer, a requirements and test-design workspace. You never rewrite anything.
 
@@ -46,9 +46,9 @@ export function reviewSubjectOf(store: FlatStore, unit: ReviewUnit): ReviewSubje
 export async function reviewStageUnits(
   store: FlatStore,
   step: WorkflowStage,
-  streamFn: AgentOptions["streamFn"] = proxyStreamFn(),
+  streamFn?: AgentOptions["streamFn"],
 ): Promise<void> {
-  const model = reviewerModel;
+  const model = reviewerModel();
   if (model == null) return;
   const units = store.unitsAwaitingReview(step);
   if (units.length === 0) return;
@@ -92,7 +92,7 @@ export async function reviewStageUnits(
       tools: [...buildReadTools(store), submitVerdicts],
       messages: [],
     },
-    streamFn,
+    streamFn: streamFn ?? gatewayStream(),
   });
   const collected = { usage: [] as Usage[], turns: 0 };
   const unsubscribe = agent.subscribe((event) => {

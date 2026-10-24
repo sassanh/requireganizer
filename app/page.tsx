@@ -2,7 +2,8 @@
 import { observer } from "mobx-react-lite";
 import { useRouter } from "next/navigation";
 
-import { useProject } from "provider";
+import { projectHref } from "lib/routes";
+import { useProject } from "projectContext";
 import ProjectSelector from "screens/ProjectSelector";
 
 function LandingPage() {
@@ -15,7 +16,7 @@ function LandingPage() {
         options?: { overviewSeed?: string },
     ) => {
         void selectProject(id, name, options);
-        router.push(`/project/${id}`);
+        router.push(projectHref(id));
     };
 
     return <ProjectSelector onSelect={handleSelectProject} />;

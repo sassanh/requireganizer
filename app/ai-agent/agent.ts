@@ -12,8 +12,7 @@ import type { FlatStore } from "store/store";
 
 import type { AiCommand } from "./command";
 import { renderCommand } from "./command";
-import { zenGatewayModel } from "./model";
-import { proxyStreamFn } from "./proxy-stream";
+import { gatewayStream } from "./gateway";
 import { buildReadTools } from "./read-tools";
 import {
   buildAllStageResultTools,
@@ -22,6 +21,7 @@ import {
   buildStageActivationTool,
   consumePendingStageUnlock,
 } from "./result-tools";
+import { writerModel } from "./settings";
 import { buildAgentSystemPrompt } from "./system-prompt";
 
 // Stable per-project session id: pi-ai turns it into prompt-cache affinity
@@ -98,7 +98,7 @@ export function recordedMetadata(
   startedAt: number,
   collected: { usage: Usage[]; turns: number },
   outcome: "success" | "failed",
-  model: Pick<Model<"openai-responses">, "provider" | "id"> = zenGatewayModel,
+  model: Pick<Model<string>, "provider" | "id">,
 ): ProviderCallMetadata[] {
   if (collected.turns === 0) return [];
   const totals = collected.usage.reduce(
@@ -129,22 +129,22 @@ export function recordedMetadata(
 
 /**
  * Create (or reuse) the per-project conversation agent. The transcript is
- * persisted on the store so the conversation survives reloads. The stream
- * function defaults to the server proxy and can be replaced in tests.
+ * persisted on the store so the conversation survives reloads. Without a
+ * stream function the agent calls the installed gateway; tests pass one.
  */
 export function getProjectAgent(
   store: FlatStore,
-  streamFn: AgentOptions["streamFn"] = proxyStreamFn(),
+  streamFn?: AgentOptions["streamFn"],
 ): Agent {
   return new Agent({
     initialState: {
       systemPrompt: buildAgentSystemPrompt(),
-      model: zenGatewayModel,
+      model: writerModel(),
       thinkingLevel: "high",
       tools: [],
       messages: (store.conversation ?? []) as AgentMessage[],
     },
-    streamFn,
+    streamFn: streamFn ?? gatewayStream(),
     ...(agentSessionId != null && { sessionId: agentSessionId }),
     // Mid-turn stage unlocks: when the model calls activate_stage_result_tool,
     // the unlocked submission tools are merged into the very next request of
@@ -302,11 +302,14 @@ async function runAgentTurn(
           startedAt,
           collected,
           "failed",
+          agent.state.model,
         ));
         throw new Error(last.errorMessage ?? "The AI request failed.");
       }
     }
-    store.recordProviderCalls(recordedMetadata(operation, startedAt, collected, "success"));
+    store.recordProviderCalls(
+      recordedMetadata(operation, startedAt, collected, "success", agent.state.model),
+    );
   } finally {
     unsubscribe();
     store.clearActiveAgent();

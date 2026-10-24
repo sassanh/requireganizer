@@ -12,7 +12,7 @@ In User Stories, Requirements, and Acceptance Criteria, the **Coverage** list un
 
 ## Review modes
 
-Each stage runs in **Manual review** or **Auto review**. With a reviewer model configured (`NEXT_PUBLIC_AI_REVIEWER_MODEL`), the model judges every draft against the stage's quality contract. In manual review its verdict appears next to the item as a recommendation and you approve. In auto review its approval is the approval; a rejection waits for you with the model's reason. When you approve something the model rejected, or request a change to something it approved, you decide in a dialog that shows its reason. **Review with the model** asks for verdicts on drafts that have none.
+Each stage runs in **Manual review** or **Auto review**. With a reviewer model configured (`AI_REVIEWER_MODEL` for a server, **AI settings** in the page build), the model judges every draft against the stage's quality contract. In manual review its verdict appears next to the item as a recommendation and you approve. In auto review its approval is the approval; a rejection waits for you with the model's reason. When you approve something the model rejected, or request a change to something it approved, you decide in a dialog that shows its reason. **Review with the model** asks for verdicts on drafts that have none.
 
 ## Changing an earlier stage
 

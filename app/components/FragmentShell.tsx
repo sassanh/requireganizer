@@ -5,7 +5,9 @@ import { isAlive } from "mobx-state-tree";
 import { Fragment, useEffect, useRef, type MouseEvent, type ReactNode } from "react";
 
 import { useFragmentHash } from "hooks/useFragmentHash";
+import { projectPlaceHref } from "lib/routes";
 import { useShownStore } from "presentation";
+import { useOpenProjectId } from "projectContext";
 import { FRAGMENT_CODES, Priority, StructuralFragment as StructuralFragmentName, useStore } from "store";
 import { type FragmentReference, fragmentReference, type TestCase, StructuralFragment } from "store/models";
 
@@ -209,6 +211,7 @@ const FragmentShellContent = observer(function FragmentShellContent<
 }: FragmentShellProps<Type>) {
   const store = useStore();
   const shown = useShownStore();
+  const projectId = useOpenProjectId();
   const hash = useFragmentHash();
 
   lastLiveCode.set(fragment, fragment.getCode());
@@ -231,11 +234,14 @@ const FragmentShellContent = observer(function FragmentShellContent<
         }`,
     };
   });
-  const references = [...fragment.references].map((reference) => ({
-    id: reference.id,
-    href: store.getPath(reference.id) ?? "#",
-    label: store.getCode(reference.id) ?? reference.id,
-  }));
+  const references = [...fragment.references].map((reference) => {
+    const place = store.getPath(reference.id);
+    return {
+      id: reference.id,
+      href: place == null || projectId == null ? "#" : projectPlaceHref(projectId, place),
+      label: store.getCode(reference.id) ?? reference.id,
+    };
+  });
   const isHighlighted = hash === code || hash === fragmentId;
 
   // Navigating to a fragment (its code link, a reference, a fresh page

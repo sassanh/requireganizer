@@ -322,8 +322,8 @@ describe("review gate", () => {
   });
 
   it("reads the reviewer model from configuration", async () => {
-    const { reviewerModel } = await import("../app/ai-agent/model");
-    assert.equal(reviewerModel?.id, "reviewer-model");
+    const { reviewerModel } = await import("../app/ai-agent/settings");
+    assert.equal(reviewerModel()?.id, "reviewer-model");
   });
 
   it("approves on an approving verdict only in auto review", () => {

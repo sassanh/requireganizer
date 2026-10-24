@@ -9,6 +9,7 @@ import {
 } from "./support/controllablePersistence";
 import { installFakeWebEnvironment } from "./support/fakeWebEnvironment";
 import { ManualProjectWriteAdapter } from "./support/manualProjectWrite";
+import { UserFacingError } from "../app/lib/errors";
 import {
   LEGACY_MODULE_ID,
   type ModuleEntry,
@@ -394,11 +395,11 @@ describe("project session loading", () => {
 
     assert.equal(
       session.getSnapshot().persistenceError,
-      "Changes could not be saved in browser storage. Export the project to avoid losing work.",
+      "Changes could not be saved in memory. Export the project to avoid losing work.",
     );
   });
 
-  it("ends in the idle state when a project load fails", async () => {
+  it("ends failed, naming the project, when a project load fails", async () => {
     const adapter = new ControllablePersistenceAdapter();
     await seedProject(
       adapter,
@@ -417,9 +418,63 @@ describe("project session loading", () => {
     );
     await opened;
 
-    assert.equal(session.getSnapshot().status, "idle");
-    assert.equal(session.getSnapshot().activeProject, null);
-    assert.equal(session.getSnapshot().registry, null);
+    const failed = session.getSnapshot();
+    assert.equal(failed.status, "failed");
+    assert.deepEqual(failed.activeProject, { id: "project-1", name: "Project" });
+    assert.equal(failed.persistenceError, "The project could not be loaded.");
+    assert.equal(failed.registry, null);
+
+    // Retrying opens the project once storage answers.
+    await session.selectProject("project-1", "Project");
+    assert.equal(session.getSnapshot().status, "ready");
+  });
+
+  it("keeps the open or opening project when it is selected again", async () => {
+    const adapter = new ControllablePersistenceAdapter();
+    await seedProject(
+      adapter,
+      "project-1",
+      projectPayload(projectRegistry([moduleEntry("module-a", "Alpha")], "module-a")),
+    );
+    const session = new ProjectSession(adapter);
+    adapter.hold("project-load:project-1");
+    const first = session.selectProject("project-1", "Project");
+    // A second client asks for the project while it opens: one load serves both.
+    const second = session.selectProject("project-1", "Project");
+    adapter.release("project-load:project-1");
+    await Promise.all([first, second]);
+    assert.equal(adapter.projectLoads.length, 1);
+
+    const store = session.getSnapshot().store;
+    const statuses: string[] = [];
+    const unsubscribe = session.subscribe(() => statuses.push(session.getSnapshot().status));
+    await session.selectProject("project-1", "Project");
+    unsubscribe();
+    assert.equal(session.getSnapshot().store, store);
+    assert.deepEqual(statuses, []);
+    session.dispose();
+  });
+
+  it("names a user-facing load failure in the failed state", async () => {
+    const adapter = new ControllablePersistenceAdapter();
+    await seedProject(
+      adapter,
+      "project-1",
+      projectPayload(
+        projectRegistry([moduleEntry("module-a", "Alpha")], "module-a"),
+      ),
+    );
+    adapter.hold("project-load:project-1");
+
+    const session = new ProjectSession(adapter);
+    const opened = session.selectProject("project-1", "Project");
+    adapter.release(
+      "project-load:project-1",
+      new UserFacingError("The project file is not valid JSON."),
+    );
+    await opened;
+
+    assert.equal(session.getSnapshot().persistenceError, "The project file is not valid JSON.");
   });
 
   it("keeps the module shown with its timeline detached when its timeline load fails", async () => {

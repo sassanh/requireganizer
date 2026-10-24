@@ -1,5 +1,6 @@
 import { getSnapshot, onSnapshot } from "mobx-state-tree";
 
+import { getUserFacingErrorMessage } from "lib/errors";
 import {
   assertModuleNameAvailable,
   buildProjectPayload,
@@ -38,13 +39,14 @@ export interface ModuleSummary {
   active: boolean;
 }
 
-export type ProjectSessionStatus = "idle" | "loading" | "ready";
+export type ProjectSessionStatus = "idle" | "loading" | "failed" | "ready";
 
 /**
  * The session's observable state. The status and the fields it allows move
  * together: an idle session has no project, a loading session has a named
- * project but no registry yet, and a ready session has both a registry and
- * a store to render. A module switch stays ready while its timeline loads.
+ * project but no registry yet, a failed session names the project it could
+ * not load and why, and a ready session has both a registry and a store to
+ * render. A module switch stays ready while its timeline loads.
  */
 export type ProjectSessionSnapshot =
   | {
@@ -58,6 +60,13 @@ export type ProjectSessionSnapshot =
       status: "loading";
       activeProject: { id: string; name: string };
       persistenceError: null;
+      registry: null;
+      store: Store;
+    }
+  | {
+      status: "failed";
+      activeProject: { id: string; name: string };
+      persistenceError: string;
       registry: null;
       store: Store;
     }
@@ -113,6 +122,14 @@ type LoadingProjectSessionState = {
   store: Store;
 };
 
+/** The project's load failed; it stays named so the page can offer a retry. */
+type FailedProjectSessionState = {
+  status: "load-failed";
+  project: ProjectIdentity;
+  message: string;
+  store: Store;
+};
+
 type OpenSessionFields = {
   project: ProjectIdentity;
   registry: ModuleRegistry;
@@ -135,12 +152,15 @@ type OpenSessionState = ReadySessionState | ImportingSessionState;
 type SessionState =
   | IdleSessionState
   | LoadingProjectSessionState
+  | FailedProjectSessionState
   | OpenSessionState;
 
-const PROJECT_SAVE_ERROR_MESSAGE =
-  "Changes could not be saved in browser storage. Export the project to avoid losing work.";
+function projectSaveErrorMessage(storage: string): string {
+  return `Changes could not be saved in ${storage}. Export the project to avoid losing work.`;
+}
 const INVALID_STORED_PROJECT_MESSAGE =
   "The stored project was invalid, so a blank project was opened.";
+const PROJECT_LOAD_ERROR_MESSAGE = "The project could not be loaded.";
 
 function snapshotOf(state: SessionState): ProjectSessionSnapshot {
   switch (state.status) {
@@ -157,6 +177,14 @@ function snapshotOf(state: SessionState): ProjectSessionSnapshot {
         status: "loading",
         activeProject: state.project,
         persistenceError: null,
+        registry: null,
+        store: state.store,
+      };
+    case "load-failed":
+      return {
+        status: "failed",
+        activeProject: state.project,
+        persistenceError: state.message,
         registry: null,
         store: state.store,
       };
@@ -191,6 +219,8 @@ export class ProjectSession {
   private state: SessionState;
   private snapshot: ProjectSessionSnapshot;
   private pendingOverviewSeed: PendingOverviewSeed | null = null;
+  /** The project load in flight, which a repeated selection of it waits for. */
+  private projectLoad: Promise<void> = Promise.resolve();
 
   /**
    * Every operation that replaces what an async load or write would land on
@@ -305,7 +335,13 @@ export class ProjectSession {
           this.setPersistenceNotice((notice) =>
             notice?.source === "write"
               ? notice
-              : { source: "write", message: PROJECT_SAVE_ERROR_MESSAGE },
+              : {
+                  source: "write",
+                  message: getUserFacingErrorMessage(
+                    error,
+                    projectSaveErrorMessage(this.persistence.traits.name),
+                  ),
+                },
           );
         },
       );
@@ -406,6 +442,7 @@ export class ProjectSession {
     const state = this.state;
     switch (state.status) {
       case "idle":
+      case "load-failed":
         return;
       case "loading-project":
       case "importing":
@@ -543,13 +580,14 @@ export class ProjectSession {
     detachTimeline();
     this.state = { status: "loading-project", project, store: this.state.store };
     this.publish();
-    return this.loadProject(project, generation);
+    this.projectLoad = this.loadProject(project, generation);
+    return this.projectLoad;
   }
 
   /**
    * Load a project payload and its active module timeline, then show the
    * store. A superseded load is dropped after each await; a failed load ends
-   * idle instead of leaving the session loading forever.
+   * failed, naming the project, instead of leaving the session loading.
    */
   private async loadProject(
     project: ProjectIdentity,
@@ -580,7 +618,12 @@ export class ProjectSession {
       console.error("Could not load the project.", error);
       this.detachStoreSubscription();
       detachTimeline();
-      this.state = { status: "idle", store: this.state.store };
+      this.state = {
+        status: "load-failed",
+        project,
+        message: getUserFacingErrorMessage(error, PROJECT_LOAD_ERROR_MESSAGE),
+        store: this.state.store,
+      };
       this.syncModuleContext();
       this.publish();
     }
@@ -675,6 +718,12 @@ export class ProjectSession {
       this.pendingOverviewSeed = { projectId: id, seed };
     } else if (this.pendingOverviewSeed?.projectId !== id) {
       this.pendingOverviewSeed = null;
+    }
+    // Clients share the session: selecting the project already open or
+    // opening keeps it, rather than reloading it under another client.
+    const state = this.state;
+    if ((state.status === "loading-project" || isOpen(state)) && state.project.id === id) {
+      return this.projectLoad;
     }
     return this.openProject({ id, name });
   };

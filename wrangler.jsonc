@@ -1,12 +1,9 @@
 {
     "name": "requireganizer",
-    "main": ".open-next/worker.js",
     "compatibility_date": "2024-12-06",
-    "compatibility_flags": [
-        "nodejs_compat"
-    ],
+    // The page build of the interface: static files, nothing runs on the server.
     "assets": {
-        "directory": ".open-next/assets",
-        "binding": "ASSETS"
+        "directory": "out",
+        "not_found_handling": "404-page"
     }
 }

@@ -23,9 +23,9 @@ cp .env.example .env.local
 pnpm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [http://127.0.0.1:3000](http://127.0.0.1:3000). Set `AI_API_KEY` in `.env.local` first; the default endpoint is OpenRouter.
 
-The default configuration uses an OpenCode Zen model. Configure credentials or another OpenAI-compatible function-calling endpoint and model through `.env.local`; see the [environment reference](docs/reference/environment.md).
+Requireganizer runs either entirely in the browser, with projects in browser storage, or with a project server that keeps one project in a file in your repository. See [getting started](docs/guide/getting-started.md) and the [environment reference](docs/reference/environment.md).
 
 ## Quality gate
 

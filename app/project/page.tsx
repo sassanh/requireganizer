@@ -13,7 +13,7 @@ import {
 } from "@mui/material";
 import { observer } from "mobx-react-lite";
 import Link from "next/link";
-import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 
 import { switchModuleShortcut } from "actions/actions";
@@ -35,7 +35,8 @@ import {
   type ShortcutBinding,
 } from "hooks/shortcuts";
 import { useProviderCallPersistence } from "hooks/useProviderCallPersistence";
-import { usePersistence, useProject } from "provider";
+import { projectCodeHref } from "lib/routes";
+import { usePersistence, useProject } from "projectContext";
 import { Factory } from "screens";
 import { Store, useStore } from "store";
 
@@ -53,16 +54,16 @@ function Home() {
     activeModuleId,
     activeModuleOpenStep,
     switchModule,
+    storage,
   } = useProject();
   const persistence = usePersistence();
-  const params = useParams();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [historyOpen, setHistoryOpen] = useState(false);
   const [modulesOpen, setModulesOpen] = useState(false);
 
-  const projectId = params?.id as string;
+  const projectId = searchParams.get("id") ?? "";
   const providerCallPersistenceError = useProviderCallPersistence(
     activeProject?.id === projectId ? projectId : null,
     activeProject?.id === projectId && activeModuleId !== "" ? activeModuleId : null,
@@ -153,6 +154,36 @@ function Home() {
     }
   }, [store]);
 
+  if (status === "failed" && activeProject?.id === projectId) {
+    return (
+      <Stack sx={{ alignItems: "center", py: 6, px: 2 }}>
+        <Alert
+          severity="error"
+          sx={{ maxWidth: 700, width: "100%" }}
+          action={
+            <Stack direction="row" sx={{ gap: 1 }}>
+              {!storage.singleProject && (
+                <Button color="inherit" size="small" component={Link} href="/" onClick={() => void backToProjects()}>
+                  Projects
+                </Button>
+              )}
+              <Button
+                color="inherit"
+                size="small"
+                onClick={() => void selectProject(activeProject.id, activeProject.name)}
+              >
+                Try again
+              </Button>
+            </Stack>
+          }
+        >
+          <AlertTitle>{activeProject.name} could not be opened</AlertTitle>
+          {persistenceError}
+        </Alert>
+      </Stack>
+    );
+  }
+
   if (
     status !== "ready" ||
     !activeProject ||
@@ -194,16 +225,18 @@ function Home() {
         sx={{ borderBottom: 1, borderColor: "divider" }}
       >
         <Toolbar disableGutters sx={{ px: { xs: 2, md: 3 }, gap: 1.5 }}>
-          <Button
-            component={Link}
-            href="/"
-            variant="text"
-            startIcon={<ArrowBack />}
-            onClick={backToProjects}
-            disabled={store.isBusy}
-          >
-            Projects
-          </Button>
+          {!storage.singleProject && (
+            <Button
+              component={Link}
+              href="/"
+              variant="text"
+              startIcon={<ArrowBack />}
+              onClick={backToProjects}
+              disabled={store.isBusy}
+            >
+              Projects
+            </Button>
+          )}
         <ProjectActionsMenu onShowModules={openModules} />
         <Typography variant="h6" sx={{ flexGrow: 1 }}>
           {activeProject.name}
@@ -211,7 +244,7 @@ function Home() {
         <Tooltip title={store.hasGeneratedScaffold ? "Project files" : "Generate the project setup to enable source code"}>
           <Button
           component={Link}
-          href={`/project/${encodeURIComponent(activeProject.id)}/code`}
+          href={projectCodeHref(activeProject.id)}
           target="_blank"
           rel="noopener noreferrer"
           variant="outlined"
@@ -305,4 +338,13 @@ function Home() {
   );
 }
 
-export default observer(Home);
+const ProjectPage = observer(Home);
+
+/** The project named in the query; the query is read on the client, under a suspense boundary. */
+export default function ProjectRoute() {
+  return (
+    <Suspense fallback={null}>
+      <ProjectPage />
+    </Suspense>
+  );
+}

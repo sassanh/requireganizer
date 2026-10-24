@@ -13,10 +13,15 @@
   "engines": {
     "node": ">=22.13.0"
   },
+  "bin": {
+    "requireganizer": "dist/requireganizer.mjs"
+  },
   "scripts": {
-    "dev": "next dev",
+    "dev": "node scripts/build-server.mjs --dev && node .server-dist/dev.mjs",
+    "dev:browser": "next dev",
     "build": "next build",
-    "start": "next start",
+    "server:build": "node scripts/build-server.mjs",
+    "server:start": "node dist/requireganizer.mjs",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs",
@@ -25,9 +30,8 @@
     "test": "node scripts/run-tests.mjs",
     "prepare": "cp .husky/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit || true",
     "coverage": "c8 --reporter=text-summary --reporter=html --reporter=lcov node scripts/run-tests.mjs",
-    "check": "pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run build && pnpm run cf:build && pnpm run docs:build",
-    "cf:build": "npx @opennextjs/cloudflare build",
-    "cf:deploy": "wrangler deploy"
+    "check": "pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run build && pnpm run server:build && pnpm run docs:build",
+    "cf:deploy": "pnpm run build && wrangler deploy"
   },
   "dependencies": {
     "@cfworker/json-schema": "^4.1.1",
@@ -61,15 +65,17 @@
     "react-textarea-autosize": "^8.5.9",
     "remark-gfm": "^4.0.1",
     "shiki": "^4.4.3",
-    "uuid": "^14.0.1"
+    "uuid": "^14.0.1",
+    "ws": "8.21.0"
   },
   "devDependencies": {
     "@eslint/compat": "^2.1.0",
     "@eslint/eslintrc": "^3.3.6",
     "@eslint/js": "^9.39.5",
     "@next/eslint-plugin-next": "^16",
-    "@opennextjs/cloudflare": "1.20.2",
+    "@types/ws": "^8.18.2",
     "c8": "^12.0.0",
+    "esbuild": "0.28.1",
     "eslint": "^9.39.5",
     "eslint-config-next": "^16",
     "eslint-plugin-etc": "^2.0.3",

@@ -10,13 +10,14 @@ function source(path: string): string {
 describe("provider wiring", () => {
   it("takes the storage adapter from the project client instead of a context default", () => {
     const provider = source("app/provider.tsx");
+    const context = source("app/projectContext.ts");
 
     assert.match(provider, /persistence:\s*client\.persistence/);
     assert.match(
-      provider,
+      context,
       /createContext<ProjectContextValue \| null>\(null\)/,
     );
-    assert.match(provider, /throw new Error\("useProject must be used inside Providers\."\)/);
+    assert.match(context, /throw new Error\("useProject must be used inside Providers\."\)/);
     assert.doesNotMatch(provider, /persistence:\s*webPersistence/);
   });
 

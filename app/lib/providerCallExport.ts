@@ -1,3 +1,5 @@
+import { DEFAULT_AI_BASE_URL } from "ai-agent/model";
+
 import type { ProviderCallRecord } from "./types";
 
 const CSV_COLUMNS = [
@@ -87,8 +89,8 @@ export function providerCallToCurl(call: ProviderCallRecord): string {
   });
   const quotedBody = `'${body.replaceAll("'", "'\\''")}'`;
   return [
-    'curl "${AI_BASE_URL:-https://opencode.ai/zen/v1}/responses" \\',
-    '  -H "Authorization: Bearer ${AI_API_KEY:-${OPENCODE_API_KEY:-public}}" \\',
+    `curl "\${AI_BASE_URL:-${DEFAULT_AI_BASE_URL}}/responses" \\`,
+    '  -H "Authorization: Bearer ${AI_API_KEY}" \\',
     '  -H "Content-Type: application/json" \\',
     `  --data-raw ${quotedBody}`,
   ].join("\n");

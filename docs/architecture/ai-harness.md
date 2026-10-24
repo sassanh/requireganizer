@@ -16,7 +16,7 @@ Provider schema acceptance is not a correctness signal. Runtime validation is au
 
 ## Reviewer model
 
-Once a flow has applied work, the reviewer model reviews the stage it acted on: every unit with no current verdict that can be decided now. It runs as a separate agent with a fresh context, the read tools, and one `submit_verdicts` tool; it never sees the writer's conversation and has no submit tool of the writer's. Each unit arrives with the quality contract it is judged against. A submission that skips or repeats a unit is returned to the model to complete. Verdicts are recorded against the exact state each unit was reviewed in; in auto review an approving verdict is the approval. A reviewer failure leaves the applied work in place and says so. The reviewer model is `NEXT_PUBLIC_AI_REVIEWER_MODEL`; without it no review runs.
+Once a flow has applied work, the reviewer model reviews the stage it acted on: every unit with no current verdict that can be decided now. It runs as a separate agent with a fresh context, the read tools, and one `submit_verdicts` tool; it never sees the writer's conversation and has no submit tool of the writer's. Each unit arrives with the quality contract it is judged against. A submission that skips or repeats a unit is returned to the model to complete. Verdicts are recorded against the exact state each unit was reviewed in; in auto review an approving verdict is the approval. A reviewer failure leaves the applied work in place and says so. The reviewer model is `AI_REVIEWER_MODEL` for a server and **AI settings** in the page build; without it no review runs.
 
 ## Adapter and schema safety
 

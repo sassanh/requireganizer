@@ -5,6 +5,7 @@ export type {
   ProjectPersistence,
   ProviderCallPersistence,
   RevisionPersistence,
+  StorageTraits,
   TimelinePersistence,
 } from "./adapter";
 export {

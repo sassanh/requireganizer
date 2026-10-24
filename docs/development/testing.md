@@ -11,8 +11,8 @@ The command runs, in order:
 1. ESLint across the repository.
 2. Strict TypeScript checking without emission.
 3. The compiled Node test suite.
-4. A production Next.js build.
-5. A Cloudflare/OpenNext worker build.
+4. The page build of the interface: a static export to `out/`.
+5. The project server: the server build of the interface in `dist/ui/` and the command-line bundle `dist/requireganizer.mjs`.
 6. A production VitePress build, including link validation.
 
 The same command runs for pull requests and pushes to `main`.
@@ -24,7 +24,7 @@ pnpm run lint
 pnpm run typecheck
 pnpm run test
 pnpm run build
-pnpm run cf:build
+pnpm run server:build
 pnpm run docs:build
 ```
 

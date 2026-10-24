@@ -7,13 +7,22 @@ import { getSnapshot, onSnapshot } from "mobx-state-tree";
 
 import { assistantMessage, scriptedStreamFn } from "./support/scriptedStream";
 import {
+  type AiSettings,
+  aiSettings,
+  configureAiSettings,
+  DEFAULT_AI_SETTINGS,
+} from "../app/ai-agent/settings";
+import {
   type ClientConnection,
+  type ClientConnectionListener,
   type HostMessage,
+  type LinkClosed,
   linkInProcess,
 } from "../app/connection";
 import { UserFacingError } from "../app/lib/errors";
 import type { ModuleEntry, ModuleRegistry } from "../app/lib/moduleSchema";
 import { PROJECT_SCHEMA_VERSION } from "../app/lib/projectSchema";
+import type { ProjectMeta } from "../app/lib/projectStorage";
 import { MemoryPersistenceAdapter } from "../app/persistence";
 import { ProjectClient } from "../app/project-client";
 import { ProjectHost } from "../app/project-host";
@@ -69,7 +78,10 @@ interface Opened {
   dispose: () => void;
 }
 
-async function openProject(registry: ModuleRegistry): Promise<Opened> {
+async function openProject(
+  registry: ModuleRegistry,
+  linkTo: (host: ProjectHost) => () => ClientConnection = (host) => () => linkInProcess(host),
+): Promise<Opened> {
   const adapter = new MemoryPersistenceAdapter();
   await adapter.projects.saveIndex([
     { id: "project-a", name: "Alpha", description: "", updatedAt: "2026-10-23T00:00:00.000Z" },
@@ -80,7 +92,7 @@ async function openProject(registry: ModuleRegistry): Promise<Opened> {
   });
   const session = new ProjectSession(adapter);
   const host = new ProjectHost(session);
-  const client = new ProjectClient(() => linkInProcess(host));
+  const client = new ProjectClient(linkTo(host));
   const disconnect = client.open();
   session.start();
   await client.selectProject("project-a", "Alpha");
@@ -117,11 +129,43 @@ function twoModules(): ModuleRegistry {
   };
 }
 
+/** In-process links whose host side can be made to end, as a dropped socket would. */
+function droppableLinks() {
+  const links: { drop(reason: LinkClosed): void }[] = [];
+  const linkTo = (host: ProjectHost) => (): ClientConnection => {
+    const inner = linkInProcess(host);
+    let listener: ClientConnectionListener | null = null;
+    links.push({
+      drop: (reason) => {
+        const current = listener;
+        inner.close();
+        current?.closed(reason);
+      },
+    });
+    return {
+      send: (message) => inner.send(message),
+      subscribe: (next) => {
+        listener = next;
+        const stop = inner.subscribe(next);
+        return () => {
+          listener = null;
+          stop();
+        };
+      },
+      close: () => inner.close(),
+    };
+  };
+  return { links, linkTo };
+}
+
 /** A raw link that records every message the host sends. */
 function rawLink(host: ProjectHost): { link: ClientConnection; received: HostMessage[] } {
   const link = linkInProcess(host);
   const received: HostMessage[] = [];
-  link.subscribe((message) => received.push(message));
+  link.subscribe({
+    message: (message) => received.push(message),
+    closed: () => {},
+  });
   return { link, received };
 }
 
@@ -216,7 +260,7 @@ describe("project host and client", () => {
         Promise.resolve(opened.replica().setReviewMode(WorkflowStage.UserStories, "auto")),
         (error: unknown) =>
           error instanceof UserFacingError &&
-          /NEXT_PUBLIC_AI_REVIEWER_MODEL/.test(error.message),
+          /No reviewer model is configured/.test(error.message),
       );
     } finally {
       opened.dispose();
@@ -468,7 +512,7 @@ describe("project host and client", () => {
         type: "request",
         id: 3,
         name: "runStoreAction",
-        args: [{ store: 0, path: "", name: "setName", args: [{ name: "x" }] }],
+        args: [{ store: "", address: [], name: "setName", args: [{ name: "x" }] }],
       });
       await waitFor("three answers", () =>
         received.filter((message) => message.type === "response").length === 3,
@@ -487,19 +531,59 @@ describe("project host and client", () => {
     }
   });
 
+  it("tells clients which reviewer model the host's AI uses, and when that changes", async () => {
+    const previous = aiSettings();
+    let settings: AiSettings = { ...DEFAULT_AI_SETTINGS, reviewerModel: null };
+    const listeners = new Set<() => void>();
+    configureAiSettings({
+      read: () => settings,
+      subscribe: (listener) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+      missingApiKeyMessage: "Add a key.",
+      missingReviewerModelMessage: "Pick a reviewer.",
+    });
+    try {
+      const opened = await openProject(singleModule());
+      try {
+        assert.deepEqual(opened.client.getHostInfo(), {
+          reviewerModel: null,
+          missingReviewerModelMessage: "Pick a reviewer.",
+          storage: { singleProject: false, name: "memory" },
+        });
+        assert.equal(opened.client.persistence.traits.name, "memory");
+        await assert.rejects(
+          Promise.resolve(opened.replica().setReviewMode(WorkflowStage.UserStories, "auto")),
+          /Pick a reviewer\./,
+        );
+        settings = { ...settings, reviewerModel: "judge" };
+        for (const listener of listeners) listener();
+        await waitFor("the new reviewer", () => opened.client.getHostInfo().reviewerModel === "judge");
+      } finally {
+        opened.dispose();
+      }
+      assert.equal(listeners.size, 0);
+    } finally {
+      configureAiSettings(previous);
+    }
+  });
+
   it("refuses to run a store member that is not an action", async () => {
     const opened = await openProject(singleModule());
     const { link, received } = rawLink(opened.host);
     try {
-      await waitFor("the first image", () => received.length > 0);
-      const first = received[0]!;
+      const isSession = (message: HostMessage) =>
+        message.type === "event" && message.event.type === "session";
+      await waitFor("the first image", () => received.some(isSession));
+      const first = received.find(isSession)!;
       assert.ok(first.type === "event" && first.event.type === "session");
       const storeId = first.event.store!.id;
       link.send({
         type: "request",
         id: 1,
         name: "runStoreAction",
-        args: [{ store: storeId, path: "", name: "stageLabel", args: ["user-stories"] }],
+        args: [{ store: storeId, address: [], name: "stageLabel", args: ["user-stories"] }],
       });
       await waitFor("the answer", () => received.some((message) => message.type === "response"));
       const response = received.find((message) => message.type === "response")!;
@@ -557,17 +641,26 @@ describe("project host and client", () => {
     const adapter = new MemoryPersistenceAdapter();
     const host = new ProjectHost(new ProjectSession(adapter));
     const client = new ProjectClient(() => linkInProcess(host));
+    // Made before any connection opened: it waits, through a disconnect too.
+    const early = client.persistence.projects.list();
     const disconnect = client.open();
-    const sent = client.timeline.undo();
     disconnect();
-    await assert.rejects(sent, /closed/);
+    const reconnect = client.open();
+    try {
+      assert.deepEqual(await early, []);
+      const sent = client.timeline.undo();
+      reconnect();
+      await assert.rejects(sent, /closed/);
+    } finally {
+      reconnect();
+    }
 
     const held = client.persistence.projects.list();
-    const reconnect = client.open();
+    const again = client.open();
     try {
       assert.deepEqual(await held, []);
     } finally {
-      reconnect();
+      again();
     }
   });
 
@@ -590,6 +683,200 @@ describe("project host and client", () => {
     } finally {
       disconnect();
       session.dispose();
+    }
+  });
+});
+
+describe("project host and client over a link that can fail", () => {
+  it("addresses an item by its id, so an action lands on it after earlier items move", async () => {
+    const opened = await openProject(singleModule(["Water plants", "Feed plants"]));
+    try {
+      const pending = opened.replica().userStories[1]!.setContent("Repot plants");
+      // Before the action reaches the host, the item ahead of it goes away there.
+      const authority = opened.authority();
+      authority.removeUserStory({ fragment: authority.userStories[0]! });
+      await pending;
+      assert.deepEqual(
+        opened.authority().userStories.map((story) => story.content),
+        ["Repot plants"],
+      );
+      assert.deepEqual(
+        opened.replica().userStories.map((story) => story.content),
+        ["Repot plants"],
+      );
+    } finally {
+      opened.dispose();
+    }
+  });
+
+  it("sends streamed text as what was added to its end", async () => {
+    const opened = await openProject(singleModule());
+    const { link, received } = rawLink(opened.host);
+    try {
+      opened.authority().appendThinking("Reading the overview");
+      opened.authority().appendThinking(", then the stories.");
+      await waitFor("the streamed text", () =>
+        opened.replica().thinkingText === "Reading the overview, then the stories.",
+      );
+      const updates = received.flatMap((message) =>
+        message.type === "event" && message.event.type === "store-update" ? [message.event.update] : [],
+      );
+      assert.ok(updates.some((update) => update.volatile.thinkingText === "Reading the overview"));
+      const appended = updates.find((update) => update.appended.thinkingText != null);
+      assert.equal(appended?.appended.thinkingText, ", then the stories.");
+      assert.equal(appended?.volatile.thinkingText, undefined);
+    } finally {
+      link.close();
+      opened.dispose();
+    }
+  });
+
+  it("leaves out module snapshots every client already holds", async () => {
+    const opened = await openProject(twoModules());
+    const { link, received } = rawLink(opened.host);
+    try {
+      const before = opened.client.getSnapshot().registry!;
+      await opened.client.recordOpenStep(WorkflowStage.UserStories);
+      const sent = received.flatMap((message) =>
+        message.type === "event" && message.event.type === "session" && message.event.registry != null
+          ? [message.event.registry]
+          : [],
+      ).at(-1)!;
+      assert.ok(sent.modules.every((entry) => entry.snapshot === undefined));
+      const after = opened.client.getSnapshot().registry!;
+      assert.equal(after.modules[0]!.openStep, WorkflowStage.UserStories);
+      assert.equal(after.modules[1]!.snapshot, before.modules[1]!.snapshot);
+
+      // Switching away writes the outgoing module's snapshot, which is sent.
+      await opened.replica().setName({ name: "Alpha 2" });
+      assert.equal(await opened.client.switchModule("module-b"), true);
+      const switched = opened.client.getSnapshot().registry!;
+      const outgoing = switched.modules.find((entry) => entry.id === "module-a")!;
+      assert.equal(
+        (outgoing.snapshot.productOverview as { name: string }).name,
+        "Alpha 2",
+      );
+      assert.equal(opened.replica().productOverview.name, "Beta");
+    } finally {
+      link.close();
+      opened.dispose();
+    }
+  });
+
+  it("refuses an action addressed to a store image of an earlier host", async () => {
+    const opened = await openProject(singleModule());
+    const earlier = rawLink(opened.host);
+    const later = new ProjectHost(opened.session);
+    const { link, received } = rawLink(later);
+    try {
+      const isSession = (message: HostMessage) =>
+        message.type === "event" && message.event.type === "session";
+      await waitFor("both images", () => earlier.received.some(isSession) && received.some(isSession));
+      const earlierImage = earlier.received.find(isSession)!;
+      assert.ok(earlierImage.type === "event" && earlierImage.event.type === "session");
+      link.send({
+        type: "request",
+        id: 1,
+        name: "runStoreAction",
+        args: [{ store: earlierImage.event.store!.id, address: [], name: "setName", args: [{ name: "x" }] }],
+      });
+      await waitFor("the answer", () => received.some((message) => message.type === "response"));
+      const response = received.find((message) => message.type === "response")!;
+      assert.ok(response.type === "response" && !response.ok);
+      assert.match(response.error.message, /module changed/);
+      assert.notEqual(opened.authority().productOverview.name, "x");
+    } finally {
+      link.close();
+      earlier.link.close();
+      opened.dispose();
+    }
+  });
+
+  it("fails what was in flight when the link drops, then reconnects and resumes", async () => {
+    const { links, linkTo } = droppableLinks();
+    const opened = await openProject(singleModule(["Water plants"]), linkTo);
+    try {
+      assert.deepEqual(opened.client.getConnectionStatus(), { state: "open" });
+      const inFlight = opened.client.persistence.projects.list();
+      links[0]!.drop({ retry: true, message: "The connection was lost." });
+      await assert.rejects(inFlight, (error: unknown) =>
+        error instanceof UserFacingError && error.message === "The connection was lost.",
+      );
+      assert.deepEqual(opened.client.getConnectionStatus(), {
+        state: "reconnecting",
+        message: "The connection was lost.",
+      });
+
+      // Changed while the client was away; the next connection starts from it.
+      opened.authority().userStories[0]!.setContent("Feed plants");
+      const waiting = opened.client.persistence.projects.list();
+      await waitFor("the reconnect", () => opened.client.getConnectionStatus().state === "open");
+      assert.equal(links.length, 2);
+      assert.deepEqual((await waiting).map((project) => project.id), ["project-a"]);
+      assert.equal(opened.replica().userStories[0]!.content, "Feed plants");
+      await opened.replica().userStories[0]!.setContent("Repot plants");
+      assert.equal(opened.authority().userStories[0]!.content, "Repot plants");
+    } finally {
+      opened.dispose();
+    }
+  });
+
+  it("keeps requests made while reconnecting through an attempt that fails before opening", async () => {
+    const { links, linkTo } = droppableLinks();
+    let attempts = 0;
+    let duringAttempt: Promise<ProjectMeta[]> | null = null;
+    const opened = await openProject(singleModule(["Water plants"]), (host) => {
+      const live = linkTo(host);
+      return () => {
+        attempts += 1;
+        if (attempts !== 2) return live();
+        // The server is still down: the socket closes before any message,
+        // and a request is made while it is trying.
+        let listener: ClientConnectionListener | null = null;
+        queueMicrotask(() => {
+          duringAttempt = opened.client.persistence.projects.list();
+        });
+        setTimeout(() => listener?.closed({ retry: true, message: "Still down." }), 0);
+        return {
+          send: () => {},
+          subscribe: (next) => {
+            listener = next;
+            return () => {
+              listener = null;
+            };
+          },
+          close: () => {},
+        };
+      };
+    });
+    try {
+      links[0]!.drop({ retry: true, message: "The connection was lost." });
+      const waiting = opened.client.persistence.projects.list();
+      assert.deepEqual((await waiting).map((project) => project.id), ["project-a"]);
+      assert.equal(attempts, 3);
+      // Assigned by the link factory, which the compiler cannot see.
+      const during = duringAttempt as Promise<ProjectMeta[]> | null;
+      assert.ok(during != null);
+      assert.deepEqual((await during).map((project) => project.id), ["project-a"]);
+    } finally {
+      opened.dispose();
+    }
+  });
+
+  it("fails every request once the link ends for good", async () => {
+    const { links, linkTo } = droppableLinks();
+    const opened = await openProject(singleModule(), linkTo);
+    try {
+      links[0]!.drop({ retry: false, message: "Reload this page." });
+      assert.deepEqual(opened.client.getConnectionStatus(), {
+        state: "failed",
+        message: "Reload this page.",
+      });
+      await assert.rejects(opened.client.persistence.projects.list(), /Reload this page\./);
+      await delay(700);
+      assert.equal(links.length, 1);
+    } finally {
+      opened.dispose();
     }
   });
 });
