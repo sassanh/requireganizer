@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { classifyListChange, listChangeCaption } from "../app/store/listChange";
+import { classifyListChange, listChangeCaption, regeneratedList } from "../app/store/listChange";
 
 describe("list change classification", () => {
   it("treats revised rows as rewrites and pending-removal rows as drops", () => {
@@ -22,6 +22,26 @@ describe("list change classification", () => {
     assert.deepEqual(change.kept, ["b"]);
     assert.deepEqual(change.added, ["d"]);
     assert.deepEqual(change.dropped, [{ id: "c", code: "US-3" }]);
+  });
+});
+
+describe("regenerated list", () => {
+  const previous = ["a", "b", "c", "d", "e"].map((id) => ({ id }));
+  const regenerate = (proposed: string[]) =>
+    regeneratedList(previous, proposed, new Set(proposed), ({ id }) => `${id} (dropped)`);
+
+  it("puts every left-out item back at the position it held", () => {
+    assert.deepEqual(regenerate(["a", "c", "e"]), ["a", "b (dropped)", "c", "d (dropped)", "e"]);
+    assert.deepEqual(regenerate(["e"]), ["a (dropped)", "b (dropped)", "c (dropped)", "d (dropped)", "e"]);
+    assert.deepEqual(regenerate([]), previous.map(({ id }) => `${id} (dropped)`));
+  });
+
+  it("keeps dropped positions whatever order and additions the proposal brings", () => {
+    const list = regenerate(["new-1", "e", "c", "new-2", "new-3"]);
+    previous.forEach(({ id }, index) => {
+      if (id !== "c" && id !== "e") assert.equal(list[index], `${id} (dropped)`);
+    });
+    assert.deepEqual(list.filter((entry) => !entry.endsWith("(dropped)")), ["new-1", "e", "c", "new-2", "new-3"]);
   });
 });
 

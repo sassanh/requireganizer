@@ -273,6 +273,30 @@ describe("review gate", () => {
     assert.equal(store.approvalOf("story-1"), "approved");
   });
 
+  it("keeps a dropped item at its position, so the drop renumbers nothing", () => {
+    const store = Store.create({ productOverview: OVERVIEW }) as unknown as FlatStore;
+    approveStage(store, WorkflowStage.ProductOverview);
+    const stories = ["story-1", "story-2", "story-3"].map((id) => ({ id, content: `${STORY} (${id})` }));
+    applyArtifactListProposal(store, storyProposal(stories));
+    applyArtifactListProposal(store, storyProposal([stories[0]!, stories[2]!]));
+    assert.deepEqual(store.userStories.map(({ id }) => id), ["story-1", "story-2", "story-3"]);
+    assert.equal(store.userStories[1]!.pendingRemoval, true);
+    assert.equal(store.getCode("story-2"), "US-2");
+    assert.equal(store.getCode("story-3"), "US-3");
+    // The change note names the dropped item by the code it still shows.
+    assert.deepEqual(store.stageListChanges.get(WorkflowStage.UserStories)?.dropped, [
+      { id: "story-2", code: "US-2" },
+    ]);
+  });
+
+  it("keeps a dropped product-overview item at its position", () => {
+    const features = ["feat-1", "feat-2", "feat-3"].map((id) => ({ id, content: `Feature ${id}` }));
+    const store = Store.create({ productOverview: { ...OVERVIEW, primaryFeatures: features } }) as unknown as FlatStore;
+    applyProductOverviewProposal(store, overviewProposal({ primaryFeatures: [features[0]!, features[2]!] }));
+    assert.deepEqual(store.productOverview.primaryFeatures.map(({ id }) => id), ["feat-1", "feat-2", "feat-3"]);
+    assert.equal(store.productOverview.primaryFeatures[1]!.pendingRemoval, true);
+  });
+
   it("lets a removal be approved even when what the item references changed", () => {
     const store = storeWithCompleteRequirements();
     applyArtifactListProposal(store, storyProposal([{ id: "story-1", content: `${STORY} Daily.` }]));

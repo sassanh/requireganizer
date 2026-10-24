@@ -28,6 +28,28 @@ export type ListChangeAfterItem = {
   pendingRemoval?: boolean;
 };
 
+/**
+ * The list a regeneration leaves: the proposed entries in their order, with
+ * every previous item the proposal left out back at the position it held,
+ * so a drop awaiting review renumbers nothing. `drop` marks a left-out item
+ * and gives its entry.
+ */
+export function regeneratedList<Item extends { id: string }, Entry>(
+  previous: ArrayLike<Item>,
+  proposed: readonly Entry[],
+  proposedIds: ReadonlySet<string>,
+  drop: (item: Item) => Entry,
+): Entry[] {
+  const entries = [...proposed];
+  // In ascending order, each earlier position is already filled by a kept
+  // or a re-inserted item, so every dropped item lands exactly where it was.
+  for (let i = 0; i < previous.length; i++) {
+    const item = previous[i]!;
+    if (!proposedIds.has(item.id)) entries.splice(i, 0, drop(item));
+  }
+  return entries;
+}
+
 export function classifyListChange(
   before: readonly ListChangeBeforeItem[],
   after: readonly ListChangeAfterItem[],

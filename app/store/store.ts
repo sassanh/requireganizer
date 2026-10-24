@@ -108,6 +108,7 @@ import {
   type ListChange,
   type ListChangeAfterItem,
   type ListChangeBeforeItem,
+  regeneratedList,
 } from "./listChange";
 import {
   AcceptanceCriteria,
@@ -888,7 +889,7 @@ export const FlatStore = types
     getPath(id: string) {
       const fragment = self.structuralFragmentsCache[id];
       if (fragment != null) {
-        return `?step=${WORKFLOW_STAGE_BY_STRUCTURAL_FRAGMENT[fragment.type]}#${fragment.getCode()}`;
+        return `?step=${WORKFLOW_STAGE_BY_STRUCTURAL_FRAGMENT[fragment.type]}#${fragment.id}`;
       }
       const sibling = findSiblingModule(self, id);
       const siblingPath = sibling?.store.getPath(id);
@@ -2017,12 +2018,10 @@ export const FlatStore = types
           return getSnapshot(existing);
         });
         const keptIds = new Set(snapshots.map((item) => (item as { id: string }).id));
-        for (const existing of list) {
-          if (keptIds.has(existing.id)) continue;
+        list.replace(regeneratedList<StructuralFragment, unknown>(list, snapshots, keptIds, (existing) => {
           existing.markPendingRemoval();
-          snapshots.push(getSnapshot(existing));
-        }
-        list.replace(snapshots as never[]);
+          return getSnapshot(existing);
+        }) as never[]);
         for (const item of list) {
           if (!item.pendingRemoval) item.setBasis(self.currentBasisOf(item));
         }

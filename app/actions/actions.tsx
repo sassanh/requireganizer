@@ -155,13 +155,13 @@ export const copyUrlAction: Action<HTMLElement> = {
   shortcut: copyUrlShortcut,
   isEnabled: () => true,
   run: (frame) => {
-    const code = frame.getAttribute("data-fragment-code");
     // Keep the query string: the visible stage lives in ?step=..., and
-    // dropping it lands the link on the wrong tab.
+    // dropping it lands the link on the wrong tab. A fragment is linked by
+    // its id, which no edit or reordering changes.
     const base = `${window.location.origin}${window.location.pathname}${window.location.search}`;
     writeCopyResult(
       frame,
-      code != null && code !== "" ? `${base}#${code}` : base,
+      frame.hasAttribute("data-fragment-link") ? `${base}#${frame.id}` : base,
       "Copied link",
     );
   },
