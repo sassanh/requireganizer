@@ -9,8 +9,10 @@ on:
 permissions:
   contents: read
 
+# A pull request's newer push cancels its older run; every commit on main
+# runs to completion, in its own group.
 concurrency:
-  group: quality-${{ github.workflow }}-${{ github.ref }}
+  group: quality-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: true
 
 jobs:
