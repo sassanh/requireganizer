@@ -74,7 +74,7 @@ import type { TestCase, TestScenario } from "store/models";
 import type { FlatStore } from "store/store";
 import { generateTestAnnotation } from "utilities/testParser";
 
-import type { AiCommand, CommandStage } from "./command";
+import { type AiCommand, type CommandStage, workflowStageOf } from "./command";
 
 type ToolArgs = Record<string, unknown>;
 
@@ -306,15 +306,20 @@ const ALL_STAGE_COMMANDS: AiCommand[] = [
     .map((step) => ({ kind: "generate", stage: step }) as AiCommand),
 ];
 
+/** A stage's submission tool, with the stage it submits to. */
+export interface StageSubmissionTool {
+  stage: CommandStage;
+  tool: AgentTool;
+}
+
 /**
- * Every stage submission channel whose prerequisites currently hold,
- * deduplicated by name (the communicate tool appears in each stage set).
- * Stages whose prerequisites are missing stay absent until the workflow
- * unlocks them — construction is the gate.
+ * Every stage submission tool whose prerequisites currently hold. Stages
+ * whose prerequisites are missing stay absent until the workflow unlocks
+ * them — construction is the gate.
  */
-export function buildAllStageResultTools(store: FlatStore): AgentTool[] {
-  const merged: AgentTool[] = [];
-  const seen = new Set<string>();
+export function buildStageSubmissionTools(store: FlatStore): StageSubmissionTool[] {
+  const submissions: StageSubmissionTool[] = [];
+  const seen = new Set<string>([COMMUNICATE_TOOL.name]);
   for (const command of ALL_STAGE_COMMANDS) {
     let tools: AgentTool[];
     try {
@@ -325,10 +330,10 @@ export function buildAllStageResultTools(store: FlatStore): AgentTool[] {
     for (const tool of tools) {
       if (seen.has(tool.name)) continue;
       seen.add(tool.name);
-      merged.push(tool);
+      submissions.push({ stage: (command as { stage: CommandStage }).stage, tool });
     }
   }
-  return merged;
+  return submissions;
 }
 
 /**
@@ -343,10 +348,7 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
 
   if (command.kind === "generate" || command.kind === "revise") {
     if (command.kind === "generate") {
-      const generateStage = command.stage === "implementation-profile"
-        ? WorkflowStage.InterfaceContracts
-        : command.stage;
-      const reason = store.cannotGenerateReason(generateStage);
+      const reason = store.cannotGenerateReason(workflowStageOf(command.stage));
       if (reason != null) throw new UserFacingError(reason);
       if (
         command.stage === WorkflowStage.InterfaceContracts &&
@@ -435,7 +437,8 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
 
         if (currentSuite != null && reviseTarget == null) {
           throw new Error("A formal-contract revision requires one exact target.");
-        }        if (currentSuite != null) {
+        }
+        if (currentSuite != null) {
           validateContractSuite(currentSuite, design, profile.revisionId);
         }
         stageTools.push(agentTool(buildContractSuiteTool(design), async (args) => {
@@ -444,7 +447,8 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
           if (currentSuite != null && reviseTarget != null) {
             assertRevisionIsolation(proposal, currentSuite, design, reviseTarget);
           }
-          applyContractSuiteProposal(store, proposal);          return "Formal contracts applied.";
+          applyContractSuiteProposal(store, proposal);
+          return "Formal contracts applied.";
         }));
         break;
       }

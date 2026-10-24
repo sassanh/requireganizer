@@ -229,6 +229,15 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
     return `This server serves the project in ${this.traits.name} only.`;
   }
 
+  /** When the project file last changed; now when that cannot be read, such as for a file removed meanwhile. */
+  private modifiedAt(): Date {
+    try {
+      return statSync(this.projectFile).mtime;
+    } catch {
+      return this.now();
+    }
+  }
+
   readonly projects: ProjectPersistence = {
     list: async () => {
       try {
@@ -241,7 +250,7 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
             id: DEFAULT_FILE_PROJECT_ID,
             name: basename(this.traits.name, extname(this.traits.name)),
             description: "",
-            updatedAt: statSync(this.projectFile).mtime.toISOString(),
+            updatedAt: this.modifiedAt().toISOString(),
           },
         ];
       }

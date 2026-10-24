@@ -8,6 +8,7 @@ import {
 } from "mobx-state-tree";
 
 import { setAgentSessionId } from "ai-agent/agent";
+import { agentToolDescriptions, callAgentTool } from "ai-agent/agent-access";
 import { aiSettings } from "ai-agent/settings";
 import {
   type ClientMessage,
@@ -29,6 +30,7 @@ import {
   type VolatileTextKey,
   type WireError,
 } from "connection";
+import { UserFacingError } from "lib/errors";
 import type { ModuleRegistry } from "lib/moduleSchema";
 import type { StorageTraits } from "persistence";
 import type { ProjectSession, ProjectSessionSnapshot } from "project-session";
@@ -131,8 +133,38 @@ export class ProjectHost implements HostEndpoint {
       activateBranch,
       exportTimeline: getTimelineSnapshot,
       runPersistence: (call) => this.runPersistence(call),
+      listAgentTools: async () => agentToolDescriptions(await this.openStore()),
+      callAgentTool: async (name, args) => {
+        const store = await this.openStore();
+        // Whatever the call changed would be replaced with the imported project.
+        if (session.importing) {
+          throw new UserFacingError(
+            "A project import is replacing this project in Requireganizer. Call get_workflow_state once it finishes.",
+          );
+        }
+        return callAgentTool(store, name, args);
+      },
     };
+  }
 
+  /** The open project's shown store, opening the only project a single-project storage holds. */
+  private async openStore(): Promise<Store> {
+    await this.session.openOnlyProject();
+    const snapshot = this.session.getSnapshot();
+    switch (snapshot.status) {
+      case "ready":
+        return snapshot.store;
+      case "failed":
+        throw new UserFacingError(snapshot.persistenceError);
+      case "loading":
+        throw new UserFacingError("The project is still opening. Try again in a moment.");
+      case "idle":
+        throw new UserFacingError(
+          this.session.persistence.traits.singleProject
+            ? `${this.session.persistence.traits.name} holds no project yet. Create it in Requireganizer first.`
+            : "Open a project in Requireganizer first.",
+        );
+    }
   }
 
   /**

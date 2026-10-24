@@ -1,6 +1,6 @@
 # Environment variables
 
-The project server (`requireganizer`, `pnpm run dev`) reads these variables when it starts. Restart it after changing them.
+The project server (`requireganizer`, `requireganizer mcp`, `pnpm run dev`) reads these variables when it starts. Restart it after changing them.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |

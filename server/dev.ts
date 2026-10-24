@@ -31,14 +31,18 @@ async function main(): Promise<void> {
   // Read after Next has loaded `.env.local`.
   const aiSettings = environmentAiSettings();
   installAiRuntime(aiSettings);
-  const server = await startProjectServer({
+  const started = await startProjectServer({
     projectFile,
     aiSettings,
     port,
-    nextFreePort: false,
     serveInterface: (request, response) => void handle(request, response),
     forwardUpgrade: app.getUpgradeHandler(),
   });
+  if ("heldBy" in started) {
+    const where = started.heldBy.url == null ? "" : ` at ${started.heldBy.url}`;
+    throw new Error(`Another Requireganizer process already serves ${projectFile}${where}. Stop it first.`);
+  }
+  const server = started.serving;
   process.stdout.write(`Serving ${projectFile}\n`);
   for (const warning of server.warnings) process.stdout.write(`Warning: ${warning}\n`);
   process.stdout.write(`Open ${server.url}\n`);

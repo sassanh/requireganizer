@@ -27,6 +27,7 @@ import {
   flushTimeline,
 } from "store/timeline/controller";
 
+import { persistProviderCalls, type ProviderCallSaving } from "./providerCalls";
 import { type ExportableModule, SiblingModuleStores } from "./siblingStores";
 
 /** Streaming mutates the store every ~80ms; coalesce writes behind this delay. */
@@ -102,13 +103,21 @@ interface OpenedProject {
  */
 type ModuleTimelineStatus = "loading" | "attached" | "unavailable";
 
+/** What failed: the project load, a project write, or saving AI provider activity. */
+type PersistenceNoticeSource = "load" | "write" | "activity";
+
 /**
- * A message for the persistence banner. A successful save clears only a
- * message a failed save set, never a load warning.
+ * Messages for the persistence banner, at most one per source. A success
+ * clears only its own source's message, so one failure never hides another.
  */
-interface PersistenceNotice {
-  source: "write" | "load";
-  message: string;
+type PersistenceNotices = Partial<Record<PersistenceNoticeSource, string>>;
+
+/** The order the banner shows its messages in: unsaved work first. */
+const NOTICE_ORDER: readonly PersistenceNoticeSource[] = ["write", "load", "activity"];
+
+function shownNotice(notices: PersistenceNotices): string | null {
+  const messages = NOTICE_ORDER.flatMap((source) => notices[source] ?? []);
+  return messages.length === 0 ? null : messages.join(" ");
 }
 
 type IdleSessionState = {
@@ -135,7 +144,7 @@ type OpenSessionFields = {
   registry: ModuleRegistry;
   store: Store;
   timeline: ModuleTimelineStatus;
-  persistenceNotice: PersistenceNotice | null;
+  persistenceNotices: PersistenceNotices;
 };
 
 type ReadySessionState = OpenSessionFields & { status: "ready" };
@@ -193,7 +202,7 @@ function snapshotOf(state: SessionState): ProjectSessionSnapshot {
       return {
         status: "ready",
         activeProject: state.project,
-        persistenceError: state.persistenceNotice?.message ?? null,
+        persistenceError: shownNotice(state.persistenceNotices),
         registry: state.registry,
         store: state.store,
       };
@@ -236,6 +245,7 @@ export class ProjectSession {
   private projectWriteSequence = 0;
 
   private unsubscribeStore: (() => void) | null = null;
+  private providerCallSaving: ProviderCallSaving | null = null;
   private flushPendingSave: (() => void) | null = null;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -256,6 +266,14 @@ export class ProjectSession {
   };
 
   getSnapshot = (): ProjectSessionSnapshot => this.snapshot;
+
+  /**
+   * Whether an import's write is in flight. The snapshot shows the current
+   * store as ready meanwhile, but the import replaces it once the write lands.
+   */
+  get importing(): boolean {
+    return this.state.status === "importing";
+  }
 
   private beginOperation(): number {
     this.operationGeneration += 1;
@@ -289,14 +307,15 @@ export class ProjectSession {
     return state;
   }
 
-  private setPersistenceNotice(
-    update: (notice: PersistenceNotice | null) => PersistenceNotice | null,
-  ): void {
+  /** Set or, with null, clear one source's message. */
+  private setPersistenceNotice(source: PersistenceNoticeSource, message: string | null): void {
     const state = this.state;
     if (!isOpen(state)) return;
-    const notice = update(state.persistenceNotice);
-    if (notice === state.persistenceNotice) return;
-    this.state = { ...state, persistenceNotice: notice };
+    if ((state.persistenceNotices[source] ?? null) === message) return;
+    const notices = { ...state.persistenceNotices };
+    if (message == null) delete notices[source];
+    else notices[source] = message;
+    this.state = { ...state, persistenceNotices: notices };
     this.publish();
   }
 
@@ -325,23 +344,14 @@ export class ProjectSession {
       .then(
         () => {
           if (!isLatest()) return;
-          this.setPersistenceNotice((notice) =>
-            notice?.source === "write" ? null : notice,
-          );
+          this.setPersistenceNotice("write", null);
         },
         (error: unknown) => {
           console.error("Could not persist project changes.", error);
           if (!isLatest()) return;
-          this.setPersistenceNotice((notice) =>
-            notice?.source === "write"
-              ? notice
-              : {
-                  source: "write",
-                  message: getUserFacingErrorMessage(
-                    error,
-                    projectSaveErrorMessage(this.persistence.traits.name),
-                  ),
-                },
+          this.setPersistenceNotice(
+            "write",
+            getUserFacingErrorMessage(error, projectSaveErrorMessage(this.persistence.traits.name)),
           );
         },
       );
@@ -360,6 +370,8 @@ export class ProjectSession {
   private attachStoreSubscription(state: OpenSessionState): void {
     this.unsubscribeStore?.();
     this.unsubscribeStore = null;
+    this.providerCallSaving?.stop();
+    this.providerCallSaving = null;
 
     const { project, store } = state;
     let pendingWrite: (() => void) | null = null;
@@ -372,6 +384,13 @@ export class ProjectSession {
       pendingWrite = null;
     };
     this.flushPendingSave = flushPendingWrite;
+    this.providerCallSaving = persistProviderCalls(
+      this.persistence,
+      project.id,
+      state.registry.activeModuleId,
+      store,
+      (message) => this.setPersistenceNotice("activity", message),
+    );
 
     this.unsubscribeStore = onSnapshot(store, (snapshot) => {
       pendingWrite = () => {
@@ -395,6 +414,8 @@ export class ProjectSession {
   private detachStoreSubscription(): void {
     this.unsubscribeStore?.();
     this.unsubscribeStore = null;
+    this.providerCallSaving?.stop();
+    this.providerCallSaving = null;
     // Never drop unsaved changes when the store or project switches.
     this.flushPendingSave?.();
     this.flushPendingSave = null;
@@ -403,6 +424,7 @@ export class ProjectSession {
   /** Issue every pending project and timeline write, synchronously. */
   private flushPendingWrites(): void {
     this.flushPendingSave?.();
+    this.providerCallSaving?.flush();
     void flushTimeline();
   }
 
@@ -442,6 +464,8 @@ export class ProjectSession {
     const state = this.state;
     switch (state.status) {
       case "idle":
+        void this.openOnlyProject();
+        return;
       case "load-failed":
         return;
       case "loading-project":
@@ -486,7 +510,7 @@ export class ProjectSession {
     timeline:
       | { status: "attached"; loaded: Record<string, unknown> | null }
       | { status: "loading" },
-    persistenceNotice: PersistenceNotice | null = null,
+    persistenceNotices: PersistenceNotices = {},
   ): void {
     this.detachStoreSubscription();
     if (timeline.status === "loading") detachTimeline();
@@ -496,7 +520,7 @@ export class ProjectSession {
       registry,
       store,
       timeline: timeline.status,
-      persistenceNotice,
+      persistenceNotices,
     };
     this.state = state;
     this.attachStoreSubscription(state);
@@ -609,9 +633,7 @@ export class ProjectSession {
         opened.created,
         { ...opened.nextRegistry, activeModuleId: opened.moduleId },
         { status: "attached", loaded: timeline },
-        opened.failure == null
-          ? null
-          : { source: "load", message: opened.failure },
+        opened.failure == null ? {} : { load: opened.failure },
       );
     } catch (error) {
       if (!this.isOperationCurrent(generation)) return;
@@ -728,6 +750,25 @@ export class ProjectSession {
     return this.openProject({ id, name });
   };
 
+  /**
+   * A storage that holds one project has nothing to choose from: its project
+   * opens. Settles once the project is open or has failed to load, or at
+   * once when the storage holds several projects or none.
+   */
+  openOnlyProject = async (): Promise<void> => {
+    if (!this.persistence.traits.singleProject) return;
+    const state = this.state;
+    if (state.status !== "idle") {
+      if (state.status === "loading-project") await this.projectLoad;
+      return;
+    }
+    const projects = await this.persistence.projects.list();
+    // Another client opened a project while the list was read.
+    if (this.state.status !== "idle") return this.openOnlyProject();
+    if (projects.length !== 1) return;
+    await this.selectProject(projects[0]!.id, projects[0]!.name);
+  };
+
   backToProjects = (): void => {
     this.flushPendingWrites();
     this.beginOperation();
@@ -740,7 +781,10 @@ export class ProjectSession {
   };
 
   clearPersistenceError = (): void => {
-    this.setPersistenceNotice(() => null);
+    const state = this.state;
+    if (!isOpen(state) || Object.keys(state.persistenceNotices).length === 0) return;
+    this.state = { ...state, persistenceNotices: {} };
+    this.publish();
   };
 
   enableModules = (name: string): void => {

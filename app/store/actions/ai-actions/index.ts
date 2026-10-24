@@ -5,6 +5,7 @@ export { default as requestStageChange } from "./request-stage-change";
 export { default as reviewStage } from "./review-stage";
 export { regenerateLastReply } from "./conversation-history";
 export { default as sendConversationMessage } from "./send-conversation-message";
+export { default as submitAgentProposal } from "./submit-agent-proposal";
 export { default as generateAcceptanceCriteria } from "./generate-acceptance-criteria";
 export { default as generateBoundaryDesign } from "./generate-boundary-design";
 export { default as generateImplementationProfile } from "./generate-implementation-profile";

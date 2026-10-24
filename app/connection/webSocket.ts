@@ -40,13 +40,28 @@ export function linkUrlFor(pageUrl: string): string {
   return url.toString();
 }
 
+/** The part of a WebSocket the link uses, which the browser's and Node's `ws` both provide. */
+export interface LinkSocket {
+  readonly readyState: number;
+  readonly OPEN: number;
+  send(data: string): void;
+  close(code?: number): void;
+  addEventListener(type: "open", listener: () => void): void;
+  addEventListener(type: "message", listener: (event: { data: unknown }) => void): void;
+  addEventListener(type: "close", listener: (event: { code: number }) => void): void;
+}
+
 /**
  * Link a client to a host over a WebSocket. Messages sent before the socket
  * opens wait for it; a close the client did not ask for reaches subscribers
- * once, with whether connecting again can help.
+ * once, with whether connecting again can help. `open` makes the socket,
+ * where the browser's WebSocket is not the one to use.
  */
-export function connectWebSocket(url: string): ClientConnection {
-  const socket = new WebSocket(url);
+export function connectWebSocket(
+  url: string,
+  open: (url: string) => LinkSocket = (address) => new WebSocket(address),
+): ClientConnection {
+  const socket = open(url);
   const listeners = new Set<ClientConnectionListener>();
   const waiting: string[] = [];
   let ended = false;
@@ -83,7 +98,7 @@ export function connectWebSocket(url: string): ClientConnection {
     send(message: ClientMessage): void {
       if (ended) throw new Error("The connection to the project host is closed.");
       const wire = JSON.stringify(message);
-      if (socket.readyState === WebSocket.OPEN) socket.send(wire);
+      if (socket.readyState === socket.OPEN) socket.send(wire);
       else waiting.push(wire);
     },
     subscribe(listener: ClientConnectionListener): () => void {

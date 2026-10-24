@@ -34,7 +34,6 @@ import {
   useShortcut,
   type ShortcutBinding,
 } from "hooks/shortcuts";
-import { useProviderCallPersistence } from "hooks/useProviderCallPersistence";
 import { projectCodeHref } from "lib/routes";
 import { usePersistence, useProject } from "projectContext";
 import { Factory } from "screens";
@@ -64,11 +63,6 @@ function Home() {
   const [modulesOpen, setModulesOpen] = useState(false);
 
   const projectId = searchParams.get("id") ?? "";
-  const providerCallPersistenceError = useProviderCallPersistence(
-    activeProject?.id === projectId ? projectId : null,
-    activeProject?.id === projectId && activeModuleId !== "" ? activeModuleId : null,
-    store,
-  );
 
   useEffect(() => {
     if (!projectId || activeProject?.id === projectId) return;
@@ -197,11 +191,6 @@ function Home() {
       {persistenceError && (
         <PersistentAlert severity="warning" onClose={clearPersistenceError}>
           {persistenceError}
-        </PersistentAlert>
-      )}
-      {providerCallPersistenceError && (
-        <PersistentAlert severity="warning">
-          {providerCallPersistenceError}
         </PersistentAlert>
       )}
       {store.validationErrors ? (

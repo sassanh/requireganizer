@@ -1,11 +1,16 @@
-import type { WorkflowStage, StructuralFragment } from "store/constants";
-import { WORKFLOW_STAGE_LABELS } from "store/constants";
+import type { StructuralFragment } from "store/constants";
+import { WORKFLOW_STAGE_LABELS, WorkflowStage } from "store/constants";
 
 /**
  * "implementation-profile" is an artifact stage inside the Interface Contracts
  * step, so commands address it directly even though it has no dedicated WorkflowStage.
  */
 export type CommandStage = Exclude<WorkflowStage, WorkflowStage.Code> | "implementation-profile";
+
+/** The workflow stage a command stage belongs to. */
+export function workflowStageOf(stage: CommandStage): WorkflowStage {
+  return stage === "implementation-profile" ? WorkflowStage.InterfaceContracts : stage;
+}
 
 export type RevisionTarget = {
   kind: "interface" | "subject" | "verification";

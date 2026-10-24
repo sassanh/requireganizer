@@ -15,10 +15,10 @@ import { renderCommand } from "./command";
 import { gatewayStream } from "./gateway";
 import { buildReadTools } from "./read-tools";
 import {
-  buildAllStageResultTools,
   buildCommunicateTool,
   buildResultTools,
   buildStageActivationTool,
+  buildStageSubmissionTools,
   consumePendingStageUnlock,
 } from "./result-tools";
 import { writerModel } from "./settings";
@@ -216,9 +216,9 @@ function discardFailedDuplicateCommand(
 function buildConversationTools(store: FlatStore): AgentTool[] {
   return [
     ...buildReadTools(store),
-    ...buildAllStageResultTools(store),
+    ...buildStageSubmissionTools(store).map(({ tool }) => tool),
     buildStageActivationTool(store),
-    buildCommunicateTool(),
+    buildCommunicateTool(store),
   ];
 }
 

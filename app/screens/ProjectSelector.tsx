@@ -45,7 +45,7 @@ function hasProjectName(projects: ProjectMeta[], name: string): boolean {
 }
 
 export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
-  const { persistence, storage } = useProject();
+  const { activeProject, persistence, storage } = useProject();
   const [projects, setProjects] = useState<ProjectMeta[] | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
@@ -73,8 +73,8 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
     };
   }, [persistence]);
 
-  // A storage that holds one project has nothing to choose from: it opens.
-  const onlyProject = storage.singleProject && projects?.length === 1 ? projects[0]! : null;
+  // A storage that holds one project opens it in the host; the page follows.
+  const onlyProject = storage.singleProject ? activeProject : null;
   const openedOnlyProjectRef = useRef(false);
   useEffect(() => {
     if (onlyProject == null || openedOnlyProjectRef.current) return;
