@@ -148,6 +148,21 @@ describe("file persistence adapter", () => {
     assert.equal(readFileSync(projectFile, "utf8"), conflicted);
   });
 
+  it("lists the project of a file it can neither read nor inspect, as its contract requires", async () => {
+    const { projectFile, stateDirectory } = workspace();
+    mkdirSync(dirname(projectFile), { recursive: true });
+    writeFileSync(projectFile, "{}");
+    // Every access to a path through a file fails, as for a file removed between two reads.
+    const unreachable = new FilePersistenceAdapter({
+      projectFile: join(projectFile, "requireganizer.json"),
+      stateDirectory,
+      now: () => new Date("2026-10-24T00:00:00.000Z"),
+    });
+    const [listed] = await unreachable.projects.list();
+    assert.equal(listed!.id, DEFAULT_FILE_PROJECT_ID);
+    assert.equal(listed!.updatedAt, "2026-10-24T00:00:00.000Z");
+  });
+
   it("refuses to open or overwrite a file whose project is invalid", async () => {
     const { adapter, projectFile } = workspace();
     await adapter.projects.saveIndex([projectMeta("project-1")]);

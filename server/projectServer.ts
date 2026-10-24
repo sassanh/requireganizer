@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import type { AddressInfo } from "node:net";
+import { type AddressInfo, connect } from "node:net";
 import type { Duplex } from "node:stream";
 
 import type { AiSettingsSource } from "ai-agent/settings";
@@ -9,15 +9,28 @@ import { ProjectSession } from "project-session";
 import { FilePersistenceAdapter } from "./fileAdapter";
 import { type ProjectSocket, projectSocket, tokenCookie } from "./projectSocket";
 import { ownHosts } from "./requestTarget";
-import { claimProject, serverToken, stateDirectoryFor } from "./stateDirectory";
+import {
+  claimProject,
+  type ProjectClaim,
+  releaseUnreachableClaim,
+  rememberedPort,
+  rememberPort,
+  serverToken,
+  stateDirectoryFor,
+} from "./stateDirectory";
+
+/** The port a project is first served on, unless it is taken. */
+export const DEFAULT_PORT = 4519;
 
 export interface ProjectServerOptions {
   projectFile: string;
   /** The settings the installed AI runtime reads; checked here only to warn. */
   aiSettings: AiSettingsSource;
-  /** The port to listen on; with `nextFreePort`, the first free one from it. */
-  port: number;
-  nextFreePort: boolean;
+  /**
+   * The port to listen on. Without it, the port the project was last served
+   * on, else the default; the first free one from there.
+   */
+  port?: number;
   /** Answers every request that is not the project link: the interface. */
   serveInterface: (request: IncomingMessage, response: ServerResponse) => void;
   /** Takes the upgrade requests the project link does not, such as hot reload. */
@@ -26,6 +39,8 @@ export interface ProjectServerOptions {
 
 export interface ProjectServer {
   url: string;
+  /** The project host, for a client in the same process. */
+  host: ProjectHost;
   /** Problems with the setup a person should fix, such as a missing API key. */
   warnings: string[];
   /** Issue every pending write, synchronously. */
@@ -78,13 +93,57 @@ function listen(
 }
 
 /**
+ * Serving a project, or where another process already serves it: its URL,
+ * or null while that server is still starting.
+ */
+export type ProjectServerStart = { serving: ProjectServer } | { heldBy: { url: string | null } };
+
+/**
  * One project, served from its file: the project host with the file adapter,
  * the link its pages connect to, and the interface. The host is the only
- * writer of the project while the server runs.
+ * writer of the project while the server runs, so a project another process
+ * serves is not served again.
  */
-export async function startProjectServer(options: ProjectServerOptions): Promise<ProjectServer> {
+export async function startProjectServer(options: ProjectServerOptions): Promise<ProjectServerStart> {
   const stateDirectory = stateDirectoryFor(options.projectFile);
-  const claim = claimProject(stateDirectory);
+  let claimed = claimProject(stateDirectory);
+  if ("heldBy" in claimed && claimed.heldBy.url != null) {
+    // A holder that is gone or stopping gives its claim up.
+    await releaseUnreachableClaim(stateDirectory, answers);
+    claimed = claimProject(stateDirectory);
+  }
+  if (!("claim" in claimed)) return claimed;
+  const { claim } = claimed;
+  try {
+    return { serving: await serveClaimed(options, stateDirectory, claim) };
+  } catch (error) {
+    claim.release();
+    throw error;
+  }
+}
+
+const ANSWER_TIMEOUT_MS = 1_000;
+
+/** Whether a server listens at `url`. A server that does not answer in time is taken to be there. */
+function answers(url: string): Promise<boolean> {
+  const { hostname, port } = new URL(url);
+  return new Promise((resolve) => {
+    const socket = connect({ host: hostname, port: Number(port) });
+    const settle = (listening: boolean) => {
+      socket.destroy();
+      resolve(listening);
+    };
+    socket.setTimeout(ANSWER_TIMEOUT_MS, () => settle(true));
+    socket.once("connect", () => settle(true));
+    socket.once("error", () => settle(false));
+  });
+}
+
+async function serveClaimed(
+  options: ProjectServerOptions,
+  stateDirectory: string,
+  claim: ProjectClaim,
+): Promise<ProjectServer> {
   const adapter = new FilePersistenceAdapter({ projectFile: options.projectFile, stateDirectory });
   const warnings: string[] = [];
   try {
@@ -102,7 +161,8 @@ export async function startProjectServer(options: ProjectServerOptions): Promise
   session.start();
 
   const token = serverToken(stateDirectory);
-  let port = options.port;
+  const preferredPort = options.port ?? rememberedPort(stateDirectory) ?? DEFAULT_PORT;
+  let port = preferredPort;
   let projectLink: ProjectSocket | null = null;
   const server = createServer((request, response) => {
     // A page under any other name, such as one rebound to this machine,
@@ -122,17 +182,19 @@ export async function startProjectServer(options: ProjectServerOptions): Promise
     else socket.destroy();
   });
   try {
-    port = await listen(server, options.port, options.nextFreePort ? PORT_ATTEMPTS : 1);
+    port = await listen(server, preferredPort, options.port == null ? PORT_ATTEMPTS : 1);
   } catch (error) {
-    claim.release();
+    session.dispose();
     throw error;
   }
+  rememberPort(stateDirectory, port);
   projectLink = projectSocket({ host, port, token });
   const url = `http://127.0.0.1:${port}/`;
   claim.announce(url);
 
   return {
     url,
+    host,
     warnings,
     flush: () => session.flush(),
     close: () => {

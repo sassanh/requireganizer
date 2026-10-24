@@ -75,6 +75,7 @@ import {
   reviewStage,
   reviseFormalContract,
   sendConversationMessage,
+  submitAgentProposal,
   regenerateLastReply,
 } from "./actions";
 import { bindFlowAction } from "./actions/ai-actions/utilities";
@@ -2084,6 +2085,7 @@ const aiFlows = {
   handleOverviewFieldComment,
   requestStageChange,
   reviewStage,
+  submitAgentProposal,
 };
 
 export const Store = FlatStore.actions(

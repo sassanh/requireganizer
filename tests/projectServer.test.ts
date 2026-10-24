@@ -1,5 +1,15 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer, request, type Server } from "node:http";
 import { connect } from "node:net";
 import type { AddressInfo } from "node:net";
@@ -22,7 +32,14 @@ import { environmentAiSettings } from "../server/aiEnvironment";
 import { resolveProjectFile } from "../server/projectFile";
 import { startProjectServer } from "../server/projectServer";
 import { projectSocket, type ProjectSocket, tokenCookie } from "../server/projectSocket";
-import { claimProject, serverToken, stateDirectoryFor } from "../server/stateDirectory";
+import {
+  claimProject,
+  type ProjectClaim,
+  releaseUnreachableClaim,
+  rememberedPort,
+  serverToken,
+  stateDirectoryFor,
+} from "../server/stateDirectory";
 import { serveStaticFiles } from "../server/staticFiles";
 
 const directories: string[] = [];
@@ -40,6 +57,14 @@ function listening(server: Server): Promise<number> {
   return new Promise((resolve) => {
     server.listen(0, "127.0.0.1", () => resolve((server.address() as AddressInfo).port));
   });
+}
+
+/** A port nothing listens on. */
+async function closedPort(): Promise<number> {
+  const server = createServer();
+  const port = await listening(server);
+  await new Promise((resolve) => server.close(resolve));
+  return port;
 }
 
 /** A host that greets each link and echoes nothing; enough to see a link open. */
@@ -251,6 +276,15 @@ describe("project server setup", () => {
     assert.notEqual(stateDirectoryFor("/work/b/requireganizer.json", environment), first);
     assert.equal(readFileSync(join(first, "project-file.txt"), "utf8"), "/work/a/requireganizer.json\n");
 
+    // Every path that reaches one file names one project.
+    const real = join(state, "real");
+    mkdirSync(real);
+    symlinkSync(real, join(state, "linked"));
+    assert.equal(
+      stateDirectoryFor(join(state, "linked", "requireganizer.json"), environment),
+      stateDirectoryFor(join(real, "requireganizer.json"), environment),
+    );
+
     const token = serverToken(first);
     assert.ok(token.length >= 32);
     assert.equal(serverToken(first), token);
@@ -288,13 +322,14 @@ describe("project server", () => {
     const previous = process.env.XDG_STATE_HOME;
     process.env.XDG_STATE_HOME = join(root, "state");
     try {
-      return await startProjectServer({
+      const started = await startProjectServer({
         projectFile: join(root, "requireganizer.json"),
         aiSettings: environmentAiSettings({ AI_API_KEY: "test-key" }),
         port: 0,
-        nextFreePort: false,
         serveInterface: (_request, response) => response.end("interface"),
       });
+      assert.ok("serving" in started);
+      return started.serving;
     } finally {
       if (previous == null) delete process.env.XDG_STATE_HOME;
       else process.env.XDG_STATE_HOME = previous;
@@ -346,14 +381,72 @@ describe("project server", () => {
 
   it("lets one server at a time claim a project, and takes over a claim left behind", () => {
     const state = temporaryDirectory();
-    const claim = claimProject(state);
+    const claimed = (): ProjectClaim => {
+      const result = claimProject(state);
+      assert.ok("claim" in result);
+      return result.claim;
+    };
+    const claim = claimed();
+    assert.deepEqual(claimProject(state), { heldBy: { url: null } });
     claim.announce("http://127.0.0.1:4519/");
-    assert.throws(() => claimProject(state), /already serving this project at http:\/\/127\.0\.0\.1:4519\//);
+    assert.deepEqual(claimProject(state), { heldBy: { url: "http://127.0.0.1:4519/" } });
     claim.release();
-    claimProject(state).release();
+    claimed().release();
     // A claim whose process has ended is stale.
     writeFileSync(join(state, "server.json"), JSON.stringify({ pid: 2 ** 30, url: "http://127.0.0.1:1/" }));
-    claimProject(state).release();
+    const takenOver = claimed();
+    // A claim another process made since is not this process's to release.
+    writeFileSync(join(state, "server.json"), JSON.stringify({ pid: 2 ** 30 }));
+    takenOver.release();
+    assert.ok(existsSync(join(state, "server.json")));
+    assert.deepEqual(readdirSync(state), ["server.json"]);
+  });
+
+  it("leaves a stale claim to the one process already taking it over", () => {
+    const state = temporaryDirectory();
+    const stale = JSON.stringify({ pid: 2 ** 30, url: "http://127.0.0.1:1/" });
+    writeFileSync(join(state, "server.json"), stale);
+    writeFileSync(join(state, "server.json.takeover"), "1");
+    assert.deepEqual(claimProject(state), { heldBy: { url: null } });
+    assert.equal(readFileSync(join(state, "server.json"), "utf8"), stale);
+  });
+
+  it("keeps a claim made at the same address while the unreachable one was probed", async () => {
+    const state = temporaryDirectory();
+    const url = "http://127.0.0.1:4519/";
+    writeFileSync(join(state, "server.json"), JSON.stringify({ pid: process.ppid, url }));
+    // Another process takes the unreachable claim over and serves on the same port meanwhile.
+    const fresh = JSON.stringify({ pid: process.pid, url });
+    await releaseUnreachableClaim(state, async () => {
+      writeFileSync(join(state, "server.json"), fresh);
+      return false;
+    });
+    assert.equal(readFileSync(join(state, "server.json"), "utf8"), fresh);
+  });
+
+  it("takes over from a holder whose process runs but whose server no longer answers", async () => {
+    const root = temporaryDirectory();
+    const previous = process.env.XDG_STATE_HOME;
+    process.env.XDG_STATE_HOME = join(root, "state");
+    try {
+      const projectFile = join(root, "requireganizer.json");
+      // A process id that names a running process, such as one reused after a crash.
+      writeFileSync(
+        join(stateDirectoryFor(projectFile), "server.json"),
+        JSON.stringify({ pid: process.ppid, url: `http://127.0.0.1:${await closedPort()}/` }),
+      );
+      const started = await startProjectServer({
+        projectFile,
+        aiSettings: environmentAiSettings({ AI_API_KEY: "test-key" }),
+        port: 0,
+        serveInterface: (_request, response) => response.end("interface"),
+      });
+      assert.ok("serving" in started);
+      await started.serving.close();
+    } finally {
+      if (previous == null) delete process.env.XDG_STATE_HOME;
+      else process.env.XDG_STATE_HOME = previous;
+    }
   });
 });
 

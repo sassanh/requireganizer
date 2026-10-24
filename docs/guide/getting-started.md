@@ -30,7 +30,25 @@ AI_API_KEY=your-key node path/to/requireganizer/dist/requireganizer.mjs
 
 Without a path, the server uses the nearest `requireganizer.json` in the current folder or a folder above it, or creates one in the current folder; pass a path to use another file. It prints the address and opens the browser. The project file holds only the project; its history stays in the state directory.
 
+One process at a time serves a project. Running the server again for a project that is already served opens the running one.
+
 See [environment variables](/reference/environment) for the AI settings.
+
+## Use it from a coding agent
+
+`requireganizer mcp` serves the project to a coding agent over MCP. For Claude Code, run this in your repository:
+
+```bash
+claude mcp add requireganizer -- node path/to/requireganizer/dist/requireganizer.mjs mcp
+```
+
+Other agents take the same command: `node path/to/requireganizer/dist/requireganizer.mjs mcp`, started in the repository. Add `--env-file <path>` to give it the AI settings; without them, review stays manual.
+
+The agent reads every stage and submits stage work through the same tools, checks and review as Requireganizer's own AI. Only you approve, in the page.
+
+When no other process serves the project, the agent's process serves it, page included, and prints the address to its log. When that process ends, another process still connected to the project takes over on the same address, so an open page reconnects.
+
+To teach the agent the workflow, copy `skills/requireganizer/` into `.claude/skills/` in your repository, or into `~/.claude/skills/` for every repository.
 
 ## Develop
 

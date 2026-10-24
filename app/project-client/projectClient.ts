@@ -6,6 +6,7 @@ import {
   type SnapshotIn,
 } from "mobx-state-tree";
 
+import type { AgentToolDescription } from "ai-agent/agent-access";
 import {
   addressOf,
   type ClientConnection,
@@ -126,6 +127,17 @@ function snapshotFrom(
     throw new Error("The project host reported a ready project without its modules.");
   }
   return { ...view, registry, store };
+}
+
+/**
+ * A request whose answer was lost with the connection: the host may or may
+ * not have carried it out.
+ */
+export class ConnectionLostError extends UserFacingError {
+  constructor(message: string) {
+    super(message);
+    this.name = "ConnectionLostError";
+  }
 }
 
 /**
@@ -262,7 +274,7 @@ export class ProjectClient {
       },
       closed: (reason) => {
         if (this.connection?.link !== link) return;
-        this.detach(new UserFacingError(reason.message), { closeLink: false });
+        this.detach(new ConnectionLostError(reason.message), { closeLink: false });
         this.linkClosed(reason);
       },
     });
@@ -348,6 +360,13 @@ export class ProjectClient {
 
   importProjectFile = (data: unknown): Promise<void> =>
     this.request("importProjectFile", data);
+
+  /** The tools an outside agent can call on the open project now. */
+  listAgentTools = (): Promise<AgentToolDescription[]> => this.request("listAgentTools");
+
+  /** Run one of those tools; resolves to its text result. */
+  callAgentTool = (name: string, args: Record<string, unknown>): Promise<string> =>
+    this.request("callAgentTool", name, args);
 
   /** Every visible module, backed by the replica or a sibling store. */
   getExportModules = (): ExportableModule[] => {

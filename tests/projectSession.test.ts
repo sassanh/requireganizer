@@ -19,7 +19,8 @@ import {
 } from "../app/lib/moduleSchema";
 import { PROJECT_SCHEMA_VERSION } from "../app/lib/projectSchema";
 import type { ProjectMeta } from "../app/lib/projectStorage";
-import { WebPersistenceAdapter } from "../app/persistence";
+import { HARNESS_PROTOCOL_VERSION, PROMPT_VERSION } from "../app/lib/types";
+import { MemoryPersistenceAdapter, WebPersistenceAdapter } from "../app/persistence";
 import {
   PROJECT_SAVE_DEBOUNCE_MS,
   ProjectSession,
@@ -2771,6 +2772,126 @@ describe("project session final review cases", () => {
       overviewOf(await storedProject(adapter, "project-1")).name,
       "Edited during import",
     );
+    session.dispose();
+  });
+});
+
+describe("project session AI provider activity", () => {
+  const call = (id: string, startedAt: string) => ({
+    id,
+    operation: id,
+    attempt: 1,
+    promptVersion: "v",
+    protocolVersion: 6,
+    startedAt,
+    durationMs: 1,
+    provider: "provider",
+    model: "model",
+    outcome: "success" as const,
+    toolCallCount: 0,
+  });
+  const recorded = (startedAt: string) => {
+    const { id: _id, ...metadata } = call("recorded", startedAt);
+    return { ...metadata, promptVersion: PROMPT_VERSION, protocolVersion: HARNESS_PROTOCOL_VERSION };
+  };
+
+  it("keeps the shown module's calls in storage with no page involved", async () => {
+    const adapter = new ControllablePersistenceAdapter();
+    await seedProject(
+      adapter,
+      "project-1",
+      projectPayload(
+        projectRegistry(
+          [moduleEntry("module-a", "Alpha"), moduleEntry("module-b", "Beta")],
+          "module-a",
+        ),
+      ),
+    );
+    await adapter.providerCalls.replace("project-1", "module-a", [
+      call("stored", "2026-10-24T09:00:00.000Z"),
+    ]);
+    const session = new ProjectSession(adapter);
+    await session.selectProject("project-1", "Project");
+    await delay(0);
+
+    const store = session.getSnapshot().store;
+    assert.deepEqual(store.providerCalls.map(({ id }) => id), ["stored"]);
+    store.recordProviderCalls([recorded("2026-10-24T10:00:00.000Z")]);
+    await delay(0);
+    assert.equal((await adapter.providerCalls.load("project-1", "module-a")).length, 2);
+
+    assert.equal(session.switchModule("module-b"), true);
+    await delay(0);
+    session.getSnapshot().store.recordProviderCalls([recorded("2026-10-24T11:00:00.000Z")]);
+    await delay(0);
+    assert.equal((await adapter.providerCalls.load("project-1", "module-a")).length, 2);
+    assert.equal((await adapter.providerCalls.load("project-1", "module-b")).length, 1);
+    session.dispose();
+  });
+
+  it("reports a failed save in the persistence banner until a save succeeds", async () => {
+    const adapter = new ControllablePersistenceAdapter();
+    await seedProject(
+      adapter,
+      "project-1",
+      projectPayload(projectRegistry([moduleEntry("module-a", "Alpha")], "module-a")),
+    );
+    adapter.inner.failNext("provider-call-write");
+    const session = new ProjectSession(adapter);
+    await session.selectProject("project-1", "Project");
+    await delay(0);
+    assert.match(session.getSnapshot().persistenceError ?? "", /AI provider activity could not be saved/);
+
+    session.getSnapshot().store.recordProviderCalls([recorded("2026-10-24T10:00:00.000Z")]);
+    await delay(0);
+    assert.equal(session.getSnapshot().persistenceError, null);
+    session.dispose();
+  });
+});
+
+describe("project session persistence messages", () => {
+  it("keeps each source's message until that source succeeds", async () => {
+    const adapter = new ControllablePersistenceAdapter();
+    await adapter.inner.projects.save("project-1", { schemaVersion: 999 });
+    adapter.inner.failNext("provider-call-write");
+    const session = new ProjectSession(adapter);
+    await session.selectProject("project-1", "Project");
+    await delay(0);
+    const warning = "The stored project was invalid, so a blank project was opened.";
+    assert.match(session.getSnapshot().persistenceError ?? "", new RegExp(`^${warning} AI provider activity could not be saved`));
+
+    // The next activity save succeeds and clears only its own message.
+    session.getSnapshot().store.clearProviderCalls();
+    await delay(0);
+    assert.equal(session.getSnapshot().persistenceError, warning);
+    session.dispose();
+  });
+});
+
+describe("project session in a single-project storage", () => {
+  class SingleProjectAdapter extends MemoryPersistenceAdapter {
+    override readonly traits = { singleProject: true, name: "requireganizer.json" };
+  }
+
+  it("opens the only project when it starts, and stays idle while there is none", async () => {
+    const empty = new ProjectSession(new SingleProjectAdapter());
+    empty.start();
+    await empty.openOnlyProject();
+    assert.equal(empty.getSnapshot().status, "idle");
+
+    const adapter = new SingleProjectAdapter();
+    await adapter.projects.saveIndex([projectMeta("project-1", "Project")]);
+    await adapter.projects.save(
+      "project-1",
+      projectPayload(projectRegistry([moduleEntry("module-a", "Alpha")], "module-a")),
+    );
+    const session = new ProjectSession(adapter);
+    session.start();
+    // A caller that asks meanwhile waits for the same load.
+    await session.openOnlyProject();
+    const snapshot = session.getSnapshot();
+    assert.equal(snapshot.status, "ready");
+    assert.equal(snapshot.activeProject?.id, "project-1");
     session.dispose();
   });
 });

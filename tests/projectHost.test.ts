@@ -685,6 +685,36 @@ describe("project host and client", () => {
       session.dispose();
     }
   });
+
+  it("refuses an agent's tool call while an import is replacing the project", async (t) => {
+    const opened = await openProject(singleModule());
+    try {
+      let landWrite = () => {};
+      t.mock.method(
+        opened.adapter.projects,
+        "save",
+        () => new Promise<void>((resolve) => (landWrite = resolve)),
+      );
+      const imported = opened.client.importProjectFile({
+        schemaVersion: PROJECT_SCHEMA_VERSION,
+        ...singleModule(["Imported story"]),
+      });
+      await assert.rejects(
+        opened.client.callAgentTool("submit_product_overview", {
+          name: "Plant Pal",
+          purpose: "Keep plants alive.",
+          primaryFeatures: ["Track watering schedules"],
+          targetUsers: ["Busy plant owners"],
+        }),
+        /A project import is replacing this project/,
+      );
+      assert.notEqual(opened.authority().productOverview.name, "Plant Pal");
+      landWrite();
+      await imported;
+    } finally {
+      opened.dispose();
+    }
+  });
 });
 
 describe("project host and client over a link that can fail", () => {

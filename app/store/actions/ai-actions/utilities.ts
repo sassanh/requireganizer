@@ -683,6 +683,16 @@ export function bindFlowAction(flowFunction: object, actionName: string): void {
   flowActionNames.set(flowFunction, actionName);
 }
 
+/**
+ * How a flow ended. A failure carries the message the interface shows for
+ * it, so a caller that is not the interface can report the same thing.
+ */
+export type FlowOutcome =
+  | { status: "completed" }
+  | { status: "busy" }
+  | { status: "aborted" }
+  | { status: "failed"; message: string };
+
 export function generator<
   const U extends unknown[],
   Requirements extends string & keyof SnapshotOrInstance<FlatStore>,
@@ -700,8 +710,15 @@ export function generator<
     requirements = [],
     targetStep,
     reviewAfter = true,
+    failuresTo = "interface",
   }: {
     operation: string;
+    /**
+     * Who hears of a failure. The interface shows it, replacing what it
+     * showed before; a caller other than the person, such as an outside
+     * agent, gets it only in the outcome and leaves the interface as it was.
+     */
+    failuresTo?: "interface" | "caller";
     requirements?: readonly Requirements[];
     /**
      * Whether the reviewer model reviews the acted-on stage once the flow
@@ -722,16 +739,19 @@ export function generator<
   const flowFn = flow(function* (
     store: FlatStore,
     ...args: U
-  ): Generator<Yield, void, Next> {
-    if (store.isBusy) return;
+  ): Generator<Yield, FlowOutcome, Next> {
+    if (store.isBusy) return { status: "busy" };
     const action = flowActionNames.get(flowFn);
     if (action == null) throw new Error(`Unable to ${operation}: the flow is not a store action.`);
 
     let incrementedBusinessCounter = false;
     let abortController: AbortController | null = null;
+    const reportsToInterface = failuresTo === "interface";
     try {
-      store.resetValidationErrors();
-      store.pendingRetry = null;
+      if (reportsToInterface) {
+        store.resetValidationErrors();
+        store.pendingRetry = null;
+      }
 
       function throwEmptyError(requirement: Requirements) {
         throw new UserFacingError(
@@ -783,36 +803,42 @@ export function generator<
       if (reviewAfter) {
         yield reviewAfterFlow(store, target, abortController.signal) as unknown as Yield;
       }
+      return { status: "completed" };
     } catch (error) {
-      if (abortController?.signal.aborted) return;
+      if (abortController?.signal.aborted) return { status: "aborted" };
       // Expected rule failures speak for themselves in the UI and need no
       // diagnostics; only unexpected failures log and carry details. Rate
       // limits and timeouts are handled too: one calm sentence with a
       // retry, and the attempt waits for it instead of a console entry.
       if (error instanceof UserFacingError) {
-        store.setValidationError({ message: error.message });
-      } else {
-        const retryMessage = isRateLimitError(error)
-          ? "The AI provider hit its rate limit. Wait a moment, then try again."
-          : isTimeoutError(error)
-            ? "The AI request timed out. Wait a moment, then try again."
-            : null;
-        if (retryMessage != null) {
+        if (reportsToInterface) store.setValidationError({ message: error.message });
+        return { status: "failed", message: error.message };
+      }
+      const retryMessage = isRateLimitError(error)
+        ? "The AI provider hit its rate limit. Wait a moment, then try again."
+        : isTimeoutError(error)
+          ? "The AI request timed out. Wait a moment, then try again."
+          : null;
+      if (retryMessage != null) {
+        if (reportsToInterface) {
           store.pendingRetry = { action, args };
           store.setValidationError({ message: retryMessage });
-        } else {
-          console.error(`Unable to ${operation}.`, error);
-          store.setValidationError({
-            message: getUserFacingErrorMessage(
-              error,
-              `Unable to ${operation}. Please try again.`,
-            ),
-            details: process.env.NODE_ENV === "development"
-              ? describeError(error)
-              : undefined,
-          });
         }
+        return { status: "failed", message: retryMessage };
       }
+      console.error(`Unable to ${operation}.`, error);
+      const message = getUserFacingErrorMessage(
+        error,
+        `Unable to ${operation}. Please try again.`,
+      );
+      if (!reportsToInterface) return { status: "failed", message };
+      store.setValidationError({
+        message,
+        details: process.env.NODE_ENV === "development"
+          ? describeError(error)
+          : undefined,
+      });
+      return { status: "failed", message };
     } finally {
       if (abortController != null) {
         store.endAiOperation();
