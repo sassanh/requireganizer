@@ -686,6 +686,25 @@ describe("project host and client", () => {
     }
   });
 
+  it("tells an agent which module it works on: the one the page shows", async () => {
+    const workflowModule = async (client: ProjectClient) =>
+      (JSON.parse(await client.callAgentTool("get_workflow_state", {})) as { module?: string }).module;
+    const modules = await openProject(twoModules());
+    try {
+      assert.equal(await workflowModule(modules.client), "module-a");
+      await modules.client.switchModule("module-b");
+      assert.equal(await workflowModule(modules.client), "module-b");
+    } finally {
+      modules.dispose();
+    }
+    const single = await openProject(singleModule());
+    try {
+      assert.equal(await workflowModule(single.client), undefined);
+    } finally {
+      single.dispose();
+    }
+  });
+
   it("refuses an agent's tool call while an import is replacing the project", async (t) => {
     const opened = await openProject(singleModule());
     try {

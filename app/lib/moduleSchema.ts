@@ -90,6 +90,11 @@ export function assertModuleNameAvailable(
   }
 }
 
+/** The module the registry shows. */
+export function activeModule(registry: ModuleRegistry): ModuleEntry | null {
+  return registry.modules.find((module) => module.id === registry.activeModuleId) ?? null;
+}
+
 export function visibleModules(
   registry: Pick<ModuleRegistry, "modules">,
 ): ModuleEntry[] {

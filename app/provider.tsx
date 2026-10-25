@@ -14,6 +14,7 @@ import { connectWebSocket, linkInProcess, linkUrlFor } from "connection";
 import { PROJECT_HOST_LOCATION } from "deployment";
 import { useUndoRedoKeyboardShortcuts } from "hooks/useUndoRedoKeyboardShortcuts";
 import { browserAiSettings } from "lib/aiSettingsStorage";
+import { activeModule } from "lib/moduleSchema";
 import {
   type CodeArchiveFormat,
   exportCodeArchive as runCodeArchiveExport,
@@ -166,10 +167,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     [registry, client, store, reportExportError],
   );
 
-  const activeEntry =
-    registry == null
-      ? null
-      : registry.modules.find((entry) => entry.id === registry.activeModuleId) ?? null;
+  const activeEntry = registry == null ? null : activeModule(registry);
   const codeExportAvailable =
     registry != null &&
     registry.modules.some((entry) => {

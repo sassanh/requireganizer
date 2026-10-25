@@ -8,7 +8,7 @@ import {
 } from "mobx-state-tree";
 
 import { setAgentSessionId } from "ai-agent/agent";
-import { agentToolDescriptions, callAgentTool, readToolDescriptions } from "ai-agent/agent-access";
+import { agentToolDescriptions, callAgentTool, type OpenModule, readToolDescriptions } from "ai-agent/agent-access";
 import { aiSettings } from "ai-agent/settings";
 import {
   type ClientMessage,
@@ -31,7 +31,7 @@ import {
   type WireError,
 } from "connection";
 import { UserFacingError } from "lib/errors";
-import type { ModuleRegistry } from "lib/moduleSchema";
+import { activeModule, type ModuleRegistry } from "lib/moduleSchema";
 import type { StorageTraits } from "persistence";
 import type { ProjectSession, ProjectSessionSnapshot } from "project-session";
 import {
@@ -139,7 +139,9 @@ export class ProjectHost implements HostEndpoint {
         // Without an open project the read tools are still listed: calling
         // one tells the agent what stands in the way.
         const store = await this.openStore().catch(() => null);
-        return store == null ? readToolDescriptions(session.getSnapshot().store) : agentToolDescriptions(store);
+        return store == null
+          ? readToolDescriptions(session.getSnapshot().store)
+          : agentToolDescriptions(store, this.openModule());
       },
       callAgentTool: async (name, args) => {
         const store = await this.openStore();
@@ -155,9 +157,17 @@ export class ProjectHost implements HostEndpoint {
             `${session.persistence.traits.name} changed outside Requireganizer. Ask the person to choose in Requireganizer which version to keep, then call get_workflow_state.`,
           );
         }
-        return callAgentTool(store, name, args);
+        return callAgentTool(store, name, args, this.openModule());
       },
     };
+  }
+
+  /** The module an outside agent works on: the one the page shows. */
+  private openModule(): OpenModule {
+    const { registry } = this.session.getSnapshot();
+    if (registry == null || !registry.modulesEnabled) return {};
+    const moduleName = activeModule(registry)?.name;
+    return moduleName == null ? {} : { moduleName };
   }
 
   /** The open project's shown store, opening the only project a single-project storage holds. */

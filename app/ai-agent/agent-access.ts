@@ -31,9 +31,17 @@ function resultText(result: Awaited<ReturnType<AgentTool["execute"]>>): string {
     .join("");
 }
 
+/**
+ * What an outside agent works on: the module the person has open, named
+ * while the project has modules.
+ */
+export interface OpenModule {
+  moduleName?: string;
+}
+
 /** The built-in agent's read tools, which an outside agent can call in every state of the project. */
-export function readToolDescriptions(store: Store): AgentToolDescription[] {
-  return buildReadTools(store).map(describe);
+export function readToolDescriptions(store: Store, open: OpenModule = {}): AgentToolDescription[] {
+  return buildReadTools(store, open).map(describe);
 }
 
 /**
@@ -41,9 +49,9 @@ export function readToolDescriptions(store: Store): AgentToolDescription[] {
  * and the submission tool of every stage that can take work now. Approving
  * stays with the person, so no tool approves.
  */
-export function agentToolDescriptions(store: Store): AgentToolDescription[] {
+export function agentToolDescriptions(store: Store, open: OpenModule = {}): AgentToolDescription[] {
   return [
-    ...readToolDescriptions(store),
+    ...readToolDescriptions(store, open),
     ...buildStageSubmissionTools(store).map(({ tool }) => describe(tool)),
   ];
 }
@@ -57,8 +65,9 @@ export async function callAgentTool(
   store: Store,
   name: string,
   args: Record<string, unknown>,
+  open: OpenModule = {},
 ): Promise<string> {
-  const read = buildReadTools(store).find((tool) => tool.name === name);
+  const read = buildReadTools(store, open).find((tool) => tool.name === name);
   if (read != null) return resultText(await read.execute(name, args as never));
 
   const submission = buildStageSubmissionTools(store).find(({ tool }) => tool.name === name);

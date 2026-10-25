@@ -29,6 +29,9 @@ The person approves every item in Requireganizer's page; no tool approves.
     and the stages before it can change.
   - Each stage lists its outdated items, its items awaiting approval, and its
     changed inputs.
+  - In a project with modules, it names the module the person has open in
+    Requireganizer. Every tool works on that module. To work on another, ask
+    the person to open it.
 - Read the work with `get_stage_artifacts`. It returns every stage up to and
   including the one you name. Read it again before changing or citing
   anything, rather than relying on an earlier read.

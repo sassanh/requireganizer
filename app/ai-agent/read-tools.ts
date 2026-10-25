@@ -22,7 +22,12 @@ export function reviewerRejections(store: FlatStore, step: WorkflowStage): { uni
  * Read-only tools that let the model inspect the live project state instead
  * of receiving artifact content embedded in prompts.
  */
-export function buildReadTools(store: FlatStore): AgentTool[] {
+export function buildReadTools(
+  store: FlatStore,
+  /** The module `store` is, named to a caller that works on whichever module the person has open. */
+  options: { moduleName?: string } = {},
+): AgentTool[] {
+  const { moduleName } = options;
   const validStages = CANONICAL_WORKFLOW.filter((step) => step !== WorkflowStage.Code);
   const stageNamed = (stage: string): WorkflowStage => {
     const step = validStages.find((candidate) => candidate === stage);
@@ -36,7 +41,7 @@ export function buildReadTools(store: FlatStore): AgentTool[] {
     name: "get_workflow_state",
     label: "Get workflow state",
     description:
-      "Get the frontier (the first stage that is not complete; only it and earlier stages can change) and each stage's status: pending, completed, outdated, needs-approval, waiting (holds work, read-only until the frontier reaches it), or locked. Each stage lists its outdated items, which must be regenerated, its unapproved review units, and the reviewer model's rejections of them. Inputs that changed since the stage acknowledged them are listed by id; read them with get_input_changes.",
+      `${moduleName == null ? "" : "Get the module the person has open in Requireganizer, which every tool reads and submits to, and its workflow state. "}Get the frontier (the first stage that is not complete; only it and earlier stages can change) and each stage's status: pending, completed, outdated, needs-approval, waiting (holds work, read-only until the frontier reaches it), or locked. Each stage lists its outdated items, which must be regenerated, its unapproved review units, and the reviewer model's rejections of them. Inputs that changed since the stage acknowledged them are listed by id; read them with get_input_changes.`,
     parameters: Type.Object({}),
     execute: async () => {
       const stages = validStages.map((step) => {
@@ -58,7 +63,11 @@ export function buildReadTools(store: FlatStore): AgentTool[] {
           })),
         };
       });
-      return textResult(JSON.stringify({ frontier: store.frontier, stages }));
+      return textResult(JSON.stringify({
+        ...(moduleName == null ? {} : { module: moduleName }),
+        frontier: store.frontier,
+        stages,
+      }));
     },
   };
 
