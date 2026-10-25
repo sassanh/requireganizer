@@ -3,7 +3,7 @@ import "./globals.css";
 import Providers from "provider";
 
 export const metadata = {
-  title: "Software Factory",
+  title: "Requireganizer",
   description:
     "Software is requirements, elaborated in the language of requirements.",
 };

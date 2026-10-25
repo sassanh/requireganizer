@@ -201,8 +201,8 @@ export default function ProviderActivity({
         <DialogContent dividers>
           <Stack spacing={2}>
             <Typography color="text.secondary" variant="body2">
-              This project report is stored in this browser. It contains request
-              metadata, not prompts or model responses. A copied cURL command
+              This report contains request metadata, not prompts or model
+              responses. A copied cURL command
               includes a placeholder where the request input would be.
             </Typography>
 
