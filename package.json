@@ -1,6 +1,6 @@
 {
   "name": "requireganizer",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Turn a one-line idea into requirements, contracts and tests you approve item by item, then give your coding agent the spec to build against, over MCP.",
   "license": "MIT",

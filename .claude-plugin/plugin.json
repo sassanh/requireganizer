@@ -1,7 +1,7 @@
 {
   "name": "requireganizer",
   "displayName": "Requireganizer",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Turn a one-line idea into requirements, contracts and tests you approve item by item, then give your coding agent the spec to build against, over MCP.",
   "author": {
     "name": "Sassan Haradji"
@@ -12,7 +12,7 @@
   "mcpServers": {
     "requireganizer": {
       "command": "npx",
-      "args": ["-y", "requireganizer@0.1.0", "mcp"],
+      "args": ["-y", "requireganizer@0.1.1", "mcp"],
       "env": {
         "AI_API_KEY": "${user_config.ai_api_key}",
         "AI_BASE_URL": "${user_config.ai_base_url}",
