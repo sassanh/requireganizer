@@ -258,14 +258,17 @@ describe("static interface files", () => {
 });
 
 describe("project server setup", () => {
-  it("finds the nearest project file, or names a new one in the working directory", () => {
+  it("finds the nearest project file, names a new one in the working directory, and refuses one that could never be saved", () => {
     const root = temporaryDirectory();
     const nested = join(root, "packages", "app");
     mkdirSync(nested, { recursive: true });
     assert.equal(resolveProjectFile(null, nested), join(nested, "requireganizer.json"));
     writeFileSync(join(root, "requireganizer.json"), "{}");
     assert.equal(resolveProjectFile(null, nested), join(root, "requireganizer.json"));
+    assert.throws(() => resolveProjectFile("docs/plan.json", nested), /The folder .*docs does not exist\./);
+    mkdirSync(join(nested, "docs"));
     assert.equal(resolveProjectFile("docs/plan.json", nested), join(nested, "docs", "plan.json"));
+    assert.throws(() => resolveProjectFile("docs", nested), /docs is a folder\. Name the project file in it/);
   });
 
   it("keeps one state directory per project file, with a token only the user reads", () => {
