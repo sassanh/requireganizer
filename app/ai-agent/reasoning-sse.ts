@@ -17,6 +17,14 @@ function parseSseData(block: string): unknown | null {
   }
 }
 
+function streamedReasoningDelta(event: unknown): { outputIndex: number; delta: string } | null {
+  if (event == null || typeof event !== "object") return null;
+  const record = event as Record<string, unknown>;
+  if (record.type !== "response.reasoning_text.delta") return null;
+  if (typeof record.output_index !== "number" || typeof record.delta !== "string") return null;
+  return { outputIndex: record.output_index, delta: record.delta };
+}
+
 function encodeSseData(value: unknown): string {
   return `data: ${JSON.stringify(value)}\n\n`;
 }
@@ -58,7 +66,14 @@ export function injectReasoningTextDeltas(
         buffer = rest;
         for (const block of blocks) {
           controller.enqueue(encoder.encode(`${block}\n\n`));
-          const extracted = reasoningTextFromEvent(parseSseData(block));
+          const event = parseSseData(block);
+          // Text the provider streamed itself already reached the thinking block.
+          const streamed = streamedReasoningDelta(event);
+          if (streamed != null) {
+            seen.set(streamed.outputIndex, (seen.get(streamed.outputIndex) ?? "") + streamed.delta);
+            continue;
+          }
+          const extracted = reasoningTextFromEvent(event);
           if (extracted == null) continue;
           const previous = seen.get(extracted.outputIndex) ?? "";
           let delta = "";

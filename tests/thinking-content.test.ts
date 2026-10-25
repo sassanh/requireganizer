@@ -179,4 +179,21 @@ describe("injectReasoningTextDeltas", () => {
     assert.match(text, /response\.reasoning_text\.delta/);
     assert.match(text, /Read artifacts first/);
   });
+
+  it("adds nothing when the provider streamed the reasoning itself before its done event", async () => {
+    const events = [
+      { type: "response.reasoning_text.delta", output_index: 0, delta: "Read artifacts " },
+      { type: "response.reasoning_text.delta", output_index: 0, delta: "first." },
+      { type: "response.reasoning_text.done", output_index: 0, text: "Read artifacts first." },
+      { type: "response.content_part.done", output_index: 0, part: { type: "reasoning_text", text: "Read artifacts first." } },
+    ];
+    const source = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const event of events) controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`));
+        controller.close();
+      },
+    });
+    const text = await new Response(injectReasoningTextDeltas(source)).text();
+    assert.equal(text.match(/response\.reasoning_text\.delta/g)?.length, 2);
+  });
 });
