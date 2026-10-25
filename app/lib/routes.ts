@@ -26,6 +26,13 @@ export function projectPlaceHref(projectId: string, place: string): string {
   return `/project?${query.toString()}${url.hash}`;
 }
 
+/** The page at `pathname` showing `step`, keeping the project, module and all else `search` names. */
+export function stepHref(pathname: string, search: string, step: string): string {
+  const query = new URLSearchParams(search);
+  query.set("step", step);
+  return `${pathname}?${query.toString()}`;
+}
+
 /**
  * Where a link from before projects moved to the query leads now:
  * `/project/<id>` and `/project/<id>/code/<path>`. Null for anything else.

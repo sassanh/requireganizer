@@ -35,6 +35,7 @@ import {
 import CoveragePanel from "components/CoveragePanel";
 import { ITEM_MOTION_SECONDS } from "components/itemMotion";
 import { scrollPresentationIntoView } from "components/scrollFollower";
+import { stepHref } from "lib/routes";
 import {
   claim,
   complete,
@@ -187,11 +188,13 @@ function factoryTabNode(step: WorkflowStage): HTMLElement | null {
 const FactoryTab = observer(function FactoryTab({
   tabStep,
   navigatePulse,
+  href,
   sx,
   ...tabProps
 }: {
   tabStep: WorkflowStage;
   navigatePulse: boolean;
+  href: string;
 } & TabProps) {
   const store = useStore();
   const shown = useShownStore();
@@ -222,7 +225,7 @@ const FactoryTab = observer(function FactoryTab({
       {...tabProps}
       data-factory-tab={tabStep}
       disabled={store.isBusy || locked}
-      {...(locked ? {} : { href: `?step=${tabStep}` })}
+      {...(locked ? {} : { href })}
       value={tabStep}
       label={store.stageLabel(tabStep)}
       icon={<SlidingStatusIcon status={status} />}
@@ -312,19 +315,14 @@ const Factory: React.FunctionComponent<FactoryProps> = ({ activeProject }) => {
 
   const handleStepUpdate = useCallback(
     (next: WorkflowStage) => {
-      const open = store.resolveOpenStep(next);
-      const params = new URLSearchParams(searchParams.toString());
-      params.set("step", open);
-      router.push(`${pathname}?${params.toString()}`);
+      router.push(stepHref(pathname, searchParams.toString(), store.resolveOpenStep(next)));
     },
     [router, pathname, searchParams, store],
   );
 
   useEffect(() => {
     if (requested === step) return;
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("step", step);
-    router.replace(`${pathname}?${params.toString()}`);
+    router.replace(stepHref(pathname, searchParams.toString(), step));
   }, [requested, step, router, pathname, searchParams]);
 
   // The active module remembers the stage it is showing, so reopening or
@@ -427,6 +425,7 @@ const Factory: React.FunctionComponent<FactoryProps> = ({ activeProject }) => {
                   key={tabStep}
                   tabStep={tabStep}
                   value={tabStep}
+                  href={stepHref(pathname, searchParams.toString(), tabStep)}
                   navigatePulse={tabIsPresenting && presentingNavigate === tabStep}
                 />
               ))}
