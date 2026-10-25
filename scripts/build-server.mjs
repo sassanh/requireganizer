@@ -48,6 +48,7 @@ if (!development) {
     version: source.version,
     description: source.description,
     license: source.license,
+    author: source.author,
     repository: source.repository,
     homepage: source.homepage,
     engines: source.engines,

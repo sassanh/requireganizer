@@ -36,19 +36,19 @@ See [environment variables](/reference/environment) for the AI settings.
 
 ## Use it from a coding agent
 
-`requireganizer mcp` serves the project to a coding agent over MCP. For Claude Code, run this in your repository:
+`requireganizer mcp` serves the project to a coding agent over MCP. For Claude Code, install the plugin, which brings the MCP server and the Skill that teaches the agent the workflow:
 
 ```bash
-claude mcp add requireganizer -- npx -y requireganizer mcp
+claude plugin install requireganizer --marketplace sassanh/requireganizer
 ```
 
-Other agents take the same command: `npx -y requireganizer mcp`, started in the repository. Add `--env-file <path>` to give it the AI settings; without them, review stays manual.
+Claude Code asks for the AI settings when it enables the plugin; without them, review stays manual.
+
+Other agents run `npx -y requireganizer mcp` in the repository. Add `--env-file <path>` to give it the AI settings. The Skill is in `skills/requireganizer/`.
 
 The agent reads every stage and submits stage work through the same tools, checks and review as Requireganizer's own AI. Only you approve, in the page.
 
 When no other process serves the project, the agent's process serves it, page included, and prints the address to its log. When that process ends, another process still connected to the project takes over on the same address, so an open page reconnects.
-
-To teach the agent the workflow, copy `skills/requireganizer/` into `.claude/skills/` in your repository, or into `~/.claude/skills/` for every repository.
 
 ## Develop
 

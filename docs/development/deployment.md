@@ -44,9 +44,9 @@ The quality workflow builds the docs through `pnpm run check`, but it does not p
 
 ## The npm package
 
-`.github/workflows/release.yml` publishes `dist/` to npm as `requireganizer`. To release:
+`.github/workflows/release.yml` publishes `dist/` to npm as `requireganizer`. The repository is also the Claude Code plugin and its marketplace, in `.claude-plugin/`; the plugin runs the server of its own version with `npx`. To release:
 
-1. Set `version` in `package.json` and commit it to `main`.
+1. Set the version in `package.json` and in `.claude-plugin/plugin.json`, both its `version` and the `requireganizer@<version>` its server runs, and commit them to `main`. The tests fail while they differ.
 2. Tag that commit with a signed tag named after the version, then push the tag:
 
    ```bash

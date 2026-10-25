@@ -4,6 +4,9 @@
   "private": true,
   "description": "Turn a one-line idea into requirements, contracts and tests you approve item by item, then give your coding agent the spec to build against, over MCP.",
   "license": "MIT",
+  "author": {
+    "name": "Sassan Haradji"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/sassanh/requireganizer.git"

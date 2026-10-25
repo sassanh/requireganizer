@@ -1,0 +1,13 @@
+{
+  "name": "requireganizer",
+  "owner": {
+    "name": "Sassan Haradji"
+  },
+  "description": "Requireganizer for Claude Code: the spec the person approves, served to the agent over MCP, with the Skill that teaches the workflow.",
+  "plugins": [
+    {
+      "name": "requireganizer",
+      "source": "./"
+    }
+  ]
+}

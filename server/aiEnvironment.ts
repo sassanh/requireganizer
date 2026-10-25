@@ -21,8 +21,8 @@ export function environmentAiSettings(
   }
   return fixedAiSettings(settings, {
     missingApiKeyMessage:
-      "Set AI_API_KEY where the Requireganizer server runs, then restart it.",
+      "Set AI_API_KEY where the Requireganizer server runs, or the AI API key in the Claude Code plugin's settings, then restart it.",
     missingReviewerModelMessage:
-      "Set AI_REVIEWER_MODEL where the Requireganizer server runs, then restart it, to use auto review.",
+      "Set AI_REVIEWER_MODEL where the Requireganizer server runs, or the reviewer model in the Claude Code plugin's settings, then restart it, to use auto review.",
   });
 }

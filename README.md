@@ -10,6 +10,14 @@ Read the [project documentation](docs/index.md) for the complete workflow, archi
 
 The published site is available at [sassanh.github.io/requireganizer](https://sassanh.github.io/requireganizer/).
 
+## Use it from Claude Code
+
+```bash
+claude plugin install requireganizer --marketplace sassanh/requireganizer
+```
+
+The plugin brings the MCP server and the Skill that teaches the agent the workflow. See [getting started](docs/guide/getting-started.md) for the project server and the browser build.
+
 ## Quick start
 
 Requirements:

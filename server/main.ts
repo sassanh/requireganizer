@@ -102,7 +102,10 @@ async function main(): Promise<void> {
   const serveInterface = interfaceBuilt
     ? (request: IncomingMessage, response: ServerResponse) => serveStaticFiles(interfaceRoot, request, response)
     : missingInterface(interfaceRoot);
-  const projectFile = resolveProjectFile(positionals[0] ?? null, process.cwd());
+  // Claude Code names the project an MCP server it starts serves, which may
+  // not be the folder it starts it in, such as for a plugin's server.
+  const projectDirectory = mcp ? (process.env.CLAUDE_PROJECT_DIR ?? process.cwd()) : process.cwd();
+  const projectFile = resolveProjectFile(positionals[0] ?? null, projectDirectory);
   const aiSettings = environmentAiSettings();
   installAiRuntime(aiSettings);
 
