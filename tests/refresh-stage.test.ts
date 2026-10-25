@@ -95,8 +95,8 @@ describe("outdated stage refresh", () => {
       store.outdatedItemIds(WorkflowStage.UserStories).map((id) => store.getCode(id) ?? id),
     );
     assert.match(comment, /Upstream changes:/);
-    assert.match(comment, /Rewrote FEA-1: "Track watering" → "Track watering and feeding"/);
-    assert.match(comment, /\(US-1\)/);
+    assert.match(comment, /Rewrote FEA-01: "Track watering" → "Track watering and feeding"/);
+    assert.match(comment, /\(US-01\)/);
   });
 
   it("offers no refresh when nothing is outdated", () => {

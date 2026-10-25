@@ -1,6 +1,7 @@
 import { cast, getParent, Instance, isAlive, types } from "mobx-state-tree";
 
 import type { ApprovalRecord, ModelVerdict } from "contract-domain";
+import { formatCode } from "lib/fragmentCodes";
 import { uuid } from "utilities";
 
 import {
@@ -139,25 +140,28 @@ const HalfStructuralFragmentModel = types
 
 export const StructuralFragmentModel = HalfStructuralFragmentModel.views(
   (self) => ({
+    /** The list this item is numbered in. */
+    getList() {
+      const StructuralFragmentArrayModel = types.array(
+        HalfStructuralFragmentModel,
+      );
+      return getParent<Instance<typeof StructuralFragmentArrayModel>>(self, 1);
+    },
+  }),
+)
+  .views((self) => ({
     getIndex() {
       // Undo/redo applies snapshots synchronously, which can destroy this
       // node while a render still holds it. Keep the view dead-safe: the
       // next render replaces the node with a live one.
       if (!isAlive(self)) return 0;
-      const StructuralFragmentArrayModel = types.array(
-        HalfStructuralFragmentModel,
-      );
-      const parentArray = getParent<
-        Instance<typeof StructuralFragmentArrayModel>
-      >(self, 1);
-      return parentArray.indexOf(self) + 1;
+      return self.getList().indexOf(self) + 1;
     },
-  }),
-)
+  }))
   .views((self) => ({
     getCode() {
       if (!isAlive(self)) return "";
-      return `${FRAGMENT_CODES[self.type]}-${self.getIndex()}`;
+      return formatCode(FRAGMENT_CODES[self.type], self.getIndex(), self.getList().length);
     },
   }))
   .named("StructuralFragment");

@@ -85,7 +85,7 @@ describe("workflow reads", () => {
     }) as { id: string; code: string; before: { content: string }; after: { content: string } }[];
     assert.equal(changes.length, 1);
     assert.equal(changes[0]!.id, "feat-1");
-    assert.equal(changes[0]!.code, "FEA-1");
+    assert.equal(changes[0]!.code, "FEA-01");
     assert.equal(changes[0]!.before.content, "Track watering");
     assert.equal(changes[0]!.after.content, "Track watering and feeding");
   });

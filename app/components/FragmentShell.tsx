@@ -5,6 +5,7 @@ import { isAlive } from "mobx-state-tree";
 import { Fragment, useEffect, useRef, type MouseEvent, type ReactNode } from "react";
 
 import { useFragmentHash } from "hooks/useFragmentHash";
+import { codesMatch } from "lib/fragmentCodes";
 import { projectPlaceHref } from "lib/routes";
 import { useShownStore } from "presentation";
 import { useOpenProjectId } from "projectContext";
@@ -241,7 +242,8 @@ const FragmentShellContent = observer(function FragmentShellContent<
       label: store.getCode(reference.id) ?? reference.id,
     };
   });
-  const isHighlighted = hash === code || hash === fragmentId;
+  // A code link written before codes were padded still names its item.
+  const isHighlighted = hash === fragmentId || codesMatch(hash, code);
 
   // Navigating to a fragment (its code link, a reference, a fresh page
   // load with a hash) pulls the card into view and flashes it once.
@@ -250,12 +252,12 @@ const FragmentShellContent = observer(function FragmentShellContent<
     const previous = previousHashRef.current;
     previousHashRef.current = hash;
     if (hash === "" || hash === previous) return;
-    if (hash !== code && hash !== fragmentId) return;
+    if (!isHighlighted) return;
     const node = document.getElementById(fragmentId);
     if (node == null) return;
     scrollIntoViewWithMargin(node, "nearest");
     pulseElement(node, HIGHLIGHT_MILLISECONDS);
-  }, [hash, code, fragmentId]);
+  }, [hash, isHighlighted, fragmentId]);
 
   const handleComment = (comment: string) => {
     if (!isAlive(fragment)) return;

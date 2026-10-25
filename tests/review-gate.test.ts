@@ -281,11 +281,11 @@ describe("review gate", () => {
     applyArtifactListProposal(store, storyProposal([stories[0]!, stories[2]!]));
     assert.deepEqual(store.userStories.map(({ id }) => id), ["story-1", "story-2", "story-3"]);
     assert.equal(store.userStories[1]!.pendingRemoval, true);
-    assert.equal(store.getCode("story-2"), "US-2");
-    assert.equal(store.getCode("story-3"), "US-3");
+    assert.equal(store.getCode("story-2"), "US-02");
+    assert.equal(store.getCode("story-3"), "US-03");
     // The change note names the dropped item by the code it still shows.
     assert.deepEqual(store.stageListChanges.get(WorkflowStage.UserStories)?.dropped, [
-      { id: "story-2", code: "US-2" },
+      { id: "story-2", code: "US-02" },
     ]);
   });
 
