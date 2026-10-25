@@ -85,6 +85,11 @@ export type ProjectSessionSnapshot =
       store: Store;
     };
 
+/** The store of work not started yet: its overview carries the name the person gave it. */
+function namedBlankStore(name: string): Store {
+  return Store.create({ productOverview: { name } });
+}
+
 interface ProjectIdentity {
   id: string;
   name: string;
@@ -603,6 +608,7 @@ export class ProjectSession {
 
   private readOpenedProject(
     data: Record<string, unknown> | null,
+    name: string,
   ): OpenedProject {
     let loadedRegistry: ModuleRegistry | null = null;
     let failure: string | null = null;
@@ -631,7 +637,7 @@ export class ProjectSession {
     }
 
     return {
-      created: Store.create({ productOverview: {} }),
+      created: data == null ? namedBlankStore(name) : Store.create({ productOverview: {} }),
       nextRegistry: createEmptyRegistry(),
       moduleId: LEGACY_MODULE_ID,
       failure,
@@ -668,7 +674,7 @@ export class ProjectSession {
       const data = await this.persistence.projects.load(project.id);
       if (!this.isOperationCurrent(generation)) return;
 
-      const opened = this.readOpenedProject(data);
+      const opened = this.readOpenedProject(data, project.name);
       const timeline = await this.persistence.timelines.load(
         project.id,
         opened.moduleId,
@@ -932,7 +938,7 @@ export class ProjectSession {
     assertModuleNameAvailable(trimmed, state.registry.modules);
     this.beginOperation();
     this.flushPendingWrites();
-    const created = Store.create({ productOverview: {} });
+    const created = namedBlankStore(trimmed);
     const entry: ModuleEntry = {
       id: crypto.randomUUID(),
       name: trimmed,

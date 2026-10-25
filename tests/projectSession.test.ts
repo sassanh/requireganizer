@@ -375,6 +375,8 @@ describe("project session loading", () => {
 
     const state = session.getSnapshot();
     assert.equal(state.activeProject?.id, "project-missing");
+    // The name the person gave the project is the overview's name.
+    assert.equal(state.store.productOverview.name, "Missing");
     assert.equal(state.registry?.activeModuleId, LEGACY_MODULE_ID);
     assert.equal(state.registry?.modulesEnabled, false);
     assert.equal(
@@ -737,6 +739,7 @@ describe("project session saving", () => {
       added?.modules.find((entry) => entry.id === added.activeModuleId)?.name,
       "Gamma",
     );
+    assert.equal(session.getSnapshot().store.productOverview.name, "Gamma");
   });
 
   it("flushes the outgoing project before importing", async () => {

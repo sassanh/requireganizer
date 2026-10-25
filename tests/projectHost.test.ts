@@ -401,11 +401,11 @@ describe("project host and client", () => {
       const replica = opened.replica();
       const kinds: (string | null)[] = [];
       onSnapshot(replica, () => kinds.push(opened.client.changeSource.currentStepKind()));
-      const focused: { subjects: string[]; name: string | null }[] = [];
+      const focused: { subjects: string[]; purpose: string | null }[] = [];
       opened.client.changeSource.onChangeFocus((focus) => {
         focused.push({
           subjects: focus.ops.map((op) => op.subject),
-          name: replica.productOverview.name,
+          purpose: replica.productOverview.purpose,
         });
       });
       const authorityKinds: (string | null)[] = [];
@@ -416,7 +416,7 @@ describe("project host and client", () => {
         id: "call-1",
         name: "submit_product_overview",
         arguments: {
-          name: "Plant Pal",
+          name: "Alpha",
           purpose: "Help people keep houseplants alive.",
           primaryFeatures: ["Track watering schedules"],
           targetUsers: ["Busy plant owners"],
@@ -431,10 +431,10 @@ describe("project host and client", () => {
       );
       await waitFor("the change focus", () => focused.length > 0);
 
-      assert.equal(replica.productOverview.name, "Plant Pal");
-      assert.ok(focused[0]!.subjects.includes("productOverview/name"));
+      assert.equal(replica.productOverview.purpose, "Help people keep houseplants alive.");
+      assert.ok(focused[0]!.subjects.includes("productOverview/purpose"));
       // The replica already shows the change its focus describes.
-      assert.equal(focused[0]!.name, "Plant Pal");
+      assert.equal(focused[0]!.purpose, "Help people keep houseplants alive.");
       assert.ok(authorityKinds.includes("ai"));
       assert.ok(kinds.includes("ai"));
       assert.equal(opened.client.changeSource.currentStepKind(), null);

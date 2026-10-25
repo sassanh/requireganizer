@@ -51,6 +51,15 @@ describe("outside agent tools", () => {
     }
   });
 
+  it("keeps the product name the person gave", async () => {
+    const store = Store.create({ productOverview: { name: "Plant Pal" } });
+    await assert.rejects(
+      callAgentTool(store, "submit_product_overview", { ...OVERVIEW, name: "Leaf Buddy" }),
+      /The product is named "Plant Pal", the name the person gave it\./,
+    );
+    assert.match(await callAgentTool(store, "submit_product_overview", OVERVIEW), /^Applied to Product Overview\./);
+  });
+
   it("applies a valid submission and says the person approves it", async () => {
     const store = Store.create({ productOverview: {} });
     const text = await callAgentTool(store, "submit_product_overview", OVERVIEW);

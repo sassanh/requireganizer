@@ -373,8 +373,16 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
     switch (command.stage) {
       case WorkflowStage.ProductOverview: {
         const state = JSON.parse(store.json(WorkflowStage.ProductOverview)) as Record<string, unknown>;
+        // The person names the product: a whole-overview proposal keeps the
+        // name it has, and a rename goes through the Name field.
+        const givenName = store.productOverview.name?.trim() ?? "";
         stageTools.push(agentTool(buildProductOverviewTool(state), async (args) => {
           const proposal = parseProductOverviewProposal(args, state);
+          if (givenName.length > 0 && proposal.name.trim() !== givenName) {
+            throw new UserFacingError(
+              `The product is named "${givenName}", the name the person gave it. Submit that name unchanged; to rename it, the person edits or comments on the Name field.`,
+            );
+          }
           applyProductOverviewProposal(store, proposal);
           return "Product overview applied.";
         }));
