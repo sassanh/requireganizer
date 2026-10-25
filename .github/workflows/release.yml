@@ -1,0 +1,94 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Verify the tag and build the package
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Check that GitHub verified the tag's signature
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # A lightweight tag has no signature: its ref names a commit, not a tag.
+          tag="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$GITHUB_REF_NAME" --jq 'select(.object.type == "tag") | .object.sha')"
+          test -n "$tag"
+          # Signed under this name, for the commit being built.
+          gh api "repos/$GITHUB_REPOSITORY/git/tags/$tag" \
+            --jq ".verification.verified and .tag == \"$GITHUB_REF_NAME\" and .object.sha == \"$(git rev-parse HEAD)\"" \
+            | grep -qx true
+
+      - name: Check that the tagged commit is on main
+        run: git merge-base --is-ancestor HEAD origin/main
+
+      - name: Check that the tag names the package version
+        run: test "v$(node -p 'require("./package.json").version')" = "$GITHUB_REF_NAME"
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22.13.0
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run quality gate
+        run: pnpm run check
+
+      - name: Keep the package
+        uses: actions/upload-artifact@v4
+        with:
+          name: package
+          path: dist
+          retention-days: 30
+          # A rerun of every job uploads it again.
+          overwrite: true
+
+  publish:
+    name: Publish to npm
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: release-npm
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Fetch the package
+        uses: actions/download-artifact@v4
+        with:
+          name: package
+          path: dist
+
+      # Trusted publishing needs npm 11.5.1 or later, which Node 24 ships.
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      # As the trusted publisher npmjs.com names for the package: no token.
+      - name: Publish
+        run: npm publish ./dist --access public --provenance

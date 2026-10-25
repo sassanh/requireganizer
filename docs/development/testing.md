@@ -12,8 +12,9 @@ The command runs, in order:
 2. Strict TypeScript checking without emission.
 3. The compiled Node test suite.
 4. The page build of the interface: a static export to `out/`.
-5. The project server: the server build of the interface in `dist/ui/` and the command-line bundle `dist/requireganizer.mjs`.
-6. A production VitePress build, including link validation.
+5. The project server: the server build of the interface in `dist/ui/` and the command-line bundle `dist/requireganizer.mjs`, which together are the npm package.
+6. The package check: `dist/` packed as npm ships it, installed outside the repository with no registry, then run for its help and as an MCP server answering a tool listing.
+7. A production VitePress build, including link validation.
 
 The same command runs for pull requests and pushes to `main`.
 
@@ -25,6 +26,7 @@ pnpm run typecheck
 pnpm run test
 pnpm run build
 pnpm run server:build
+pnpm run package:check
 pnpm run docs:build
 ```
 

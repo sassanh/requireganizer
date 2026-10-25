@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - Node.js 22.13 or newer
-- pnpm 11
+- pnpm 11, to build from source
 - An API key for an OpenAI-compatible Responses API whose model supports function tools; the default endpoint is OpenRouter
 
 ## Run it in the browser
@@ -22,10 +22,8 @@ Serve the static files in `out/` from any static host.
 The project server keeps one project in a file inside your repository, runs the AI with the key from its environment, and serves the interface.
 
 ```bash
-pnpm install
-pnpm run server:build
 cd path/to/your/repository
-AI_API_KEY=your-key node path/to/requireganizer/dist/requireganizer.mjs
+AI_API_KEY=your-key npx requireganizer
 ```
 
 Without a path, the server uses the nearest `requireganizer.json` in the current folder or a folder above it, or creates one in the current folder; pass a path to use another file. It prints the address and opens the browser. The project file holds only the project; its history stays in the state directory.
@@ -41,10 +39,10 @@ See [environment variables](/reference/environment) for the AI settings.
 `requireganizer mcp` serves the project to a coding agent over MCP. For Claude Code, run this in your repository:
 
 ```bash
-claude mcp add requireganizer -- node path/to/requireganizer/dist/requireganizer.mjs mcp
+claude mcp add requireganizer -- npx -y requireganizer mcp
 ```
 
-Other agents take the same command: `node path/to/requireganizer/dist/requireganizer.mjs mcp`, started in the repository. Add `--env-file <path>` to give it the AI settings; without them, review stays manual.
+Other agents take the same command: `npx -y requireganizer mcp`, started in the repository. Add `--env-file <path>` to give it the AI settings; without them, review stays manual.
 
 The agent reads every stage and submits stage work through the same tools, checks and review as Requireganizer's own AI. Only you approve, in the page.
 
@@ -59,7 +57,7 @@ cp .env.example .env.local
 pnpm run dev
 ```
 
-`pnpm run dev` runs the server build with hot reload on `http://127.0.0.1:3000`, serving the project in `local/requireganizer.json`; pass a path to serve another. `pnpm run dev:browser` runs the page build instead.
+`pnpm run server:build` builds the package into `dist/`; `node dist/requireganizer.mjs` runs it as `npx requireganizer` would. `pnpm run dev` runs the server build with hot reload on `http://127.0.0.1:3000`, serving the project in `local/requireganizer.json`; pass a path to serve another. `pnpm run dev:browser` runs the page build instead.
 
 ## Run the quality gate
 

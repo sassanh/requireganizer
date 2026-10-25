@@ -4,7 +4,7 @@ layout: home
 hero:
   name: Requireganizer
   text: Traceable AI-assisted engineering
-  tagline: Turn product intent into approved boundaries, formal interfaces, behavioral traces, and deterministic automated tests.
+  tagline: Turn a one-line idea into requirements, contracts and tests you approve item by item, then give your coding agent the spec to build against.
   actions:
     - theme: brand
       text: Get started

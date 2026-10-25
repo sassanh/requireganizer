@@ -2,6 +2,13 @@
   "name": "requireganizer",
   "version": "0.1.0",
   "private": true,
+  "description": "Turn a one-line idea into requirements, contracts and tests you approve item by item, then give your coding agent the spec to build against, over MCP.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sassanh/requireganizer.git"
+  },
+  "homepage": "https://sassanh.github.io/requireganizer/",
   "c8": {
     "exclude": [
       "tests/**",
@@ -22,6 +29,7 @@
     "build": "next build",
     "server:build": "node scripts/build-server.mjs",
     "server:start": "node dist/requireganizer.mjs",
+    "package:check": "node scripts/check-package.mjs",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs",
@@ -30,7 +38,7 @@
     "test": "node scripts/run-tests.mjs",
     "prepare": "cp .husky/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit || true",
     "coverage": "c8 --reporter=text-summary --reporter=html --reporter=lcov node scripts/run-tests.mjs",
-    "check": "pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run build && pnpm run server:build && pnpm run docs:build",
+    "check": "pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run build && pnpm run server:build && pnpm run package:check && pnpm run docs:build",
     "cf:deploy": "pnpm run build && wrangler deploy"
   },
   "dependencies": {

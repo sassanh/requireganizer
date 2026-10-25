@@ -1,18 +1,21 @@
 import { spawnSync } from "node:child_process";
+import { copyFileSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 
 import { build } from "esbuild";
 
 /**
- * Build the project server. Application modules are compiled into its
- * bundle, resolved through the TypeScript paths; packages stay imports of
- * node_modules. The command-line build also exports the server build of the
- * interface into `dist/ui/`, which the bundle serves. `--dev` builds the
- * development server instead, whose interface Next serves itself.
+ * Build the project server. `--dev` builds the development server, whose
+ * interface Next serves itself; its packages stay imports of node_modules.
+ * Otherwise this builds `dist/`, the npm package: the server build of the
+ * interface in `dist/ui/`, which the bundle serves, and a bundle that holds
+ * every package it uses, so the package installs with no dependencies.
  */
 const development = process.argv.includes("--dev");
 
 if (!development) {
+  // The package is what this build writes, and nothing an earlier one left.
+  rmSync("dist", { recursive: true, force: true });
   const require = createRequire(import.meta.url);
   const interfaceBuild = spawnSync(process.execPath, [require.resolve("next/dist/bin/next"), "build"], {
     stdio: "inherit",
@@ -28,9 +31,29 @@ await build({
   platform: "node",
   format: "esm",
   target: "node22",
-  packages: "external",
+  packages: development ? "external" : undefined,
   tsconfig: "tsconfig.json",
-  sourcemap: true,
+  sourcemap: development,
   logLevel: "warning",
-  banner: development ? undefined : { js: "#!/usr/bin/env node" },
+  // Bundled CommonJS packages require Node's own modules.
+  banner: development ? undefined : {
+    js: "#!/usr/bin/env node\nimport { createRequire as __createRequire } from \"node:module\";\nconst require = __createRequire(import.meta.url);",
+  },
 });
+
+if (!development) {
+  const source = JSON.parse(readFileSync("package.json", "utf8"));
+  const manifest = {
+    name: source.name,
+    version: source.version,
+    description: source.description,
+    license: source.license,
+    repository: source.repository,
+    homepage: source.homepage,
+    engines: source.engines,
+    bin: { requireganizer: "requireganizer.mjs" },
+  };
+  writeFileSync("dist/package.json", `${JSON.stringify(manifest, null, 2)}\n`);
+  copyFileSync("README.md", "dist/README.md");
+  copyFileSync("LICENSE", "dist/LICENSE");
+}

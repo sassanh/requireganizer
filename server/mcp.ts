@@ -57,7 +57,7 @@ function reachHost(client: ProjectClient, waitMs: number): Promise<void> {
 
 function instructionsFor(url: string | null): string {
   const where = url == null ? "in Requireganizer" : `at ${url}`;
-  return `Requireganizer holds this project's requirements, from the product overview to test cases. get_workflow_state shows which stage can change now; get_stage_artifacts reads the work. Submit a stage's work with its submit tool; the person reviews and approves it ${where}, and no tool approves.`;
+  return `Requireganizer holds the spec the person approves for this project, from the product overview to test cases, each item traced to what it serves. Read it before building: get_workflow_state shows which stage can change now; get_stage_artifacts reads the work. Submit a stage's work with its submit tool; the person reviews and approves it ${where}, and no tool approves.`;
 }
 
 export interface McpService {

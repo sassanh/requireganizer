@@ -1,6 +1,6 @@
 ---
 name: requireganizer
-description: Work with a project's requirements in Requireganizer through its MCP tools. Read the approved product overview, user stories, requirements, acceptance criteria, contracts and tests before implementing, and submit stage work for the person to review. Use when the repository has a requireganizer.json, the requireganizer MCP tools are available, or the user mentions Requireganizer.
+description: The person's approved spec for this repository, kept in Requireganizer as product overview, user stories, requirements, acceptance criteria, interface contracts and test cases, each traced to what it serves. Read it before implementing to build what was decided instead of guessing, and name the items your code covers. Submit stage work through its MCP tools for the person to approve. Use when the repository has a requireganizer.json, the requireganizer MCP tools are available, or the user mentions Requireganizer.
 ---
 
 # Requireganizer

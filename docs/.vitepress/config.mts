@@ -39,7 +39,7 @@ export default defineConfig({
         text: "Development",
         items: [
           { text: "Testing and quality", link: "/development/testing" },
-          { text: "GitHub Pages", link: "/development/deployment" },
+          { text: "Deployment and releases", link: "/development/deployment" },
         ],
       },
       {
