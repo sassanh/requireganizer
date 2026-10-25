@@ -61,7 +61,7 @@ The workflow publishes nothing unless:
 - the tag names the version in `package.json`;
 - `pnpm run check` passes on the tagged commit.
 
-npm publishes with provenance.
+npm publishes with provenance. Once npm has the version, the workflow creates the tag's GitHub release, with notes GitHub generates from the changes since the previous release.
 
 ### npm setup
 
