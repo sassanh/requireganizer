@@ -20,6 +20,7 @@ import { UserFacingError } from "../app/lib/errors";
 import { LEGACY_MODULE_ID } from "../app/lib/moduleSchema";
 import { PROJECT_SCHEMA_VERSION } from "../app/lib/projectSchema";
 import { type ProjectMeta, ProjectStorageError } from "../app/lib/projectStorage";
+import type { OutsideChange } from "../app/persistence";
 import { WorkflowStage } from "../app/store/constants";
 import { Store } from "../app/store/store";
 import { DEFAULT_FILE_PROJECT_ID, FilePersistenceAdapter } from "../server/fileAdapter";
@@ -35,6 +36,10 @@ function workspace(): { projectFile: string; stateDirectory: string; adapter: Fi
   const projectFile = join(directory, "repository", "requireganizer.json");
   const stateDirectory = join(directory, "state");
   return { projectFile, stateDirectory, adapter: new FilePersistenceAdapter({ projectFile, stateDirectory }) };
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 function registryPayload(name: string): Record<string, unknown> {
@@ -197,16 +202,77 @@ describe("file persistence adapter", () => {
       (error: unknown) =>
         error instanceof UserFacingError &&
         /changed outside Requireganizer/.test(error.message) &&
-        /Export the project/.test(error.message),
+        /Choose in Requireganizer which version to keep/.test(error.message),
     );
     assert.equal(readFileSync(projectFile, "utf8"), checkedOut);
 
     const restarted = new FilePersistenceAdapter({ projectFile, stateDirectory });
+    // Opening the project holds it, as the session does.
+    assert.equal(restarted.outsideChanges.adoptStored(), true);
     const loaded = await restarted.projects.load("project-1");
     const [module] = (loaded!.modules as { snapshot: { productOverview: { name: string } } }[]);
     assert.equal(module!.snapshot.productOverview.name, "From git");
     await restarted.projects.save("project-1", registryPayload("Edited after restart"));
     assert.match(readFileSync(projectFile, "utf8"), /Edited after restart/);
+  });
+
+  it("reports one standing change to the file made outside it, until it is undone or overwritten", async () => {
+    const { adapter, projectFile } = workspace();
+    await adapter.projects.saveIndex([projectMeta("project-1", "Plant Pal")]);
+    await adapter.projects.save("project-1", registryPayload("Plant Pal"));
+    const written = readFileSync(projectFile, "utf8");
+    const reported: (OutsideChange | null)[] = [];
+    const stop = adapter.outsideChanges.watch((change) => reported.push(change));
+    const settle = async (count: number) => {
+      for (let attempt = 0; attempt < 60 && reported.length < count; attempt += 1) await delay(50);
+      // Edits that follow later would still be reported here.
+      await delay(300);
+    };
+    try {
+      assert.deepEqual([...reported], [null]);
+      const checkedOut = `${JSON.stringify({ id: "project-1", name: "Plant Pal", ...registryPayload("From git") }, null, 2)}\n`;
+      writeFileSync(projectFile, checkedOut);
+      await settle(2);
+      // A second edit of the same kind changes nothing that is reported.
+      writeFileSync(projectFile, `${checkedOut}\n`);
+      await settle(2);
+      assert.deepEqual([...reported], [null, { kind: "changed", problem: null }]);
+
+      writeFileSync(projectFile, "<<<<<<< HEAD\n");
+      await settle(3);
+      const unreadable = reported[2];
+      assert.ok(unreadable?.kind === "changed");
+      assert.match(unreadable.problem ?? "", /requireganizer\.json could not be read/);
+      // A file that cannot be read is never held, so it is never written over.
+      assert.equal(adapter.outsideChanges.adoptStored(), false);
+      writeFileSync(projectFile, checkedOut.replace('"id": "project-1"', '"id": "project-2"'));
+      await settle(4);
+      assert.deepEqual(reported[3], { kind: "changed", problem: "requireganizer.json now holds another project." });
+      assert.equal(adapter.outsideChanges.adoptStored(), false);
+      rmSync(projectFile);
+      await settle(5);
+      assert.deepEqual(reported[4], { kind: "removed" });
+      // Checked out back to the version it wrote: nothing stands any more.
+      writeFileSync(projectFile, written);
+      await settle(6);
+      assert.equal(reported[5], null);
+
+      writeFileSync(projectFile, checkedOut);
+      await settle(7);
+      // Another reader, such as a page, loads the changed file: it stays a change.
+      await adapter.projects.load("project-1");
+      await delay(300);
+      assert.equal(reported.length, 7);
+      await assert.rejects(adapter.projects.save("project-1", registryPayload("Edited here")), /changed outside/);
+      assert.equal(adapter.outsideChanges.adoptStored(), true);
+      assert.equal(reported[7], null);
+      await adapter.projects.save("project-1", registryPayload("Edited here"));
+      assert.match(readFileSync(projectFile, "utf8"), /Edited here/);
+      await delay(300);
+      assert.equal(reported.length, 8);
+    } finally {
+      stop();
+    }
   });
 
   it("holds one project: another one, a second import, and deletion are refused", async () => {

@@ -219,6 +219,32 @@ export interface StorageTraits {
 }
 
 /**
+ * How the stored project differs from what its adapter last adopted or wrote,
+ * because something else changed it, such as a checkout of the project file.
+ * `problem` says why the changed project cannot be opened; null when it can.
+ */
+export type OutsideChange = { kind: "changed"; problem: string | null } | { kind: "removed" };
+
+/**
+ * Changes made to the stored project outside the adapter. While one stands,
+ * the adapter refuses to write the project, so neither version is lost.
+ */
+export interface OutsideChanges {
+  /**
+   * Call `listener` with the change whenever it differs from the last one,
+   * null once the stored project is again what the adapter last adopted or
+   * wrote. Returns a function that stops watching.
+   */
+  watch(listener: (change: OutsideChange | null) => void): () => void;
+  /**
+   * Hold the stored project as it is now, as when opening it, so the next
+   * write may replace it. False, holding nothing new, while it cannot be read
+   * or holds another project. Loads never change what the adapter holds.
+   */
+  adoptStored(): boolean;
+}
+
+/**
  * All persistence the application needs, grouped by concern. Every member
  * is asynchronous so a project can also live in files served by a local
  * process or in a remote Durable Object.

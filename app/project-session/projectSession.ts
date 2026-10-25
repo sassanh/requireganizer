@@ -1,6 +1,6 @@
 import { getSnapshot, onSnapshot } from "mobx-state-tree";
 
-import { getUserFacingErrorMessage } from "lib/errors";
+import { getUserFacingErrorMessage, UserFacingError } from "lib/errors";
 import {
   assertModuleNameAvailable,
   buildProjectPayload,
@@ -14,7 +14,7 @@ import {
   type ProjectPayload,
   visibleModules,
 } from "lib/moduleSchema";
-import type { PersistenceAdapter } from "persistence";
+import type { OutsideChange, OutsideChanges, PersistenceAdapter } from "persistence";
 import {
   createModuleStore,
   Store,
@@ -47,13 +47,16 @@ export type ProjectSessionStatus = "idle" | "loading" | "failed" | "ready";
  * together: an idle session has no project, a loading session has a named
  * project but no registry yet, a failed session names the project it could
  * not load and why, and a ready session has both a registry and a store to
- * render. A module switch stays ready while its timeline loads.
+ * render. A module switch stays ready while its timeline loads. A ready
+ * project whose stored version changed outside the session names that
+ * change until the person chooses which version to keep.
  */
 export type ProjectSessionSnapshot =
   | {
       status: "idle";
       activeProject: null;
       persistenceError: null;
+      outsideChange: null;
       registry: null;
       store: Store;
     }
@@ -61,6 +64,7 @@ export type ProjectSessionSnapshot =
       status: "loading";
       activeProject: { id: string; name: string };
       persistenceError: null;
+      outsideChange: null;
       registry: null;
       store: Store;
     }
@@ -68,6 +72,7 @@ export type ProjectSessionSnapshot =
       status: "failed";
       activeProject: { id: string; name: string };
       persistenceError: string;
+      outsideChange: null;
       registry: null;
       store: Store;
     }
@@ -75,6 +80,7 @@ export type ProjectSessionSnapshot =
       status: "ready";
       activeProject: { id: string; name: string };
       persistenceError: string | null;
+      outsideChange: OutsideChange | null;
       registry: ModuleRegistry;
       store: Store;
     };
@@ -171,13 +177,14 @@ const INVALID_STORED_PROJECT_MESSAGE =
   "The stored project was invalid, so a blank project was opened.";
 const PROJECT_LOAD_ERROR_MESSAGE = "The project could not be loaded.";
 
-function snapshotOf(state: SessionState): ProjectSessionSnapshot {
+function snapshotOf(state: SessionState, outsideChange: OutsideChange | null): ProjectSessionSnapshot {
   switch (state.status) {
     case "idle":
       return {
         status: "idle",
         activeProject: null,
         persistenceError: null,
+        outsideChange: null,
         registry: null,
         store: state.store,
       };
@@ -186,6 +193,7 @@ function snapshotOf(state: SessionState): ProjectSessionSnapshot {
         status: "loading",
         activeProject: state.project,
         persistenceError: null,
+        outsideChange: null,
         registry: null,
         store: state.store,
       };
@@ -194,6 +202,7 @@ function snapshotOf(state: SessionState): ProjectSessionSnapshot {
         status: "failed",
         activeProject: state.project,
         persistenceError: state.message,
+        outsideChange: null,
         registry: null,
         store: state.store,
       };
@@ -203,6 +212,7 @@ function snapshotOf(state: SessionState): ProjectSessionSnapshot {
         status: "ready",
         activeProject: state.project,
         persistenceError: shownNotice(state.persistenceNotices),
+        outsideChange,
         registry: state.registry,
         store: state.store,
       };
@@ -249,11 +259,20 @@ export class ProjectSession {
   private flushPendingSave: (() => void) | null = null;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
 
-  constructor(persistence: PersistenceAdapter) {
+  private readonly outsideChanges: OutsideChanges | null;
+  /** How the stored project differs from the one the session holds. */
+  private outsideChange: OutsideChange | null = null;
+  private stopWatchingOutsideChanges: (() => void) | null = null;
+  /** A project write was held back while an outside change stood. */
+  private writeHeldBack = false;
+
+  /** `outsideChanges` reports changes made to the stored project by anything else, for a storage that has them. */
+  constructor(persistence: PersistenceAdapter, options: { outsideChanges?: OutsideChanges } = {}) {
     this.persistence = persistence;
+    this.outsideChanges = options.outsideChanges ?? null;
     const store = Store.create({ productOverview: {} });
     this.state = { status: "idle", store };
-    this.snapshot = snapshotOf(this.state);
+    this.snapshot = snapshotOf(this.state, this.outsideChange);
   }
 
   // Public operations are arrow properties: React context passes them to
@@ -285,7 +304,7 @@ export class ProjectSession {
   }
 
   private publish(): void {
-    this.snapshot = snapshotOf(this.state);
+    this.snapshot = snapshotOf(this.state, this.outsideChange);
     this.listeners.forEach((listener) => listener());
   }
 
@@ -329,6 +348,12 @@ export class ProjectSession {
     currentRegistry: ModuleRegistry,
     snapshot: Record<string, unknown>,
   ): void {
+    // Written once the person has chosen which version to keep. Storage
+    // would refuse it, and the refusal could arrive after the choice.
+    if (this.outsideChange != null) {
+      this.writeHeldBack = true;
+      return;
+    }
     const sequence = ++this.projectWriteSequence;
     const isLatest = (): boolean => sequence === this.projectWriteSequence;
 
@@ -347,6 +372,12 @@ export class ProjectSession {
           this.setPersistenceNotice("write", null);
         },
         (error: unknown) => {
+          // Refused because the stored project changed meanwhile: the
+          // person's choice of version settles it.
+          if (this.outsideChange != null) {
+            this.writeHeldBack = true;
+            return;
+          }
           console.error("Could not persist project changes.", error);
           if (!isLatest()) return;
           this.setPersistenceNotice(
@@ -461,6 +492,11 @@ export class ProjectSession {
    * the write left), or a module timeline load.
    */
   start = (): void => {
+    if (this.outsideChanges != null && this.stopWatchingOutsideChanges == null) {
+      this.stopWatchingOutsideChanges = this.outsideChanges.watch((change) =>
+        this.outsideChangeObserved(change),
+      );
+    }
     const state = this.state;
     switch (state.status) {
       case "idle":
@@ -484,6 +520,13 @@ export class ProjectSession {
    * cancelled.
    */
   dispose = (): void => {
+    if (this.writeHeldBack) {
+      console.error(
+        `${this.persistence.traits.name} changed outside Requireganizer, so the changes made since were not saved. They stay in the project's history: undo after opening the project returns to them.`,
+      );
+    }
+    this.stopWatchingOutsideChanges?.();
+    this.stopWatchingOutsideChanges = null;
     this.beginOperation();
     this.detachStoreSubscription();
     void flushTimeline();
@@ -599,6 +642,8 @@ export class ProjectSession {
   private openProject(project: ProjectIdentity): Promise<void> {
     // Finish the outgoing writes before anything is replaced.
     this.flushPendingWrites();
+    // The project is read again, so a write held back has nothing to keep.
+    this.writeHeldBack = false;
     const generation = this.beginOperation();
     this.detachStoreSubscription();
     detachTimeline();
@@ -618,6 +663,8 @@ export class ProjectSession {
     generation: number,
   ): Promise<void> {
     try {
+      // The session holds the project it opens: writes may replace it.
+      this.outsideChanges?.adoptStored();
       const data = await this.persistence.projects.load(project.id);
       if (!this.isOperationCurrent(generation)) return;
 
@@ -768,6 +815,62 @@ export class ProjectSession {
     if (projects.length !== 1) return;
     await this.selectProject(projects[0]!.id, projects[0]!.name);
   };
+
+  private outsideChangeObserved(change: OutsideChange | null): void {
+    this.outsideChange = change;
+    // The stored project is again the one the session holds, such as after
+    // a checkout back: what was held back is written now.
+    if (change == null && this.writeHeldBack) {
+      this.writeHeldBack = false;
+      this.persistCurrent();
+    }
+    this.publish();
+  }
+
+  /**
+   * Open the project as it now is in storage, after it changed outside the
+   * session. The shown version stays one undo away: the timeline records the
+   * opened project as a step after it.
+   */
+  openChangedProject = (): Promise<void> => {
+    const state = this.choosableState();
+    const change = this.outsideChange;
+    if (change?.kind !== "changed") return Promise.resolve();
+    if (change.problem != null) return Promise.reject(new UserFacingError(change.problem));
+    if (state.store.isBusy) {
+      return Promise.reject(
+        new UserFacingError("Open the changed file once Requireganizer finishes its current work."),
+      );
+    }
+    return this.openProject(state.project);
+  };
+
+  /** Write the shown project over the stored one that changed outside the session. */
+  keepShownProject = (): void => {
+    this.choosableState();
+    if (this.outsideChange == null) return;
+    // The shown version is written as soon as nothing stands in its way:
+    // once the stored one is adopted, or once the change is gone.
+    this.writeHeldBack = true;
+    if (this.outsideChanges?.adoptStored() === false) {
+      throw new UserFacingError(
+        `${this.persistence.traits.name} cannot be read or holds another project, so it is not replaced. Fix it, then choose again.`,
+      );
+    }
+    if (this.writeHeldBack) {
+      this.writeHeldBack = false;
+      this.persistCurrent();
+    }
+  };
+
+  /** The open project, while the choice between versions can be made. */
+  private choosableState(): ReadySessionState {
+    const state = this.readyState();
+    if (state == null) {
+      throw new UserFacingError("Choose which version to keep once the project has finished opening or importing.");
+    }
+    return state;
+  }
 
   backToProjects = (): void => {
     this.flushPendingWrites();

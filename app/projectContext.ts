@@ -2,7 +2,7 @@
 import { createContext, useContext } from "react";
 
 import type { CodeArchiveFormat, ProjectExportFormat } from "lib/projectExport";
-import type { PersistenceAdapter, StorageTraits } from "persistence";
+import type { OutsideChange, PersistenceAdapter, StorageTraits } from "persistence";
 import type { TimelineClient } from "project-client";
 import type { ModuleSummary, ProjectSessionStatus } from "project-session";
 import type { WorkflowStage } from "store/constants";
@@ -16,6 +16,12 @@ export interface ProjectContextValue {
   status: ProjectSessionStatus;
   activeProject: { id: string, name: string } | null;
   persistenceError: string | null;
+  /** How the stored project changed outside Requireganizer; null while it has not. */
+  outsideChange: OutsideChange | null;
+  /** Open the project as storage now holds it. */
+  openChangedProject: () => Promise<void>;
+  /** Write the shown project over the changed one. */
+  keepShownProject: () => Promise<void>;
   /** The model that reviews drafts; null when auto review is unavailable. */
   reviewerModel: string | null;
   /** How to configure a reviewer model, shown while there is none. */

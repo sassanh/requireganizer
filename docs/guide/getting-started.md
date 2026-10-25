@@ -32,6 +32,8 @@ Without a path, the server uses the nearest `requireganizer.json` in the current
 
 One process at a time serves a project. Running the server again for a project that is already served opens the running one.
 
+When the project file changes while it is served, such as after a checkout or a pull, the page asks whether to open the changed file or keep the version it shows. After opening the changed file, undo returns to the version the page showed.
+
 See [environment variables](/reference/environment) for the AI settings.
 
 ## Use it from a coding agent

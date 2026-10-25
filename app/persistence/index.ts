@@ -1,4 +1,6 @@
 export type {
+  OutsideChange,
+  OutsideChanges,
   PersistenceAdapter,
   ProjectDeleteAuxiliary,
   ProjectDeleteResult,

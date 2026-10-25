@@ -22,6 +22,7 @@ import {
   ModuleSwitcherDialog,
   ProjectActionsMenu,
   ImpactConfirmationDialog,
+  OutsideChangeDialog,
   ProviderActivity,
   PersistentAlert,
   RevisionHistoryDialog,
@@ -315,6 +316,7 @@ function Home() {
         {conversationOpen && <ConversationSidebar />}
       </Stack>
       <ImpactConfirmationDialog projectId={activeProject.id} moduleId={activeModuleId} />
+      <OutsideChangeDialog />
       <ThinkingOverlayDialog />
       <RevisionHistoryDialog
         projectId={activeProject.id}

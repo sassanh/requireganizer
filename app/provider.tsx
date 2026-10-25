@@ -81,7 +81,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     client.getSnapshot,
     client.getSnapshot,
   );
-  const { status, activeProject, persistenceError, registry, store } =
+  const { status, activeProject, persistenceError, outsideChange, registry, store } =
     sessionState;
   const { reviewerModel, missingReviewerModelMessage, storage } = useSyncExternalStore(
     client.subscribe,
@@ -185,6 +185,9 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     status,
     activeProject,
     persistenceError,
+    outsideChange,
+    openChangedProject: client.openChangedProject,
+    keepShownProject: client.keepShownProject,
     reviewerModel,
     missingReviewerModelMessage,
     storage,

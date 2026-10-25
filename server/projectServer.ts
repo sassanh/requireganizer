@@ -156,7 +156,7 @@ async function serveClaimed(
     warnings.push("AI_API_KEY is not set, so AI actions fail until you set it and restart the server.");
   }
 
-  const session = new ProjectSession(adapter);
+  const session = new ProjectSession(adapter, { outsideChanges: adapter.outsideChanges });
   const host = new ProjectHost(session);
   session.start();
 

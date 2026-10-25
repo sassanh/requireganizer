@@ -106,6 +106,10 @@ export interface HostApi {
   archiveModule(id: string): void;
   recordOpenStep(step: WorkflowStage): void;
   importProjectFile(data: unknown): Promise<void>;
+  /** Open the project as storage now holds it, after it changed outside the host. */
+  openChangedProject(): Promise<void>;
+  /** Write the shown project over the stored one that changed outside the host. */
+  keepShownProject(): void;
   runStoreAction(call: StoreActionCall): unknown;
   undo(): void;
   redo(): void;

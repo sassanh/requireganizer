@@ -174,6 +174,7 @@ export class ProjectClient {
     status: "idle",
     activeProject: null,
     persistenceError: null,
+    outsideChange: null,
   };
   private hostInfo: HostInfo = {
     reviewerModel: null,
@@ -360,6 +361,10 @@ export class ProjectClient {
 
   importProjectFile = (data: unknown): Promise<void> =>
     this.request("importProjectFile", data);
+
+  openChangedProject = (): Promise<void> => this.request("openChangedProject");
+
+  keepShownProject = (): Promise<void> => this.request("keepShownProject");
 
   /** The tools an outside agent can call on the open project now. */
   listAgentTools = (): Promise<AgentToolDescription[]> => this.request("listAgentTools");

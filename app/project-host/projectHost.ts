@@ -124,6 +124,8 @@ export class ProjectHost implements HostEndpoint {
       archiveModule: (id) => session.archiveModule(id),
       recordOpenStep: (step) => session.recordOpenStep(step),
       importProjectFile: (data) => session.importProjectFile(data),
+      openChangedProject: () => session.openChangedProject(),
+      keepShownProject: () => session.keepShownProject(),
       runStoreAction: (call) => this.runStoreAction(call),
       undo,
       redo,
@@ -140,6 +142,12 @@ export class ProjectHost implements HostEndpoint {
         if (session.importing) {
           throw new UserFacingError(
             "A project import is replacing this project in Requireganizer. Call get_workflow_state once it finishes.",
+          );
+        }
+        // Either version may be the one kept, so neither is read or changed meanwhile.
+        if (session.getSnapshot().outsideChange != null) {
+          throw new UserFacingError(
+            `${session.persistence.traits.name} changed outside Requireganizer. Ask the person to choose in Requireganizer which version to keep, then call get_workflow_state.`,
           );
         }
         return callAgentTool(store, name, args);

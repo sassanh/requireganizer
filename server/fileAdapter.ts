@@ -1,11 +1,13 @@
 import {
   existsSync,
+  type FSWatcher,
   mkdirSync,
   readdirSync,
   readFileSync,
   renameSync,
   rmSync,
   statSync,
+  watch,
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, extname, join } from "node:path";
@@ -37,6 +39,8 @@ import {
   sortRevisionSnapshotsNewestFirst,
 } from "lib/revisionStorage";
 import type {
+  OutsideChange,
+  OutsideChanges,
   PersistenceAdapter,
   ProjectPersistence,
   ProviderCallPersistence,
@@ -89,6 +93,13 @@ function readIfPresent(path: string): string | null {
   }
 }
 
+/** Edits to the project file are gathered this long before it is read, so one save is one change. */
+const OUTSIDE_CHANGE_SETTLE_MS = 100;
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 /** An id as one file name: it never names a folder or steps out of one. */
 function pathSegment(value: string): string {
   return encodeURIComponent(value).replace(/^\.{1,2}$/, (dots) => "%2E".repeat(dots.length));
@@ -104,7 +115,9 @@ function pathSegment(value: string): string {
  *
  * Writes are issued synchronously and replace files atomically, so they are
  * never reordered. A project file that cannot be read is never overwritten:
- * loading it fails with what is wrong, and writes to it are refused.
+ * loading it fails with what is wrong, and writes to it are refused. Neither
+ * is a file changed since this adapter last adopted or wrote it, such as by a
+ * checkout; `outsideChanges` reports such a change as it happens.
  */
 export class FilePersistenceAdapter implements PersistenceAdapter {
   readonly traits: StorageTraits;
@@ -113,11 +126,17 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
   private readonly now: () => Date;
   private readonly createRevisionSnapshotId: () => string;
   /**
-   * The project file's contents as this adapter last loaded or wrote them;
+   * The project file's contents as this adapter last adopted or wrote them;
    * undefined until it has done either. A write over anything else would
    * replace a change made outside the server.
    */
   private knownContents: string | null | undefined = undefined;
+  /** The project those contents hold; kept when the file is removed, so writing it again keeps its name. */
+  private heldMeta: ProjectMeta | null = null;
+  private readonly outsideChangeListeners = new Set<(change: OutsideChange | null) => void>();
+  private reportedOutsideChange: OutsideChange | null = null;
+  private fileWatcher: FSWatcher | null = null;
+  private outsideChangeCheck: ReturnType<typeof setTimeout> | null = null;
 
   constructor(options: FilePersistenceAdapterOptions) {
     this.projectFile = options.projectFile;
@@ -171,7 +190,7 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
         id: text("id") ?? DEFAULT_FILE_PROJECT_ID,
         name: text("name") ?? overviewName?.trim() ?? basename(label, extname(label)),
         description: text("description") ?? "",
-        updatedAt: statSync(this.projectFile).mtime.toISOString(),
+        updatedAt: this.modifiedAt().toISOString(),
       },
       payload: hasPayload ? payload : null,
     };
@@ -199,7 +218,15 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
     } catch (error) {
       throw new ProjectStorageError(message, error);
     }
+    this.remember(contents, meta);
+  }
+
+  /** Record the project file's contents as this adapter adopted or wrote them. */
+  private remember(contents: string | null, meta: ProjectMeta | null): void {
     this.knownContents = contents;
+    if (meta != null) this.heldMeta = meta;
+    if (this.outsideChangeListeners.size > 0 && this.fileWatcher == null) this.watchProjectFile();
+    this.checkOutsideChange();
   }
 
   /** The stored project, read for a write; a write never replaces a file it cannot read. */
@@ -211,8 +238,9 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
       throw new ProjectStorageError(message, error);
     }
     if (this.knownContents !== undefined && source !== this.knownContents) {
+      this.checkOutsideChange();
       throw new UserFacingError(
-        `${this.traits.name} changed outside Requireganizer, so it was not overwritten. Export the project to keep the changes made here, then restart the server to open the changed file.`,
+        `${this.traits.name} changed outside Requireganizer, so it was not overwritten. Choose in Requireganizer which version to keep.`,
       );
     }
     try {
@@ -227,6 +255,96 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
 
   private otherProjectMessage(): string {
     return `This server serves the project in ${this.traits.name} only.`;
+  }
+
+  readonly outsideChanges: OutsideChanges = {
+    watch: (listener) => {
+      this.outsideChangeListeners.add(listener);
+      if (this.fileWatcher == null) this.watchProjectFile();
+      this.checkOutsideChange();
+      listener(this.reportedOutsideChange);
+      return () => {
+        this.outsideChangeListeners.delete(listener);
+        if (this.outsideChangeListeners.size > 0) return;
+        this.fileWatcher?.close();
+        this.fileWatcher = null;
+        if (this.outsideChangeCheck != null) clearTimeout(this.outsideChangeCheck);
+        this.outsideChangeCheck = null;
+      };
+    },
+    adoptStored: () => {
+      let stored: ProjectFile | null;
+      let source: string | null;
+      try {
+        source = readIfPresent(this.projectFile);
+        stored = this.parseProjectFile(source);
+      } catch {
+        // A file that cannot be read is never overwritten.
+        return false;
+      }
+      if (stored != null && this.heldMeta != null && stored.meta.id !== this.heldMeta.id) return false;
+      this.remember(source, stored?.meta ?? null);
+      return true;
+    },
+  };
+
+  private watchProjectFile(): void {
+    const name = basename(this.projectFile);
+    try {
+      // The folder, not the file: a checkout replaces the file, and a
+      // watcher of the file would stop at the first replacement.
+      this.fileWatcher = watch(dirname(this.projectFile), { persistent: false }, (_event, changed) => {
+        if (changed != null && changed !== name) return;
+        if (this.outsideChangeCheck != null) return;
+        this.outsideChangeCheck = setTimeout(() => {
+          this.outsideChangeCheck = null;
+          this.checkOutsideChange();
+        }, OUTSIDE_CHANGE_SETTLE_MS);
+      });
+    } catch (error) {
+      // Writes still refuse to replace a changed file; it is noticed then.
+      console.error(`Could not watch ${this.traits.name} for changes made outside Requireganizer.`, error);
+      return;
+    }
+    const watcher = this.fileWatcher;
+    watcher.on("error", (error) => {
+      console.error(`Stopped watching ${this.traits.name} for changes made outside Requireganizer.`, error);
+      watcher.close();
+      // Watched again at the next write or adoption.
+      if (this.fileWatcher === watcher) this.fileWatcher = null;
+    });
+  }
+
+  /** Tell the watchers when the project file's difference from what this adapter holds has changed. */
+  private checkOutsideChange(): void {
+    if (this.outsideChangeListeners.size === 0) return;
+    const change = this.currentOutsideChange();
+    if (JSON.stringify(change) === JSON.stringify(this.reportedOutsideChange)) return;
+    this.reportedOutsideChange = change;
+    for (const listener of [...this.outsideChangeListeners]) listener(change);
+  }
+
+  private currentOutsideChange(): OutsideChange | null {
+    const known = this.knownContents;
+    if (known === undefined) return null;
+    let source: string | null;
+    try {
+      source = readIfPresent(this.projectFile);
+    } catch (error) {
+      return { kind: "changed", problem: messageOf(error) };
+    }
+    if (source === known) return null;
+    if (source == null) return { kind: "removed" };
+    let changedId: string;
+    try {
+      changedId = this.parseProjectFile(source)!.meta.id;
+    } catch (error) {
+      return { kind: "changed", problem: messageOf(error) };
+    }
+    if (this.heldMeta != null && changedId !== this.heldMeta.id) {
+      return { kind: "changed", problem: `${this.traits.name} now holds another project.` };
+    }
+    return { kind: "changed", problem: null };
   }
 
   /** When the project file last changed; now when that cannot be read, such as for a file removed meanwhile. */
@@ -271,8 +389,8 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
     load: async (projectId) => {
       const source = readIfPresent(this.projectFile);
       const stored = this.parseProjectFile(source);
-      // What the host now holds is what later writes may replace.
-      this.knownContents = source;
+      // A load, such as a page reading the project, never changes what this
+      // adapter holds: only `adoptStored` and writes do.
       if (stored == null) return null;
       if (stored.meta.id !== projectId) throw new UserFacingError(this.otherProjectMessage());
       return stored.payload;
@@ -283,7 +401,7 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
       if (stored != null && stored.meta.id !== projectId) {
         throw new ProjectStorageError(this.otherProjectMessage());
       }
-      const meta: ProjectMeta = stored?.meta ?? {
+      const meta: ProjectMeta = stored?.meta ?? this.heldMeta ?? {
         id: projectId,
         name: basename(this.traits.name, extname(this.traits.name)),
         description: "",
