@@ -1,17 +1,23 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { after, before, describe, it } from "node:test";
 
+import { type Context, createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { ToolListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
 
+import { installGateway } from "../app/ai-agent/gateway";
+import { configureAiSettings } from "../app/ai-agent/settings";
+import { ProjectClient } from "../app/project-client";
 import { environmentAiSettings } from "../server/aiEnvironment";
 import { FilePersistenceAdapter } from "../server/fileAdapter";
 import { serveMcp } from "../server/mcp";
+import { projectLink } from "../server/projectLink";
 import { stateDirectoryFor } from "../server/stateDirectory";
+import { assistantMessage, scriptedStreamFn } from "./support/scriptedStream";
 
 const root = mkdtempSync(join(tmpdir(), "requireganizer-mcp-"));
 const projectFile = join(root, "requireganizer.json");
@@ -30,39 +36,59 @@ function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
+/** The ids of the units the reviewer model was asked about. */
+function unitsUnderReview(context: Context): string[] {
+  const prompt = context.messages.find((message) => message.role === "user")!;
+  const text = typeof prompt.content === "string"
+    ? prompt.content
+    : prompt.content.map((part) => (part.type === "text" ? part.text : "")).join("");
+  return (JSON.parse(text) as { units: { id: string }[] }).units.map(({ id }) => id);
+}
+
 function textOf(result: Awaited<ReturnType<Client["callTool"]>>): string {
   return (result.content as { type: string; text?: string }[]).map((part) => part.text ?? "").join("");
 }
 
 describe("MCP server", () => {
   it("serves the project's agent tools to an MCP client and tells it when they change", async () => {
-    await new FilePersistenceAdapter({
-      projectFile,
-      stateDirectory: stateDirectoryFor(projectFile),
-    }).projects.saveIndex([
-      { id: "project-a", name: "Plant Pal", description: "", updatedAt: "2026-10-24T00:00:00.000Z" },
-    ]);
-    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-    const service = await serveMcp({
+    const options = {
       projectFile,
       aiSettings: environmentAiSettings({ AI_API_KEY: "test-key" }),
-      serveInterface: (_request, response) => response.end("interface"),
-      version: "test",
-      transport: serverTransport,
-    });
+      serveInterface: (_request: unknown, response: { end(body: string): void }) => response.end("interface"),
+    };
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const service = await serveMcp({ ...options, version: "test", transport: serverTransport });
     const client = new Client({ name: "test-agent", version: "1" });
     let listChanges = 0;
     client.setNotificationHandler(ToolListChangedNotificationSchema, () => {
       listChanges += 1;
     });
+    const listChanged = async (count: number) => {
+      for (let attempt = 0; attempt < 40 && listChanges < count; attempt += 1) await delay(50);
+      assert.equal(listChanges, count);
+    };
+    const toolNames = async () => (await client.listTools()).tools.map(({ name }) => name);
+    // The person's page, served by the MCP process.
+    const page = projectLink(options);
+    const pageClient = new ProjectClient(page.connect);
+    const closePage = pageClient.open();
     try {
       await client.connect(clientTransport);
       assert.match(client.getInstructions() ?? "", /approves it at http:\/\/127\.0\.0\.1:\d+\//);
 
-      const { tools } = await client.listTools();
-      const names = tools.map(({ name }) => name);
-      assert.ok(names.includes("get_workflow_state"));
-      assert.ok(names.includes("submit_product_overview"));
+      // A repository with no project yet: the agent can still ask why nothing else is listed.
+      assert.deepEqual(await toolNames(), ["get_workflow_state", "get_stage_artifacts", "get_input_changes", "get_scaffold_files"]);
+      const noProject = await client.callTool({ name: "get_workflow_state", arguments: {} });
+      assert.equal(noProject.isError, true);
+      assert.match(textOf(noProject), /holds no project yet\. Ask the person to create it in Requireganizer/);
+
+      // The person creates the project, as the page does.
+      await pageClient.persistence.projects.saveIndex([
+        { id: "project-a", name: "Plant Pal", description: "", updatedAt: "2026-10-24T00:00:00.000Z" },
+      ]);
+      await pageClient.selectProject("project-a", "Plant Pal");
+      await listChanged(1);
+      assert.ok((await toolNames()).includes("submit_product_overview"));
 
       const rejected = await client.callTool({
         name: "submit_product_overview",
@@ -84,12 +110,102 @@ describe("MCP server", () => {
       assert.match(textOf(applied), /^Applied to Product Overview\./);
 
       // The overview's submit tool now names the items it holds.
-      for (let attempt = 0; attempt < 40 && listChanges === 0; attempt += 1) await delay(50);
-      assert.equal(listChanges, 1);
+      await listChanged(2);
       const overview = JSON.parse(
         textOf(await client.callTool({ name: "get_stage_artifacts", arguments: { stage: "product-overview" } })),
       ) as { productOverview: { name: string } };
       assert.equal(overview.productOverview.name, "Plant Pal");
+    } finally {
+      closePage();
+      await page.close();
+      await client.close();
+      await service.close();
+    }
+  });
+
+  it("keeps a client that restarts its timeout on progress waiting through the review, then gives it the reviewer's rejections", async () => {
+    const reviewedFile = join(root, "reviewed", "requireganizer.json");
+    mkdirSync(dirname(reviewedFile));
+    await new FilePersistenceAdapter({
+      projectFile: reviewedFile,
+      stateDirectory: stateDirectoryFor(reviewedFile),
+    }).projects.saveIndex([
+      { id: "project-b", name: "Plant Pal", description: "", updatedAt: "2026-10-24T00:00:00.000Z" },
+    ]);
+    const aiSettings = environmentAiSettings({ AI_API_KEY: "test-key", AI_REVIEWER_MODEL: "reviewer-model" });
+    configureAiSettings(aiSettings);
+    // Each reply takes longer than the client waits without progress.
+    installGateway(scriptedStreamFn([
+      (context) => assistantMessage([{
+        type: "toolCall",
+        id: "verdicts",
+        name: "submit_verdicts",
+        arguments: {
+          verdicts: unitsUnderReview(context).map((id) =>
+            id === "productOverview/purpose"
+              ? { id, verdict: "reject", reason: "Name who is helped." }
+              : { id, verdict: "approve", reason: "It holds." }),
+        },
+      }]),
+      assistantMessage([{ type: "text", text: "Done." }]),
+    ], { delayMs: 200 }));
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const service = await serveMcp({
+      projectFile: reviewedFile,
+      aiSettings,
+      serveInterface: (_request, response) => response.end("interface"),
+      version: "test",
+      transport: serverTransport,
+      progressIntervalMs: 50,
+    });
+    const client = new Client({ name: "test-agent", version: "1" });
+    try {
+      await client.connect(clientTransport);
+      let progressReports = 0;
+      const submitted = await client.callTool(
+        {
+          name: "submit_product_overview",
+          arguments: {
+            name: "Plant Pal",
+            purpose: "Keep plants alive.",
+            primaryFeatures: ["Track watering schedules"],
+            targetUsers: ["Busy plant owners"],
+          },
+        },
+        undefined,
+        { timeout: 150, resetTimeoutOnProgress: true, onprogress: () => (progressReports += 1) },
+      );
+      assert.ok(progressReports > 0);
+      assert.match(
+        textOf(submitted),
+        /^Applied to Product Overview\..*\nThe reviewer model rejected one item\..*\n- productOverview\/purpose: Name who is helped\.$/s,
+      );
+      const state = JSON.parse(textOf(await client.callTool({ name: "get_workflow_state", arguments: {} }))) as {
+        stages: { stage: string; reviewerRejections: { unitId: string; reason: string }[] }[];
+      };
+      assert.deepEqual(
+        state.stages.find(({ stage }) => stage === "product-overview")?.reviewerRejections,
+        [{ unitId: "productOverview/purpose", reason: "Name who is helped." }],
+      );
+
+      // A review that fails is no pass.
+      installGateway(() => {
+        const stream = createAssistantMessageEventStream();
+        const failed = assistantMessage([]);
+        stream.push({ type: "error", reason: "error", error: { ...failed, stopReason: "error", errorMessage: "Rate limited." } });
+        return stream;
+      });
+      const resubmitted = await client.callTool({
+        name: "submit_product_overview",
+        arguments: {
+          name: "Plant Pal",
+          purpose: "Help busy plant owners keep their houseplants alive.",
+          primaryFeatures: ["Track watering schedules"],
+          targetUsers: ["Busy plant owners"],
+        },
+      });
+      assert.match(textOf(resubmitted), /\nThe reviewer model could not review 3 items\. Tell the person/);
+      assert.doesNotMatch(textOf(resubmitted), /rejected/);
     } finally {
       await client.close();
       await service.close();

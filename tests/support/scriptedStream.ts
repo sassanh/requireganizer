@@ -2,6 +2,7 @@ import type { AgentOptions } from "@earendil-works/pi-agent-core";
 import type {
   AssistantMessage,
   AssistantMessageEvent,
+  Context,
   ToolCall,
 } from "@earendil-works/pi-ai";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
@@ -29,14 +30,21 @@ export function assistantMessage(content: AssistantMessage["content"]): Assistan
   };
 }
 
-/** A stream function that answers each call with the next scripted reply. */
-export function scriptedStreamFn(responses: AssistantMessage[]) {
+/**
+ * A stream function that answers each call with the next scripted reply, or
+ * the reply a function makes from the request; after `delayMs` when given.
+ */
+export function scriptedStreamFn(
+  responses: (AssistantMessage | ((context: Context) => AssistantMessage))[],
+  { delayMs }: { delayMs?: number } = {},
+) {
   let call = 0;
   const seenToolNames: string[][] = [];
   const streamFn: NonNullable<AgentOptions["streamFn"]> = (_model, context) => {
     seenToolNames.push((context.tools ?? []).map((tool) => tool.name));
     const stream = createAssistantMessageEventStream();
-    const message = responses[Math.min(call, responses.length - 1)];
+    const response = responses[Math.min(call, responses.length - 1)];
+    const message = typeof response === "function" ? response(context) : response;
     call += 1;
     const events: AssistantMessageEvent[] = [
       { type: "start", partial: message },
@@ -51,9 +59,11 @@ export function scriptedStreamFn(responses: AssistantMessage[]) {
         message,
       },
     ];
-    queueMicrotask(() => {
+    const push = () => {
       for (const event of events) stream.push(event);
-    });
+    };
+    if (delayMs == null) queueMicrotask(push);
+    else setTimeout(push, delayMs);
     return stream;
   };
   return Object.assign(streamFn, { seenToolNames });

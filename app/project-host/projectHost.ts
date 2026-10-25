@@ -8,7 +8,7 @@ import {
 } from "mobx-state-tree";
 
 import { setAgentSessionId } from "ai-agent/agent";
-import { agentToolDescriptions, callAgentTool } from "ai-agent/agent-access";
+import { agentToolDescriptions, callAgentTool, readToolDescriptions } from "ai-agent/agent-access";
 import { aiSettings } from "ai-agent/settings";
 import {
   type ClientMessage,
@@ -135,7 +135,12 @@ export class ProjectHost implements HostEndpoint {
       activateBranch,
       exportTimeline: getTimelineSnapshot,
       runPersistence: (call) => this.runPersistence(call),
-      listAgentTools: async () => agentToolDescriptions(await this.openStore()),
+      listAgentTools: async () => {
+        // Without an open project the read tools are still listed: calling
+        // one tells the agent what stands in the way.
+        const store = await this.openStore().catch(() => null);
+        return store == null ? readToolDescriptions(session.getSnapshot().store) : agentToolDescriptions(store);
+      },
       callAgentTool: async (name, args) => {
         const store = await this.openStore();
         // Whatever the call changed would be replaced with the imported project.
@@ -169,8 +174,8 @@ export class ProjectHost implements HostEndpoint {
       case "idle":
         throw new UserFacingError(
           this.session.persistence.traits.singleProject
-            ? `${this.session.persistence.traits.name} holds no project yet. Create it in Requireganizer first.`
-            : "Open a project in Requireganizer first.",
+            ? `${this.session.persistence.traits.name} holds no project yet. Ask the person to create it in Requireganizer, then call get_workflow_state.`
+            : "Ask the person to open a project in Requireganizer, then call get_workflow_state.",
         );
     }
   }

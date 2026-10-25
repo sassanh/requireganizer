@@ -4,8 +4,9 @@ import { UserFacingError } from "lib/errors";
 import type { Store } from "store";
 
 import { workflowStageOf } from "./command";
-import { buildReadTools } from "./read-tools";
+import { buildReadTools, reviewerRejections } from "./read-tools";
 import { buildStageSubmissionTools } from "./result-tools";
+import { reviewerModel } from "./settings";
 
 /** A tool an outside agent can call, as a tool protocol lists it. */
 export interface AgentToolDescription {
@@ -30,14 +31,19 @@ function resultText(result: Awaited<ReturnType<AgentTool["execute"]>>): string {
     .join("");
 }
 
+/** The built-in agent's read tools, which an outside agent can call in every state of the project. */
+export function readToolDescriptions(store: Store): AgentToolDescription[] {
+  return buildReadTools(store).map(describe);
+}
+
 /**
- * The tools an outside agent works with: the built-in agent's read tools and
- * the submission tool of every stage that can take work now. Approving stays
- * with the person, so no tool approves.
+ * The tools an outside agent works with on an open project: the read tools
+ * and the submission tool of every stage that can take work now. Approving
+ * stays with the person, so no tool approves.
  */
 export function agentToolDescriptions(store: Store): AgentToolDescription[] {
   return [
-    ...buildReadTools(store).map(describe),
+    ...readToolDescriptions(store),
     ...buildStageSubmissionTools(store).map(({ tool }) => describe(tool)),
   ];
 }
@@ -72,12 +78,31 @@ export async function callAgentTool(
     case "failed":
       throw new UserFacingError(outcome.message);
     case "completed": {
-      const stage = store.stageLabel(workflowStageOf(submission.stage));
+      const step = workflowStageOf(submission.stage);
+      const stage = store.stageLabel(step);
       // No submission runs while a change waits, so a waiting one is this one.
       if (store.pendingImpactChange != null) {
         return `Not applied yet: the proposal sends the workflow back to ${stage}, so it waits until the person confirms that in Requireganizer.`;
       }
-      return `Applied to ${stage}. The person approves it in Requireganizer; get_workflow_state shows what still awaits approval.`;
+      const items = (count: number) => (count === 1 ? "one item" : `${count} items`);
+      const lines = [
+        `Applied to ${stage}. The person approves it in Requireganizer; get_workflow_state shows what still awaits approval.`,
+      ];
+      const rejections = reviewerRejections(store, step);
+      if (rejections.length > 0) {
+        lines.push(
+          `The reviewer model rejected ${items(rejections.length)}. Fix what it names and submit the stage again, or leave it to the person, who can overrule it:`,
+          ...rejections.map(({ unitId, reason }) => `- ${unitId}: ${reason}`),
+        );
+      }
+      // The review runs within the submission, so what it left without a verdict it could not review.
+      const unreviewed = reviewerModel() == null ? 0 : store.unitsAwaitingReview(step).length;
+      if (unreviewed > 0) {
+        lines.push(
+          `The reviewer model could not review ${items(unreviewed)}. Tell the person, who can run the review again in Requireganizer.`,
+        );
+      }
+      return lines.join("\n");
     }
   }
 }

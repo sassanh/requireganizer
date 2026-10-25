@@ -17,6 +17,8 @@ const HOST_WAIT_MS = 15_000;
 const ADDRESS_WAIT_MS = 5_000;
 /** Changes to the project are gathered this long before the tool list is checked again. */
 const TOOL_LIST_CHECK_DELAY_MS = 500;
+/** How often a call still running, such as a submission under review, tells the client so. */
+const PROGRESS_INTERVAL_MS = 10_000;
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -70,7 +72,12 @@ export interface McpService {
  * takes over when the one that does stops.
  */
 export async function serveMcp(
-  options: Omit<ProjectServerOptions, "port"> & { version: string; transport: Transport },
+  options: Omit<ProjectServerOptions, "port"> & {
+    version: string;
+    transport: Transport;
+    /** How often a call still running tells the client so; ten seconds unless given. */
+    progressIntervalMs?: number;
+  },
 ): Promise<McpService> {
   const link = projectLink({
     ...options,
@@ -90,15 +97,28 @@ export async function serveMcp(
     { capabilities: { tools: { listChanged: true } }, instructions: instructionsFor(link.url()) },
   );
 
-  let listed = "";
+  // What the agent was last given: null before it asked, "" when its first listing failed.
+  let listed: string | null = null;
   const list = async (): Promise<AgentToolDescription[]> => {
-    await reachHost(client);
-    const tools = await client.listAgentTools();
-    listed = JSON.stringify(tools);
-    return tools;
+    try {
+      await reachHost(client);
+      const tools = await client.listAgentTools();
+      listed = JSON.stringify(tools);
+      return tools;
+    } catch (error) {
+      listed ??= "";
+      throw error;
+    }
   };
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: await list() }));
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+    // A client that restarts its timeout on progress waits out a review this way.
+    const progressToken = request.params._meta?.progressToken;
+    let progress = 0;
+    const progressTimer = progressToken == null ? null : setInterval(() => {
+      progress += 1;
+      extra.sendNotification({ method: "notifications/progress", params: { progressToken, progress } }).catch(() => {});
+    }, options.progressIntervalMs ?? PROGRESS_INTERVAL_MS);
     try {
       await reachHost(client);
       const text = await client.callAgentTool(request.params.name, request.params.arguments ?? {});
@@ -108,6 +128,8 @@ export async function serveMcp(
         ? `The connection to Requireganizer ended before it answered, so the call may or may not have taken effect. Call get_workflow_state before calling ${request.params.name} again.`
         : messageOf(error);
       return { content: [{ type: "text", text }], isError: true };
+    } finally {
+      if (progressTimer != null) clearInterval(progressTimer);
     }
   });
 
@@ -115,7 +137,7 @@ export async function serveMcp(
   // earlier stages are approved, and its schema names the current items.
   let checkTimer: ReturnType<typeof setTimeout> | null = null;
   const checkToolList = () => {
-    if (checkTimer != null || listed === "") return;
+    if (checkTimer != null || listed == null) return;
     checkTimer = setTimeout(() => {
       checkTimer = null;
       const before = listed;

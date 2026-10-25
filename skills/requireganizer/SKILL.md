@@ -50,6 +50,9 @@ The person approves every item in Requireganizer's page; no tool approves.
 - A rejected submission comes back with the reason, such as an unknown id,
   missing coverage or an empty field. Fix exactly that and submit again. Never
   weaken the proposal to get past a check.
+- An applied submission comes back with what the reviewer model rejected and
+  why. Fix it and submit the stage again, or tell the person why you disagree:
+  they can overrule the reviewer.
 - A stage's submit tool appears only once the stages before it are approved.
   If the tool you need is missing, the person has approvals to make first.
   Tell them which stage is waiting.

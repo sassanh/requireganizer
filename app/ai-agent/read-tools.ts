@@ -9,6 +9,15 @@ function textResult(text: string): { content: [{ type: "text"; text: string }]; 
   return { content: [{ type: "text", text }], details: {} };
 }
 
+/** The reviewer model's rejections standing on a stage's unapproved items, each with its reason. */
+export function reviewerRejections(store: FlatStore, step: WorkflowStage): { unitId: string; reason: string }[] {
+  return store.stageUnits(step).flatMap((unit) => {
+    if (unit.approved || unit.outdated) return [];
+    const verdict = store.currentVerdictOf(unit.id);
+    return verdict?.verdict === "reject" ? [{ unitId: unit.id, reason: verdict.reason }] : [];
+  });
+}
+
 /**
  * Read-only tools that let the model inspect the live project state instead
  * of receiving artifact content embedded in prompts.
@@ -27,7 +36,7 @@ export function buildReadTools(store: FlatStore): AgentTool[] {
     name: "get_workflow_state",
     label: "Get workflow state",
     description:
-      "Get the frontier (the first stage that is not complete; only it and earlier stages can change) and each stage's status: pending, completed, outdated, needs-approval, waiting (holds work, read-only until the frontier reaches it), or locked. Each stage lists its outdated items, which must be regenerated, and its unapproved review units. Inputs that changed since the stage acknowledged them are listed by id; read them with get_input_changes.",
+      "Get the frontier (the first stage that is not complete; only it and earlier stages can change) and each stage's status: pending, completed, outdated, needs-approval, waiting (holds work, read-only until the frontier reaches it), or locked. Each stage lists its outdated items, which must be regenerated, its unapproved review units, and the reviewer model's rejections of them. Inputs that changed since the stage acknowledged them are listed by id; read them with get_input_changes.",
     parameters: Type.Object({}),
     execute: async () => {
       const stages = validStages.map((step) => {
@@ -41,6 +50,7 @@ export function buildReadTools(store: FlatStore): AgentTool[] {
           unapprovedUnitIds: units
             .filter(({ approved, outdated }) => !approved && !outdated)
             .map(({ id }) => id),
+          reviewerRejections: reviewerRejections(store, step),
           changedInputIds: store.changedInputIds(step),
           mechanicalIssues: store.mechanicalIssuesForStage(step).map(({ itemId, message }) => ({
             itemId,

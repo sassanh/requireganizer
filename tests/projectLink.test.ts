@@ -65,7 +65,7 @@ describe("one host per project", () => {
     const two = connected(second);
     try {
       // The project file holds no project yet.
-      await assert.rejects(() => one.client.listAgentTools(), /holds no project yet/);
+      await assert.rejects(() => one.client.callAgentTool("get_workflow_state", {}), /holds no project yet/);
       await one.client.persistence.projects.saveIndex([
         { id: "project-a", name: "Plant Pal", description: "", updatedAt: "2026-10-24T00:00:00.000Z" },
       ]);
