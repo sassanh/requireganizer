@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, describe, it } from "node:test";
@@ -118,6 +118,42 @@ describe("MCP server", () => {
     } finally {
       closePage();
       await page.close();
+      await client.close();
+      await service.close();
+    }
+  });
+
+  it("tells an agent whose first listing failed when the tools become available", async () => {
+    const heldFile = join(root, "held", "requireganizer.json");
+    mkdirSync(dirname(heldFile));
+    const claim = join(stateDirectoryFor(heldFile), "server.json");
+    mkdirSync(dirname(claim), { recursive: true });
+    // Another process, still running, claimed the project and has not started serving it.
+    writeFileSync(claim, JSON.stringify({ pid: process.ppid, url: null }));
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const service = await serveMcp({
+      projectFile: heldFile,
+      aiSettings: environmentAiSettings({ AI_API_KEY: "test-key" }),
+      serveInterface: (_request, response) => response.end("interface"),
+      version: "test",
+      transport: serverTransport,
+      hostWaitMs: 200,
+    });
+    const client = new Client({ name: "test-agent", version: "1" });
+    let listChanges = 0;
+    client.setNotificationHandler(ToolListChangedNotificationSchema, () => {
+      listChanges += 1;
+    });
+    try {
+      await client.connect(clientTransport);
+      await assert.rejects(client.listTools(), /has not started serving it|did not answer/);
+
+      // The other process stops without serving, so this one serves the project.
+      rmSync(claim);
+      for (let attempt = 0; attempt < 60 && listChanges === 0; attempt += 1) await delay(50);
+      assert.equal(listChanges, 1);
+      assert.ok((await client.listTools()).tools.some(({ name }) => name === "get_workflow_state"));
+    } finally {
       await client.close();
       await service.close();
     }

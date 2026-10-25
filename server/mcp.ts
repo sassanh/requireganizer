@@ -25,7 +25,7 @@ function messageOf(error: unknown): string {
 }
 
 /** Settles once the client reaches its host; throws what stands in the way after `waitMs`. */
-function reachHost(client: ProjectClient, waitMs = HOST_WAIT_MS): Promise<void> {
+function reachHost(client: ProjectClient, waitMs: number): Promise<void> {
   return new Promise((resolve, reject) => {
     const check = (): boolean => {
       const status = client.getConnectionStatus();
@@ -77,6 +77,8 @@ export async function serveMcp(
     transport: Transport;
     /** How often a call still running tells the client so; ten seconds unless given. */
     progressIntervalMs?: number;
+    /** How long a request waits for the project's host; fifteen seconds unless given. */
+    hostWaitMs?: number;
   },
 ): Promise<McpService> {
   const link = projectLink({
@@ -97,11 +99,12 @@ export async function serveMcp(
     { capabilities: { tools: { listChanged: true } }, instructions: instructionsFor(link.url()) },
   );
 
+  const hostWaitMs = options.hostWaitMs ?? HOST_WAIT_MS;
   // What the agent was last given: null before it asked, "" when its first listing failed.
   let listed: string | null = null;
   const list = async (): Promise<AgentToolDescription[]> => {
     try {
-      await reachHost(client);
+      await reachHost(client, hostWaitMs);
       const tools = await client.listAgentTools();
       listed = JSON.stringify(tools);
       return tools;
@@ -120,7 +123,7 @@ export async function serveMcp(
       extra.sendNotification({ method: "notifications/progress", params: { progressToken, progress } }).catch(() => {});
     }, options.progressIntervalMs ?? PROGRESS_INTERVAL_MS);
     try {
-      await reachHost(client);
+      await reachHost(client, hostWaitMs);
       const text = await client.callAgentTool(request.params.name, request.params.arguments ?? {});
       return { content: [{ type: "text", text }] };
     } catch (error) {
