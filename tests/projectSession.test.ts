@@ -280,7 +280,7 @@ describe("project session loading", () => {
     assert.equal(session.getSnapshot().status, "ready");
   });
 
-  it("opens a blank project when stored data is invalid", async () => {
+  it("fails to open invalid stored data and leaves it unchanged", async () => {
     const adapter = new ControllablePersistenceAdapter();
     await adapter.inner.projects.save("project-1", { schemaVersion: 999 });
 
@@ -288,26 +288,28 @@ describe("project session loading", () => {
     await session.selectProject("project-1", "Project");
 
     const state = session.getSnapshot();
+    assert.equal(state.status, "failed");
     assert.deepEqual(state.activeProject, { id: "project-1", name: "Project" });
-    assert.equal(state.registry?.activeModuleId, LEGACY_MODULE_ID);
-    assert.equal(state.store.productOverview.name, null);
-    assert.equal(visibleModules(state.registry!).length, 1);
+    assert.match(
+      state.persistenceError ?? "",
+      /^Project could not be opened because its stored data is invalid\. It was left unchanged/,
+    );
+    session.flush();
+    await delay(0);
+    assert.deepEqual(await adapter.inner.projects.load("project-1"), { schemaVersion: 999 });
+    session.dispose();
   });
 
-  it("keeps the invalid-data warning after the blank project is saved", async () => {
+  it("clears the shown notice when asked", async () => {
     const adapter = new ControllablePersistenceAdapter();
-    await adapter.inner.projects.save("project-1", { schemaVersion: 999 });
     const session = new ProjectSession(adapter);
     await session.selectProject("project-1", "Project");
-    const warning =
-      "The stored project was invalid, so a blank project was opened.";
-    assert.equal(session.getSnapshot().persistenceError, warning);
-
-    session.getSnapshot().store.setName({ name: "Saved" });
-    session.flush();
     await adapter.projects.load("project-1");
-    await delay(0);
-    assert.equal(session.getSnapshot().persistenceError, warning);
+
+    adapter.failNext("project-write");
+    session.getSnapshot().store.setName({ name: "Fails" });
+    session.flush();
+    await waitFor("the failed save", () => session.getSnapshot().persistenceError != null);
 
     session.clearPersistenceError();
     assert.equal(session.getSnapshot().persistenceError, null);
@@ -337,33 +339,29 @@ describe("project session loading", () => {
     session.dispose();
   });
 
-  it("opens a blank project when a stored module snapshot is invalid", async () => {
+  it("fails to open a project whose stored module snapshot is invalid and leaves it unchanged", async () => {
     const adapter = new ControllablePersistenceAdapter();
-    await adapter.inner.projects.save(
-      "project-1",
-      projectPayload(
-        projectRegistry(
-          [
-            moduleEntry("module-a", "Alpha", {
-              ...snapshotWith("Alpha"),
-              productOverview: "not an object",
-            }),
-          ],
-          "module-a",
-        ),
+    const stored = projectPayload(
+      projectRegistry(
+        [
+          moduleEntry("module-a", "Alpha", {
+            ...snapshotWith("Alpha"),
+            productOverview: "not an object",
+          }),
+        ],
+        "module-a",
       ),
     );
+    await adapter.inner.projects.save("project-1", stored);
 
     const session = new ProjectSession(adapter);
     await session.selectProject("project-1", "Project");
 
-    const state = session.getSnapshot();
-    assert.equal(state.registry?.activeModuleId, LEGACY_MODULE_ID);
-    assert.equal(state.store.productOverview.name, null);
-    assert.equal(
-      (await storedProject(adapter, "project-1")).activeModuleId,
-      LEGACY_MODULE_ID,
-    );
+    assert.equal(session.getSnapshot().status, "failed");
+    session.flush();
+    await delay(0);
+    // As storage holds it: fields left undefined are not stored.
+    assert.deepEqual(await adapter.inner.projects.load("project-1"), JSON.parse(JSON.stringify(stored)));
     session.dispose();
   });
 
@@ -2855,18 +2853,22 @@ describe("project session AI provider activity", () => {
 describe("project session persistence messages", () => {
   it("keeps each source's message until that source succeeds", async () => {
     const adapter = new ControllablePersistenceAdapter();
-    await adapter.inner.projects.save("project-1", { schemaVersion: 999 });
     adapter.inner.failNext("provider-call-write");
     const session = new ProjectSession(adapter);
     await session.selectProject("project-1", "Project");
+    await adapter.projects.load("project-1");
     await delay(0);
-    const warning = "The stored project was invalid, so a blank project was opened.";
-    assert.match(session.getSnapshot().persistenceError ?? "", new RegExp(`^${warning} AI provider activity could not be saved`));
+    adapter.failNext("project-write");
+    session.getSnapshot().store.setName({ name: "Fails" });
+    session.flush();
+    await waitFor("the failed save", () => /^Changes could not be saved/.test(session.getSnapshot().persistenceError ?? ""));
+    assert.match(session.getSnapshot().persistenceError ?? "", /AI provider activity could not be saved/);
 
     // The next activity save succeeds and clears only its own message.
     session.getSnapshot().store.clearProviderCalls();
     await delay(0);
-    assert.equal(session.getSnapshot().persistenceError, warning);
+    assert.match(session.getSnapshot().persistenceError ?? "", /^Changes could not be saved/);
+    assert.doesNotMatch(session.getSnapshot().persistenceError ?? "", /AI provider activity/);
     session.dispose();
   });
 });

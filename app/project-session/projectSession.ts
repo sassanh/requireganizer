@@ -104,7 +104,6 @@ interface OpenedProject {
   created: Store;
   nextRegistry: ModuleRegistry;
   moduleId: string;
-  failure: string | null;
 }
 
 /**
@@ -114,8 +113,8 @@ interface OpenedProject {
  */
 type ModuleTimelineStatus = "loading" | "attached" | "unavailable";
 
-/** What failed: the project load, a project write, or saving AI provider activity. */
-type PersistenceNoticeSource = "load" | "write" | "activity";
+/** What failed: a project write, or saving AI provider activity. */
+type PersistenceNoticeSource = "write" | "activity";
 
 /**
  * Messages for the persistence banner, at most one per source. A success
@@ -124,7 +123,7 @@ type PersistenceNoticeSource = "load" | "write" | "activity";
 type PersistenceNotices = Partial<Record<PersistenceNoticeSource, string>>;
 
 /** The order the banner shows its messages in: unsaved work first. */
-const NOTICE_ORDER: readonly PersistenceNoticeSource[] = ["write", "load", "activity"];
+const NOTICE_ORDER: readonly PersistenceNoticeSource[] = ["write", "activity"];
 
 function shownNotice(notices: PersistenceNotices): string | null {
   const messages = NOTICE_ORDER.flatMap((source) => notices[source] ?? []);
@@ -178,8 +177,6 @@ type SessionState =
 function projectSaveErrorMessage(storage: string): string {
   return `Changes could not be saved in ${storage}. Export the project to avoid losing work.`;
 }
-const INVALID_STORED_PROJECT_MESSAGE =
-  "The stored project was invalid, so a blank project was opened.";
 const PROJECT_LOAD_ERROR_MESSAGE = "The project could not be loaded.";
 
 function snapshotOf(state: SessionState, outsideChange: OutsideChange | null): ProjectSessionSnapshot {
@@ -558,7 +555,6 @@ export class ProjectSession {
     timeline:
       | { status: "attached"; loaded: Record<string, unknown> | null }
       | { status: "loading" },
-    persistenceNotices: PersistenceNotices = {},
   ): void {
     this.detachStoreSubscription();
     if (timeline.status === "loading") detachTimeline();
@@ -568,7 +564,7 @@ export class ProjectSession {
       registry,
       store,
       timeline: timeline.status,
-      persistenceNotices,
+      persistenceNotices: {},
     };
     this.state = state;
     this.attachStoreSubscription(state);
@@ -606,42 +602,28 @@ export class ProjectSession {
     };
   }
 
+  /**
+   * What a stored payload opens to, or a blank project named `name` when
+   * nothing is stored yet. Invalid stored data is never replaced: it throws,
+   * so the load ends failed and the data stays as it is.
+   */
   private readOpenedProject(
     data: Record<string, unknown> | null,
     name: string,
   ): OpenedProject {
-    let loadedRegistry: ModuleRegistry | null = null;
-    let failure: string | null = null;
-    if (data != null) {
-      try {
-        loadedRegistry = parseProjectPayload(data);
-      } catch (error) {
-        console.error("Stored project data is invalid.", error);
-        failure = INVALID_STORED_PROJECT_MESSAGE;
-      }
+    if (data == null) {
+      return { created: namedBlankStore(name), nextRegistry: createEmptyRegistry(), moduleId: LEGACY_MODULE_ID };
     }
-
-    if (loadedRegistry != null) {
-      try {
-        const entry = pickActiveModule(loadedRegistry);
-        return {
-          created: createModuleStore(entry.snapshot),
-          nextRegistry: loadedRegistry,
-          moduleId: entry.id,
-          failure,
-        };
-      } catch (error) {
-        console.error("Stored project data is invalid.", error);
-        failure = INVALID_STORED_PROJECT_MESSAGE;
-      }
+    try {
+      const registry = parseProjectPayload(data);
+      const entry = pickActiveModule(registry);
+      return { created: createModuleStore(entry.snapshot), nextRegistry: registry, moduleId: entry.id };
+    } catch (error) {
+      throw new UserFacingError(
+        `${name} could not be opened because its stored data is invalid. It was left unchanged: delete it, or import a saved copy as a new project.`,
+        error,
+      );
     }
-
-    return {
-      created: data == null ? namedBlankStore(name) : Store.create({ productOverview: {} }),
-      nextRegistry: createEmptyRegistry(),
-      moduleId: LEGACY_MODULE_ID,
-      failure,
-    };
   }
 
   /** Leave whatever is shown and load a project from storage. */
@@ -686,7 +668,6 @@ export class ProjectSession {
         opened.created,
         { ...opened.nextRegistry, activeModuleId: opened.moduleId },
         { status: "attached", loaded: timeline },
-        opened.failure == null ? {} : { load: opened.failure },
       );
     } catch (error) {
       if (!this.isOperationCurrent(generation)) return;
