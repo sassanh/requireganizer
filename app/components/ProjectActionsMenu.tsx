@@ -28,6 +28,7 @@ import { useRef, useState, useSyncExternalStore, ChangeEvent } from "react";
 import { ShortcutLabel } from "actions/ActionHint";
 import { switchModuleShortcut } from "actions/actions";
 import { PROJECT_HOST_LOCATION } from "deployment";
+import { useAiSettingsDialog } from "hooks/useAiSettingsDialog";
 import { parseJson } from "lib/json";
 import { useProject } from "projectContext";
 import { useStore } from "store";
@@ -62,7 +63,7 @@ export default function ProjectActionsMenu({
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const [debugAnchor, setDebugAnchor] = useState<HTMLElement | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
-  const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
+  const aiSettings = useAiSettingsDialog();
 
   const close = () => {
     setAnchor(null);
@@ -236,7 +237,7 @@ export default function ProjectActionsMenu({
           <MenuItem
             onClick={() => {
               close();
-              setAiSettingsOpen(true);
+              aiSettings.show();
             }}
           >
             <ListItemIcon>
@@ -295,7 +296,7 @@ export default function ProjectActionsMenu({
         onChange={handleImportFile}
       />
 
-      <AiSettingsDialog open={aiSettingsOpen} onClose={() => setAiSettingsOpen(false)} />
+      <AiSettingsDialog open={aiSettings.open} onClose={aiSettings.close} />
 
       {importError && (
         <PersistentAlert severity="error" onClose={() => setImportError(null)}>

@@ -2,6 +2,7 @@
 
 import {
   Alert,
+  AlertTitle,
   Button,
   Dialog,
   DialogActions,
@@ -25,9 +26,13 @@ function AiSettingsForm({ onClose }: { onClose: () => void }) {
     const stored = browserAiSettings.read();
     return { ...stored, reviewerModel: stored.reviewerModel ?? "" };
   });
+  const [openedWithoutKey] = useState(
+    () => browserAiSettings.read().apiKey.length === 0,
+  );
   const [error, setError] = useState<string | null>(null);
   const baseUrl = draft.baseUrl.trim();
   const urlInvalid = baseUrl.length > 0 && !isHttpUrl(baseUrl);
+  const missingKey = draft.apiKey.trim().length === 0;
 
   const save = () => {
     try {
@@ -43,6 +48,15 @@ function AiSettingsForm({ onClose }: { onClose: () => void }) {
       <DialogContent>
         <Stack sx={{ gap: 2, mt: 1 }}>
           {error && <Alert severity="error">{error}</Alert>}
+          {missingKey && (
+            <Alert severity="info">
+              <AlertTitle>Add an API key to use AI</AlertTitle>
+              This version of Requireganizer runs entirely in this browser. AI generation
+              and review send requests straight from this page to the endpoint you choose,
+              so they need an API key. Your key is stored only in this browser and is never
+              sent to a Requireganizer server.
+            </Alert>
+          )}
           <TextField
             label="Endpoint URL"
             value={draft.baseUrl}
@@ -59,6 +73,7 @@ function AiSettingsForm({ onClose }: { onClose: () => void }) {
             label="API key"
             type="password"
             autoComplete="off"
+            autoFocus={openedWithoutKey}
             value={draft.apiKey}
             helperText="Stored in this browser only."
             onChange={(event) => setDraft({ ...draft, apiKey: event.target.value })}
@@ -78,7 +93,7 @@ function AiSettingsForm({ onClose }: { onClose: () => void }) {
         </Stack>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
+        <Button onClick={onClose}>{openedWithoutKey ? "Not now" : "Cancel"}</Button>
         <Button variant="contained" disabled={urlInvalid} onClick={save}>
           Save
         </Button>

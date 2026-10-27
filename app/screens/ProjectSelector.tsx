@@ -26,6 +26,7 @@ import { ChangeEvent, useEffect, useRef, useState } from "react";
 import { PersistentAlert } from "components";
 import AiSettingsDialog from "components/AiSettingsDialog";
 import { PROJECT_HOST_LOCATION } from "deployment";
+import { useAiSettingsDialog } from "hooks/useAiSettingsDialog";
 import { parseJson } from "lib/json";
 import { parseProjectPayload, pickActiveModule } from "lib/moduleSchema";
 import { ProjectMeta } from "lib/projectStorage";
@@ -48,7 +49,7 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
   const { activeProject, persistence, storage } = useProject();
   const [projects, setProjects] = useState<ProjectMeta[] | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
+  const aiSettings = useAiSettingsDialog();
   const [newName, setNewName] = useState("");
   const [overviewSeed, setOverviewSeed] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -308,14 +309,14 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
           <Button
             size="large"
             startIcon={<Settings />}
-            onClick={() => setAiSettingsOpen(true)}
+            onClick={aiSettings.show}
           >
             AI settings
           </Button>
         )}
       </Stack>
 
-      <AiSettingsDialog open={aiSettingsOpen} onClose={() => setAiSettingsOpen(false)} />
+      <AiSettingsDialog open={aiSettings.open} onClose={aiSettings.close} />
 
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>New Project</DialogTitle>
