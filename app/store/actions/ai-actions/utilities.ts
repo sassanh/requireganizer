@@ -57,40 +57,24 @@ import type { FlatStore, TestCaseSnapshotInput, TestScenarioSnapshotInput } from
 import { uuid } from "utilities";
 
 /**
- * The one way a proposal reaches project state. The update runs on a
- * clone; when the result moves the frontier back while later stages hold
- * work, the change waits for the person to confirm instead of applying.
+ * The one way a proposal reaches project state. The update runs on a clone
+ * and applies whole. A change that moves the frontier back while later
+ * stages hold work announces the reopening first, with the state before
+ * it, so whoever hosts the store keeps a recovery snapshot.
  */
 export function applyAtomically(
   store: FlatStore,
   update: (candidate: FlatStore) => void,
-  summary = "Apply the change.",
 ): void {
   const candidate = clone(store);
   update(candidate);
   candidate.settleAllAcknowledgedInputs();
-  const snapshot = getSnapshot(candidate);
-  const from = store.frontier;
   const to = candidate.frontier;
-  const movesBack = to != null && (from == null || isBefore(to, from));
-  const laterWork = movesBack ? candidate.laterStagesHoldingWork(to) : [];
-  if (to != null && laterWork.length > 0) {
-    const label = store.stageLabel(to);
-    store.queueImpactChange({
-      sourceStep: to,
-      sourceLabel: label,
-      affectedSteps: laterWork,
-      affectedArtifacts: laterWork.map((step) => ({
-        step,
-        label: store.stageLabel(step),
-        reason: `Stays visible and read-only until ${label} is complete again.`,
-      })),
-      summary,
-      candidateSnapshot: snapshot,
-    });
-    return;
+  const from = store.frontier;
+  if (to != null && (from == null || isBefore(to, from)) && candidate.laterStagesHoldingWork(to).length > 0) {
+    store.eventTarget.emit("reopen", { label: store.stageLabel(to), before: getSnapshot(store) });
   }
-  applySnapshot(store, snapshot);
+  applySnapshot(store, getSnapshot(candidate));
 }
 
 /** Approval of a formal artifact this operation builds on; the frontier normally guarantees it. */
@@ -280,7 +264,6 @@ export function applyBoundaryDesignProposal(
       candidate.setBoundaryDesign(design);
       candidate.acknowledgeInputs(WorkflowStage.BoundaryDesign);
     },
-    "Apply the new boundary-design revision.",
   );
 }
 
@@ -312,7 +295,6 @@ export function applyImplementationProfileProposal(
       candidate.setImplementationProfile(profile);
       candidate.acknowledgeInputs(WorkflowStage.InterfaceContracts);
     },
-    "Apply the new implementation-profile revision.",
   );
 }
 
@@ -455,7 +437,6 @@ export function applyContractSuiteProposal(
       candidate.setContractSuite(suite);
       candidate.acknowledgeInputs(WorkflowStage.InterfaceContracts);
     },
-    "Apply the reconciled formal-contract revision.",
   );
   store.setContractRevisionDiff(revisionDiff);
 }
@@ -543,7 +524,6 @@ export function applyTestScenarioProposal(
       candidate.setTestScenarios(snapshots);
       if (generatedFromEmpty) candidate.acknowledgeInputs(WorkflowStage.TestScenarios);
     },
-    "Apply the new revision-bound scenario set.",
   );
 }
 
@@ -595,7 +575,6 @@ export function applyTestCaseProposal(store: FlatStore, proposal: TestCaseListPr
       candidate.replaceTestCases(proposal.scenarioId, cases);
       if (generatedFromEmpty) candidate.acknowledgeInputs(WorkflowStage.TestCases);
     },
-    `Apply regenerated cases for ${scenario.content}.`,
   );
 }
 
@@ -623,7 +602,6 @@ export function applyProjectSetupProposal(
       candidate.setProjectSetup(setup);
       candidate.acknowledgeInputs(WorkflowStage.ProjectSetup);
     },
-    "Replace the project setup and scaffold manifest.",
   );
 }
 
@@ -655,7 +633,7 @@ async function reviewAfterFlow(
   signal: AbortSignal,
 ): Promise<void> {
   const reviewed = target ?? store.frontier;
-  if (reviewed == null || store.pendingImpactChange != null) return;
+  if (reviewed == null) return;
   const { reviewStageUnits } = await import("ai-agent/reviewer");
   try {
     await reviewStageUnits(store, reviewed);

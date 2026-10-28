@@ -19,7 +19,6 @@ export { default as ValidationErrorAlert } from "./ValidationErrorAlert";
 export { default as ProviderActivity } from "./ProviderActivity";
 export { default as PersistentAlert } from "./PersistentAlert";
 export { default as GenerationButton } from "./GenerationButton";
-export { default as ImpactConfirmationDialog } from "./ImpactConfirmationDialog";
 export { default as OutsideChangeDialog } from "./OutsideChangeDialog";
 export { default as RevisionHistoryDialog } from "./RevisionHistoryDialog";
 export { default as ProjectActionsMenu } from "./ProjectActionsMenu";

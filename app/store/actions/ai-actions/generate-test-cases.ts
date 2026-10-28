@@ -22,7 +22,6 @@ const { runAgentCommand } = yield* toGenerator(import("ai-agent/agent"));
         scenarioId: scenario.id,
         ...(trimmedHint != null && trimmedHint.length > 0 ? { hint: trimmedHint } : {}),
       }));
-      if (self.pendingImpactChange != null) return;
     }
     self.eventTarget.emit("stepUpdate", WorkflowStage.TestCases);
   },

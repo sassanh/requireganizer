@@ -137,19 +137,15 @@ describe("outside agent tools", () => {
     assert.equal(state.frontier, WorkflowStage.ProductOverview);
   });
 
-  it("says a submission that reopens an earlier stage waits for the person, and refuses others meanwhile", async () => {
+  it("applies a submission that reopens an earlier stage for the person to approve", async () => {
     const store = await storeWithStories();
     const revised = { ...OVERVIEW, purpose: "Help people keep every houseplant alive." };
     const text = await callAgentTool(store, "submit_product_overview", revised);
-    assert.match(text, /^Not applied yet: the proposal sends the workflow back to Product Overview/);
-    const waiting = store.pendingImpactChange;
-    assert.ok(waiting != null);
-    // Confirming the waiting change would replace whatever was applied since.
-    await assert.rejects(
-      () => callAgentTool(store, "submit_product_overview", OVERVIEW),
-      /A proposal that reopens Product Overview waits for the person to confirm or cancel it/,
-    );
-    assert.equal(store.pendingImpactChange, waiting);
+    assert.match(text, /^Applied to Product Overview\. The person approves it/);
+    assert.equal(store.productOverview.purpose, revised.purpose);
+    assert.equal(store.frontier, WorkflowStage.ProductOverview);
+    // The next submission is not held up by the first.
+    await callAgentTool(store, "submit_product_overview", OVERVIEW);
     assert.equal(store.productOverview.purpose, OVERVIEW.purpose);
   });
 });

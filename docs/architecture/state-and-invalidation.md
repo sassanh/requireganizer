@@ -17,7 +17,7 @@ The frontier, stage status, editability, and every gate on generation, approval,
 
 ## Change request threads
 
-A module stores its threads with the unit each is about, and its review state names who answers them. Whose turn it is follows from a thread's last message. A thread whose unit no longer exists has ended. Replies given with a proposal that waits for the person's confirmation wait with it.
+A module stores its threads with the unit each is about, and its review state names who answers them. Whose turn it is follows from a thread's last message. A thread whose unit no longer exists has ended.
 
 ## Exact dependencies
 
@@ -35,9 +35,9 @@ Every stored or imported module passes one import gate. A schema 3 module is mig
 
 The gate checks every artifact's structure. A current artifact is also validated against the upstream it binds; a stale one is checked against itself, since its upstream has moved on, and stays readable until it is regenerated.
 
-## Impact confirmation
+## Reopening
 
-A change that moves the frontier back is held until the user confirms the later stages that hold work. Confirmation first saves the complete current project to IndexedDB, then applies the change atomically. Work in later stages remains available for inspection, read-only until the frontier reaches it.
+A change that moves the frontier back applies at once, as drafts the person approves or restores. When later stages hold work, the store first announces the reopening with the module as it was, and the session saves that as a recovery snapshot.
 
 ## Recovery storage
 

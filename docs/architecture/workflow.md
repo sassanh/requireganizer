@@ -34,7 +34,7 @@ Validators check IDs, allowed references, coverage of upstream IDs, and acyclic 
 
 A project is **in progress** or **complete**, derived from its stages and never stored. A stage is complete when its completion rule holds and every approval it needs is given. The frontier is the first stage that is not complete; a project without one is complete. Code is outside this workflow and does not count toward completion; code work waits until the project is complete.
 
-Only the frontier and the stages before it can change. Later stages are read-only: their work stays visible but cannot be edited, generated, or approved until the frontier reaches them. Changing an earlier stage, or any stage of a complete project, makes that stage the frontier. Before such a change applies, the application shows every later stage that holds work and requires confirmation.
+Only the frontier and the stages before it can change. Later stages are read-only: their work stays visible but cannot be edited, generated, or approved until the frontier reaches them. Changing an earlier stage, or any stage of a complete project, makes that stage the frontier. The change applies at once as drafts to approve or restore.
 
 Modules are the slices of a product; within a module, the frontier advances one stage at a time. Priority labels are not part of the method and never scope generation or coverage.
 

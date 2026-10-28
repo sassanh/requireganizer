@@ -221,7 +221,6 @@ describe("standing approval and coverage on the store", () => {
       primaryFeatures: [{ id: "feat-1", content: "Track watering and light" }],
       targetUsers: ["user-1"],
     });
-    store.applyPendingImpactChange();
     store.approve("feat-1");
     assert.equal(store.getStepStatus(WorkflowStage.UserStories), Status.Outdated);
     assert.deepEqual(store.outdatedItemIds(WorkflowStage.UserStories), ["story-1"]);

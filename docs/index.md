@@ -19,7 +19,7 @@ features:
   - title: Traceable workflow
     details: User outcomes lead to approved subjects and interfaces, structured behavioral traces, and executable tests bound to exact revisions.
   - title: Reviewable state
-    details: Generation is atomic, downstream impact is confirmed, and per-project recovery snapshots can be restored.
+    details: Generation is atomic, and per-project recovery snapshots can be restored.
 ---
 
 Requireganizer is an AI-assisted requirements and test-design workspace. Each model operation is limited to one task, validated before it reaches project state, and applied atomically.

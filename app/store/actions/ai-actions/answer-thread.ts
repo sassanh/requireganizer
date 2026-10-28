@@ -44,9 +44,8 @@ export default generator(
     const problem = self.threadAnswerProblem([{ threadId, text: "-" }], author, step);
     if (problem != null) throw new UserFacingError(problem);
     const before = self.json(step);
-    const pendingBefore = self.pendingImpactChange;
     yield* toGenerator(runAgentCommand(self, "apply the requested change", command, streamFn));
-    const changed = self.pendingImpactChange !== pendingBefore || self.json(step) !== before;
+    const changed = self.json(step) !== before;
     self.answerThreads(
       [{ threadId, text: lastReply(self.conversation ?? []) ?? (changed ? "Changed it." : "No change.") }],
       author,

@@ -18,6 +18,7 @@ import { hasProjectName } from "lib/projectStorage";
 import type { OutsideChange, OutsideChanges, PersistenceAdapter } from "persistence";
 import {
   createModuleStore,
+  type StageReopening,
   Store,
 } from "store";
 import { WorkflowStage } from "store/constants";
@@ -114,8 +115,8 @@ interface OpenedProject {
  */
 type ModuleTimelineStatus = "loading" | "attached" | "unavailable";
 
-/** What failed: a project write, or saving AI provider activity. */
-type PersistenceNoticeSource = "write" | "activity";
+/** What failed: a project write, a recovery snapshot, or saving AI provider activity. */
+type PersistenceNoticeSource = "write" | "snapshot" | "activity";
 
 /**
  * Messages for the persistence banner, at most one per source. A success
@@ -124,7 +125,7 @@ type PersistenceNoticeSource = "write" | "activity";
 type PersistenceNotices = Partial<Record<PersistenceNoticeSource, string>>;
 
 /** The order the banner shows its messages in: unsaved work first. */
-const NOTICE_ORDER: readonly PersistenceNoticeSource[] = ["write", "activity"];
+const NOTICE_ORDER: readonly PersistenceNoticeSource[] = ["write", "snapshot", "activity"];
 
 function shownNotice(notices: PersistenceNotices): string | null {
   const messages = NOTICE_ORDER.flatMap((source) => notices[source] ?? []);
@@ -425,8 +426,22 @@ export class ProjectSession {
       store,
       (message) => this.setPersistenceNotice("activity", message),
     );
+    const moduleId = state.registry.activeModuleId;
+    const keepRecoverySnapshot = ({ label, before }: StageReopening) => {
+      this.persistence.revisions.save(project.id, moduleId, before, `Before reopening ${label}`).then(
+        () => this.setPersistenceNotice("snapshot", null),
+        (error: unknown) => {
+          console.error("Could not save a recovery snapshot.", error);
+          this.setPersistenceNotice(
+            "snapshot",
+            `The recovery snapshot from before ${label} reopened could not be saved in ${this.persistence.traits.name}.`,
+          );
+        },
+      );
+    };
+    store.eventTarget.on("reopen", keepRecoverySnapshot);
 
-    this.unsubscribeStore = onSnapshot(store, (snapshot) => {
+    const stopSnapshots = onSnapshot(store, (snapshot) => {
       pendingWrite = () => {
         const current = this.state;
         if (!isOpen(current)) return;
@@ -443,6 +458,10 @@ export class ProjectSession {
         }, PROJECT_SAVE_DEBOUNCE_MS);
       }
     });
+    this.unsubscribeStore = () => {
+      stopSnapshots();
+      store.eventTarget.off("reopen", keepRecoverySnapshot);
+    };
   }
 
   private detachStoreSubscription(): void {

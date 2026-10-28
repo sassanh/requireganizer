@@ -10,10 +10,8 @@ import { generator } from "./utilities";
  * Apply a proposal an outside agent submitted through a stage's submission
  * tool: the same tool, validation, upstream gate and review the built-in
  * agent's proposals go through. A proposal the tool rejects fails the flow
- * with the tool's message, so the agent can correct it. While a change
- * waits for the person's confirmation, nothing is applied: confirming it
- * would replace the store with the state it was proposed on. The threads
- * the submission answers get the agent's replies once it applies.
+ * with the tool's message, so the agent can correct it. The threads the
+ * submission answers get the agent's replies once it applies.
  */
 export default generator(
   function* submitAgentProposal(
@@ -24,12 +22,6 @@ export default generator(
     answers: ThreadAnswer[],
     agentName: string,
   ) {
-    const pending = self.pendingImpactChange;
-    if (pending != null) {
-      throw new UserFacingError(
-        `A proposal that reopens ${pending.sourceLabel} waits for the person to confirm or cancel it in Requireganizer. Submit again after that.`,
-      );
-    }
     const author = { kind: "agent" as const, name: agentName };
     const step = workflowStageOf(stage);
     const problem = answers.length === 0 ? null : self.threadAnswerProblem(answers, author, step);

@@ -171,19 +171,6 @@ import { withSelf } from "./utilities";
 export { MODULE_SCHEMA_VERSION, PROJECT_SCHEMA_VERSION } from "lib/projectSchema";
 const MAX_PROVIDER_CALL_HISTORY = 100;
 
-export interface PendingImpactChange {
-  sourceStep: WorkflowStage;
-  sourceLabel: string;
-  affectedSteps: WorkflowStage[];
-  affectedArtifacts: Array<{
-    step: WorkflowStage;
-    label: string;
-    reason: string;
-  }>;
-  summary: string;
-  candidateSnapshot: unknown;
-}
-
 export interface TestScenarioSnapshotInput {
   id: string;
   title: string;
@@ -333,19 +320,35 @@ export function testDesignFingerprint(source: TestDesignSource): string {
   });
 }
 
+/** A change about to reopen an earlier stage, with the module as it was before it. */
+export interface StageReopening {
+  label: string;
+  before: unknown;
+}
+
+interface StoreEvents {
+  stepUpdate: WorkflowStage;
+  reopen: StageReopening;
+}
+
+type StoreListener<Name extends keyof StoreEvents> = (value: StoreEvents[Name]) => void;
+
 class StoreEventEmitter {
-  private readonly listeners = new Set<(step: WorkflowStage) => void>();
+  private readonly listeners: { [Name in keyof StoreEvents]: Set<StoreListener<Name>> } = {
+    stepUpdate: new Set(),
+    reopen: new Set(),
+  };
 
-  emit(_event: "stepUpdate", step: WorkflowStage): void {
-    this.listeners.forEach((listener) => listener(step));
+  emit<Name extends keyof StoreEvents>(event: Name, value: StoreEvents[Name]): void {
+    (this.listeners[event] as Set<StoreListener<Name>>).forEach((listener) => listener(value));
   }
 
-  on(_event: "stepUpdate", listener: (step: WorkflowStage) => void): void {
-    this.listeners.add(listener);
+  on<Name extends keyof StoreEvents>(event: Name, listener: StoreListener<Name>): void {
+    (this.listeners[event] as Set<StoreListener<Name>>).add(listener);
   }
 
-  off(_event: "stepUpdate", listener: (step: WorkflowStage) => void): void {
-    this.listeners.delete(listener);
+  off<Name extends keyof StoreEvents>(event: Name, listener: StoreListener<Name>): void {
+    (this.listeners[event] as Set<StoreListener<Name>>).delete(listener);
   }
 }
 
@@ -368,7 +371,6 @@ export interface PendingRetry {
 export interface ReplicatedVolatileState {
   validationErrorDetails: string | null;
   providerCalls: ProviderCallRecord[];
-  pendingImpactChange: PendingImpactChange | null;
   contractRevisionDiff: string | null;
   thinkingLabel: string | null;
   thinkingText: string;
@@ -378,7 +380,6 @@ export interface ReplicatedVolatileState {
 const REPLICATED_VOLATILE_KEYS = [
   "validationErrorDetails",
   "providerCalls",
-  "pendingImpactChange",
   "contractRevisionDiff",
   "thinkingLabel",
   "thinkingText",
@@ -446,7 +447,6 @@ export const FlatStore = types
     siblingModules: [],
     validationErrorDetails: null,
     providerCalls: [],
-    pendingImpactChange: null,
     contractRevisionDiff: null,
     thinkingLabel: null,
     thinkingText: "",
@@ -494,7 +494,6 @@ export const FlatStore = types
       self.threads = [];
       self.stageListChanges.clear();
       self.systemMessage = null;
-      self.pendingImpactChange = null;
       self.contractRevisionDiff = null;
       self.thinkingLabel = null;
       self.thinkingText = "";
@@ -546,9 +545,6 @@ export const FlatStore = types
     setContractRevisionDiff(diff: string | null) {
       self.contractRevisionDiff = diff;
     },
-    queueImpactChange(change: PendingImpactChange) {
-      self.pendingImpactChange = change;
-    },
     beginAiOperation({
       operation,
       controller,
@@ -587,16 +583,6 @@ export const FlatStore = types
     abortAiOperation() {
       self.activeAgent?.abort();
       self.aiAbortController?.abort();
-    },
-    cancelPendingImpactChange() {
-      self.pendingImpactChange = null;
-      self.contractRevisionDiff = null;
-    },
-    applyPendingImpactChange() {
-      if (self.pendingImpactChange == null) return;
-      const snapshot = self.pendingImpactChange.candidateSnapshot;
-      self.pendingImpactChange = null;
-      applySnapshot(self, snapshot as SnapshotIn<typeof FlatStore>);
     },
     setScaffoldFiles(files: { path: string; content: string }[]) {
       self.scaffoldFiles = cast(parseScaffoldFiles(files));
@@ -2224,15 +2210,6 @@ export const FlatStore = types
               }),
             threads,
           );
-        const pending = self.pendingImpactChange;
-        if (pending != null) {
-          const candidate = pending.candidateSnapshot as { threads?: ReviewThread[] };
-          self.pendingImpactChange = {
-            ...pending,
-            candidateSnapshot: { ...candidate, threads: add(candidate.threads ?? []) },
-          };
-          return;
-        }
         setThreads(add(self.threads));
       },
     };

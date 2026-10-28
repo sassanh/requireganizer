@@ -606,7 +606,6 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
           applyAtomically(
             store,
             (candidate) => candidate.setPurpose({ purpose: content }),
-            "Apply the revised product purpose.",
           );
           return "Overview field applied.";
         },

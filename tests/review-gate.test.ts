@@ -17,7 +17,7 @@ import {
 } from "../app/store/constants";
 import { coverageUnitId, impactUnitId } from "../app/store/review";
 import { Store } from "../app/store/store";
-import type { FlatStore } from "../app/store/store";
+import type { FlatStore, StageReopening } from "../app/store/store";
 
 const OVERVIEW = {
   purpose: "Help people keep houseplants alive.",
@@ -140,7 +140,6 @@ describe("review gate", () => {
       store,
       overviewProposal({ primaryFeatures: [{ id: "feat-1", content: "Track watering and feeding" }] }),
     );
-    store.applyPendingImpactChange();
     assert.equal(store.frontier, WorkflowStage.ProductOverview);
     assert.equal(store.getStepStatus(WorkflowStage.UserStories), Status.Waiting);
     assert.throws(() => store.approve(coverageUnitId("feat-1")), /Complete Product Overview/);
@@ -150,29 +149,35 @@ describe("review gate", () => {
     );
   });
 
-  it("asks before a change moves the frontier back over later work", () => {
+  it("applies a change over later work at once, announcing the state before it", () => {
     const store = storeWithCompleteRequirements();
+    const reopenings: StageReopening[] = [];
+    store.eventTarget.on("reopen", (reopening) => reopenings.push(reopening));
     applyArtifactListProposal(store, storyProposal([{ id: "story-1", content: `${STORY} Daily.` }]));
-    const pending = store.pendingImpactChange;
-    assert.ok(pending != null);
-    assert.equal(pending.sourceStep, WorkflowStage.UserStories);
-    assert.deepEqual(pending.affectedSteps, [WorkflowStage.Requirements]);
-    assert.equal(store.frontier, WorkflowStage.AcceptanceCriteria);
-    store.applyPendingImpactChange();
     assert.equal(store.frontier, WorkflowStage.UserStories);
+    assert.equal(store.approvalOf("story-1"), "draft");
+    assert.deepEqual(store.outdatedItemIds(WorkflowStage.Requirements), ["requirement-1"]);
+    assert.equal(reopenings.length, 1);
+    assert.equal(reopenings[0]!.label, "User Stories");
+    const before = reopenings[0]!.before as { userStories: { content: string }[] };
+    assert.equal(before.userStories[0]!.content, STORY);
+    store.restoreSigned("story-1");
+    assert.equal(store.approvalOf("story-1"), "approved");
+    assert.deepEqual(store.outdatedItemIds(WorkflowStage.Requirements), []);
   });
 
-  it("applies a change at the frontier without asking", () => {
+  it("announces no reopening for a change at the frontier", () => {
     const store = storeWithCompleteStories();
+    const reopenings: StageReopening[] = [];
+    store.eventTarget.on("reopen", (reopening) => reopenings.push(reopening));
     applyArtifactListProposal(store, storyProposal([{ id: "story-1", content: `${STORY} Daily.` }]));
-    assert.equal(store.pendingImpactChange, null);
     assert.equal(store.approvalOf("story-1"), "draft");
+    assert.deepEqual(reopenings, []);
   });
 
   it("returns an item regenerated after its references changed to draft, even word for word", () => {
     const store = storeWithCompleteRequirements();
     applyArtifactListProposal(store, storyProposal([{ id: "story-1", content: `${STORY} Daily.` }]));
-    store.applyPendingImpactChange();
     approveStage(store, WorkflowStage.UserStories);
     assert.equal(store.frontier, WorkflowStage.Requirements);
     assert.equal(store.getStepStatus(WorkflowStage.Requirements), Status.Outdated);
@@ -205,7 +210,6 @@ describe("review gate", () => {
         { id: "story-2", content: "As a busy plant owner, I want a watering log, so that I see gaps." },
       ]),
     );
-    store.applyPendingImpactChange();
     assert.deepEqual(store.outdatedItemIds(WorkflowStage.Requirements), []);
   });
 
@@ -215,7 +219,6 @@ describe("review gate", () => {
       store,
       overviewProposal({ purpose: "Help people keep every houseplant alive." }),
     );
-    store.applyPendingImpactChange();
     store.approve(OVERVIEW_PURPOSE_QUALITY_ID);
     assert.equal(store.frontier, WorkflowStage.UserStories);
     assert.deepEqual(store.outdatedItemIds(WorkflowStage.UserStories), []);
@@ -232,7 +235,6 @@ describe("review gate", () => {
       store,
       overviewProposal({ purpose: "Help people keep every houseplant alive." }),
     );
-    store.applyPendingImpactChange();
     store.approve(OVERVIEW_PURPOSE_QUALITY_ID);
     store.sendBackForRegeneration(["story-1"]);
     assert.deepEqual(store.outdatedItemIds(WorkflowStage.UserStories), ["story-1"]);
@@ -297,7 +299,6 @@ describe("review gate", () => {
   it("lets a removal be approved even when what the item references changed", () => {
     const store = storeWithCompleteRequirements();
     applyArtifactListProposal(store, storyProposal([{ id: "story-1", content: `${STORY} Daily.` }]));
-    store.applyPendingImpactChange();
     approveStage(store, WorkflowStage.UserStories);
     applyArtifactListProposal(store, {
       entityType: StructuralFragment.Requirement,
@@ -390,7 +391,6 @@ describe("review status", () => {
       store,
       overviewProposal({ primaryFeatures: [{ id: "feat-1", content: "Track watering and feeding" }] }),
     );
-    store.applyPendingImpactChange();
     assert.equal(statusOf("feat-1"), "draft");
     assert.equal(statusOf("story-1"), "outdated");
     assert.notEqual(store.reviewUnit("story-1")!.signature, null);

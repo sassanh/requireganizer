@@ -63,8 +63,7 @@ The person approves every item in Requireganizer's page; no tool approves.
   Tell them which stage is waiting.
 - Regenerate outdated items before anything else in their stage. Keep an item
   word for word when the change that outdated it does not affect it.
-- A submission that would send the workflow back to an earlier stage waits
-  until the person confirms it in Requireganizer.
+- A submission to an earlier stage applies at once and reopens that stage.
 - When you lack the information a stage needs, ask the person. Do not invent
   scope.
 

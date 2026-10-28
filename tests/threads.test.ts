@@ -112,24 +112,6 @@ describe("change request threads", () => {
       /Thread 1 must have at least one message\./,
     );
   });
-
-  it("holds an answer with a change that waits for the person's confirmation", async () => {
-    const store = await overviewStore();
-    store.setThreadAnswerer("coding-agent");
-    const threadId = store.requestChange(targetUserId(store), "Shorter.");
-    store.queueImpactChange({
-      sourceStep: WorkflowStage.ProductOverview,
-      sourceLabel: "Product Overview",
-      affectedSteps: [],
-      affectedArtifacts: [],
-      summary: "Apply the change.",
-      candidateSnapshot: getSnapshot(store),
-    });
-    store.answerThreads([{ threadId, text: "Shortened it." }], AGENT_AUTHOR);
-    assert.equal(store.openThreadOf(targetUserId(store))!.messages.length, 1);
-    store.applyPendingImpactChange();
-    assert.equal(store.openThreadOf(targetUserId(store))!.messages.at(-1)!.text, "Shortened it.");
-  });
 });
 
 describe("change request threads over MCP", () => {

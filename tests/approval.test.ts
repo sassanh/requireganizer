@@ -360,7 +360,6 @@ describe("scenario and case approval", () => {
     const store = storeWithApprovedScenario();
     const revisionId = store.testScenarios[0]!.revisionId;
     applyTestScenarioProposal(store, scenarioProposal("Overdue watering"));
-    assert.equal(store.pendingImpactChange, null);
     assert.equal(store.approvalOf("scenario-1"), "approved");
     assert.equal(store.testScenarios[0]!.revisionId, revisionId);
   });
@@ -395,7 +394,6 @@ describe("scenario and case approval", () => {
     store.approve(testCase.id);
     testCase.markGenerated(testCase.inputFingerprint!);
     applyTestCaseProposal(store, caseProposal("Reminder shows.", scenario.id, definition));
-    assert.equal(store.pendingImpactChange, null);
     assert.equal(store.approvalOf("case-1"), "approved");
     assert.equal(scenario.testCases[0]!.testStatus, "generated");
   });
@@ -419,9 +417,7 @@ describe("scenario and case approval", () => {
         caseDefinition(scenario.revisionId, [{ kind: "input", alias: "tick" }]),
       ),
     );
-    // Its generated test is later work: the change waits for confirmation.
-    assert.deepEqual(store.pendingImpactChange?.affectedSteps, [WorkflowStage.AutomatedTests]);
-    store.applyPendingImpactChange();
+    // Its generated test is later work; the change applies, and the test goes out of sync.
     assert.equal(store.approvalOf("case-1"), "draft");
     assert.notEqual(scenario.testCases[0]!.revisionId, revisionId);
     assert.equal(scenario.testCases[0]!.testStatus, "out-of-sync");

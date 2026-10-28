@@ -1324,6 +1324,26 @@ describe("project session module registry", () => {
     session.dispose();
   });
 
+  it("keeps a recovery snapshot of the state before a stage reopens", async () => {
+    const adapter = new ControllablePersistenceAdapter();
+    await seedProject(adapter, "project-1", projectPayload(projectRegistry([moduleEntry("module-a", "Alpha")], "module-a")));
+    const session = new ProjectSession(adapter);
+    await session.selectProject("project-1", "Project");
+
+    session.getSnapshot().store!.eventTarget.emit("reopen", { label: "User Stories", before: { marker: 1 } });
+    let saved: { label: string; data: unknown }[] = [];
+    await waitFor("the recovery snapshot", () => {
+      void adapter.revisions.list("project-1", "module-a").then((revisions) => {
+        saved = revisions;
+      });
+      return saved.length > 0;
+    });
+    assert.deepEqual(saved.map(({ label, data }) => ({ label, data })), [
+      { label: "Before reopening User Stories", data: { marker: 1 } },
+    ]);
+    session.dispose();
+  });
+
   it("archives only a visible, non-active module", async () => {
     const adapter = new ControllablePersistenceAdapter();
     await seedProject(

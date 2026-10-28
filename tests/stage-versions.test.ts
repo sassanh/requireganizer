@@ -49,7 +49,6 @@ function storeWithChangedFeature(): FlatStore {
     primaryFeatures: [{ id: "feat-1", content: "Track watering and feeding" }],
     targetUsers: ["user-1"],
   });
-  store.applyPendingImpactChange();
   store.approve("feat-1");
   return store;
 }

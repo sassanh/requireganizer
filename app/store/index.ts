@@ -11,5 +11,6 @@ export {
   type PendingRetry,
   type ReplicatedVolatileState,
   type SiblingModuleReference,
+  type StageReopening,
 } from "./store";
 export { withSelf } from "./utilities";

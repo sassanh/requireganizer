@@ -170,10 +170,6 @@ export async function callAgentTool(
     case "completed": {
       const step = workflowStageOf(submission.stage);
       const stage = store.stageLabel(step);
-      // No submission runs while a change waits, so a waiting one is this one.
-      if (store.pendingImpactChange != null) {
-        return `Not applied yet: the proposal sends the workflow back to ${stage}, so it waits until the person confirms that in Requireganizer.`;
-      }
       const items = (count: number) => (count === 1 ? "one item" : `${count} items`);
       const lines = [
         `Applied to ${stage}. The person approves it in Requireganizer; get_workflow_state shows what still awaits approval.`,
