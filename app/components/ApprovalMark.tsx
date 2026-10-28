@@ -43,6 +43,7 @@ const ApprovalMark = observer(function ApprovalMark({ id }: { id: string }) {
   const [decision, setDecision] = useState<PendingDecision | null>(null);
   // Resolves the comment box's pending submit when a decision dialog closes.
   const decisionResolver = useRef<((confirmed: boolean) => void) | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const unit = store?.reviewUnit(id);
   if (store == null || unit == null) return null;
   const canApprove = store.canApprove(id);
@@ -75,7 +76,7 @@ const ApprovalMark = observer(function ApprovalMark({ id }: { id: string }) {
   };
 
   return (
-    <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexShrink: 0 }}>
+    <Stack ref={rootRef} direction="row" spacing={1} sx={{ alignItems: "center", flexShrink: 0 }}>
       {verdict != null && !unit.approved ? (
         <Tooltip title={`${verdict.reason} — ${verdict.model}`}>
           <Chip
@@ -106,6 +107,7 @@ const ApprovalMark = observer(function ApprovalMark({ id }: { id: string }) {
             blocked: store.isBusy,
             approvable: canApprove,
             approve,
+            frame: () => rootRef.current?.closest<HTMLElement>("[data-navigate-card]") ?? null,
           }}
           size="small"
           buttonVariant="contained"

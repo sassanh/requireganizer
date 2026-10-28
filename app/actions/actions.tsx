@@ -210,23 +210,11 @@ function moveSelection(direction: 1 | -1): void {
   focusNavigateCard(next);
 }
 
-/** Post-approve advance: strictly the next item, nothing at the end. */
-function advanceSelection(): void {
+/** The id of the item after `frame`: strictly the next one, none at the end or for an unknown frame. */
+function nextCardId(frame: HTMLElement | null): string | null {
   const cards = fragmentCards();
-  if (cards.length === 0) return;
-  const active =
-    document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : null;
-  const currentIndex =
-    active == null
-      ? -1
-      : cards.findIndex(
-          (card) => card === active || card.contains(active),
-        );
-  const next = cards[currentIndex + 1];
-  if (next == null) return;
-  focusNavigateCard(next);
+  const index = frame == null ? -1 : cards.indexOf(frame);
+  return index === -1 ? null : (cards[index + 1]?.id ?? null);
 }
 
 export const selectNextAction: Action<void> = {
@@ -259,6 +247,8 @@ export interface ApproveTarget {
   approvable: boolean;
   /** Resolves false when the approval waits for a decision instead. */
   approve: () => Promise<boolean>;
+  /** The frame of the item being approved, which the review moves on from. */
+  frame: () => HTMLElement | null;
 }
 
 export const approveAction: Action<ApproveTarget> = {
@@ -267,7 +257,10 @@ export const approveAction: Action<ApproveTarget> = {
   icon: <Check fontSize="small" />,
   shortcut: approveShortcut,
   isEnabled: ({ blocked, approvable }) => !blocked && approvable,
-  run: async ({ approve }) => {
+  run: async ({ approve, frame }) => {
+    // Read before approving: the approval re-renders the item, and the
+    // button that held focus may be gone by the time it resolves.
+    const nextId = nextCardId(frame());
     try {
       if (!(await approve())) return;
     } catch (error) {
@@ -276,7 +269,8 @@ export const approveAction: Action<ApproveTarget> = {
     }
     notify("Approved");
     // Review flow: approving moves on to the next item when there is one.
-    advanceSelection();
+    const next = nextId == null ? null : document.getElementById(nextId);
+    if (next?.hasAttribute("data-navigate-card")) focusNavigateCard(next);
   },
 };
 

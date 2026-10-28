@@ -58,25 +58,8 @@ import { useTimeline } from "projectContext";
 import { useStore } from "store";
 
 import { sendOnEnter } from "./enterToSend";
+import { formatMessageTime } from "./messageTime";
 import { describeToolOutput } from "./toolOutputSummary";
-
-function formatHistoryTimestamp(createdAt: number): string {
-  const diffMs = Date.now() - createdAt;
-  const oneDay = 24 * 60 * 60 * 1000;
-  const threeDays = 3 * oneDay;
-  if (diffMs < oneDay) {
-    return new Date(createdAt).toLocaleTimeString();
-  }
-  if (diffMs < threeDays) {
-    const days = Math.floor(diffMs / oneDay);
-    return days === 1 ? "yesterday" : `${days} days ago`;
-  }
-  return new Date(createdAt).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    ...(diffMs > 365 * 24 * 60 * 60 * 1000 ? { year: "numeric" as const } : {}),
-  });
-}
 
 type ContentBlock = {
   type: string;
@@ -941,7 +924,7 @@ function ConversationSidebar() {
                       {entry.stateOnly ? `${entry.label} (state)` : entry.label}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
-                      {formatHistoryTimestamp(entry.createdAt)}
+                      {formatMessageTime(entry.createdAt)}
                     </Typography>
                   </Stack>
                 </ListItemButton>

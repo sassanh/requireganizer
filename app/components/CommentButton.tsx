@@ -8,6 +8,7 @@ import { useStore } from "store";
 import { answererLabel, authorLabel, type ReviewThread, waitsForPerson } from "store/threads";
 
 import { sendOnEnter } from "./enterToSend";
+import { formatMessageTime } from "./messageTime";
 
 interface CommentButtonProps {
   /** The reviewable unit whose change requests this shows. */
@@ -19,11 +20,15 @@ interface CommentButtonProps {
 
 function ThreadMessages({ thread, faded = false }: { thread: ReviewThread; faded?: boolean }) {
   return (
-    <Stack spacing={1} sx={{ opacity: faded ? 0.6 : 1 }}>
+    <Stack spacing={1.5} sx={{ opacity: faded ? 0.6 : 1 }}>
       {thread.messages.map((message, index) => (
-        <Stack key={index}>
+        <Stack key={index} spacing={0.25}>
           <Typography variant="caption" color="text.secondary">
-            {authorLabel(message.author)} · {new Date(message.at).toLocaleString()}
+            <Typography component="span" variant="caption" sx={{ fontWeight: 600, color: "text.primary" }}>
+              {authorLabel(message.author)}
+            </Typography>
+            {" · "}
+            {formatMessageTime(Date.parse(message.at))}
             {message.withSubmission ? " · changed the work" : ""}
           </Typography>
           <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
@@ -80,7 +85,7 @@ const CommentButton = ({
       const target = event.target as Node | null;
       if (target == null || anchor.contains(target)) return;
       if (
-        target instanceof HTMLElement &&
+        target instanceof Element &&
         target.closest("[data-comment-popover], [data-thread-state]") != null
       ) {
         return;
@@ -148,12 +153,13 @@ const CommentButton = ({
       <Popper
         open={isOpen}
         anchorEl={anchor}
-        placement="top-end"
+        placement="bottom-end"
       >
         <Paper
           component="form"
           data-comment-popover
-          sx={{ p: 1, width: 360, maxHeight: "60vh", overflowY: "auto" }}
+          elevation={8}
+          sx={{ p: 1.5, width: 380, maxHeight: "60vh", overflowY: "auto" }}
           onSubmit={handleFormSubmit}
           onKeyDown={(event) => {
             if (event.key === "Escape") {
@@ -164,7 +170,7 @@ const CommentButton = ({
             sendOnEnter(event, () => void handleSubmit());
           }}
         >
-          <Stack spacing={1}>
+          <Stack spacing={1.5}>
             {resolved.length > 0 ? (
               <>
                 <Button size="small" sx={{ alignSelf: "flex-start" }} onClick={() => setShowResolved(!showResolved)}>
@@ -182,7 +188,8 @@ const CommentButton = ({
                 fullWidth
                 minRows={2}
                 multiline
-                label={thread == null ? "Change request" : "Reply"}
+                placeholder={thread == null ? "Describe the change" : "Reply"}
+                slotProps={{ htmlInput: { "aria-label": thread == null ? "Change request" : "Reply" } }}
                 value={comment}
                 disabled={disabled || isSubmitting}
                 autoFocus
