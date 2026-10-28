@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { agentToolDescriptions, callAgentTool } from "../app/ai-agent/agent-access";
+import { formatQualityContract, qualityContractForStage } from "../app/ai-harness/workflow";
 import { applyArtifactListProposal } from "../app/store/actions/ai-actions/utilities";
 import { Priority, StructuralFragment, WorkflowStage } from "../app/store/constants";
 import { Store } from "../app/store/store";
@@ -49,6 +50,12 @@ describe("outside agent tools", () => {
     for (const { inputSchema } of agentToolDescriptions(store)) {
       assert.equal(inputSchema.type, "object");
     }
+  });
+
+  it("gives the agent the stage's quality contract, the one Requireganizer's writer and reviewer use", () => {
+    const store = Store.create({ productOverview: {} });
+    const submit = agentToolDescriptions(store).find(({ name }) => name === "submit_product_overview")!;
+    assert.ok(submit.description.includes(formatQualityContract(qualityContractForStage(WorkflowStage.ProductOverview)!)));
   });
 
   it("keeps the product name the person gave", async () => {
