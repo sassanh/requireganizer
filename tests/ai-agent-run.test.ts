@@ -20,7 +20,6 @@ describe("agent command run", () => {
       id: "call-1",
       name: "submit_product_overview",
       arguments: {
-        name: "Plant Pal",
         purpose: "Help people keep houseplants alive.",
         primaryFeatures: ["Track watering schedules"],
         targetUsers: ["Busy plant owners"],
@@ -42,7 +41,6 @@ describe("agent command run", () => {
     );
 
     assert.match(JSON.stringify(store.conversation), /A houseplant companion/);
-    assert.equal(store.productOverview.name, "Plant Pal");
     assert.equal(store.productOverview.purpose, "Help people keep houseplants alive.");
     assert.ok(store.conversation.length >= 4);
     const recorded = store.providerCalls.at(-1);
@@ -205,7 +203,6 @@ describe("conversation history", () => {
             id: "call-1",
             name: "submit_product_overview",
             arguments: {
-              name: "Plant Pal",
               purpose: "Help people keep houseplants alive.",
               primaryFeatures: ["Track watering schedules"],
               targetUsers: ["Busy plant owners"],

@@ -85,7 +85,6 @@ import {
   WORKFLOW_STAGE_BY_STRUCTURAL_FRAGMENT,
   WORKFLOW_STAGES,
   WORKFLOW_STAGE_LABELS,
-  OVERVIEW_NAME_QUALITY_ID,
   OVERVIEW_PURPOSE_QUALITY_ID,
   Status,
   WorkflowStage,
@@ -249,7 +248,6 @@ function integrityGraphFromStore(source: {
 }): IntegrityGraph {
   return {
     productOverview: {
-      name: source.productOverview.name,
       purpose: source.productOverview.purpose,
       primaryFeatures: source.productOverview.primaryFeatures.map(integrityItem),
       targetUsers: source.productOverview.targetUsers.map(integrityItem),
@@ -625,7 +623,6 @@ export const FlatStore = types
         return { content } as SnapshotIn<PrimaryFeature | TargetUser>;
       };
       self.productOverview = ProductOverviewModel.create({
-        name: info.name,
         purpose: info.purpose,
         primaryFeatures: info.primaryFeatures.map(toSnapshot) as SnapshotIn<PrimaryFeature>[],
         targetUsers: info.targetUsers.map(toSnapshot) as SnapshotIn<TargetUser>[],
@@ -659,9 +656,6 @@ export const FlatStore = types
         default:
           throw new Error(`Cannot drop ${fragment.type} fragment ${fragment.id}.`);
       }
-    },
-    setName({ name }: { name: string }) {
-      self.productOverview.name = name;
     },
     setPurpose({ purpose }: { purpose: string }) {
       self.productOverview.purpose = purpose;
@@ -940,9 +934,6 @@ export const FlatStore = types
 
     /** The current revision of any unit an item can reference. */
     function revisionOf(id: string): string | null {
-      if (id === OVERVIEW_NAME_QUALITY_ID) {
-        return checkedHash({ name: self.productOverview.name });
-      }
       if (id === OVERVIEW_PURPOSE_QUALITY_ID) {
         return checkedHash({ purpose: self.productOverview.purpose });
       }
@@ -1129,7 +1120,6 @@ export const FlatStore = types
       switch (step) {
         case WorkflowStage.ProductOverview:
           return [
-            OVERVIEW_NAME_QUALITY_ID,
             OVERVIEW_PURPOSE_QUALITY_ID,
             ...self.productOverview.primaryFeatures.map(({ id }) => id),
             ...self.productOverview.targetUsers.map(({ id }) => id),
@@ -1155,7 +1145,6 @@ export const FlatStore = types
 
     /** A unit's content as a later stage sees it: prose in full, formal artifacts by revision. */
     function inputContentOf(id: string): JsonValue {
-      if (id === OVERVIEW_NAME_QUALITY_ID) return { name: self.productOverview.name };
       if (id === OVERVIEW_PURPOSE_QUALITY_ID) return { purpose: self.productOverview.purpose };
       const fragment = fragmentOf(id);
       if (fragment != null) return fragmentContent(fragment);
@@ -1273,8 +1262,7 @@ export const FlatStore = types
         ...unit,
         approved: holds(unit.approval, unit.checked) && !unit.outdated && !unit.pendingRemoval,
       });
-      if (id === OVERVIEW_NAME_QUALITY_ID || id === OVERVIEW_PURPOSE_QUALITY_ID) {
-        const field = id === OVERVIEW_NAME_QUALITY_ID ? "name" : "purpose";
+      if (id === OVERVIEW_PURPOSE_QUALITY_ID) {
         const overview = self.productOverview;
         const content = inputContentOf(id);
         return finish({
@@ -1285,8 +1273,8 @@ export const FlatStore = types
           content,
           outdated: false,
           pendingRemoval: false,
-          approval: field === "name" ? overview.nameApproval : overview.purposeApproval,
-          verdict: field === "name" ? overview.nameVerdict : overview.purposeVerdict,
+          approval: overview.purposeApproval,
+          verdict: overview.purposeVerdict,
         });
       }
       const coverageParent = coverageParentId(id);
@@ -1721,10 +1709,7 @@ export const FlatStore = types
     function writeApproval(unit: ReviewUnit, approval: ApprovalRecord | null): void {
       switch (unit.kind) {
         case "field":
-          self.productOverview.setFieldApproval(
-            unit.id === OVERVIEW_NAME_QUALITY_ID ? "name" : "purpose",
-            approval,
-          );
+          self.productOverview.setPurposeApproval(approval);
           return;
         case "item":
           self.structuralFragmentsCache[unit.id]!.setApproval(approval);
@@ -1741,10 +1726,7 @@ export const FlatStore = types
     function writeVerdict(unit: ReviewUnit, verdict: ModelVerdict | null): void {
       switch (unit.kind) {
         case "field":
-          self.productOverview.setFieldVerdict(
-            unit.id === OVERVIEW_NAME_QUALITY_ID ? "name" : "purpose",
-            verdict,
-          );
+          self.productOverview.setPurposeVerdict(verdict);
           return;
         case "item":
           self.structuralFragmentsCache[unit.id]!.setVerdict(verdict);
@@ -1897,8 +1879,7 @@ export const FlatStore = types
         const unit = self.reviewUnit(id)!;
         const signed = unit.approval!.signed as Record<string, unknown>;
         if (unit.kind === "field") {
-          if (id === OVERVIEW_NAME_QUALITY_ID) self.productOverview.name = signed.name as string | null;
-          else self.productOverview.purpose = signed.purpose as string | null;
+          self.productOverview.purpose = signed.purpose as string | null;
           return;
         }
         const fragment = self.structuralFragmentsCache[id]!;

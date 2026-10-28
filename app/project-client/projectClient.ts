@@ -356,6 +356,12 @@ export class ProjectClient {
   archiveModule = (id: string): Promise<void> =>
     this.request("archiveModule", id);
 
+  renameModule = (id: string, name: string): Promise<void> =>
+    this.request("renameModule", id, name);
+
+  renameProject = (name: string): Promise<void> =>
+    this.request("renameProject", name);
+
   recordOpenStep = (step: WorkflowStage): Promise<void> =>
     this.request("recordOpenStep", step);
 

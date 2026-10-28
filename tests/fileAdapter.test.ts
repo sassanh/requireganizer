@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, extname, join } from "node:path";
 import { after, describe, it } from "node:test";
 
 import { getSnapshot } from "mobx-state-tree";
@@ -44,7 +44,7 @@ function delay(milliseconds: number): Promise<void> {
 
 function registryPayload(name: string): Record<string, unknown> {
   const store = Store.create({ productOverview: {} });
-  store.setName({ name });
+  store.setPurpose({ purpose: name });
   return {
     schemaVersion: PROJECT_SCHEMA_VERSION,
     modulesEnabled: false,
@@ -115,14 +115,14 @@ describe("file persistence adapter", () => {
     assert.equal(statSync(projectFile).mtimeMs, written);
   });
 
-  it("opens an export placed as the project file", async () => {
+  it("opens an export placed as the project file, named after the file", async () => {
     const { adapter, projectFile } = workspace();
     const payload = registryPayload("Plant Pal");
     mkdirSync(dirname(projectFile), { recursive: true });
     writeFileSync(projectFile, JSON.stringify(payload));
     const [listed] = await adapter.projects.list();
     assert.equal(listed!.id, DEFAULT_FILE_PROJECT_ID);
-    assert.equal(listed!.name, "Plant Pal");
+    assert.equal(listed!.name, basename(projectFile, extname(projectFile)));
     assert.deepEqual(
       await adapter.projects.load(DEFAULT_FILE_PROJECT_ID),
       JSON.parse(JSON.stringify(payload)),
@@ -182,7 +182,7 @@ describe("file persistence adapter", () => {
     const { adapter, projectFile } = workspace();
     const payload = registryPayload("Plant Pal");
     const modules = payload.modules as { snapshot: Record<string, unknown> }[];
-    modules[0]!.snapshot = { ...modules[0]!.snapshot, productOverview: { name: 42 } };
+    modules[0]!.snapshot = { ...modules[0]!.snapshot, productOverview: { purpose: 42 } };
     mkdirSync(dirname(projectFile), { recursive: true });
     writeFileSync(projectFile, JSON.stringify({ id: "project-1", name: "x", ...payload }));
     await assert.rejects(adapter.projects.load("project-1"), /does not hold a valid project/);
@@ -210,8 +210,8 @@ describe("file persistence adapter", () => {
     // Opening the project holds it, as the session does.
     assert.equal(restarted.outsideChanges.adoptStored(), true);
     const loaded = await restarted.projects.load("project-1");
-    const [module] = (loaded!.modules as { snapshot: { productOverview: { name: string } } }[]);
-    assert.equal(module!.snapshot.productOverview.name, "From git");
+    const [module] = (loaded!.modules as { snapshot: { productOverview: { purpose: string } } }[]);
+    assert.equal(module!.snapshot.productOverview.purpose, "From git");
     await restarted.projects.save("project-1", registryPayload("Edited after restart"));
     assert.match(readFileSync(projectFile, "utf8"), /Edited after restart/);
   });

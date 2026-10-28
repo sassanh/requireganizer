@@ -96,7 +96,6 @@ export function getDeclaredStepNames(): string[] {
 
 for (const actionName of [
   "setContent",
-  "setName",
   "setPurpose",
   "approve",
   // Threads are recorded state: a change request or reply undoes like an edit.
@@ -127,7 +126,6 @@ const SAVE_DEBOUNCE_MS = 600;
 // Text-edit actions coalesce into one turn until a semantic boundary.
 const TEXT_EDIT_ACTIONS = new Set([
   "setContent",
-  "setName",
   "setPurpose",
 ]);
 let tailMarker: { name: string; path: string } | null = null;
@@ -608,7 +606,6 @@ const LABEL_OVERRIDES: Record<string, string> = {
   initial: "Starting point",
   reloaded: "Restored from save",
   imported: "Imported project",
-  setName: "Edited name",
   setPurpose: "Edited purpose",
   setContent: "Edited content",
   approve: "Approved an item",

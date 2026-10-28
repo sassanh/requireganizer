@@ -27,6 +27,11 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** The shown primary features, the list frame that follows the purpose. */
+function featureText(shown: Store): string {
+  return shown.productOverview.primaryFeatures.map(({ content }) => content).join("\n");
+}
+
 function attachPair(step: WorkflowStage = WorkflowStage.ProductOverview) {
   resetTimeline();
   resetPresentation();
@@ -51,18 +56,17 @@ describe("presentation sequencer", () => {
     const { real, shown } = attachPair();
 
     real.setProductOverview({
-      name: "Acme",
-      purpose: "Ship",
-      primaryFeatures: [],
+      purpose: "Acme",
+      primaryFeatures: [{ content: "Ship" }],
       targetUsers: [],
     } as never);
 
-    assert.equal(shown.productOverview.name ?? "", "Acme");
-    assert.equal(shown.productOverview.purpose ?? "", "");
+    assert.equal(shown.productOverview.purpose ?? "", "Acme");
+    assert.equal(featureText(shown), "");
     const tick = getPresentationTick();
     claim(tick);
     complete(tick);
-    assert.equal(shown.productOverview.purpose ?? "", "Ship");
+    assert.equal(featureText(shown), "Ship");
   });
 
   it("skips a frame when nothing claims within 100ms", async () => {
@@ -73,14 +77,13 @@ describe("presentation sequencer", () => {
     const { real, shown } = attachPair();
 
     real.setProductOverview({
-      name: "Acme",
-      purpose: "Ship",
-      primaryFeatures: [],
+      purpose: "Acme",
+      primaryFeatures: [{ content: "Ship" }],
       targetUsers: [],
     } as never);
-    assert.equal(shown.productOverview.purpose ?? "", "");
+    assert.equal(featureText(shown), "");
     await delay(UNCLAIMED_MILLISECONDS + 30);
-    assert.equal(shown.productOverview.purpose ?? "", "Ship");
+    assert.equal(featureText(shown), "Ship");
   });
 
   it("waits for every claim on a tick before advancing", () => {
@@ -91,9 +94,8 @@ describe("presentation sequencer", () => {
     const { real, shown } = attachPair();
 
     real.setProductOverview({
-      name: "Acme",
-      purpose: "Ship",
-      primaryFeatures: [],
+      purpose: "Acme",
+      primaryFeatures: [{ content: "Ship" }],
       targetUsers: [],
     } as never);
 
@@ -101,9 +103,9 @@ describe("presentation sequencer", () => {
     claim(tick);
     claim(tick);
     complete(tick);
-    assert.equal(shown.productOverview.purpose ?? "", "");
+    assert.equal(featureText(shown), "");
     complete(tick);
-    assert.equal(shown.productOverview.purpose ?? "", "Ship");
+    assert.equal(featureText(shown), "Ship");
   });
 
   it("ignores stale claim/complete", async () => {
@@ -114,18 +116,17 @@ describe("presentation sequencer", () => {
     const { real, shown } = attachPair();
 
     real.setProductOverview({
-      name: "Acme",
-      purpose: "Ship",
-      primaryFeatures: [],
+      purpose: "Acme",
+      primaryFeatures: [{ content: "Ship" }],
       targetUsers: [],
     } as never);
     const tick = getPresentationTick();
     complete(tick);
     claim(tick - 1);
     complete(tick - 1);
-    assert.equal(shown.productOverview.purpose ?? "", "");
+    assert.equal(featureText(shown), "");
     await delay(UNCLAIMED_MILLISECONDS + 30);
-    assert.equal(shown.productOverview.purpose ?? "", "Ship");
+    assert.equal(featureText(shown), "Ship");
   });
 
   it("keeps remaining adds in line when a later change queues removes", () => {
@@ -202,35 +203,34 @@ describe("presentation sequencer", () => {
     attachPresentation(shown, real, timelineChangeSource);
 
     real.setProductOverview({
-      name: "Acme",
-      purpose: "Ship",
-      primaryFeatures: [],
+      purpose: "Acme",
+      primaryFeatures: [{ content: "Ship" }],
       targetUsers: [],
     } as never);
 
     assert.deepEqual(requested, [WorkflowStage.ProductOverview]);
-    assert.equal(shown.productOverview.name ?? "", "");
+    assert.equal(shown.productOverview.purpose ?? "", "");
 
     step = WorkflowStage.ProductOverview;
     noteVisibleStep(WorkflowStage.ProductOverview);
-    assert.equal(shown.productOverview.name ?? "", "Acme");
-    assert.equal(shown.productOverview.purpose ?? "", "");
+    assert.equal(shown.productOverview.purpose ?? "", "Acme");
+    assert.equal(featureText(shown), "");
   });
 
   it("mirrors human edits onto the replica immediately while idle", () => {
-    declareTimelineStep("setName", { kind: "user", label: "setName" });
+    declareTimelineStep("setPurpose", { kind: "user", label: "setPurpose" });
     const { real, shown } = attachPair();
-    real.setName({ name: "typed" });
-    assert.equal(shown.productOverview.name ?? "", "typed");
+    real.setPurpose({ purpose: "typed" });
+    assert.equal(shown.productOverview.purpose ?? "", "typed");
   });
 
   it("presents approve through the sequencer", () => {
     const { real, shown } = attachPair();
-    real.setName({ name: "Acme" });
-    assert.equal(shown.approvalOf("productOverview/name"), "draft");
-    real.approve("productOverview/name");
-    assert.equal(real.approvalOf("productOverview/name"), "approved");
-    assert.equal(shown.approvalOf("productOverview/name"), "approved");
+    real.setPurpose({ purpose: "Acme" });
+    assert.equal(shown.approvalOf("productOverview/purpose"), "draft");
+    real.approve("productOverview/purpose");
+    assert.equal(real.approvalOf("productOverview/purpose"), "approved");
+    assert.equal(shown.approvalOf("productOverview/purpose"), "approved");
     assert.equal(isPresenting(), true);
     const tick = getPresentationTick();
     claim(tick);

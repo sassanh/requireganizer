@@ -129,7 +129,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
 
   const exportProject = useCallback(
     async (format: ProjectExportFormat): Promise<void> => {
-      if (registry == null) return;
+      if (registry == null || activeProject == null) return;
       const modules: ExportModule[] = client.getExportModules();
       if (format === "json") {
         exportProjectJson(
@@ -139,12 +139,12 @@ export default function Providers({ children }: { children: React.ReactNode }) {
         return;
       }
       if (format === "pdf") {
-        await exportProjectPdf(modules);
+        await exportProjectPdf(activeProject.name, modules);
         return;
       }
-      exportProjectText(modules);
+      exportProjectText(activeProject.name, modules);
     },
-    [registry, client, store],
+    [registry, activeProject, client, store],
   );
 
   const reportExportError = useCallback(
@@ -157,14 +157,14 @@ export default function Providers({ children }: { children: React.ReactNode }) {
 
   const exportCodeArchive = useCallback(
     (format: CodeArchiveFormat): void => {
-      if (registry == null) return;
+      if (registry == null || activeProject == null) return;
       void runCodeArchiveExport(
         format,
-        { activeStore: store, modules: client.getExportModules() },
+        { projectName: activeProject.name, modules: client.getExportModules() },
         reportExportError,
       );
     },
-    [registry, client, store, reportExportError],
+    [registry, activeProject, client, reportExportError],
   );
 
   const activeEntry = registry == null ? null : activeModule(registry);
@@ -203,6 +203,8 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     addModule: client.addModule,
     switchModule: client.switchModule,
     archiveModule: client.archiveModule,
+    renameModule: client.renameModule,
+    renameProject: client.renameProject,
     recordOpenStep: client.recordOpenStep,
     importProjectFile: client.importProjectFile,
     exportProject,

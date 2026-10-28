@@ -8,7 +8,6 @@ import { getSnapshot } from "mobx-state-tree";
 import { parseProjectPayload, pickActiveModule } from "../app/lib/moduleSchema";
 import { MODULE_SCHEMA_VERSION } from "../app/lib/projectSchema";
 import {
-  OVERVIEW_NAME_QUALITY_ID,
   OVERVIEW_PURPOSE_QUALITY_ID,
   WorkflowStage,
 } from "../app/store/constants";
@@ -30,7 +29,6 @@ describe("schema 3 migration", () => {
   it("keeps approvals of work schema 3 showed current", () => {
     const store = createModuleStore(schema3Module());
     for (const id of [
-      OVERVIEW_NAME_QUALITY_ID,
       OVERVIEW_PURPOSE_QUALITY_ID,
       "feat-1",
       "feat-2",

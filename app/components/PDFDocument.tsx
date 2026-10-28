@@ -15,6 +15,8 @@ export interface PDFModuleSection {
 }
 
 interface PDFDocumentProps {
+  /** The project's name: the product the document specifies. */
+  productName: string;
   modules: readonly PDFModuleSection[];
 }
 
@@ -53,11 +55,6 @@ const ModuleSection: React.FunctionComponent<PDFModuleSection> = ({
   return (
     <Page size="A4" style={styles.page}>
       {name != null && <Text style={styles.moduleTitle}>{name}</Text>}
-
-      <View style={styles.section}>
-        <Text style={styles.title}>Name</Text>
-        <Text style={styles.item}>{store.productOverview.name}</Text>
-      </View>
 
       <View style={styles.section}>
         <Text style={styles.title}>Purpose</Text>
@@ -162,17 +159,17 @@ const ModuleSection: React.FunctionComponent<PDFModuleSection> = ({
 };
 
 /**
- * The specification document: one section of pages per module. Projects
- * without modules enabled render exactly as before — a single unnamed section.
+ * The specification document: one section of pages per module, headed by
+ * the module's name, or by the product's name in a project without modules.
  */
-const PDFDocument: React.FunctionComponent<PDFDocumentProps> = ({ modules }) => {
+const PDFDocument: React.FunctionComponent<PDFDocumentProps> = ({ productName, modules }) => {
   return (
-    <Document>
+    <Document title={productName}>
       {modules.map((section) => (
         <ModuleSection
           key={section.id}
           id={section.id}
-          name={section.name}
+          name={section.name ?? productName}
           store={section.store}
         />
       ))}

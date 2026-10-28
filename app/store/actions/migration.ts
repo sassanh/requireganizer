@@ -7,7 +7,6 @@ import {
 import { isRecord } from "lib/json";
 import { LEGACY_MODULE_SCHEMA_VERSION, MODULE_SCHEMA_VERSION } from "lib/projectSchema";
 import {
-  OVERVIEW_NAME_QUALITY_ID,
   OVERVIEW_PURPOSE_QUALITY_ID,
   StructuralFragment,
   WorkflowStage,
@@ -170,9 +169,10 @@ function migrateArtifact(artifact: unknown, legacy: LegacyReview): unknown {
 function migrateOverview(overview: unknown, legacy: LegacyReview): unknown {
   if (!isRecord(overview)) return overview;
   const {
-    nameApproval,
+    name: _name,
+    nameApproval: _nameApproval,
     purposeApproval,
-    lastSignedName,
+    lastSignedName: _lastSignedName,
     lastSignedPurpose,
     nameQuality: _nameQuality,
     purposeQuality: _purposeQuality,
@@ -180,15 +180,11 @@ function migrateOverview(overview: unknown, legacy: LegacyReview): unknown {
     purposeIssues: _purposeIssues,
     ...rest
   } = overview;
-  if (nameApproval === "approved") legacy.approvedIds.push(OVERVIEW_NAME_QUALITY_ID);
   if (purposeApproval === "approved") legacy.approvedIds.push(OVERVIEW_PURPOSE_QUALITY_ID);
-  if (typeof lastSignedName === "string") legacy.signedTexts[OVERVIEW_NAME_QUALITY_ID] = lastSignedName;
   if (typeof lastSignedPurpose === "string") legacy.signedTexts[OVERVIEW_PURPOSE_QUALITY_ID] = lastSignedPurpose;
   return {
     ...rest,
-    nameApproval: null,
     purposeApproval: null,
-    nameVerdict: null,
     purposeVerdict: null,
     primaryFeatures: list(rest.primaryFeatures).map((item) => migrateFragment(item, legacy)),
     targetUsers: list(rest.targetUsers).map((item) => migrateFragment(item, legacy)),
@@ -255,7 +251,6 @@ export function isLegacyModuleSnapshot(value: unknown): value is Snapshot {
 
 function signedVersion(content: JsonValue, id: string, text: string, type: StructuralFragment | null): JsonValue {
   const value = content as Record<string, JsonValue>;
-  if (id === OVERVIEW_NAME_QUALITY_ID) return { name: text };
   if (id === OVERVIEW_PURPOSE_QUALITY_ID) return { purpose: text };
   if (type === StructuralFragment.TestScenario) return { ...value, title: text };
   if (type === StructuralFragment.TestCase) return { ...value, description: text };
@@ -274,7 +269,6 @@ function signedChecked(
   fragment: StructuralFragmentInstance | undefined,
 ): string {
   const value = signed as Record<string, JsonValue>;
-  if (id === OVERVIEW_NAME_QUALITY_ID) return checkedHash({ name: value.name });
   if (id === OVERVIEW_PURPOSE_QUALITY_ID) return checkedHash({ purpose: value.purpose });
   if (
     fragment == null ||

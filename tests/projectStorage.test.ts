@@ -63,9 +63,9 @@ describe("project storage parsing", () => {
     assert.deepEqual(
       readStoredProjectView({
         schemaVersion: MODULE_SCHEMA_VERSION,
-        productOverview: { name: "Example" },
+        productOverview: {},
         scaffoldFiles: [{ path: "src/index.ts", content: "export {};" }],
-      }),
+      }, "Example"),
       {
         name: "Example",
         scaffoldFiles: [{ path: "src/index.ts", content: "export {};" }],
@@ -77,14 +77,14 @@ describe("project storage parsing", () => {
     assert.deepEqual(
       readStoredProjectView({
         schemaVersion: MODULE_SCHEMA_VERSION,
-        productOverview: { name: "Example" },
+        productOverview: {},
         scaffoldFiles: [{ path: "../outside", content: "secret" }],
-      }),
+      }, "Example"),
       { name: "Example", scaffoldFiles: [] },
     );
   });
 
-  it("reads the active module out of a stored project payload", () => {
+  it("reads the active module's files out of a stored project payload, named by the project", () => {
     assert.deepEqual(
       readStoredProjectView({
         schemaVersion: 4,
@@ -98,7 +98,7 @@ describe("project storage parsing", () => {
             openStep: "product-overview",
             snapshot: {
               schemaVersion: MODULE_SCHEMA_VERSION,
-              productOverview: { name: "Wrong module" },
+              productOverview: {},
               scaffoldFiles: [{ path: "a.ts", content: "" }],
             },
           },
@@ -109,14 +109,14 @@ describe("project storage parsing", () => {
             openStep: "product-overview",
             snapshot: {
               schemaVersion: MODULE_SCHEMA_VERSION,
-              productOverview: { name: "Billing" },
+              productOverview: {},
               scaffoldFiles: [{ path: "b.ts", content: "export {};" }],
             },
           },
         ],
-      }),
+      }, "Garden"),
       {
-        name: "Billing",
+        name: "Garden",
         scaffoldFiles: [{ path: "b.ts", content: "export {};" }],
       },
     );

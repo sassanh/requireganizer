@@ -29,7 +29,7 @@ import { PROJECT_HOST_LOCATION } from "deployment";
 import { useAiSettingsDialog } from "hooks/useAiSettingsDialog";
 import { parseJson } from "lib/json";
 import { parseProjectPayload, pickActiveModule } from "lib/moduleSchema";
-import { ProjectMeta } from "lib/projectStorage";
+import { hasProjectName, ProjectMeta } from "lib/projectStorage";
 import { projectHref } from "lib/routes";
 import type { ProjectDeleteResult } from "persistence";
 import { useProject } from "projectContext";
@@ -37,12 +37,6 @@ import { createModuleStore } from "store";
 
 interface ProjectSelectorProps {
   onSelect: (id: string, name: string, options?: { overviewSeed?: string }) => void;
-}
-
-function hasProjectName(projects: ProjectMeta[], name: string): boolean {
-  return projects.some(
-    (project) => project.name.localeCompare(name, undefined, { sensitivity: "base" }) === 0,
-  );
 }
 
 export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
@@ -156,9 +150,7 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
         if (entry.id !== activeEntry.id) createModuleStore(entry.snapshot);
       }
 
-      const baseName =
-        activeStore.productOverview.name?.trim() ||
-        file.name.replace(/\.json$/i, "");
+      const baseName = file.name.replace(/\.json$/i, "");
       let name = baseName;
       let suffix = 1;
       while (hasProjectName(projectList, name)) {

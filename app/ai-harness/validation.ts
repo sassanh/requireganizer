@@ -160,7 +160,7 @@ export function parseProductOverviewProposal(
   }
   assertAllowedKeys(
     value,
-    ["name", "purpose", "primaryFeatures", "targetUsers"],
+    ["purpose", "primaryFeatures", "targetUsers"],
     "Product overview",
   );
 
@@ -219,7 +219,6 @@ export function parseProductOverviewProposal(
   }
 
   return {
-    name: requiredString(value, "name", "Product overview"),
     purpose: requiredString(value, "purpose", "Product overview"),
     primaryFeatures: parsePatchList(primaryRaw, "Product overview.primaryFeatures", primaryFeatureIds),
     targetUsers: parsePatchList(targetRaw, "Product overview.targetUsers", targetUserIds),
@@ -642,7 +641,7 @@ export function parseTestCodeRequest(value: unknown): TestCodeRequest {
   const project = requiredRecord(value, "project", "Test-code request");
   assertAllowedKeys(
     project,
-    ["name", "purpose", "language", "framework"],
+    ["purpose", "language", "framework"],
     "Test-code request.project",
   );
   const scenario = requiredRecord(value, "scenario", "Test-code request");
@@ -952,7 +951,6 @@ export function parseTestCodeRequest(value: unknown): TestCodeRequest {
 
   return {
     project: {
-      name: requiredString(project, "name", "Test-code request.project"),
       purpose: requiredString(project, "purpose", "Test-code request.project"),
       framework: requiredString(project, "framework", "Test-code request.project"),
       language: projectLanguage,

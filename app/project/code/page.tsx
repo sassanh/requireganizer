@@ -75,9 +75,10 @@ function CodeViewerContent() {
         if (!projectId) return;
         const request = requestRef.current + 1;
         requestRef.current = request;
-        void persistence.projects.load(projectId).then((data) => {
+        void Promise.all([persistence.projects.list(), persistence.projects.load(projectId)]).then(([projects, data]) => {
             if (request !== requestRef.current) return;
-            setProjectView(readStoredProjectView(data) ?? EMPTY_PROJECT_VIEW);
+            const name = projects.find(({ id }) => id === projectId)?.name ?? "";
+            setProjectView(readStoredProjectView(data, name) ?? EMPTY_PROJECT_VIEW);
         });
     }, [persistence, projectId]);
 

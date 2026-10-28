@@ -19,7 +19,6 @@ async function renderUnits(ids: string[]) {
 
   const store = Store.create({
     productOverview: {
-      name: "Plant Pal",
       purpose: "Help people keep houseplants alive.",
       primaryFeatures: ids.map((id) => ({ id, content: `Feature ${id}` })),
       targetUsers: [{ id: "user-1", content: "Busy plant owners" }],

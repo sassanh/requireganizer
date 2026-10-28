@@ -12,7 +12,7 @@ Product Overview → User Stories → Requirements
 
 | Stage | Delivered artifact | Completion rule |
 | --- | --- | --- |
-| Product Overview | Product name, purpose, primary features, target users | The overview is complete, every item is approved, and it contains no implementation choice. Downstream generate waits until every item is approved. |
+| Product Overview | Purpose, primary features, target users | The overview is complete, every item is approved, and it contains no implementation choice. Downstream generate waits until every item is approved. |
 | User Stories | Independently valuable user outcomes | Every primary feature has traceable coverage, every story is approved, and every feature's coverage is approved. |
 | Requirements | Atomic, solution-neutral obligations | Every story has traceable coverage, every requirement is approved, and every story's coverage is approved. |
 | Acceptance Criteria | Observable pass/fail conditions | Every requirement has traceable coverage, every criterion is approved, and every requirement's coverage is approved. |

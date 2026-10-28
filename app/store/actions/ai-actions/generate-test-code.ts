@@ -26,7 +26,7 @@ export default generator(
       ({ scenarioId }) => scenarioId === testScenario.id,
     );
     if (target == null) throw new UserFacingError("Project Setup has no test target for this scenario.");
-    if (self.productOverview.name == null || self.productOverview.purpose == null) {
+    if (self.productOverview.purpose == null) {
       throw new UserFacingError("Complete Product Overview first.");
     }
     if (testCase.inputFingerprint == null) throw new UserFacingError("The test case has no structured definition.");

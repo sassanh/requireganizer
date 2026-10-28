@@ -108,10 +108,11 @@ export const QUALITY_CONTRACTS: Readonly<Record<ReviewSubject, QualityContract>>
     objective:
       "Describe the product as outcomes for people, without choosing an implementation.",
     itemContract:
-      "The overview has a product name, an outcome-oriented purpose, primary features as user-facing capabilities, and target users as the people who receive those outcomes. It must not choose technology, architecture, or implementation.",
+      "The overview has an outcome-oriented purpose, primary features as user-facing capabilities, and target users as the people who receive those outcomes. It must not choose technology, architecture, or implementation.",
     qualityRules: [
       "Purpose states who is helped and what changes for them, not how the product or the software brings it about.",
       "Each primary feature names one capability a user would recognize, in one sentence: what the user can do with it, not the rules, conditions, or details of how it behaves, which belong to user stories and requirements. It is never a module, API, or stack choice.",
+      "The primary features are the headline list a reader skims to understand the product, not a complete one. Each is a major capability; a behavior, case, or faster way of doing another feature is not a feature and belongs to user stories. More than about five features usually means they are too detailed, or the product should be split into modules.",
       "Each target user is a kind of person or role, not a technical actor unless the product is for that actor.",
       "Do not introduce implementation choices unless the user has already mandated them.",
     ],

@@ -11,12 +11,12 @@ describe("input change summary", () => {
   it("names a rewritten overview field with both texts", () => {
     assert.deepEqual(
       summarizeInputChanges([{
-        id: "productOverview/name",
+        id: "productOverview/purpose",
         code: null,
-        before: { name: "Plant Pal" },
-        after: { name: "Plant Pal Pro" },
+        before: { purpose: "Keep plants alive." },
+        after: { purpose: "Keep every plant alive." },
       }]),
-      ['Rewrote productOverview/name: "Plant Pal" → "Plant Pal Pro".'],
+      ['Rewrote productOverview/purpose: "Keep plants alive." → "Keep every plant alive.".'],
     );
   });
 

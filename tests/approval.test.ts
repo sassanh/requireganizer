@@ -10,7 +10,6 @@ import {
   applyTestScenarioProposal,
 } from "../app/store/actions/ai-actions/utilities";
 import {
-  OVERVIEW_NAME_QUALITY_ID,
   OVERVIEW_PURPOSE_QUALITY_ID,
   Priority,
   Status,
@@ -24,7 +23,6 @@ import type { FlatStore } from "../app/store/store";
 const NOW = "2026-08-13T00:00:00.000Z";
 
 const OVERVIEW = {
-  name: "Plant Pal",
   purpose: "Help people keep houseplants alive.",
   primaryFeatures: [{ id: "feat-1", content: "Track watering" }],
   targetUsers: [{ id: "user-1", content: "Busy plant owners" }],
@@ -66,12 +64,11 @@ describe("explicit approval", () => {
     const submit = tools.find(({ name }) => name === "submit_product_overview");
     assert.ok(submit != null);
     await submit.execute!("call-1", {
-      name: "Plant Pal",
       purpose: "Help people keep houseplants alive.",
       primaryFeatures: ["Track watering schedules"],
       targetUsers: ["Busy plant owners"],
     } as never);
-    assert.equal(store.approvalOf(OVERVIEW_NAME_QUALITY_ID), "draft");
+    assert.equal(store.approvalOf(OVERVIEW_PURPOSE_QUALITY_ID), "draft");
     assert.equal(store.getStepStatus(WorkflowStage.ProductOverview), Status.NeedsApproval);
     assert.equal(store.stageIsComplete(WorkflowStage.ProductOverview), false);
     assert.equal(store.canGenerateStep(WorkflowStage.UserStories), false);
@@ -83,8 +80,7 @@ describe("explicit approval", () => {
 
   it("approves item by item and only then advances the frontier", () => {
     const store = storeWithOverview();
-    assert.equal(store.canApprove(OVERVIEW_NAME_QUALITY_ID), true);
-    store.approve(OVERVIEW_NAME_QUALITY_ID);
+    assert.equal(store.canApprove(OVERVIEW_PURPOSE_QUALITY_ID), true);
     store.approve(OVERVIEW_PURPOSE_QUALITY_ID);
     store.approve("feat-1");
     assert.equal(store.frontier, WorkflowStage.ProductOverview);
@@ -97,19 +93,19 @@ describe("explicit approval", () => {
   it("shows a rewritten item's signed text until it is approved again", () => {
     const store = storeWithOverview();
     approveStage(store, WorkflowStage.ProductOverview);
-    store.setName({ name: "Garden Pal" });
-    store.setName({ name: "Forest Pal" });
-    assert.equal(store.approvalOf(OVERVIEW_NAME_QUALITY_ID), "draft");
-    assert.equal(store.signedTextOf(OVERVIEW_NAME_QUALITY_ID), "Plant Pal");
-    store.approve(OVERVIEW_NAME_QUALITY_ID);
-    assert.equal(store.signedTextOf(OVERVIEW_NAME_QUALITY_ID), null);
-    assert.equal(store.approvalOf(OVERVIEW_NAME_QUALITY_ID), "approved");
+    store.setPurpose({ purpose: "Garden Pal" });
+    store.setPurpose({ purpose: "Forest Pal" });
+    assert.equal(store.approvalOf(OVERVIEW_PURPOSE_QUALITY_ID), "draft");
+    assert.equal(store.signedTextOf(OVERVIEW_PURPOSE_QUALITY_ID), "Help people keep houseplants alive.");
+    store.approve(OVERVIEW_PURPOSE_QUALITY_ID);
+    assert.equal(store.signedTextOf(OVERVIEW_PURPOSE_QUALITY_ID), null);
+    assert.equal(store.approvalOf(OVERVIEW_PURPOSE_QUALITY_ID), "approved");
   });
 
   it("has no signed text on a first draft", () => {
     const store = storeWithOverview();
-    store.setName({ name: "Garden Pal" });
-    assert.equal(store.signedTextOf(OVERVIEW_NAME_QUALITY_ID), null);
+    store.setPurpose({ purpose: "Garden Pal" });
+    assert.equal(store.signedTextOf(OVERVIEW_PURPOSE_QUALITY_ID), null);
   });
 
   it("keeps approval out of every stage's inputs", () => {
@@ -126,7 +122,6 @@ describe("explicit approval", () => {
     const store = storeWithOverview();
     approveStage(store, WorkflowStage.ProductOverview);
     applyProductOverviewProposal(store, {
-      name: "Plant Pal",
       purpose: "Help people keep houseplants alive.",
       primaryFeatures: ["feat-1"],
       targetUsers: ["user-1"],
@@ -140,7 +135,6 @@ describe("explicit approval", () => {
     const store = storeWithOverview();
     approveStage(store, WorkflowStage.ProductOverview);
     applyProductOverviewProposal(store, {
-      name: "Plant Pal",
       purpose: "Help people keep houseplants alive.",
       primaryFeatures: [{ id: "feat-1", content: "Track watering and feeding" }],
       targetUsers: ["user-1"],
@@ -190,7 +184,6 @@ describe("explicit approval", () => {
         subjects: [
           {
             id: "product",
-            name: "Plant Pal",
             purpose: "Keep plants alive",
             classification: "external",
             parentSubjectId: null,

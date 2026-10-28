@@ -39,7 +39,6 @@ import {
 import { getUserFacingErrorMessage, isRateLimitError, isTimeoutError, UserFacingError } from "lib/errors";
 import { HarnessResult } from "lib/types";
 import {
-  OVERVIEW_NAME_QUALITY_ID,
   OVERVIEW_PURPOSE_QUALITY_ID,
   Priority,
   Status,
@@ -117,7 +116,6 @@ export function applyProductOverviewProposal(
       revision: candidate.revisionOf(id)!,
     });
     const before = [
-      entry(OVERVIEW_NAME_QUALITY_ID, "Name"),
       entry(OVERVIEW_PURPOSE_QUALITY_ID, "Purpose"),
       ...overview.primaryFeatures.map((item) => entry(item.id, item.getCode())),
       ...overview.targetUsers.map((item) => entry(item.id, item.getCode())),
@@ -186,7 +184,6 @@ export function applyProductOverviewProposal(
       proposedUserIds,
       drop,
     );
-    candidate.setName({ name: proposal.name });
     candidate.setPurpose({ purpose: proposal.purpose });
     candidate.setPrimaryFeatures({
       primaryFeatures: featureSnapshots as never,
@@ -197,7 +194,6 @@ export function applyProductOverviewProposal(
     candidate.recordStageListChange(
       WorkflowStage.ProductOverview,
       classifyListChange(before, [
-        entry(OVERVIEW_NAME_QUALITY_ID, "Name"),
         entry(OVERVIEW_PURPOSE_QUALITY_ID, "Purpose"),
         ...[...overview.primaryFeatures, ...overview.targetUsers].map((item) => ({
           ...entry(item.id, item.getCode()),

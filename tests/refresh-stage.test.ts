@@ -25,7 +25,6 @@ function approveStage(store: FlatStore, step: WorkflowStage) {
 function storeWithDraftStories(): FlatStore {
   const store = Store.create({
     productOverview: {
-      name: "Plant Pal",
       purpose: "Help people keep houseplants alive.",
       primaryFeatures: [{ id: "feat-1", content: "Track watering" }],
       targetUsers: [{ id: "user-1", content: "Busy plant owners" }],
@@ -54,7 +53,6 @@ function storeWithOutdatedStories(): FlatStore {
   const store = storeWithDraftStories();
   approveStage(store, WorkflowStage.UserStories);
   applyProductOverviewProposal(store, {
-    name: "Plant Pal",
     purpose: "Help people keep houseplants alive.",
     primaryFeatures: [{ id: "feat-1", content: "Track watering and feeding" }],
     targetUsers: ["user-1"],

@@ -50,7 +50,7 @@ function asJson(value: unknown): unknown {
 
 function moduleSnapshot(name: string, stories: string[] = []): Record<string, unknown> {
   const store = Store.create({ productOverview: {} });
-  store.setName({ name });
+  store.setPurpose({ purpose: name });
   for (const content of stories) {
     store.addUserStory();
     store.userStories.at(-1)!.setContent(content);
@@ -188,12 +188,12 @@ describe("project host and client", () => {
     const opened = await openProject(singleModule());
     try {
       const replica = opened.replica();
-      const applied = replica.setName({ name: "Renamed" });
-      assert.equal(replica.productOverview.name, "Alpha");
-      assert.equal(opened.authority().productOverview.name, "Alpha");
+      const applied = replica.setPurpose({ purpose: "Renamed" });
+      assert.equal(replica.productOverview.purpose, "Alpha");
+      assert.equal(opened.authority().productOverview.purpose, "Alpha");
       await applied;
-      assert.equal(opened.authority().productOverview.name, "Renamed");
-      assert.equal(replica.productOverview.name, "Renamed");
+      assert.equal(opened.authority().productOverview.purpose, "Renamed");
+      assert.equal(replica.productOverview.purpose, "Renamed");
     } finally {
       opened.dispose();
     }
@@ -270,14 +270,14 @@ describe("project host and client", () => {
       const previous = opened.replica();
       assert.equal(await opened.client.switchModule("module-b"), true);
       assert.notEqual(opened.replica(), previous);
-      assert.equal(opened.replica().productOverview.name, "Beta");
+      assert.equal(opened.replica().productOverview.purpose, "Beta");
       assert.equal(opened.client.getSnapshot().registry?.activeModuleId, "module-b");
 
       await assert.rejects(
-        Promise.resolve(previous.setName({ name: "Meant for Alpha" })),
+        Promise.resolve(previous.setPurpose({ purpose: "Meant for Alpha" })),
         /module changed/,
       );
-      assert.equal(opened.authority().productOverview.name, "Beta");
+      assert.equal(opened.authority().productOverview.purpose, "Beta");
       assert.equal(await opened.client.switchModule("missing"), false);
     } finally {
       opened.dispose();
@@ -361,10 +361,10 @@ describe("project host and client", () => {
       const seen: { step: WorkflowStage; name: string | null }[] = [];
       const replica = opened.replica();
       replica.eventTarget.on("stepUpdate", (step) => {
-        seen.push({ step, name: replica.productOverview.name });
+        seen.push({ step, name: replica.productOverview.purpose });
       });
       const authority = opened.authority();
-      authority.setName({ name: "Emitted" });
+      authority.setPurpose({ purpose: "Emitted" });
       authority.eventTarget.emit("stepUpdate", WorkflowStage.UserStories);
       await waitFor("the step update", () => seen.length > 0);
       assert.deepEqual(seen, [{ step: WorkflowStage.UserStories, name: "Emitted" }]);
@@ -378,11 +378,11 @@ describe("project host and client", () => {
     try {
       const seen: (string | null)[] = [];
       const replica = opened.replica();
-      replica.eventTarget.on("stepUpdate", () => seen.push(replica.productOverview.name));
+      replica.eventTarget.on("stepUpdate", () => seen.push(replica.productOverview.purpose));
       const authority = opened.authority();
       runInAction(() => {
         authority.eventTarget.emit("stepUpdate", WorkflowStage.UserStories);
-        authority.setName({ name: "Finished" });
+        authority.setPurpose({ purpose: "Finished" });
       });
       await waitFor("the step update", () => seen.length > 0);
       // A replica never shows half of a change.
@@ -413,7 +413,6 @@ describe("project host and client", () => {
         id: "call-1",
         name: "submit_product_overview",
         arguments: {
-          name: "Alpha",
           purpose: "Help people keep houseplants alive.",
           primaryFeatures: ["Track watering schedules"],
           targetUsers: ["Busy plant owners"],
@@ -444,20 +443,20 @@ describe("project host and client", () => {
   it("moves through the timeline on the client's request", async () => {
     const opened = await openProject(singleModule());
     try {
-      await opened.replica().setName({ name: "Renamed" });
+      await opened.replica().setPurpose({ purpose: "Renamed" });
       await waitFor("undo to become available", () => opened.client.timeline.getMeta().canUndo);
       const replica = opened.replica();
       const order: string[] = [];
       onSnapshot(replica, () => order.push("snapshot"));
       opened.client.changeSource.onChangeFocus(() => {
-        order.push(`focus with ${replica.productOverview.name}`);
+        order.push(`focus with ${replica.productOverview.purpose}`);
       });
       await opened.client.timeline.undo();
       // As next to a local store: presenters get the focus with the change
       // already in place, and store observers run after them.
       assert.deepEqual(order, ["focus with Alpha", "snapshot"]);
-      assert.equal(opened.replica().productOverview.name, "Alpha");
-      assert.equal(opened.authority().productOverview.name, "Alpha");
+      assert.equal(opened.replica().productOverview.purpose, "Alpha");
+      assert.equal(opened.authority().productOverview.purpose, "Alpha");
       assert.equal(opened.client.timeline.getMeta().canRedo, true);
       const exported = await opened.client.timeline.exportSnapshot();
       assert.ok(exported != null && exported.nodes.length >= 2);
@@ -509,7 +508,7 @@ describe("project host and client", () => {
         type: "request",
         id: 3,
         name: "runStoreAction",
-        args: [{ store: "", address: [], name: "setName", args: [{ name: "x" }] }],
+        args: [{ store: "", address: [], name: "setPurpose", args: [{ purpose: "x" }] }],
       });
       await waitFor("three answers", () =>
         received.filter((message) => message.type === "response").length === 3,
@@ -521,7 +520,7 @@ describe("project host and client", () => {
       assert.match(errors[0]!, /no operation projects\.constructor/);
       assert.match(errors[1]!, /no request named toString/);
       assert.match(errors[2]!, /module changed/);
-      assert.equal(opened.authority().productOverview.name, "Alpha");
+      assert.equal(opened.authority().productOverview.purpose, "Alpha");
     } finally {
       link.close();
       opened.dispose();
@@ -603,8 +602,8 @@ describe("project host and client", () => {
         await waitFor("the first client's update", () => opened.replica().userStories.length === 2);
         assert.equal(late.getSnapshot().store.userStories.length, 2);
 
-        await late.getSnapshot().store.setName({ name: "Shared" });
-        await waitFor("the first client's rename", () => opened.replica().productOverview.name === "Shared");
+        await late.getSnapshot().store.setPurpose({ purpose: "Shared" });
+        await waitFor("the first client's rename", () => opened.replica().productOverview.purpose === "Shared");
         assert.deepEqual(
           asJson(getSnapshot(late.getSnapshot().store)),
           asJson(getSnapshot(opened.authority())),
@@ -717,14 +716,13 @@ describe("project host and client", () => {
       });
       await assert.rejects(
         opened.client.callAgentTool("submit_product_overview", {
-          name: "Plant Pal",
           purpose: "Keep plants alive.",
           primaryFeatures: ["Track watering schedules"],
           targetUsers: ["Busy plant owners"],
         }, { name: "Test agent" }),
         /A project import is replacing this project/,
       );
-      assert.notEqual(opened.authority().productOverview.name, "Plant Pal");
+      assert.notEqual(opened.authority().productOverview.purpose, "Plant Pal");
       landWrite();
       await imported;
     } finally {
@@ -794,15 +792,15 @@ describe("project host and client over a link that can fail", () => {
       assert.equal(after.modules[1]!.snapshot, before.modules[1]!.snapshot);
 
       // Switching away writes the outgoing module's snapshot, which is sent.
-      await opened.replica().setName({ name: "Alpha 2" });
+      await opened.replica().setPurpose({ purpose: "Alpha 2" });
       assert.equal(await opened.client.switchModule("module-b"), true);
       const switched = opened.client.getSnapshot().registry!;
       const outgoing = switched.modules.find((entry) => entry.id === "module-a")!;
       assert.equal(
-        (outgoing.snapshot.productOverview as { name: string }).name,
+        (outgoing.snapshot.productOverview as { purpose: string }).purpose,
         "Alpha 2",
       );
-      assert.equal(opened.replica().productOverview.name, "Beta");
+      assert.equal(opened.replica().productOverview.purpose, "Beta");
     } finally {
       link.close();
       opened.dispose();
@@ -824,13 +822,13 @@ describe("project host and client over a link that can fail", () => {
         type: "request",
         id: 1,
         name: "runStoreAction",
-        args: [{ store: earlierImage.event.store!.id, address: [], name: "setName", args: [{ name: "x" }] }],
+        args: [{ store: earlierImage.event.store!.id, address: [], name: "setPurpose", args: [{ purpose: "x" }] }],
       });
       await waitFor("the answer", () => received.some((message) => message.type === "response"));
       const response = received.find((message) => message.type === "response")!;
       assert.ok(response.type === "response" && !response.ok);
       assert.match(response.error.message, /module changed/);
-      assert.notEqual(opened.authority().productOverview.name, "x");
+      assert.notEqual(opened.authority().productOverview.purpose, "x");
     } finally {
       link.close();
       earlier.link.close();

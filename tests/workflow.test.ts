@@ -12,7 +12,6 @@ import {
 } from "../app/ai-harness/workflow";
 import {
   GENERATION_PREREQUISITE_BY_WORKFLOW_STAGE,
-  OVERVIEW_NAME_QUALITY_ID,
   OVERVIEW_PURPOSE_QUALITY_ID,
   Priority,
   Status,
@@ -94,7 +93,6 @@ describe("canonical engineering workflow", () => {
     const { Store: StoreModel } = await import("../app/store/store");
     const store = StoreModel.create({
       productOverview: {
-        name: "Plant Pal",
         purpose: "Help people keep houseplants alive.",
         primaryFeatures: [{ id: "feat-1", content: "Track watering" }],
         targetUsers: [{ id: "user-1", content: "Busy plant owners" }],
@@ -106,7 +104,6 @@ describe("canonical engineering workflow", () => {
       store.resolveOpenStep(WorkflowStage.UserStories),
       WorkflowStage.ProductOverview,
     );
-    store.approve(OVERVIEW_NAME_QUALITY_ID);
     store.approve(OVERVIEW_PURPOSE_QUALITY_ID);
     store.approve("feat-1");
     store.approve("user-1");

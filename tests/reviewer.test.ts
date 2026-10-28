@@ -73,7 +73,6 @@ function scripted(responses: AssistantMessage[]) {
 function storeWithDraftStory(): FlatStore {
   const store = Store.create({
     productOverview: {
-      name: "Plant Pal",
       purpose: "Help people keep houseplants alive.",
       primaryFeatures: [{ id: "feat-1", content: "Track watering" }],
       targetUsers: [{ id: "user-1", content: "Busy plant owners" }],

@@ -64,7 +64,6 @@ import {
   applyTestScenarioProposal,
 } from "store/actions/ai-actions/utilities";
 import {
-  OVERVIEW_NAME_QUALITY_ID,
   OVERVIEW_PURPOSE_QUALITY_ID,
   WorkflowStage,
   StructuralFragment,
@@ -373,16 +372,8 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
     switch (command.stage) {
       case WorkflowStage.ProductOverview: {
         const state = JSON.parse(store.json(WorkflowStage.ProductOverview)) as Record<string, unknown>;
-        // The person names the product: a whole-overview proposal keeps the
-        // name it has, and a rename goes through the Name field.
-        const givenName = store.productOverview.name?.trim() ?? "";
         stageTools.push(agentTool(buildProductOverviewTool(state), async (args) => {
           const proposal = parseProductOverviewProposal(args, state);
-          if (givenName.length > 0 && proposal.name.trim() !== givenName) {
-            throw new UserFacingError(
-              `The product is named "${givenName}", the name the person gave it. Submit that name unchanged; to rename it, the person edits or comments on the Name field.`,
-            );
-          }
           applyProductOverviewProposal(store, proposal);
           return "Product overview applied.";
         }));
@@ -604,13 +595,9 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
   }
 
   if (command.kind === "comment") {
-    if (
-      command.id === OVERVIEW_NAME_QUALITY_ID ||
-      command.id === OVERVIEW_PURPOSE_QUALITY_ID
-    ) {
-      const field = command.id === OVERVIEW_NAME_QUALITY_ID ? "name" : "purpose";
+    if (command.id === OVERVIEW_PURPOSE_QUALITY_ID) {
       stageTools.push(agentTool(
-        buildOverviewFieldRevisionTool(field),
+        buildOverviewFieldRevisionTool(),
         async (args) => {
           const content = args.content;
           if (typeof content !== "string" || content.trim().length === 0) {
@@ -618,11 +605,8 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
           }
           applyAtomically(
             store,
-            (candidate) => {
-              if (field === "name") candidate.setName({ name: content });
-              else candidate.setPurpose({ purpose: content });
-            },
-            `Apply the revised product ${field}.`,
+            (candidate) => candidate.setPurpose({ purpose: content }),
+            "Apply the revised product purpose.",
           );
           return "Overview field applied.";
         },
@@ -695,7 +679,6 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
       );
       const request = {
         project: {
-          name: store.productOverview.name ?? "",
           purpose: store.productOverview.purpose ?? "",
           language: store.implementationProfile.language,
           framework: store.implementationProfile.framework,

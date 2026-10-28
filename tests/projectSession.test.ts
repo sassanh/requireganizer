@@ -34,11 +34,22 @@ import {
   getTimelineSnapshot,
 } from "../app/store/timeline/controller";
 
-function snapshotWith(name: string, purpose = ""): Record<string, unknown> {
-  const store = Store.create({ productOverview: {} });
-  store.setName({ name });
+/** A module snapshot marked by `label`: its one primary feature, which the tests' edits leave alone. */
+function snapshotWith(label: string, purpose = ""): Record<string, unknown> {
+  const store = Store.create({ productOverview: { primaryFeatures: [{ content: label }] } });
   if (purpose.length > 0) store.setPurpose({ purpose });
   return getSnapshot(store) as unknown as Record<string, unknown>;
+}
+
+/** Which module a stored snapshot holds: the label `snapshotWith` gave it. */
+function storedLabelOf(snapshot: Record<string, unknown> | undefined): string | undefined {
+  const overview = snapshot?.productOverview as { primaryFeatures?: { content: string }[] } | undefined;
+  return overview?.primaryFeatures?.[0]?.content;
+}
+
+/** Which module a store shows: the label `snapshotWith` gave it. */
+function labelOf(store: Store): string | undefined {
+  return store.productOverview.primaryFeatures[0]?.content;
 }
 
 function moduleEntry(
@@ -250,7 +261,7 @@ describe("project session loading", () => {
     assert.equal(state.status, "ready");
     assert.deepEqual(state.activeProject, { id: "project-1", name: "Project" });
     assert.equal(state.registry?.activeModuleId, "module-b");
-    assert.equal(state.store.productOverview.name, "Billing");
+    assert.equal(labelOf(state.store), "Billing");
     assert.equal(state.persistenceError, null);
   });
 
@@ -307,7 +318,7 @@ describe("project session loading", () => {
     await adapter.projects.load("project-1");
 
     adapter.failNext("project-write");
-    session.getSnapshot().store.setName({ name: "Fails" });
+    session.getSnapshot().store.setPurpose({ purpose: "Fails" });
     session.flush();
     await waitFor("the failed save", () => session.getSnapshot().persistenceError != null);
 
@@ -323,14 +334,14 @@ describe("project session loading", () => {
     await adapter.projects.load("project-1");
 
     adapter.failNext("project-write");
-    session.getSnapshot().store.setName({ name: "Fails" });
+    session.getSnapshot().store.setPurpose({ purpose: "Fails" });
     session.flush();
     await waitFor(
       "the failed save",
       () => session.getSnapshot().persistenceError != null,
     );
 
-    session.getSnapshot().store.setName({ name: "Succeeds" });
+    session.getSnapshot().store.setPurpose({ purpose: "Succeeds" });
     session.flush();
     await waitFor(
       "the error to clear",
@@ -373,8 +384,8 @@ describe("project session loading", () => {
 
     const state = session.getSnapshot();
     assert.equal(state.activeProject?.id, "project-missing");
-    // The name the person gave the project is the overview's name.
-    assert.equal(state.store.productOverview.name, "Missing");
+    // The project's name stays the project's: the overview starts blank.
+    assert.equal(state.store.productOverview.isEmpty, true);
     assert.equal(state.registry?.activeModuleId, LEGACY_MODULE_ID);
     assert.equal(state.registry?.modulesEnabled, false);
     assert.equal(
@@ -504,7 +515,7 @@ describe("project session loading", () => {
     adapter.hold("timeline-load:project-1::module-b");
 
     assert.equal(session.switchModule("module-b"), true);
-    session.getSnapshot().store.setName({ name: "Beta edited while loading" });
+    session.getSnapshot().store.setPurpose({ purpose: "Beta edited while loading" });
     adapter.release(
       "timeline-load:project-1::module-b",
       new Error("Could not read the module timeline."),
@@ -516,13 +527,13 @@ describe("project session loading", () => {
     assert.equal(session.getSnapshot().status, "ready");
     assert.equal(session.getSnapshot().registry?.activeModuleId, "module-b");
     assert.equal(
-      session.getSnapshot().store.productOverview.name,
+      session.getSnapshot().store.productOverview.purpose,
       "Beta edited while loading",
     );
     session.flush();
     const stored = await storedProject(adapter, "project-1");
     assert.equal(stored.activeModuleId, "module-b");
-    assert.equal(overviewOf(stored).name, "Beta edited while loading");
+    assert.equal(overviewOf(stored).purpose, "Beta edited while loading");
 
     // The timeline stays detached, so module-b's stored history survives.
     session.getSnapshot().store.setPurpose({ purpose: "After the failure" });
@@ -551,7 +562,7 @@ describe("project session saving", () => {
     adapter.projectWrites.length = 0;
 
     const store = session.getSnapshot().store;
-    store.setName({ name: "First name" });
+    store.setPurpose({ purpose: "First purpose" });
     store.setPurpose({ purpose: "Final purpose" });
     assert.equal(adapter.projectWrites.length, 0);
 
@@ -559,16 +570,15 @@ describe("project session saving", () => {
 
     assert.equal(adapter.projectWrites.length, 1);
     const saved = overviewOf(adapter.projectWrites[0].data);
-    assert.equal(saved.name, "First name");
     assert.equal(saved.purpose, "Final purpose");
 
-    store.setName({ name: "Second name" });
+    store.setPurpose({ purpose: "Second purpose" });
     assert.equal(adapter.projectWrites.length, 1);
     session.flush();
     assert.equal(adapter.projectWrites.length, 2);
     assert.equal(
-      overviewOf(adapter.projectWrites[1].data).name,
-      "Second name",
+      overviewOf(adapter.projectWrites[1].data).purpose,
+      "Second purpose",
     );
 
     await delay(PROJECT_SAVE_DEBOUNCE_MS + 100);
@@ -656,9 +666,9 @@ describe("project session saving", () => {
     await session.selectProject("project-1", "Project");
     await adapter.settle(0);
 
-    session.getSnapshot().store.setName({ name: "First write" });
+    session.getSnapshot().store.setPurpose({ purpose: "First write" });
     session.flush();
-    session.getSnapshot().store.setName({ name: "Second write" });
+    session.getSnapshot().store.setPurpose({ purpose: "Second write" });
     session.flush();
     assert.equal(adapter.pending.length, 2);
 
@@ -694,18 +704,18 @@ describe("project session saving", () => {
     await session.selectProject("project-1", "Project");
     adapter.projectWrites.length = 0;
 
-    session.getSnapshot().store.setName({ name: "Alpha changed" });
+    session.getSnapshot().store.setPurpose({ purpose: "Alpha changed" });
     assert.equal(session.switchModule("module-b"), true);
     await waitForModuleTimeline(adapter, "project-1", "module-b");
 
     assert.ok(adapter.projectWrites.length >= 2);
     const flushed = adapter.projectWrites[0].data as ProjectPayload;
     assert.equal(flushed.activeModuleId, "module-a");
-    assert.equal(overviewOf(flushed).name, "Alpha changed");
+    assert.equal(overviewOf(flushed).purpose, "Alpha changed");
 
     const switched = adapter.projectWrites[1].data as ProjectPayload;
     assert.equal(switched.activeModuleId, "module-b");
-    assert.equal(session.getSnapshot().store.productOverview.name, "Beta");
+    assert.equal(labelOf(session.getSnapshot().store), "Beta");
   });
 
   it("flushes the active module before adding a module", async () => {
@@ -724,20 +734,20 @@ describe("project session saving", () => {
     await session.selectProject("project-1", "Project");
     adapter.projectWrites.length = 0;
 
-    session.getSnapshot().store.setName({ name: "Alpha changed" });
+    session.getSnapshot().store.setPurpose({ purpose: "Alpha changed" });
     session.addModule("Gamma");
 
     assert.ok(adapter.projectWrites.length >= 2);
     const flushed = adapter.projectWrites[0].data as ProjectPayload;
     assert.equal(flushed.activeModuleId, "module-a");
-    assert.equal(overviewOf(flushed).name, "Alpha changed");
+    assert.equal(overviewOf(flushed).purpose, "Alpha changed");
     const added = session.getSnapshot().registry;
     assert.equal(added?.modules.length, 2);
     assert.equal(
       added?.modules.find((entry) => entry.id === added.activeModuleId)?.name,
       "Gamma",
     );
-    assert.equal(session.getSnapshot().store.productOverview.name, "Gamma");
+    assert.equal(session.getSnapshot().store.productOverview.isEmpty, true);
   });
 
   it("flushes the outgoing project before importing", async () => {
@@ -756,22 +766,22 @@ describe("project session saving", () => {
     await session.selectProject("project-1", "Project");
     adapter.projectWrites.length = 0;
 
-    session.getSnapshot().store.setName({ name: "Alpha changed" });
+    session.getSnapshot().store.setPurpose({ purpose: "Alpha changed" });
     await session.importProjectFile(importedProject());
 
     const writes = adapter.projectWrites;
     assert.equal(writes.length, 3);
     const flushed = writes[0].data as ProjectPayload;
     assert.equal(flushed.activeModuleId, "module-a");
-    assert.equal(overviewOf(flushed).name, "Alpha changed");
+    assert.equal(overviewOf(flushed).purpose, "Alpha changed");
 
     const importedSave = writes[1].data as ProjectPayload;
     assert.equal(importedSave.activeModuleId, "module-imported");
     assert.equal(importedSave.modules.length, 1);
     assert.equal(importedSave.modules[0].name, "Imported");
     assert.equal(
-      (importedSave.modules[0].snapshot.productOverview as Record<string, unknown>)
-        .name,
+      (importedSave.modules[0].snapshot.productOverview as { primaryFeatures: { content: string }[] })
+        .primaryFeatures[0]?.content,
       "Imported",
     );
 
@@ -781,7 +791,7 @@ describe("project session saving", () => {
       session.getSnapshot().registry?.activeModuleId,
       "module-imported",
     );
-    assert.equal(session.getSnapshot().store.productOverview.name, "Imported");
+    assert.equal(labelOf(session.getSnapshot().store), "Imported");
     session.dispose();
   });
 
@@ -804,7 +814,7 @@ describe("project session saving", () => {
     await session.selectProject("project-1", "Project");
     const oldStore = session.getSnapshot().store;
 
-    oldStore.setName({ name: "Alpha changed" });
+    oldStore.setPurpose({ purpose: "Alpha changed" });
     assert.equal(session.switchModule("module-b"), true);
     await waitForModuleTimeline(adapter, "project-1", "module-b");
 
@@ -812,17 +822,17 @@ describe("project session saving", () => {
     assert.equal(switched.activeModuleId, "module-b");
     const alpha = switched.modules.find((entry) => entry.id === "module-a");
     assert.equal(
-      (alpha?.snapshot.productOverview as Record<string, unknown>).name,
+      (alpha?.snapshot.productOverview as Record<string, unknown>).purpose,
       "Alpha changed",
     );
     const beta = switched.modules.find((entry) => entry.id === "module-b");
     assert.equal(
-      (beta?.snapshot.productOverview as Record<string, unknown>).name,
+      storedLabelOf(beta?.snapshot),
       "Beta",
     );
 
     const savesAfterSwitch = adapter.projectWrites.length;
-    oldStore.setName({ name: "Late old-store change" });
+    oldStore.setPurpose({ purpose: "Late old-store change" });
     session.flush();
     assert.equal(adapter.projectWrites.length, savesAfterSwitch);
 
@@ -832,7 +842,7 @@ describe("project session saving", () => {
       (entry) => entry.id === "module-b",
     );
     assert.equal(
-      (persistedBeta?.snapshot.productOverview as Record<string, unknown>).name,
+      storedLabelOf(persistedBeta?.snapshot),
       "Beta",
     );
     session.dispose();
@@ -857,7 +867,7 @@ describe("project session saving", () => {
     await session.selectProject("project-1", "Project");
 
     const alphaKey = "module-a";
-    session.getSnapshot().store.setName({ name: "Alpha edit" });
+    session.getSnapshot().store.setPurpose({ purpose: "Alpha edit" });
     session.flush();
     await waitFor(
       "the alpha timeline write",
@@ -876,7 +886,7 @@ describe("project session saving", () => {
     assert.equal(session.switchModule("module-b"), true);
     await waitForModuleTimeline(adapter, "project-1", "module-b");
     const betaKey = "module-b";
-    session.getSnapshot().store.setName({ name: "Beta edit" });
+    session.getSnapshot().store.setPurpose({ purpose: "Beta edit" });
     session.flush();
     await waitFor(
       "the beta timeline write",
@@ -1056,13 +1066,13 @@ describe("project session lifecycle", () => {
     adapter.projectWrites.length = 0;
 
     const store = session.getSnapshot().store;
-    store.setName({ name: "Pending write" });
+    store.setPurpose({ purpose: "Pending write" });
     assert.equal(adapter.projectWrites.length, 0);
 
     session.dispose();
     assert.equal(adapter.projectWrites.length, 1);
     assert.equal(
-      overviewOf(adapter.projectWrites[0].data).name,
+      overviewOf(adapter.projectWrites[0].data).purpose,
       "Pending write",
     );
 
@@ -1074,16 +1084,16 @@ describe("project session lifecycle", () => {
     session.dispose();
     assert.equal(adapter.projectWrites.length, 1);
 
-    store.setName({ name: "After dispose" });
+    store.setPurpose({ purpose: "After dispose" });
     await delay(PROJECT_SAVE_DEBOUNCE_MS + 100);
     assert.equal(adapter.projectWrites.length, 1);
 
     session.start();
-    store.setName({ name: "After restart" });
+    store.setPurpose({ purpose: "After restart" });
     session.flush();
     assert.equal(adapter.projectWrites.length, 2);
     assert.equal(
-      overviewOf(adapter.projectWrites[1].data).name,
+      overviewOf(adapter.projectWrites[1].data).purpose,
       "After restart",
     );
     session.dispose();
@@ -1112,7 +1122,7 @@ describe("project session lifecycle", () => {
     await first;
     await waitForStatus(session, "ready");
     assert.equal(session.getSnapshot().activeProject?.id, "project-1");
-    assert.equal(session.getSnapshot().store.productOverview.name, "Alpha");
+    assert.equal(labelOf(session.getSnapshot().store), "Alpha");
   });
 
   it("restarts a module load after dispose and attaches its history", async () => {
@@ -1273,6 +1283,47 @@ describe("project session module registry", () => {
     session.dispose();
   });
 
+  it("renames a module under the same rules as naming one, keeping its work", async () => {
+    const adapter = new ControllablePersistenceAdapter();
+    await seedProject(
+      adapter,
+      "project-1",
+      projectPayload(
+        projectRegistry([moduleEntry("module-a", "Alpha"), moduleEntry("module-b", "Beta")], "module-a"),
+      ),
+    );
+    const session = new ProjectSession(adapter);
+    await session.selectProject("project-1", "Project");
+
+    assert.throws(() => session.renameModule("module-a", "  "), /cannot be empty/);
+    assert.throws(() => session.renameModule("module-a", "beta"), /already exists/);
+    session.renameModule("module-a", "alpha");
+    session.renameModule("module-b", "Billing");
+
+    assert.deepEqual(session.getSnapshot().registry?.modules.map(({ name }) => name), ["alpha", "Billing"]);
+    assert.equal(labelOf(session.getSnapshot().store), "Alpha");
+    session.flush();
+    const stored = await storedProject(adapter, "project-1");
+    assert.deepEqual(stored.modules.map(({ name }) => name), ["alpha", "Billing"]);
+    session.dispose();
+  });
+
+  it("renames the project in the projects index, refusing a name another project has", async () => {
+    const adapter = new ControllablePersistenceAdapter();
+    await seedProject(adapter, "project-1", projectPayload(projectRegistry([moduleEntry("module-a", "Alpha")], "module-a")));
+    await adapter.inner.projects.saveIndex([projectMeta("project-1", "Project"), projectMeta("project-2", "Garden")]);
+    const session = new ProjectSession(adapter);
+    await session.selectProject("project-1", "Project");
+
+    await assert.rejects(session.renameProject(" "), /Name the project\./);
+    await assert.rejects(session.renameProject("garden"), /A project named “garden” already exists\./);
+    await session.renameProject("Plant Pal");
+
+    assert.deepEqual(session.getSnapshot().activeProject, { id: "project-1", name: "Plant Pal" });
+    assert.deepEqual((await adapter.inner.projects.list()).map(({ name }) => name), ["Plant Pal", "Garden"]);
+    session.dispose();
+  });
+
   it("archives only a visible, non-active module", async () => {
     const adapter = new ControllablePersistenceAdapter();
     await seedProject(
@@ -1427,7 +1478,7 @@ describe("project session async loading races", () => {
 
     assert.equal(session.getSnapshot().status, "ready");
     assert.equal(session.getSnapshot().activeProject?.id, "project-b");
-    assert.equal(session.getSnapshot().store.productOverview.name, "Beta project");
+    assert.equal(labelOf(session.getSnapshot().store), "Beta project");
     assert.equal(session.getSnapshot().registry?.activeModuleId, "module-b");
     assert.equal(session.getSnapshot().persistenceError, null);
 
@@ -1435,7 +1486,7 @@ describe("project session async loading races", () => {
     await first;
 
     assert.equal(session.getSnapshot().activeProject?.id, "project-b");
-    assert.equal(session.getSnapshot().store.productOverview.name, "Beta project");
+    assert.equal(labelOf(session.getSnapshot().store), "Beta project");
     assert.equal(session.getSnapshot().registry?.activeModuleId, "module-b");
     assert.equal(session.getSnapshot().persistenceError, null);
     assert.equal(
@@ -1482,7 +1533,7 @@ describe("project session async loading races", () => {
     await first;
 
     assert.equal(session.getSnapshot().activeProject?.id, "project-b");
-    assert.equal(session.getSnapshot().store.productOverview.name, "Beta");
+    assert.equal(labelOf(session.getSnapshot().store), "Beta");
   });
 
   it("drops a project load that finishes after backToProjects", async () => {
@@ -1561,7 +1612,7 @@ describe("project session async loading races", () => {
     assert.equal(session.switchModule("module-b"), true);
     assert.equal(session.getSnapshot().status, "ready");
     assert.equal(session.getSnapshot().registry?.activeModuleId, "module-b");
-    assert.equal(session.getSnapshot().store.productOverview.name, "Beta");
+    assert.equal(labelOf(session.getSnapshot().store), "Beta");
 
     session.getSnapshot().store.setPurpose({ purpose: "Before load" });
     session.flush();
@@ -1640,7 +1691,7 @@ describe("project session async loading races", () => {
       () => timelineWritesFor(adapter, "project-1", "module-c").length > 0,
     );
     assert.equal(session.getSnapshot().registry?.activeModuleId, "module-c");
-    assert.equal(session.getSnapshot().store.productOverview.name, "Gamma");
+    assert.equal(labelOf(session.getSnapshot().store), "Gamma");
   });
 
   it("uses the last module switch when a stale load resolves last", async () => {
@@ -1671,7 +1722,7 @@ describe("project session async loading races", () => {
     adapter.release("timeline-load:project-1::module-b");
     await waitForModuleTimeline(adapter, "project-1", "module-b");
     assert.equal(session.getSnapshot().registry?.activeModuleId, "module-c");
-    assert.equal(session.getSnapshot().store.productOverview.name, "Gamma");
+    assert.equal(labelOf(session.getSnapshot().store), "Gamma");
   });
 
   it("drops a stale module load from another project", async () => {
@@ -1852,18 +1903,18 @@ describe("project session import failures and races", () => {
     assert.equal(session.getSnapshot().status, "ready");
     assert.equal(session.getSnapshot().activeProject?.id, "project-1");
     assert.equal(session.getSnapshot().registry?.activeModuleId, "module-a");
-    assert.equal(session.getSnapshot().store.productOverview.name, "Alpha");
+    assert.equal(labelOf(session.getSnapshot().store), "Alpha");
     assert.deepEqual(await adapter.inner.projects.load("project-1"), storedBefore);
 
     const writesBefore = adapter.projectWrites.length;
-    session.getSnapshot().store.setName({ name: "After failed import" });
+    session.getSnapshot().store.setPurpose({ purpose: "After failed import" });
     session.flush();
     await waitFor(
       "the autosave after a failed import",
       () => adapter.projectWrites.length > writesBefore,
     );
     assert.equal(
-      overviewOf(adapter.projectWrites.at(-1)!.data).name,
+      overviewOf(adapter.projectWrites.at(-1)!.data).purpose,
       "After failed import",
     );
 
@@ -1915,11 +1966,11 @@ describe("project session import failures and races", () => {
     // The page stays mounted on the current module while the write runs.
     assert.equal(session.getSnapshot().status, "ready");
     assert.equal(session.getSnapshot().registry?.activeModuleId, "module-a");
-    assert.equal(session.getSnapshot().store.productOverview.name, "Alpha");
+    assert.equal(labelOf(session.getSnapshot().store), "Alpha");
     assert.equal(session.switchModule("module-b"), false);
     // Autosave is paused, so the old state cannot overwrite the import.
     const writesBefore = adapter.projectWrites.length;
-    session.getSnapshot().store.setName({ name: "Edited during import" });
+    session.getSnapshot().store.setPurpose({ purpose: "Edited during import" });
     session.flush();
     assert.equal(adapter.projectWrites.length, writesBefore);
 
@@ -1927,7 +1978,7 @@ describe("project session import failures and races", () => {
     await importing;
     assert.equal(session.getSnapshot().status, "ready");
     assert.equal(session.getSnapshot().registry?.activeModuleId, "module-imported");
-    assert.equal(session.getSnapshot().store.productOverview.name, "Imported");
+    assert.equal(labelOf(session.getSnapshot().store), "Imported");
   });
 
   it("drops a stale import write success after another project opens", async () => {
@@ -1965,7 +2016,7 @@ describe("project session import failures and races", () => {
 
     assert.equal(session.getSnapshot().activeProject?.id, "project-2");
     assert.equal(session.getSnapshot().registry?.activeModuleId, "module-b");
-    assert.equal(session.getSnapshot().store.productOverview.name, "Beta");
+    assert.equal(labelOf(session.getSnapshot().store), "Beta");
   });
 
   it("drops a stale import write failure after another project opens", async () => {
@@ -2005,7 +2056,7 @@ describe("project session import failures and races", () => {
     await assert.rejects(importing, /Could not save the project/);
 
     assert.equal(session.getSnapshot().activeProject?.id, "project-2");
-    assert.equal(session.getSnapshot().store.productOverview.name, "Beta");
+    assert.equal(labelOf(session.getSnapshot().store), "Beta");
     assert.equal(session.getSnapshot().persistenceError, null);
   });
 
@@ -2052,7 +2103,7 @@ describe("project session import failures and races", () => {
 
     assert.equal(session.getSnapshot().activeProject?.id, "project-2");
     assert.equal(session.getSnapshot().registry?.activeModuleId, "module-b");
-    assert.equal(session.getSnapshot().store.productOverview.name, "Beta");
+    assert.equal(labelOf(session.getSnapshot().store), "Beta");
   });
 });
 
@@ -2253,13 +2304,13 @@ describe("project session stored history and reloads", () => {
     const session = new ProjectSession(adapter);
     await session.selectProject("project-1", "Project");
     const before = session.getSnapshot().store;
-    before.setName({ name: "Alpha before reload" });
+    before.setPurpose({ purpose: "Alpha before reload" });
 
     session.reloadStore();
     const reloaded = session.getSnapshot().store;
     assert.notEqual(reloaded, before);
     assert.equal(session.getSnapshot().status, "ready");
-    assert.equal(reloaded.productOverview.name, "Alpha before reload");
+    assert.equal(reloaded.productOverview.purpose, "Alpha before reload");
     await waitForModuleTimeline(adapter, "project-1", "module-a", 2);
 
     assert.ok(timelineContains(getTimelineSnapshot(), "Stored alpha history"));
@@ -2676,9 +2727,9 @@ describe("project session write results out of order", () => {
     await session.selectProject("project-1", "Project");
     await adapter.settle(0);
 
-    session.getSnapshot().store.setName({ name: "First write" });
+    session.getSnapshot().store.setPurpose({ purpose: "First write" });
     session.flush();
-    session.getSnapshot().store.setName({ name: "Second write" });
+    session.getSnapshot().store.setPurpose({ purpose: "Second write" });
     session.flush();
     assert.equal(adapter.pending.length, 2);
 
@@ -2735,7 +2786,7 @@ describe("project session final review cases", () => {
     );
 
     assert.equal(session.getSnapshot().status, "ready");
-    assert.equal(session.getSnapshot().store.productOverview.name, "Imported");
+    assert.equal(labelOf(session.getSnapshot().store), "Imported");
     session.dispose();
   });
 
@@ -2764,13 +2815,13 @@ describe("project session final review cases", () => {
     adapter.failNext("project-write");
     const importing = session.importProjectFile(importedProject());
 
-    session.getSnapshot().store.setName({ name: "Edited during import" });
+    session.getSnapshot().store.setPurpose({ purpose: "Edited during import" });
     adapter.release("project-save:project-1");
     await assert.rejects(importing, /Could not save the project/);
     await adapter.projects.load("project-1");
 
     assert.equal(
-      overviewOf(await storedProject(adapter, "project-1")).name,
+      overviewOf(await storedProject(adapter, "project-1")).purpose,
       "Edited during import",
     );
     session.dispose();
@@ -2859,7 +2910,7 @@ describe("project session persistence messages", () => {
     await adapter.projects.load("project-1");
     await delay(0);
     adapter.failNext("project-write");
-    session.getSnapshot().store.setName({ name: "Fails" });
+    session.getSnapshot().store.setPurpose({ purpose: "Fails" });
     session.flush();
     await waitFor("the failed save", () => /^Changes could not be saved/.test(session.getSnapshot().persistenceError ?? ""));
     assert.match(session.getSnapshot().persistenceError ?? "", /AI provider activity could not be saved/);

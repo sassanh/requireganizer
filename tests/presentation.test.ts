@@ -16,11 +16,11 @@ describe("presentation applyOp", () => {
 
   it("sets a nested scalar", () => {
     const tree = applyOpToTree(
-      { productOverview: { name: "", purpose: "" } },
-      { kind: "update", subject: "productOverview/name", value: "Acme" },
+      { productOverview: { purpose: "" } },
+      { kind: "update", subject: "productOverview/purpose", value: "Acme" },
     );
     assert.equal(
-      (tree.productOverview as { name: string }).name,
+      (tree.productOverview as { purpose: string }).purpose,
       "Acme",
     );
   });
@@ -75,7 +75,7 @@ describe("presentation applyOp", () => {
 
 describe("presentation steps", () => {
   it("maps subjects to factory steps", () => {
-    assert.equal(stepForSubject("productOverview/name"), WorkflowStage.ProductOverview);
+    assert.equal(stepForSubject("productOverview/purpose"), WorkflowStage.ProductOverview);
     assert.equal(stepForSubject("userStories/us-1"), WorkflowStage.UserStories);
     assert.equal(
       stepForSubject("testScenarios/sc-1/testCases/tc-1"),

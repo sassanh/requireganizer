@@ -11,7 +11,6 @@ import {
 export type ProductOverviewPatchItem = string | { id?: string; content: string };
 
 export interface ProductOverviewProposal {
-  name: string;
   purpose: string;
   primaryFeatures: ProductOverviewPatchItem[];
   targetUsers: ProductOverviewPatchItem[];
@@ -47,7 +46,6 @@ export interface FragmentRevisionProposal {
 }
 
 export interface TestCodeProjectContext {
-  name: string;
   purpose: string;
   language: string;
   framework: string;

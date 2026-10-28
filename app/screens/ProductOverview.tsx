@@ -9,44 +9,10 @@ import { QualityIssues } from "components/QualityState";
 import { StagedTextField } from "components/TextChange";
 import { useShownStore } from "presentation";
 import {
-  OVERVIEW_NAME_QUALITY_ID,
   OVERVIEW_PURPOSE_QUALITY_ID,
   StructuralFragment,
   useStore,
 } from "store";
-
-const NameField = observer(function NameField() {
-  const store = useStore();
-  const shown = useShownStore();
-  const nameElementId = artifactElementId("productOverview-name");
-  return (
-    <Box>
-      <ApprovalFrame
-        elementId={nameElementId}
-        approval={shown.approvalOf(OVERVIEW_NAME_QUALITY_ID)}
-        getCopyText={() =>
-          formatFieldCopy("Name", shown.productOverview.name ?? "")
-        }
-      >
-        <StagedTextField
-          committed={shown.productOverview.name || ""}
-          lastSigned={shown.signedTextOf(OVERVIEW_NAME_QUALITY_ID)}
-          elementId={artifactElementId("productOverview-name")}
-          fullWidth
-          label="Name"
-          slotProps={{ input: { readOnly: true } }}
-        />
-        <Stack sx={{ position: "absolute", right: 8, bottom: 8 }}>
-          <ApprovalMark id={OVERVIEW_NAME_QUALITY_ID} />
-        </Stack>
-      </ApprovalFrame>
-      <QualityIssues
-        issues={store.mechanicalIssuesForItem(OVERVIEW_NAME_QUALITY_ID).map(({ message }) => message)}
-        inset={false}
-      />
-    </Box>
-  );
-});
 
 const PurposeField = observer(function PurposeField() {
   const store = useStore();
@@ -108,10 +74,7 @@ const ProductOverview = observer(function ProductOverview() {
   return (
     <Stack sx={{ gap: 2 }}>
       <SeedBlock />
-      <Box sx={{ display: "grid", gap: 2 }}>
-        <NameField />
-        <PurposeField />
-      </Box>
+      <PurposeField />
       <Divider />
       <StructuralFragments
         fragments={shown.productOverview.primaryFeatures}

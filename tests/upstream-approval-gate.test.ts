@@ -15,7 +15,6 @@ type TestStore = ReturnType<typeof StoreModel.create>;
 function storeWithOverview(): TestStore {
   return StoreModel.create({
     productOverview: {
-      name: "Plant Pal",
       purpose: "Help people keep houseplants alive.",
       primaryFeatures: [{ id: "feat-1", content: "Track watering" }],
       targetUsers: [{ id: "user-1", content: "Busy plant owners" }],
@@ -76,7 +75,7 @@ describe("frontier gate", () => {
     approveStage(store, WorkflowStage.UserStories);
     generateRequirements(store);
     // Reopen the overview: User Stories and Requirements fall behind the frontier.
-    store.setName({ name: "Plant Pal Pro" });
+    store.setPurpose({ purpose: "Plant Pal Pro" });
     assert.equal(store.frontier, WorkflowStage.ProductOverview);
     assert.equal(store.getStepStatus(WorkflowStage.Requirements), Status.Waiting);
     assert.throws(

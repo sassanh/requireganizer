@@ -14,7 +14,6 @@ import { waitsForPerson } from "../app/store/threads";
 
 
 const OVERVIEW = {
-  name: "Plant Pal",
   purpose: "Help people keep houseplants alive.",
   primaryFeatures: ["Track watering schedules"],
   targetUsers: ["Busy plant owners"],

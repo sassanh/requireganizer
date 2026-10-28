@@ -14,6 +14,7 @@ import {
   type ProjectPayload,
   visibleModules,
 } from "lib/moduleSchema";
+import { hasProjectName } from "lib/projectStorage";
 import type { OutsideChange, OutsideChanges, PersistenceAdapter } from "persistence";
 import {
   createModuleStore,
@@ -85,9 +86,9 @@ export type ProjectSessionSnapshot =
       store: Store;
     };
 
-/** The store of work not started yet: its overview carries the name the person gave it. */
-function namedBlankStore(name: string): Store {
-  return Store.create({ productOverview: { name } });
+/** The store of work not started yet. */
+function blankStore(): Store {
+  return Store.create({ productOverview: {} });
 }
 
 interface ProjectIdentity {
@@ -612,7 +613,7 @@ export class ProjectSession {
     name: string,
   ): OpenedProject {
     if (data == null) {
-      return { created: namedBlankStore(name), nextRegistry: createEmptyRegistry(), moduleId: LEGACY_MODULE_ID };
+      return { created: blankStore(), nextRegistry: createEmptyRegistry(), moduleId: LEGACY_MODULE_ID };
     }
     try {
       const registry = parseProjectPayload(data);
@@ -919,7 +920,7 @@ export class ProjectSession {
     assertModuleNameAvailable(trimmed, state.registry.modules);
     this.beginOperation();
     this.flushPendingWrites();
-    const created = namedBlankStore(trimmed);
+    const created = blankStore();
     const entry: ModuleEntry = {
       id: crypto.randomUUID(),
       name: trimmed,
@@ -939,6 +940,39 @@ export class ProjectSession {
       },
       { status: "attached", loaded: null },
     );
+  };
+
+  /** Throws when the name is empty, invalid, or another module has it. */
+  renameModule = (id: string, name: string): void => {
+    const current = this.readyState()?.registry;
+    if (current == null || !current.modulesEnabled) return;
+    if (!current.modules.some((entry) => entry.id === id)) return;
+    const trimmed = normalizeModuleName(name);
+    assertModuleNameAvailable(trimmed, current.modules.filter((entry) => entry.id !== id));
+    this.commitRegistry({
+      ...current,
+      modules: current.modules.map((entry) => (entry.id === id ? { ...entry, name: trimmed } : entry)),
+    });
+  };
+
+  /** Rejects when the name is empty or another project has it. */
+  renameProject = async (name: string): Promise<void> => {
+    const state = this.readyState();
+    if (state == null) return;
+    const projectId = state.project.id;
+    const trimmed = name.trim();
+    if (trimmed.length === 0) throw new UserFacingError("Name the project.");
+    const projects = await this.persistence.projects.list();
+    if (hasProjectName(projects.filter(({ id }) => id !== projectId), trimmed)) {
+      throw new UserFacingError(`A project named “${trimmed}” already exists.`);
+    }
+    await this.persistence.projects.saveIndex(
+      projects.map((project) => (project.id === projectId ? { ...project, name: trimmed } : project)),
+    );
+    const current = this.readyState();
+    if (current == null || current.project.id !== projectId) return;
+    this.state = { ...current, project: { ...current.project, name: trimmed } };
+    this.publish();
   };
 
   archiveModule = (id: string): void => {

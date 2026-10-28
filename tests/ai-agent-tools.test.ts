@@ -53,14 +53,13 @@ describe("agent result tools", () => {
     const submit = resultTool(store, "submit_product_overview");
 
     const response = await submit.execute!("call-1", {
-      name: "Plant Pal",
       purpose: "Help people keep houseplants alive.",
       primaryFeatures: ["Track watering schedules"],
       targetUsers: ["Busy plant owners"],
     } as never);
 
     assert.match((response.content[0] as { text: string }).text, /applied/);
-    assert.equal(store.productOverview.name, "Plant Pal");
+    assert.equal(store.productOverview.purpose, "Help people keep houseplants alive.");
     assert.deepEqual(
       store.productOverview.primaryFeatures.map(({ content }) => content),
       ["Track watering schedules"],
@@ -74,20 +73,18 @@ describe("agent result tools", () => {
     await assert.rejects(
       () =>
         submit.execute!("call-1", {
-          name: "Plant Pal",
           purpose: "Help people keep houseplants alive.",
           primaryFeatures: [],
           targetUsers: ["Busy plant owners"],
         } as never),
       (error: unknown) => error instanceof Error && error.message.length > 0,
     );
-    assert.equal(store.productOverview.name, null);
+    assert.equal(store.productOverview.purpose, null);
   });
 
   it("applies fragment revisions through the comment flow", async () => {
     const store = emptyStore();
     store.initialize({
-      name: "Calc",
       purpose: "Compute sums.",
       primaryFeatures: ["Add numbers"],
       targetUsers: [],
@@ -117,7 +114,6 @@ describe("agent result tools", () => {
   it("drops an artifact through the comment flow", async () => {
     const store = emptyStore();
     store.initialize({
-      name: "Calc",
       purpose: "Compute sums.",
       primaryFeatures: ["Add numbers", "Subtract numbers"],
       targetUsers: [],

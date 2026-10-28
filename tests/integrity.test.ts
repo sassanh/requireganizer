@@ -7,7 +7,6 @@ import {
   applyProductOverviewProposal,
 } from "../app/store/actions/ai-actions/utilities";
 import {
-  OVERVIEW_NAME_QUALITY_ID,
   OVERVIEW_PURPOSE_QUALITY_ID,
   Priority,
   Status,
@@ -24,7 +23,6 @@ import type { FlatStore } from "../app/store/store";
 function storeWithOverview(): FlatStore {
   return Store.create({
     productOverview: {
-      name: "Plant Pal",
       purpose: "Help people keep houseplants alive.",
       primaryFeatures: [
         { id: "feat-1", content: "Track watering" },
@@ -35,7 +33,6 @@ function storeWithOverview(): FlatStore {
 }
 
 function approveOverview(store: FlatStore) {
-  store.approve(OVERVIEW_NAME_QUALITY_ID);
   store.approve(OVERVIEW_PURPOSE_QUALITY_ID);
   store.approve("feat-1");
   store.approve("user-1");
@@ -69,7 +66,6 @@ describe("mechanical coverage", () => {
   it("flags a feature with no story once stories exist", () => {
     const issues = collectMechanicalIssues({
       productOverview: {
-        name: "Pal",
         purpose: "Help.",
         primaryFeatures: [
           {
@@ -162,10 +158,9 @@ describe("standing approval and coverage on the store", () => {
 
   it("returns name and purpose to draft when they are rewritten", () => {
     const store = storeWithOverview();
-    store.approve(OVERVIEW_NAME_QUALITY_ID);
     store.approve(OVERVIEW_PURPOSE_QUALITY_ID);
-    store.setName({ name: "Garden Pal" });
-    assert.equal(store.approvalOf(OVERVIEW_NAME_QUALITY_ID), "draft");
+    store.setPurpose({ purpose: "Garden Pal" });
+    assert.equal(store.approvalOf(OVERVIEW_PURPOSE_QUALITY_ID), "draft");
     store.setPurpose({ purpose: "Help gardeners too." });
     assert.equal(store.approvalOf(OVERVIEW_PURPOSE_QUALITY_ID), "draft");
   });
@@ -222,7 +217,6 @@ describe("standing approval and coverage on the store", () => {
     generate(store, StructuralFragment.UserStory, [STORY]);
     approveStage(store, WorkflowStage.UserStories);
     applyProductOverviewProposal(store, {
-      name: "Plant Pal",
       purpose: "Help people keep houseplants alive.",
       primaryFeatures: [{ id: "feat-1", content: "Track watering and light" }],
       targetUsers: ["user-1"],
@@ -244,7 +238,6 @@ describe("generate apply", () => {
     const submit = tools.find(({ name }) => name === "submit_product_overview");
     assert.ok(submit != null);
     await submit.execute!("call-1", {
-      name: "Plant Pal",
       purpose: "Help people keep houseplants alive.",
       primaryFeatures: ["Track watering schedules"],
       targetUsers: ["Busy plant owners"],
@@ -253,7 +246,7 @@ describe("generate apply", () => {
       store.getStepStatus(WorkflowStage.ProductOverview),
       Status.NeedsApproval,
     );
-    assert.equal(store.approvalOf(OVERVIEW_NAME_QUALITY_ID), "draft");
+    assert.equal(store.approvalOf(OVERVIEW_PURPOSE_QUALITY_ID), "draft");
     assert.equal(store.stageIsComplete(WorkflowStage.ProductOverview), false);
     assert.equal(store.canGenerateStep(WorkflowStage.UserStories), false);
   });

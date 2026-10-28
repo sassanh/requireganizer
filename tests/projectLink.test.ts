@@ -44,7 +44,6 @@ function delay(milliseconds: number): Promise<void> {
 }
 
 const OVERVIEW = {
-  name: "Plant Pal",
   purpose: "Help people keep houseplants alive.",
   primaryFeatures: ["Track watering schedules"],
   targetUsers: ["Busy plant owners"],
@@ -88,7 +87,7 @@ describe("one host per project", () => {
         await two.client.callAgentTool("submit_product_overview", OVERVIEW, { name: "Test agent" }),
         /^Applied to Product Overview\./,
       );
-      assert.equal(one.client.getSnapshot().store.productOverview.name, "Plant Pal");
+      assert.equal(one.client.getSnapshot().store.productOverview.purpose, "Help people keep houseplants alive.");
       const state = JSON.parse(await two.client.callAgentTool("get_workflow_state", {}, { name: "Test agent" })) as {
         frontier: string;
       };
@@ -101,7 +100,7 @@ describe("one host per project", () => {
       for (let attempt = 0; attempt < 100 && !takenOver(); attempt += 1) await delay(50);
       assert.deepEqual(serving, ["first", "second"]);
       assert.equal(second.url(), url);
-      assert.equal(two.client.getSnapshot().store.productOverview.name, "Plant Pal");
+      assert.equal(two.client.getSnapshot().store.productOverview.purpose, "Help people keep houseplants alive.");
       assert.ok((await two.client.listAgentTools()).length > 0);
     } finally {
       one.disconnect();

@@ -8,7 +8,6 @@ import { Priority, StructuralFragment, WorkflowStage } from "../app/store/consta
 import { Store } from "../app/store/store";
 
 const OVERVIEW = {
-  name: "Plant Pal",
   purpose: "Help people keep houseplants alive.",
   primaryFeatures: ["Track watering schedules"],
   targetUsers: ["Busy plant owners"],
@@ -58,20 +57,22 @@ describe("outside agent tools", () => {
     assert.ok(submit.description.includes(formatQualityContract(qualityContractForStage(WorkflowStage.ProductOverview)!)));
   });
 
-  it("keeps the product name the person gave", async () => {
-    const store = Store.create({ productOverview: { name: "Plant Pal" } });
+  it("leaves naming to the person: the overview takes no name", async () => {
+    const store = Store.create({ productOverview: {} });
+    const submit = agentToolDescriptions(store).find(({ name }) => name === "submit_product_overview")!;
+    assert.equal((submit.inputSchema.properties as Record<string, unknown>).name, undefined);
     await assert.rejects(
-      callAgentTool(store, "submit_product_overview", { ...OVERVIEW, name: "Leaf Buddy" }),
-      /The product is named "Plant Pal", the name the person gave it\./,
+      callAgentTool(store, "submit_product_overview", { ...OVERVIEW, name: "Plant Pal" }),
+      /unsupported field\(s\): name/,
     );
-    assert.match(await callAgentTool(store, "submit_product_overview", OVERVIEW), /^Applied to Product Overview\./);
+    assert.equal(store.productOverview.isEmpty, true);
   });
 
   it("applies a valid submission and says the person approves it", async () => {
     const store = Store.create({ productOverview: {} });
     const text = await callAgentTool(store, "submit_product_overview", OVERVIEW);
     assert.match(text, /^Applied to Product Overview\. The person approves it/);
-    assert.equal(store.productOverview.name, "Plant Pal");
+    assert.equal(store.productOverview.purpose, "Help people keep houseplants alive.");
     assert.equal(store.getStepStatus(WorkflowStage.ProductOverview), "needs-approval");
   });
 
@@ -82,7 +83,7 @@ describe("outside agent tools", () => {
       () => callAgentTool(store, "submit_product_overview", { ...OVERVIEW, primaryFeatures: [] }),
       /primaryFeatures/,
     );
-    assert.equal(store.productOverview.name, null);
+    assert.equal(store.productOverview.purpose, null);
     assert.equal(store.validationErrors, "The person's own error.");
   });
 
@@ -94,7 +95,7 @@ describe("outside agent tools", () => {
       () => callAgentTool(store, "submit_product_overview", OVERVIEW),
       /^UserFacingError: Requireganizer is busy \(generate user stories\)\. Try again when it finishes\.$/,
     );
-    assert.equal(store.productOverview.name, null);
+    assert.equal(store.productOverview.purpose, null);
   });
 
   it("names what to do for a tool that is not available", async () => {

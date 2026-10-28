@@ -43,7 +43,6 @@ describe("change focus navigation", () => {
     attachPresentation(shown, real, timelineChangeSource);
 
     real.setProductOverview({
-      name: "Acme",
       purpose: "Ship",
       primaryFeatures: [],
       targetUsers: [],
@@ -51,7 +50,7 @@ describe("change focus navigation", () => {
 
     assert.deepEqual(requested, [WorkflowStage.ProductOverview]);
     assert.equal(
-      shown.productOverview.name ?? "",
+      shown.productOverview.purpose ?? "",
       "",
       "values wait until the navigate frame completes",
     );
@@ -59,6 +58,6 @@ describe("change focus navigation", () => {
     step = WorkflowStage.ProductOverview;
     noteVisibleStep(WorkflowStage.ProductOverview);
 
-    assert.equal(shown.productOverview.name ?? "", "Acme");
+    assert.equal(shown.productOverview.purpose ?? "", "Ship");
   });
 });

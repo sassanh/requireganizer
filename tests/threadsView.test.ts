@@ -18,7 +18,6 @@ describe("change request thread state", () => {
 
     const store = Store.create({
       productOverview: {
-        name: "Plant Pal",
         purpose: "Help people keep houseplants alive.",
         primaryFeatures: [{ id: "feature-1", content: "Track watering" }],
         targetUsers: [{ id: "user-1", content: "Busy plant owners" }],

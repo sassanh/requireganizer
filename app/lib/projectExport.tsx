@@ -79,20 +79,22 @@ export function collectCodeFiles(
 }
 
 export async function exportProjectPdf(
+  productName: string,
   modules: readonly ExportModule[],
 ): Promise<void> {
-  const blob = await pdf(<PDFDocument modules={modules} />).toBlob();
+  const blob = await pdf(<PDFDocument productName={productName} modules={modules} />).toBlob();
   saveAs(blob, "specification.pdf");
 }
 
-export function exportProjectText(modules: readonly ExportModule[]): void {
-  const content = modules
-    .map((module) =>
+export function exportProjectText(productName: string, modules: readonly ExportModule[]): void {
+  const content = [
+    productName,
+    ...modules.map((module) =>
       module.name == null
         ? specificationText(module.store)
         : `=== ${module.name} ===\n${specificationText(module.store)}`,
-    )
-    .join("\n");
+    ),
+  ].join("\n");
   saveAs(new Blob([content], { type: "text/plain;charset=utf-8" }), "specification.txt");
 }
 
@@ -183,10 +185,10 @@ function createTar(files: ExportFile[]): Uint8Array<ArrayBuffer> {
  */
 export async function exportCodeArchive(
     format: CodeArchiveFormat,
-    input: { activeStore: Store; modules: readonly ExportModule[] },
+    input: { projectName: string; modules: readonly ExportModule[] },
     reportError: (message: string) => void,
 ): Promise<void> {
-    const { activeStore, modules } = input;
+    const { projectName, modules } = input;
     const files = collectCodeFiles(modules);
 
     if (files.length === 0) {
@@ -194,9 +196,8 @@ export async function exportCodeArchive(
         return;
     }
 
-    const projectName =
-        activeStore.productOverview.name?.replace(/[^a-z0-9]/gi, "_").toLowerCase() ||
-        "project_scaffold";
+    const archiveName =
+        projectName.replace(/[^a-z0-9]/gi, "_").toLowerCase() || "project_scaffold";
 
     try {
         if (format === "zip") {
@@ -205,7 +206,7 @@ export async function exportCodeArchive(
                 zip.file(file.path, file.content);
             }
             const blob = await zip.generateAsync({ type: "blob" });
-            saveAs(blob, `${projectName}.zip`);
+            saveAs(blob, `${archiveName}.zip`);
         } else if (format === "tar.gz") {
             const tar = createTar(files);
             const cs = new CompressionStream("gzip");
@@ -214,14 +215,14 @@ export async function exportCodeArchive(
             writer.close();
             const res = new Response(cs.readable);
             const blob = await res.blob();
-            saveAs(blob, `${projectName}.tar.gz`);
+            saveAs(blob, `${archiveName}.tar.gz`);
         } else if (format === "tar.bz2") {
             const tar = createTar(files);
             const compressjs = await import("compressjs");
             const bzip2 = compressjs.default?.Bzip2 || compressjs.Bzip2;
             const compressed = bzip2.compressFile(tar);
             const blob = new Blob([new Uint8Array(compressed)], { type: "application/x-bzip2" });
-            saveAs(blob, `${projectName}.tar.bz2`);
+            saveAs(blob, `${archiveName}.tar.bz2`);
         }
     } catch (err) {
         console.error("Export failed:", err);

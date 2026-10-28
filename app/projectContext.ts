@@ -50,6 +50,10 @@ export interface ProjectContextValue {
   /** False when the id names no openable module (unknown or archived). */
   switchModule: (id: string) => Promise<boolean>;
   archiveModule: (id: string) => Promise<void>;
+  /** Rejects when the name is empty, invalid, or taken. */
+  renameModule: (id: string, name: string) => Promise<void>;
+  /** Rejects when the name is empty or taken. */
+  renameProject: (name: string) => Promise<void>;
   recordOpenStep: (step: WorkflowStage) => Promise<void>;
   importProjectFile: (data: unknown) => Promise<void>;
   exportProject: (format: ProjectExportFormat) => Promise<void>;

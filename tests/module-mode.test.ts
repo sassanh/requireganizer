@@ -7,7 +7,6 @@ import { hasGeneratedScaffoldIn, Store } from "../app/store/store";
 function makeStore(primaryFeatureId: string) {
   return Store.create({
     productOverview: {
-      name: "Plant Pal",
       primaryFeatures: [{ id: primaryFeatureId, content: "Track watering" }],
     },
   });

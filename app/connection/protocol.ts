@@ -24,7 +24,7 @@ import type { PersistedTimeline } from "store/timeline/serialize";
  * different builds checks it before any message is exchanged; change it
  * whenever a message changes shape.
  */
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 
 /**
  * WebSocket close codes a host server ends a connection with when connecting
@@ -104,6 +104,8 @@ export interface HostApi {
   /** False when the id names no openable module. */
   switchModule(id: string): boolean;
   archiveModule(id: string): void;
+  renameModule(id: string, name: string): void;
+  renameProject(name: string): Promise<void>;
   recordOpenStep(step: WorkflowStage): void;
   importProjectFile(data: unknown): Promise<void>;
   /** Open the project as storage now holds it, after it changed outside the host. */

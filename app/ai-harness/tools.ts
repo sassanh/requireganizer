@@ -127,7 +127,6 @@ export function buildProductOverviewTool(
     ),
     parameters: objectSchema(
       {
-        name: nonEmptyString("The product name."),
         purpose: nonEmptyString("The product purpose."),
         primaryFeatures: {
           type: "array",
@@ -144,7 +143,7 @@ export function buildProductOverviewTool(
           items: patchString(targetUserIds, "target user"),
         },
       },
-      ["name", "purpose", "primaryFeatures", "targetUsers"],
+      ["purpose", "primaryFeatures", "targetUsers"],
     ),
   };
 }
@@ -262,18 +261,16 @@ export function buildArtifactListTool({
   };
 }
 
-export function buildOverviewFieldRevisionTool(
-  field: "name" | "purpose",
-): HarnessToolDefinition {
+export function buildOverviewFieldRevisionTool(): HarnessToolDefinition {
   return {
     name: "submit_overview_field_revision",
     description: withQualityContract(
-      `Submit replacement text for the product ${field}.`,
+      "Submit replacement text for the product purpose.",
       qualityContractForStage(WorkflowStage.ProductOverview),
     ),
     parameters: objectSchema(
       {
-        content: nonEmptyString(`The replacement ${field}.`),
+        content: nonEmptyString("The replacement purpose."),
       },
       ["content"],
     ),

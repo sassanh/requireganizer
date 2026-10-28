@@ -99,6 +99,13 @@ export function removeProjectFromIndex(
 /** What a project save refreshes in its index entry; the stored name stays. */
 export type ProjectIndexUpdate = Pick<ProjectMeta, "description" | "updatedAt">;
 
+/** Whether a project already has this name: names compare ignoring case and accents. */
+export function hasProjectName(projects: readonly ProjectMeta[], name: string): boolean {
+  return projects.some(
+    (project) => project.name.localeCompare(name, undefined, { sensitivity: "base" }) === 0,
+  );
+}
+
 /**
  * Refreshes one project's index entry in place, preserving the order, the
  * stored name and every other entry. Returns the original array when the id
@@ -366,6 +373,7 @@ export function deleteProjectData(id: string): void {
 
 export function readStoredProjectView(
   data: Record<string, unknown> | null,
+  name: string,
 ): StoredProjectView | null {
   if (data == null) return null;
 
@@ -376,12 +384,6 @@ export function readStoredProjectView(
     // Stored bytes that are not a project at all expose nothing.
     return null;
   }
-
-  const productOverview = isRecord(snapshot.productOverview)
-    ? snapshot.productOverview
-    : null;
-  const name =
-    typeof productOverview?.name === "string" ? productOverview.name : "";
 
   try {
     return {

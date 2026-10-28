@@ -10,7 +10,6 @@ import { itemSetRevision } from "../app/store/review";
 const emptyProject = {
   schemaVersion: MODULE_SCHEMA_VERSION,
   productOverview: {
-    name: null,
     purpose: null,
     primaryFeatures: [],
     targetUsers: [],
@@ -83,7 +82,6 @@ describe("module snapshot import", () => {
         subjects: [
           {
             id: "product",
-            name: "Plant Pal",
             purpose: "Keep plants alive",
             classification: "external",
             parentSubjectId: null,

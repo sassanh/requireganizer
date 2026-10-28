@@ -301,7 +301,7 @@ const scaffoldManifest = {
 
 function validTestCodeRequest() {
   return {
-    project: { name: "TinyCalc", purpose: "Kids calculator", language: "TypeScript", framework: "node:test" },
+    project: { purpose: "Kids calculator", language: "TypeScript", framework: "node:test" },
     projectConfig: { runner: "node:test" },
     contracts,
     scaffoldManifest,
@@ -330,7 +330,6 @@ function validTestCodeRequest() {
 describe("test-code request parsing", () => {
   it("parses a complete, internally consistent request", () => {
     const request = parseTestCodeRequest(validTestCodeRequest());
-    assert.equal(request.project.name, "TinyCalc");
     assert.equal(request.scenario.id, "scenario-1");
     assert.equal(request.testCase.id, "case-1");
     assert.equal(request.targetPath, "tests/add.test.ts");

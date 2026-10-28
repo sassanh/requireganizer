@@ -26,7 +26,6 @@ export interface IntegrityScenario {
 
 export interface IntegrityGraph {
   productOverview: {
-    name: string | null;
     purpose: string | null;
     primaryFeatures: readonly IntegrityItem[];
     targetUsers: readonly IntegrityItem[];

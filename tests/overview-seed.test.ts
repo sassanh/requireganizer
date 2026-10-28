@@ -9,7 +9,6 @@ import type { FlatStore } from "../app/store/store";
 const emptyProject = {
   schemaVersion: MODULE_SCHEMA_VERSION,
   productOverview: {
-    name: null,
     purpose: null,
     primaryFeatures: [],
     targetUsers: [],

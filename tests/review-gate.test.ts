@@ -9,7 +9,6 @@ import {
   applyProductOverviewProposal,
 } from "../app/store/actions/ai-actions/utilities";
 import {
-  OVERVIEW_NAME_QUALITY_ID,
   OVERVIEW_PURPOSE_QUALITY_ID,
   Priority,
   Status,
@@ -21,7 +20,6 @@ import { Store } from "../app/store/store";
 import type { FlatStore } from "../app/store/store";
 
 const OVERVIEW = {
-  name: "Plant Pal",
   purpose: "Help people keep houseplants alive.",
   primaryFeatures: [{ id: "feat-1", content: "Track watering" }],
   targetUsers: [{ id: "user-1", content: "Busy plant owners" }],
@@ -39,7 +37,6 @@ function approveStage(store: FlatStore, step: WorkflowStage): void {
 function overviewProposal(changes: Partial<typeof OVERVIEW> = {}) {
   const overview = { ...OVERVIEW, ...changes };
   return {
-    name: overview.name,
     purpose: overview.purpose,
     primaryFeatures: overview.primaryFeatures,
     targetUsers: overview.targetUsers,
@@ -95,12 +92,12 @@ function storeWithCompleteRequirements(): FlatStore {
 describe("review gate", () => {
   it("holds an approval only while the checked state matches", () => {
     const store = Store.create({ productOverview: OVERVIEW }) as unknown as FlatStore;
-    store.approve(OVERVIEW_NAME_QUALITY_ID);
-    store.setName({ name: "Garden Pal" });
-    assert.equal(store.approvalOf(OVERVIEW_NAME_QUALITY_ID), "draft");
-    assert.equal(store.signedTextOf(OVERVIEW_NAME_QUALITY_ID), "Plant Pal");
-    store.setName({ name: "Plant Pal" });
-    assert.equal(store.approvalOf(OVERVIEW_NAME_QUALITY_ID), "approved");
+    store.approve(OVERVIEW_PURPOSE_QUALITY_ID);
+    store.setPurpose({ purpose: "Garden Pal" });
+    assert.equal(store.approvalOf(OVERVIEW_PURPOSE_QUALITY_ID), "draft");
+    assert.equal(store.signedTextOf(OVERVIEW_PURPOSE_QUALITY_ID), OVERVIEW.purpose);
+    store.setPurpose({ purpose: OVERVIEW.purpose });
+    assert.equal(store.approvalOf(OVERVIEW_PURPOSE_QUALITY_ID), "approved");
   });
 
   it("advances the frontier one complete stage at a time", () => {
@@ -339,10 +336,10 @@ describe("review gate", () => {
   it("drops a verdict given on a state the unit has left", () => {
     const store = Store.create({ productOverview: OVERVIEW }) as unknown as FlatStore;
     store.recordVerdicts(
-      [{ id: OVERVIEW_NAME_QUALITY_ID, checked: "stale", verdict: "reject", reason: "No." }],
+      [{ id: OVERVIEW_PURPOSE_QUALITY_ID, checked: "stale", verdict: "reject", reason: "No." }],
       "reviewer-model",
     );
-    assert.equal(store.currentVerdictOf(OVERVIEW_NAME_QUALITY_ID), null);
+    assert.equal(store.currentVerdictOf(OVERVIEW_PURPOSE_QUALITY_ID), null);
   });
 
   it("reads the reviewer model from configuration", async () => {

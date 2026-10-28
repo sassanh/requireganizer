@@ -13,6 +13,7 @@ import {
   ListItemButton,
   ListItemText,
   TextField,
+  Stack,
   Tooltip,
   Typography,
 } from "@mui/material";
@@ -20,21 +21,34 @@ import { useState } from "react";
 
 import { useProject } from "projectContext";
 
+import { NameField, RenameableName, RenameButton } from "./RenameableName";
+
 interface ModuleSwitcherDialogProps {
   open: boolean;
   onClose: () => void;
 }
 
 /**
- * Cmd+Shift+M overlay: navigates the visible modules, adds one, archives
- * one, and hosts the one-time dialog that enables modules for a project.
+ * Cmd+Shift+M overlay: the product, named by its project, and its modules.
+ * Navigates, adds, renames and archives modules, and hosts the one-time
+ * dialog that enables modules for a project.
  */
 export default function ModuleSwitcherDialog({
   open,
   onClose,
 }: ModuleSwitcherDialogProps) {
-  const { modules, modulesEnabled, enableModules, addModule, switchModule, archiveModule } =
-    useProject();
+  const {
+    activeProject,
+    modules,
+    modulesEnabled,
+    enableModules,
+    addModule,
+    switchModule,
+    archiveModule,
+    renameModule,
+    renameProject,
+  } = useProject();
+  const [renamingId, setRenamingId] = useState<string | null>(null);
   const [nameDraft, setNameDraft] = useState("");
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -42,6 +56,7 @@ export default function ModuleSwitcherDialog({
   const reset = () => {
     setNameDraft("");
     setAdding(false);
+    setRenamingId(null);
     setError(null);
   };
   const close = () => {
@@ -104,15 +119,35 @@ export default function ModuleSwitcherDialog({
 
   return (
     <Dialog open={open} onClose={close} fullWidth maxWidth="xs">
-      <DialogTitle>Modules</DialogTitle>
+      <DialogTitle component="div">
+        {activeProject == null ? (
+          "Modules"
+        ) : (
+          <RenameableName name={activeProject.name} label="Project" rename={renameProject} variant="h6" />
+        )}
+      </DialogTitle>
       <DialogContent>
         {errorLine}
+        <Typography variant="overline" color="text.secondary">
+          Modules
+        </Typography>
         <List disablePadding>
-          {modules.map((module) => (
+          {modules.map((module) => renamingId === module.id ? (
+            <ListItem key={module.id} disableGutters>
+              <NameField
+                name={module.name}
+                label="Module"
+                rename={(name) => renameModule(module.id, name)}
+                onDone={() => setRenamingId(null)}
+              />
+            </ListItem>
+          ) : (
             <ListItem
               key={module.id}
               disableGutters
               secondaryAction={
+                <Stack direction="row">
+                <RenameButton name={module.name} label="Module" onClick={() => setRenamingId(module.id)} />
                 <Tooltip
                   title={
                     module.active
@@ -133,6 +168,7 @@ export default function ModuleSwitcherDialog({
                     </IconButton>
                   </span>
                 </Tooltip>
+                </Stack>
               }
             >
               <ListItemButton

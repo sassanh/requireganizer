@@ -63,7 +63,9 @@ describe("change queue", () => {
       label: "Generated product overview",
     });
 
-    const store = Store.create({ productOverview: {} });
+    const store = Store.create({
+      productOverview: { primaryFeatures: [{ id: "feat-1", content: "Old feature" }] },
+    });
     attachTimeline(store);
     const shown = await attachShown(store);
 
@@ -78,21 +80,9 @@ describe("change queue", () => {
       })) as never;
       globalThis.document.body.appendChild(anchor);
     }
-    makeAnchor("productOverview-name");
     makeAnchor("productOverview-purpose");
+    makeAnchor("feat-1");
 
-    const NameField = observer(() => {
-      const displayed = useStagedContent(
-        "productOverview/name",
-        "productOverview-name",
-        shown.productOverview.name || "",
-      );
-      return React.createElement(
-        "output",
-        { "data-field": "productOverview/name" },
-        displayed,
-      );
-    });
     const PurposeField = observer(() => {
       const displayed = useStagedContent(
         "productOverview/purpose",
@@ -102,6 +92,18 @@ describe("change queue", () => {
       return React.createElement(
         "output",
         { "data-field": "productOverview/purpose" },
+        displayed,
+      );
+    });
+    const FeatureField = observer(() => {
+      const displayed = useStagedContent(
+        "productOverview/primaryFeatures/feat-1",
+        "feat-1",
+        shown.productOverview.primaryFeatures[0]?.content ?? "",
+      );
+      return React.createElement(
+        "output",
+        { "data-field": "feat-1" },
         displayed,
       );
     });
@@ -117,45 +119,44 @@ describe("change queue", () => {
         React.createElement(
           React.Fragment,
           null,
-          React.createElement(NameField),
           React.createElement(PurposeField),
+          React.createElement(FeatureField),
         ),
       );
       await Promise.resolve();
     });
-    assert.equal(textOf("productOverview/name"), "");
     assert.equal(textOf("productOverview/purpose"), "");
+    assert.equal(textOf("feat-1"), "Old feature");
 
     await React.act(() => {
       store.setProductOverview({
-        name: "Acme",
-        purpose: "Ship quality software",
-        primaryFeatures: [],
+        purpose: "Acme",
+        primaryFeatures: [{ id: "feat-1", content: "Ship quality software" }],
         targetUsers: [],
       } as never);
     });
 
-    assert.equal(textOf("productOverview/name"), "Acme", "first frame repaints");
+    assert.equal(textOf("productOverview/purpose"), "Acme", "first frame repaints");
     assert.equal(
-      textOf("productOverview/purpose"),
-      "",
+      textOf("feat-1"),
+      "Old feature",
       "the later field must hold its previous value while the earlier frame plays",
     );
-
-    await React.act(async () => {
-      finishHighlight["productOverview-name"]?.();
-      await Promise.resolve();
-    });
-    assert.equal(textOf("productOverview/purpose"), "Ship quality software");
 
     await React.act(async () => {
       finishHighlight["productOverview-purpose"]?.();
       await Promise.resolve();
     });
+    assert.equal(textOf("feat-1"), "Ship quality software");
+
+    await React.act(async () => {
+      finishHighlight["feat-1"]?.();
+      await Promise.resolve();
+    });
 
     root.unmount();
     container.remove();
-    for (const id of ["productOverview-name", "productOverview-purpose"]) {
+    for (const id of ["productOverview-purpose", "feat-1"]) {
       globalThis.document.getElementById(id)?.remove();
     }
   });
@@ -512,7 +513,7 @@ describe("change queue", () => {
       "../app/store/timeline/controller"
     );
     const { useStagedContent } = await import("../app/components/changeQueue");
-    declareTimelineStep("setName", { kind: "user", label: "setName" });
+    declareTimelineStep("setPurpose", { kind: "user", label: "setPurpose" });
 
     const store = Store.create({ productOverview: {} });
     attachTimeline(store);
@@ -520,9 +521,9 @@ describe("change queue", () => {
 
     const Field = observer(function Field() {
       const displayed = useStagedContent(
-        "productOverview/name",
-        "productOverview-name",
-        shown.productOverview.name || "",
+        "productOverview/purpose",
+        "productOverview-purpose",
+        shown.productOverview.purpose || "",
       );
       return React.createElement("output", null, displayed);
     });
@@ -539,7 +540,7 @@ describe("change queue", () => {
     });
 
     await React.act(() => {
-      store.setName({ name: "typed" });
+      store.setPurpose({ purpose: "typed" });
     });
     assert.equal(readText(), "typed");
 
@@ -585,21 +586,8 @@ describe("change queue", () => {
       })) as never;
       globalThis.document.body.appendChild(anchor);
     }
-    makeAnchor("productOverview-name");
     makeAnchor("productOverview-purpose");
 
-    const NameField = observer(() => {
-      const displayed = useStagedContent(
-        "productOverview/name",
-        "productOverview-name",
-        shown.productOverview.name || "",
-      );
-      return React.createElement(
-        "output",
-        { "data-field": "productOverview/name" },
-        displayed,
-      );
-    });
     const PurposeField = observer(() => {
       const displayed = useStagedContent(
         "productOverview/purpose",
@@ -618,7 +606,6 @@ describe("change queue", () => {
       return React.createElement(
         React.Fragment,
         null,
-        React.createElement(NameField),
         React.createElement(PurposeField),
         React.createElement(StructuralFragments, {
           fragments: shown.productOverview.primaryFeatures,
@@ -656,21 +643,12 @@ describe("change queue", () => {
 
     await React.act(() => {
       store.setProductOverview({
-        name: "Acme",
         purpose: "Ship quality software",
         primaryFeatures: [{ id: "pf-1", content: "feature one" }],
         targetUsers: [],
       } as never);
     });
 
-    assert.equal(textOf("productOverview/name"), "Acme");
-    assert.equal(textOf("productOverview/purpose"), "");
-    assert.deepEqual(featureTexts(), []);
-
-    await React.act(async () => {
-      finishHighlight["productOverview-name"]?.();
-      await Promise.resolve();
-    });
     assert.equal(textOf("productOverview/purpose"), "Ship quality software");
     assert.deepEqual(
       featureTexts(),
@@ -686,8 +664,6 @@ describe("change queue", () => {
 
     root.unmount();
     container.remove();
-    for (const id of ["productOverview-name", "productOverview-purpose"]) {
-      globalThis.document.getElementById(id)?.remove();
-    }
+    globalThis.document.getElementById("productOverview-purpose")?.remove();
   });
 });

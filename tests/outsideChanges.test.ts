@@ -37,7 +37,7 @@ async function waitFor(description: string, condition: () => boolean): Promise<v
 /** The project file's contents with the overview named `name`. */
 function projectFileNamed(name: string): string {
   const store = Store.create({ productOverview: {} });
-  store.setName({ name });
+  store.setPurpose({ purpose: name });
   const payload = {
     schemaVersion: PROJECT_SCHEMA_VERSION,
     modulesEnabled: false,
@@ -68,9 +68,9 @@ async function servedProject() {
   const disconnect = client.open();
   session.start();
   await waitFor("the project to open", () => session.getSnapshot().status === "ready");
-  const shownName = () => session.getSnapshot().store.productOverview.name;
+  const shownName = () => session.getSnapshot().store.productOverview.purpose;
   const rename = (name: string) => {
-    session.getSnapshot().store.setName({ name });
+    session.getSnapshot().store.setPurpose({ purpose: name });
     session.flush();
   };
   // The file as Requireganizer writes it with the overview renamed, as a
@@ -136,7 +136,7 @@ describe("a project file changed outside Requireganizer", () => {
       await served.checkOutFromGit();
       const changed = readFileSync(served.projectFile, "utf8");
       // Made just before the change was noticed: its save is still waiting.
-      served.session.getSnapshot().store.setName({ name: "Edited here" });
+      served.session.getSnapshot().store.setPurpose({ purpose: "Edited here" });
 
       await served.session.openChangedProject();
       assert.equal(served.shownName(), "From git");

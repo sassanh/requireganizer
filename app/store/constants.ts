@@ -187,5 +187,4 @@ export enum Status {
   Waiting = "waiting",
 }
 
-export const OVERVIEW_NAME_QUALITY_ID = "productOverview/name";
 export const OVERVIEW_PURPOSE_QUALITY_ID = "productOverview/purpose";

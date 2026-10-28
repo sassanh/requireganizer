@@ -153,7 +153,7 @@ export function describeProjectListContract(createAdapter: AdapterFactory): void
       const adapter = await createAdapter();
       const payload = {
         schemaVersion: MODULE_SCHEMA_VERSION,
-        productOverview: { name: "Example" },
+        productOverview: { purpose: "Example" },
         nested: { values: [1] },
       };
       const expected = structuredClone(payload);

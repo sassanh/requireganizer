@@ -48,6 +48,10 @@ Project Setup selects deterministic build/test commands and creates a manifest-c
 
 Project Files is a separate viewer. The Code stage remains pending because neither scaffold nor test generation implements the product.
 
+## Modules
+
+A large product splits into modules, each with its own overview and stages. **Cmd+Shift+M** shows the product as the project's name above its modules. A project's name is the product's name, and a module's name is the one in that list; rename either there.
+
 ## Recovery and imports
 
 Open **Revisions** to pin, restore, download, or delete recovery snapshots.

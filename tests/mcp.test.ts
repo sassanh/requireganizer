@@ -92,7 +92,7 @@ describe("MCP server", () => {
 
       const rejected = await client.callTool({
         name: "submit_product_overview",
-        arguments: { name: "Plant Pal", purpose: "Keep plants alive.", primaryFeatures: [], targetUsers: [] },
+        arguments: { purpose: "Keep plants alive.", primaryFeatures: [], targetUsers: [] },
       });
       assert.equal(rejected.isError, true);
       assert.ok(textOf(rejected).length > 0);
@@ -100,7 +100,6 @@ describe("MCP server", () => {
       const applied = await client.callTool({
         name: "submit_product_overview",
         arguments: {
-          name: "Plant Pal",
           purpose: "Keep plants alive.",
           primaryFeatures: ["Track watering schedules"],
           targetUsers: ["Busy plant owners"],
@@ -113,8 +112,8 @@ describe("MCP server", () => {
       await listChanged(2);
       const overview = JSON.parse(
         textOf(await client.callTool({ name: "get_stage_artifacts", arguments: { stage: "product-overview" } })),
-      ) as { productOverview: { name: string } };
-      assert.equal(overview.productOverview.name, "Plant Pal");
+      ) as { productOverview: { purpose: string } };
+      assert.equal(overview.productOverview.purpose, "Keep plants alive.");
     } finally {
       closePage();
       await page.close();
@@ -202,7 +201,6 @@ describe("MCP server", () => {
         {
           name: "submit_product_overview",
           arguments: {
-            name: "Plant Pal",
             purpose: "Keep plants alive.",
             primaryFeatures: ["Track watering schedules"],
             targetUsers: ["Busy plant owners"],
@@ -234,7 +232,6 @@ describe("MCP server", () => {
       const resubmitted = await client.callTool({
         name: "submit_product_overview",
         arguments: {
-          name: "Plant Pal",
           purpose: "Help busy plant owners keep their houseplants alive.",
           primaryFeatures: ["Track watering schedules"],
           targetUsers: ["Busy plant owners"],

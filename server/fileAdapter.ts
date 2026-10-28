@@ -14,7 +14,7 @@ import { basename, dirname, extname, join } from "node:path";
 
 import { UserFacingError } from "lib/errors";
 import { isRecord, parseJsonObject } from "lib/json";
-import { moduleScopeId, parseProjectPayload, pickActiveModule } from "lib/moduleSchema";
+import { moduleScopeId, parseProjectPayload } from "lib/moduleSchema";
 import {
   parseTimelineData,
   PROJECT_DELETE_ERROR_MESSAGE,
@@ -166,15 +166,12 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
     const payload: Record<string, unknown> = { ...value };
     for (const key of META_KEYS) delete payload[key];
     const hasPayload = Object.keys(payload).length > 0;
-    let overviewName: string | null = null;
     if (hasPayload) {
       try {
         const parsed = parseProjectPayload(payload);
         // Every module passes the store's own validation here, so the
         // session never falls back to a blank project over this file.
         for (const entry of parsed.modules) createModuleStore(entry.snapshot);
-        const overview = pickActiveModule(parsed).snapshot.productOverview;
-        overviewName = isRecord(overview) && typeof overview.name === "string" ? overview.name : null;
       } catch (error) {
         throw new UserFacingError(
           `${label} does not hold a valid project: ${error instanceof Error ? error.message : String(error)} Fix the file, then try again.`,
@@ -188,7 +185,7 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
     return {
       meta: {
         id: text("id") ?? DEFAULT_FILE_PROJECT_ID,
-        name: text("name") ?? overviewName?.trim() ?? basename(label, extname(label)),
+        name: text("name") ?? basename(label, extname(label)),
         description: text("description") ?? "",
         updatedAt: this.modifiedAt().toISOString(),
       },

@@ -23,7 +23,6 @@ import { WorkflowStage } from "../app/store/constants";
 const flatSnapshot = {
   schemaVersion: MODULE_SCHEMA_VERSION,
   productOverview: {
-    name: "Legacy",
     purpose: null,
     primaryFeatures: [],
     targetUsers: [],

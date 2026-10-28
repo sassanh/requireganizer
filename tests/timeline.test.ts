@@ -147,7 +147,7 @@ describe("timeline serialization", () => {
       schemaVersion: 3,
       isClean: true,
       businessCounter: 0,
-      productOverview: { name: "App", purpose: "same purpose", primaryFeatures: [], targetUsers: [] },
+      productOverview: { purpose: "same purpose", primaryFeatures: [], targetUsers: [] },
       userStories: [{ id: "us-1", content: "story" }],
       requirements: [] as unknown[],
       acceptanceCriteria: [] as unknown[],
@@ -170,7 +170,7 @@ describe("timeline serialization", () => {
     // A changed purpose only: every other hash is shared with state A.
     const changed = {
       ...snapshot,
-      productOverview: { name: "App", purpose: "same purpose v2", primaryFeatures: [], targetUsers: [] },
+      productOverview: { purpose: "same purpose v2", primaryFeatures: [], targetUsers: [] },
     };
     const stateB = captureState(changed as never);
 
@@ -1032,14 +1032,14 @@ describe("timeline controller", () => {
 
   it("publishes focus for approve so the approval bar can present", () => {
     const store = newStore();
-    store.setName({ name: "Acme" });
+    store.setPurpose({ purpose: "Acme" });
     commitTimelineSegment();
     const nonceBefore = getChangeFocus().nonce;
-    store.approve("productOverview/name");
+    store.approve("productOverview/purpose");
     assert.notEqual(getChangeFocus().nonce, nonceBefore);
     assert.ok(
       getChangeFocus().ops.some(
-        (op) => op.subject === "productOverview/nameApproval",
+        (op) => op.subject === "productOverview/purposeApproval",
       ),
     );
   });

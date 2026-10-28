@@ -51,11 +51,13 @@ function Home() {
     backToProjects,
     clearPersistenceError,
     modulesEnabled,
+    modules,
     activeModuleId,
     activeModuleOpenStep,
     switchModule,
     storage,
   } = useProject();
+  const activeModuleName = modules.find(({ id }) => id === activeModuleId)?.name ?? null;
   const persistence = usePersistence();
   const router = useRouter();
   const pathname = usePathname();
@@ -228,9 +230,18 @@ function Home() {
             </Button>
           )}
         <ProjectActionsMenu onShowModules={openModules} />
-        <Typography variant="h6" sx={{ flexGrow: 1 }}>
-          {activeProject.name}
-        </Typography>
+        <Stack direction="row" sx={{ flexGrow: 1, alignItems: "center", gap: 1, minWidth: 0 }}>
+          <Typography variant="h6" noWrap>
+            {activeProject.name}
+          </Typography>
+          {modulesEnabled && activeModuleName != null ? (
+            <Button variant="text" color="inherit" onClick={openModules} sx={{ textTransform: "none", minWidth: 0 }}>
+              <Typography variant="h6" component="span" color="text.secondary" noWrap>
+                / {activeModuleName}
+              </Typography>
+            </Button>
+          ) : null}
+        </Stack>
         <Tooltip title={store.hasGeneratedScaffold ? "Project files" : "Generate the project setup to enable source code"}>
           <Button
           component={Link}
