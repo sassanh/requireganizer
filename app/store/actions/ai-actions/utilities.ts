@@ -527,7 +527,7 @@ export function applyTestScenarioProposal(
       dependencies: identity.dependencies,
       binding: item.binding,
       ...revisionIdentity(prior, same),
-      approval: prior?.approval ?? null,
+      signature: prior?.signature ?? null,
       verdict: prior?.verdict ?? null,
       basis: store.currentBasisOf({
         type: StructuralFragment.TestScenario,
@@ -583,7 +583,7 @@ export function applyTestCaseProposal(store: FlatStore, proposal: TestCaseListPr
       dependencies: identity.dependencies,
       definition: item.definition,
       ...revisionIdentity(prior, same),
-      approval: prior?.approval ?? null,
+      signature: prior?.signature ?? null,
       verdict: prior?.verdict ?? null,
       basis: store.currentBasisOf({ type: StructuralFragment.TestCase, references }),
       generatedInputFingerprint: prior?.generatedInputFingerprint,

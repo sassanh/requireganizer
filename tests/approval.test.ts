@@ -168,7 +168,7 @@ describe("explicit approval", () => {
       import(value: unknown): void;
     };
     store.import({
-      schemaVersion: 5,
+      schemaVersion: 6,
       productOverview: OVERVIEW,
       userStories: [],
       requirements: [],

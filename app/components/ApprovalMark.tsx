@@ -49,7 +49,7 @@ const ApprovalMark = observer(function ApprovalMark({ id }: { id: string }) {
   const canApprove = store.canApprove(id);
   const verdict = store.currentVerdictOf(id);
   const editable = store.stageIsEditable(unit.stage);
-  const approvedBy = unit.approved ? unit.approval?.reviewer : null;
+  const approvedBy = unit.approved ? unit.signature?.reviewer : null;
 
   const settleDecision = (confirmed: boolean) => {
     decisionResolver.current?.(confirmed);

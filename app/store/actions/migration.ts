@@ -16,7 +16,7 @@ import {
   EMPTY_REVIEW_BOOK,
   PERSON,
   STAGE_INPUTS,
-  approvalRecord,
+  signatureRecord,
   checkedHash,
   itemSetRevision,
   proseRevision,
@@ -24,7 +24,7 @@ import {
 import type { FlatStore } from "store/store";
 
 /**
- * What a schema 3 module said about review that schema 5 records
+ * What a schema 3 module said about review that the current schema records
  * differently. Carried from the JSON transform to the store pass that can
  * compute checked hashes.
  */
@@ -150,7 +150,7 @@ function migrateFragment(fragment: Snapshot, legacy: LegacyReview): Snapshot {
   );
   return {
     ...rest,
-    approval: null,
+    signature: null,
     verdict: null,
     basis: null,
     ...(Array.isArray(fragment.testCases)
@@ -163,7 +163,7 @@ function migrateArtifact(artifact: unknown, legacy: LegacyReview): unknown {
   if (!isRecord(artifact)) return artifact ?? null;
   const { status, approvedAt: _approvedAt, ...rest } = artifact;
   if (status === "approved") legacy.approvedIds.push(String(artifact.id));
-  return { ...rest, approval: null, verdict: null };
+  return { ...rest, signature: null, verdict: null };
 }
 
 function migrateOverview(overview: unknown, legacy: LegacyReview): unknown {
@@ -184,7 +184,7 @@ function migrateOverview(overview: unknown, legacy: LegacyReview): unknown {
   if (typeof lastSignedPurpose === "string") legacy.signedTexts[OVERVIEW_PURPOSE_QUALITY_ID] = lastSignedPurpose;
   return {
     ...rest,
-    purposeApproval: null,
+    purposeSignature: null,
     purposeVerdict: null,
     primaryFeatures: list(rest.primaryFeatures).map((item) => migrateFragment(item, legacy)),
     targetUsers: list(rest.targetUsers).map((item) => migrateFragment(item, legacy)),
@@ -288,7 +288,7 @@ function signedChecked(
 }
 
 /**
- * Record bases, acknowledged inputs, and approvals the way schema 5 holds
+ * Record bases, acknowledged inputs, and signatures the way the current schema holds
  * them. Stages the schema 3 workflow showed as outdated keep unknown bases,
  * so their items stay outdated until regenerated instead of carrying an
  * approval into a state nobody reviewed.
@@ -322,7 +322,7 @@ export function completeV3Migration(store: FlatStore, legacy: LegacyReview): voi
     const unit = store.reviewUnit(id);
     if (unit == null) continue;
     const restorable = unit.kind === "item" || unit.kind === "field";
-    store.recordApproval(id, approvalRecord(unit.checked, restorable ? unit.content : null, PERSON));
+    store.recordSignature(id, signatureRecord(unit.checked, restorable ? unit.content : null, PERSON));
   }
   for (const [id, text] of Object.entries(legacy.signedTexts)) {
     const unit = store.reviewUnit(id);
@@ -330,6 +330,6 @@ export function completeV3Migration(store: FlatStore, legacy: LegacyReview): voi
     const fragment = store.structuralFragmentsCache[id];
     const type = fragment?.type ?? null;
     const signed = signedVersion(unit.content, id, text, type);
-    store.recordApproval(id, approvalRecord(signedChecked(id, signed, fragment), signed, PERSON));
+    store.recordSignature(id, signatureRecord(signedChecked(id, signed, fragment), signed, PERSON));
   }
 }

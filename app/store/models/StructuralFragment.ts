@@ -1,6 +1,6 @@
 import { cast, getParent, Instance, isAlive, types } from "mobx-state-tree";
 
-import type { ApprovalRecord, ModelVerdict } from "contract-domain";
+import type { Signature, ModelVerdict } from "contract-domain";
 import { formatCode } from "lib/fragmentCodes";
 import { uuid } from "utilities";
 
@@ -78,7 +78,7 @@ const HalfStructuralFragmentModel = types
     references: types.array(ReferenceModel),
     dependencies: types.array(types.string),
     /** The last approval: current only while it matches the item's checked hash. */
-    approval: types.optional(types.maybeNull(types.frozen<ApprovalRecord>()), null),
+    signature: types.optional(types.maybeNull(types.frozen<Signature>()), null),
     /** The reviewer model's latest verdict, current under the same rule. */
     verdict: types.optional(types.maybeNull(types.frozen<ModelVerdict>()), null),
     /**
@@ -99,8 +99,8 @@ const HalfStructuralFragmentModel = types
     markPendingRemoval() {
       self.pendingRemoval = true;
     },
-    setApproval(approval: ApprovalRecord | null) {
-      self.approval = approval;
+    setSignature(signature: Signature | null) {
+      self.signature = signature;
     },
     setVerdict(verdict: ModelVerdict | null) {
       self.verdict = verdict;

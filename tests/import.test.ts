@@ -30,7 +30,7 @@ describe("module snapshot import", () => {
     assert.doesNotThrow(() => assertModuleSnapshotSchema(emptyProject));
     assert.throws(
       () => assertModuleSnapshotSchema({ ...emptyProject, schemaVersion: 1 }),
-      /obsolete module schema 1.*module schema 5, or 3 migrated on load/,
+      /obsolete module schema 1.*module schema 6, or 3 migrated on load/,
     );
   });
 

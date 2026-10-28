@@ -1039,7 +1039,7 @@ describe("timeline controller", () => {
     assert.notEqual(getChangeFocus().nonce, nonceBefore);
     assert.ok(
       getChangeFocus().ops.some(
-        (op) => op.subject === "productOverview/purposeApproval",
+        (op) => op.subject === "productOverview/purposeSignature",
       ),
     );
   });

@@ -1,6 +1,6 @@
 import { cast, Instance, SnapshotIn, types } from "mobx-state-tree";
 
-import type { ApprovalRecord, ModelVerdict } from "contract-domain";
+import type { Signature, ModelVerdict } from "contract-domain";
 import {
   StructuralFragment,
 } from "store/constants";
@@ -26,14 +26,14 @@ export type ProductOverview = Instance<typeof ProductOverviewModel>;
 export const ProductOverviewModel = types
   .model("ProductOverview", {
     purpose: types.maybeNull(types.string),
-    purposeApproval: types.optional(types.maybeNull(types.frozen<ApprovalRecord>()), null),
+    purposeSignature: types.optional(types.maybeNull(types.frozen<Signature>()), null),
     purposeVerdict: types.optional(types.maybeNull(types.frozen<ModelVerdict>()), null),
     primaryFeatures: types.array(PrimaryFeatureModel),
     targetUsers: types.array(TargetUserModel),
   })
   .actions((self) => ({
-    setPurposeApproval(approval: ApprovalRecord | null) {
-      self.purposeApproval = approval;
+    setPurposeSignature(signature: Signature | null) {
+      self.purposeSignature = signature;
     },
     setPurposeVerdict(verdict: ModelVerdict | null) {
       self.purposeVerdict = verdict;

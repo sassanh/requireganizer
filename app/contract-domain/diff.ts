@@ -1,7 +1,7 @@
 import type { ContractSuite } from "./types";
 
 const REVISION_METADATA_KEYS = new Set([
-  "approval",
+  "signature",
   "createdAt",
   "revision",
   "revisionId",

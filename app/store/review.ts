@@ -1,5 +1,5 @@
 import {
-  type ApprovalRecord,
+  type Signature,
   type JsonValue,
   type ModelVerdict,
   type Reviewer,
@@ -9,7 +9,7 @@ import {
 import { StructuralFragment, WorkflowStage } from "./constants";
 import type { ThreadAnswerer } from "./threads";
 
-export type { ApprovalRecord, ModelVerdict, Reviewer } from "contract-domain";
+export type { Signature, ModelVerdict, Reviewer } from "contract-domain";
 
 export const PERSON: Reviewer = { kind: "person" };
 
@@ -17,7 +17,7 @@ export type ReviewMode = "manual" | "auto";
 
 /** Review state of a unit that has no artifact to carry it: coverage and impact. */
 export interface StandaloneReview {
-  approval: ApprovalRecord | null;
+  signature: Signature | null;
   verdict: ModelVerdict | null;
 }
 
@@ -103,13 +103,13 @@ export function revisionListing(
   ][];
 }
 
-export function approvalRecord(
+export function signatureRecord(
   checked: string,
   signed: JsonValue | null,
   reviewer: Reviewer,
   overruled?: ModelVerdict | null,
   inputs?: string,
-): ApprovalRecord {
+): Signature {
   return {
     checked,
     signed,
@@ -208,9 +208,26 @@ export interface ReviewUnit {
   content: JsonValue;
   outdated: boolean;
   pendingRemoval: boolean;
-  approval: ApprovalRecord | null;
+  signature: Signature | null;
   verdict: ModelVerdict | null;
   approved: boolean;
+}
+
+/**
+ * A unit's review state as an agent reads it. A signature records a past
+ * approval and does not say whether it still holds; this does.
+ */
+export interface ReviewStatus {
+  id: string;
+  stage: WorkflowStage;
+  kind: ReviewUnitKind;
+  status: "approved" | "draft" | "outdated" | "removal-proposed";
+}
+
+export function reviewStatusOf(unit: ReviewUnit): ReviewStatus["status"] {
+  if (unit.pendingRemoval) return "removal-proposed";
+  if (unit.outdated) return "outdated";
+  return unit.approved ? "approved" : "draft";
 }
 
 /** The one text a signed version shows in a standing word diff. */

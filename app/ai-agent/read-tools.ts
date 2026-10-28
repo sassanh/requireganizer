@@ -87,13 +87,14 @@ export function buildReadTools(
     name: "get_stage_artifacts",
     label: "Get stage artifacts",
     description:
-      "Get the full JSON serialization of the current artifacts up to and including one workflow stage. Stages use kebab-case names matching the workflow (e.g. \"product-overview\", \"boundary-design\").",
+      "Get the full JSON serialization of the current artifacts up to and including one workflow stage. Stages use kebab-case names matching the workflow (e.g. \"product-overview\", \"boundary-design\"). reviewStatus gives each unit's current status: approved, draft, outdated, or removal-proposed. A unit's signature records its last approval and does not say whether it still holds.",
     parameters: Type.Object({
       stage: Type.String({ description: "The workflow stage to read." }),
     }),
     execute: async (_toolCallId, params) => {
       const { stage } = params as { stage: string };
-      return textResult(store.json(stageNamed(stage)));
+      const step = stageNamed(stage);
+      return textResult(JSON.stringify({ ...store.data(step), reviewStatus: store.reviewStatuses(step) }));
     },
   };
 

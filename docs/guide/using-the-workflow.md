@@ -56,4 +56,4 @@ A large product splits into modules, each with its own overview and stages. **Cm
 
 Open **Revisions** to pin, restore, download, or delete recovery snapshots.
 
-Imports accept schema 4 (modular projects) or a single module snapshot of schema 5, or of schema 3, which is migrated on load. Any other version is rejected with the accepted versions named.
+Imports accept schema 4 (modular projects) or a single module snapshot of schema 6, or of schema 3, which is migrated on load. Any other version is rejected with the accepted versions named.

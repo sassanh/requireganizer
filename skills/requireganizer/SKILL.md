@@ -33,8 +33,10 @@ The person approves every item in Requireganizer's page; no tool approves.
     Requireganizer. Every tool works on that module. To work on another, ask
     the person to open it.
 - Read the work with `get_stage_artifacts`. It returns every stage up to and
-  including the one you name. Read it again before changing or citing
-  anything, rather than relying on an earlier read.
+  including the one you name, and each unit's current status in
+  `reviewStatus`. A unit's `signature` records its last approval, not whether
+  it still holds. Read it again before changing or citing anything, rather
+  than relying on an earlier read.
 - `get_input_changes` shows how a stage's inputs changed since that stage last
   took them in.
 

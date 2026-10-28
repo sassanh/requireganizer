@@ -1,6 +1,6 @@
 # State, revisions, and invalidation
 
-Project data uses schema version 4: a registry of modules, each holding a schema 5 module snapshot.
+Project data uses schema version 4: a registry of modules, each holding a schema 6 module snapshot.
 
 ## The review gate
 
@@ -8,7 +8,7 @@ Every reviewable unit's state is derived in one place in the store.
 
 - A unit's **revision** is a content hash for prose items and overview fields, and the stored revision ID for scenarios, cases, and formal artifacts. Scenarios and cases mint a new revision ID exactly when their content changes.
 - Each generated item records its **basis**: the revision of every unit it references, plus the contract bundles a scenario binds. An item is **outdated** while its basis differs from the current revisions; a basis of null is unknown and always outdated. Formal artifacts are outdated when the upstream revisions they record are no longer current.
-- An **approval record** holds the checked hash, the signed content, the reviewer, and the time. A unit is approved only while the record's checked hash equals the current one, the unit is not outdated, and it is not proposed for removal.
+- A **signature** records an approval: the checked hash, the signed content, the reviewer, and the time. A unit is approved only while its signature's checked hash equals the current one, the unit is not outdated, and it is not proposed for removal.
 - The reviewer model's **verdict** is recorded against the checked hash it was given on and is current under the same rule.
 
 Each list stage records the content of the inputs it last **acknowledged**: at a generation from empty, at an impact approval, and once nothing in the stage still answers a change. Inputs whose content differs are the stage's changed inputs. Approved items that reference none of them and were approved before the change form the impact unit.

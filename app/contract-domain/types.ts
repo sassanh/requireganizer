@@ -29,7 +29,7 @@ export interface ModelVerdict {
  * `checked` equals the unit's current checked hash; the record outlives
  * changes as the signed version a rewrite can be restored to.
  */
-export interface ApprovalRecord {
+export interface Signature {
   checked: string;
   /** The approved content, for word diffs and restore. Null when the unit restores nothing. */
   signed: JsonValue | null;
@@ -50,7 +50,7 @@ export interface RevisionMetadata {
   revisionId: string;
   revision: number;
   createdAt: string;
-  approval?: ApprovalRecord | null;
+  signature?: Signature | null;
   verdict?: ModelVerdict | null;
 }
 

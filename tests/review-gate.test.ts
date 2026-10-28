@@ -328,9 +328,9 @@ describe("review gate", () => {
     assert.equal(store.approvalNeedsDecision("story-1"), true);
     assert.throws(() => store.approve("story-1"), /recommends a change/);
     store.approve("story-1", { decided: true });
-    const approval = store.reviewUnit("story-1")!.approval!;
-    assert.deepEqual(approval.reviewer, { kind: "person" });
-    assert.equal(approval.overruled?.verdict, "reject");
+    const signature = store.reviewUnit("story-1")!.signature!;
+    assert.deepEqual(signature.reviewer, { kind: "person" });
+    assert.equal(signature.overruled?.verdict, "reject");
   });
 
   it("drops a verdict given on a state the unit has left", () => {
@@ -361,7 +361,7 @@ describe("review gate", () => {
     assert.equal(store.approvalOf("story-1"), "draft");
     store.setReviewMode(WorkflowStage.UserStories, "auto");
     assert.equal(store.approvalOf("story-1"), "approved");
-    assert.deepEqual(store.reviewUnit("story-1")!.approval!.reviewer, {
+    assert.deepEqual(store.reviewUnit("story-1")!.signature!.reviewer, {
       kind: "model",
       model: "reviewer-model",
     });
@@ -372,5 +372,28 @@ describe("review gate", () => {
     store.setReviewMode(WorkflowStage.UserStories, "auto");
     store.setReviewMode(WorkflowStage.UserStories, "manual");
     assert.equal(store.approvalOf("story-1"), "approved");
+  });
+});
+
+describe("review status", () => {
+  it("reports each unit's computed status, whatever its signature holds", () => {
+    const store = storeWithCompleteStories();
+    const statusOf = (id: string) =>
+      store.reviewStatuses(WorkflowStage.UserStories).find((entry) => entry.id === id)?.status;
+    assert.deepEqual(store.reviewStatuses(WorkflowStage.UserStories).find((entry) => entry.id === "story-1"), {
+      id: "story-1",
+      stage: WorkflowStage.UserStories,
+      kind: "item",
+      status: "approved",
+    });
+    applyProductOverviewProposal(
+      store,
+      overviewProposal({ primaryFeatures: [{ id: "feat-1", content: "Track watering and feeding" }] }),
+    );
+    store.applyPendingImpactChange();
+    assert.equal(statusOf("feat-1"), "draft");
+    assert.equal(statusOf("story-1"), "outdated");
+    assert.notEqual(store.reviewUnit("story-1")!.signature, null);
+    assert.equal(statusOf("user-1"), "approved");
   });
 });

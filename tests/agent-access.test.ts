@@ -68,6 +68,31 @@ describe("outside agent tools", () => {
     assert.equal(store.productOverview.isEmpty, true);
   });
 
+  it("reads each unit's current status beside a signature that no longer holds", async () => {
+    const store = await storeWithStories();
+    store.approve("story-1");
+    applyArtifactListProposal(store, {
+      entityType: StructuralFragment.UserStory,
+      items: [{
+        key: "k0",
+        id: "story-1",
+        content: "As a plant owner, I want watering and feeding reminders.",
+        priority: Priority.P1,
+        dependencies: [],
+        references: [{ id: store.productOverview.primaryFeatures[0]!.id, type: StructuralFragment.PrimaryFeature }],
+      }],
+    });
+    const read = JSON.parse(await callAgentTool(store, "get_stage_artifacts", { stage: "user-stories" })) as {
+      userStories: { id: string; signature: unknown }[];
+      reviewStatus: { id: string; status: string }[];
+    };
+    assert.notEqual(read.userStories[0]!.signature, null);
+    assert.deepEqual(
+      read.reviewStatus.find(({ id }) => id === "story-1"),
+      { id: "story-1", stage: WorkflowStage.UserStories, kind: "item", status: "draft" },
+    );
+  });
+
   it("applies a valid submission and says the person approves it", async () => {
     const store = Store.create({ productOverview: {} });
     const text = await callAgentTool(store, "submit_product_overview", OVERVIEW);

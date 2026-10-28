@@ -53,8 +53,8 @@ function parseReviewBook(value: unknown): ReviewBook {
   const parsedUnits = Object.fromEntries(
     Object.entries(units).map(([id, entry]) => {
       const unit = object(entry, `Review unit ${id}`);
-      if (unit.approval != null && !isRecord(unit.approval)) {
-        throw new InvalidJsonError(`Review unit ${id} approval must be an object.`);
+      if (unit.signature != null && !isRecord(unit.signature)) {
+        throw new InvalidJsonError(`Review unit ${id} signature must be an object.`);
       }
       if (unit.verdict != null && !isRecord(unit.verdict)) {
         throw new InvalidJsonError(`Review unit ${id} verdict must be an object.`);
@@ -62,7 +62,7 @@ function parseReviewBook(value: unknown): ReviewBook {
       return [
         id,
         {
-          approval: (unit.approval ?? null) as StandaloneReview["approval"],
+          signature: (unit.signature ?? null) as StandaloneReview["signature"],
           verdict: (unit.verdict ?? null) as StandaloneReview["verdict"],
         },
       ] as const;

@@ -205,7 +205,7 @@ function parseRegistry(value: Record<string, unknown>): ModuleRegistry {
 
 /**
  * The one reader of stored project bytes: a schema 4 payload is
- * validated as a module registry, a bare module snapshot (schema 5, or
+ * validated as a module registry, a bare module snapshot (schema 6, or
  * schema 3 migrated on load) wraps as the single hidden legacy module,
  * anything else fails with the accepted versions named.
  */

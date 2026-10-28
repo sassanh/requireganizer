@@ -124,7 +124,7 @@ describe("project payload parsing", () => {
   it("names every accepted version when a payload is obsolete", () => {
     assert.throws(
       () => parseProjectPayload({ schemaVersion: 2 }),
-      /obsolete project schema 2.*schema 4 \(modular\), or 5 or 3 \(single module\)/,
+      /obsolete project schema 2.*schema 4 \(modular\), or 6 or 3 \(single module\)/,
     );
     assert.throws(
       () => parseProjectPayload({ notAProject: true }),
@@ -143,7 +143,7 @@ describe("project payload parsing", () => {
             entry("module-a", "One", null, { schemaVersion: 2 }),
           ],
         }),
-      /obsolete module schema 2.*module schema 5, or 3 migrated on load/,
+      /obsolete module schema 2.*module schema 6, or 3 migrated on load/,
     );
   });
 });

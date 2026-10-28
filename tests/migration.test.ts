@@ -39,7 +39,7 @@ describe("schema 3 migration", () => {
     ]) {
       assert.equal(store.approvalOf(id), "approved", id);
     }
-    assert.equal(store.reviewUnit("story-1")!.approval!.reviewer.kind, "person");
+    assert.equal(store.reviewUnit("story-1")!.signature!.reviewer.kind, "person");
   });
 
   it("keeps a rewritten draft as draft with its signed text", () => {

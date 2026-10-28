@@ -87,7 +87,7 @@ const previous: ContractSuite = {
     revisionId: "interface-r1",
     revision: 1,
     createdAt,
-    approval: { checked: "approved-content", signed: null, reviewer: { kind: "person" }, at: createdAt },
+    signature: { checked: "approved-content", signed: null, reviewer: { kind: "person" }, at: createdAt },
     interfaceId: "api",
     boundaryRevisionId: design.revisionId,
     profileRevisionId: profile.revisionId,
@@ -103,7 +103,7 @@ const previous: ContractSuite = {
     revisionId: "subject-r1",
     revision: 1,
     createdAt,
-    approval: { checked: "approved-content", signed: null, reviewer: { kind: "person" }, at: createdAt },
+    signature: { checked: "approved-content", signed: null, reviewer: { kind: "person" }, at: createdAt },
     subjectId: "product",
     boundaryRevisionId: design.revisionId,
     profileRevisionId: profile.revisionId,
@@ -115,13 +115,13 @@ const previous: ContractSuite = {
 };
 
 describe("contract-suite materialization", () => {
-  it("keeps an unchanged bundle's revision and approval record", () => {
+  it("keeps an unchanged bundle's revision and signature", () => {
     const result = materializeContractSuite(proposal, design, profile, previous);
 
     assert.equal(result.interfaceContracts[0].revisionId, "interface-r1");
-    assert.deepEqual(result.interfaceContracts[0].approval, previous.interfaceContracts[0].approval);
+    assert.deepEqual(result.interfaceContracts[0].signature, previous.interfaceContracts[0].signature);
     assert.equal(result.subjectContracts[0].revisionId, "subject-r1");
-    assert.deepEqual(result.subjectContracts[0].approval, previous.subjectContracts[0].approval);
+    assert.deepEqual(result.subjectContracts[0].signature, previous.subjectContracts[0].signature);
   });
 
   it("revises a changed interface and its revision-bound subject bundle", () => {
@@ -137,8 +137,8 @@ describe("contract-suite materialization", () => {
     }, design, profile, previous);
 
     assert.notEqual(result.interfaceContracts[0].revisionId, "interface-r1");
-    assert.equal(result.interfaceContracts[0].approval, undefined);
+    assert.equal(result.interfaceContracts[0].signature, undefined);
     assert.notEqual(result.subjectContracts[0].revisionId, "subject-r1");
-    assert.equal(result.subjectContracts[0].approval, undefined);
+    assert.equal(result.subjectContracts[0].signature, undefined);
   });
 });

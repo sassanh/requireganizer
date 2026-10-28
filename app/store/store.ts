@@ -26,7 +26,7 @@ import {
   type PersistedArtifactItem,
 } from "ai-harness/reconciliation";
 import {
-  type ApprovalRecord,
+  type Signature,
   type ApprovalStatus,
   type BoundaryDesign,
   type JsonValue,
@@ -140,10 +140,10 @@ import {
   PROGRESS_STAGES,
   type ReviewBook,
   type ReviewMode,
+  type ReviewStatus,
   type ReviewUnit,
   STAGE_INPUTS,
   type StandaloneReview,
-  approvalRecord,
   checkedHash,
   coverageParentId,
   coverageUnitId,
@@ -152,7 +152,9 @@ import {
   impactUnitId,
   itemSetRevision,
   proseRevision,
+  reviewStatusOf,
   revisionListing,
+  signatureRecord,
   signedText,
 } from "./review";
 import {
@@ -192,7 +194,7 @@ export interface TestScenarioSnapshotInput {
   binding: TestScenarioBinding;
   revisionId: string;
   revision: number;
-  approval?: ApprovalRecord | null;
+  signature?: Signature | null;
   verdict?: ModelVerdict | null;
   basis: Record<string, string> | null;
   testCases?: SnapshotIn<TestCase>[];
@@ -208,7 +210,7 @@ export interface TestCaseSnapshotInput {
   definition: TestCaseDefinition;
   revisionId: string;
   revision: number;
-  approval?: ApprovalRecord | null;
+  signature?: Signature | null;
   verdict?: ModelVerdict | null;
   basis: Record<string, string> | null;
   generatedInputFingerprint?: string | null;
@@ -732,7 +734,7 @@ export const FlatStore = types
           binding: scenario.binding,
           revisionId: scenario.revisionId,
           revision: scenario.revision,
-          approval: scenario.approval ?? null,
+          signature: scenario.signature ?? null,
           verdict: scenario.verdict ?? null,
           basis: scenario.basis,
           testCases: scenario.testCases ?? [],
@@ -755,7 +757,7 @@ export const FlatStore = types
           definition: testCase.definition,
           revisionId: testCase.revisionId,
           revision: testCase.revision,
-          approval: testCase.approval ?? null,
+          signature: testCase.signature ?? null,
           verdict: testCase.verdict ?? null,
           basis: testCase.basis,
           generatedInputFingerprint: testCase.generatedInputFingerprint ?? null,
@@ -1192,12 +1194,8 @@ export const FlatStore = types
       if (changed.size === 0) return [];
       const current = inputsHash(step);
       return liveItems(step).filter((item) => {
-        const approval = item.approval;
-        if (approval == null || fragmentIsOutdated(item)) return false;
-        if (approval.inputs === current) return false;
-        if (!holds(approval, checkedHash({ revision: revisionOf(item.id), basis: item.basis }))) {
-          return false;
-        }
+        const unit = reviewUnit(item.id);
+        if (unit?.approved !== true || unit.signature!.inputs === current) return false;
         return referencedUnitIds(item as never).every((id) => !changed.has(id));
       });
     }
@@ -1251,7 +1249,7 @@ export const FlatStore = types
     }
 
     function standalone(id: string): StandaloneReview {
-      return self.review.units[id] ?? { approval: null, verdict: null };
+      return self.review.units[id] ?? { signature: null, verdict: null };
     }
 
     /** The one place a unit's review state is assembled. */
@@ -1260,7 +1258,7 @@ export const FlatStore = types
         unit: Omit<ReviewUnit, "approved">,
       ): ReviewUnit => ({
         ...unit,
-        approved: holds(unit.approval, unit.checked) && !unit.outdated && !unit.pendingRemoval,
+        approved: holds(unit.signature, unit.checked) && !unit.outdated && !unit.pendingRemoval,
       });
       if (id === OVERVIEW_PURPOSE_QUALITY_ID) {
         const overview = self.productOverview;
@@ -1273,7 +1271,7 @@ export const FlatStore = types
           content,
           outdated: false,
           pendingRemoval: false,
-          approval: overview.purposeApproval,
+          signature: overview.purposeSignature,
           verdict: overview.purposeVerdict,
         });
       }
@@ -1296,7 +1294,7 @@ export const FlatStore = types
           },
           outdated: false,
           pendingRemoval: false,
-          approval: record.approval,
+          signature: record.signature,
           verdict: record.verdict,
         });
       }
@@ -1324,7 +1322,7 @@ export const FlatStore = types
           },
           outdated: false,
           pendingRemoval: false,
-          approval: record.approval,
+          signature: record.signature,
           verdict: record.verdict,
         });
       }
@@ -1339,7 +1337,7 @@ export const FlatStore = types
           // Approving a removal never depends on the removed content being current.
           outdated: !fragment.pendingRemoval && fragmentIsOutdated(fragment),
           pendingRemoval: fragment.pendingRemoval,
-          approval: fragment.approval,
+          signature: fragment.signature,
           verdict: fragment.verdict,
         });
       }
@@ -1349,7 +1347,7 @@ export const FlatStore = types
             : self.projectSetup?.id === id ? self.projectSetup
               : contractBundle(id);
       if (artifact == null) return null;
-      const { approval: _approval, verdict: _verdict, ...content } = artifact as unknown as RevisionMetadata & Record<string, unknown>;
+      const { signature: _signature, verdict: _verdict, ...content } = artifact as unknown as RevisionMetadata & Record<string, unknown>;
       return finish({
         id,
         stage: self.boundaryDesign?.id === id
@@ -1362,7 +1360,7 @@ export const FlatStore = types
         content: content as JsonValue,
         outdated: artifactIsOutdated(id),
         pendingRemoval: false,
-        approval: artifact.approval ?? null,
+        signature: artifact.signature ?? null,
         verdict: artifact.verdict ?? null,
       });
     }
@@ -1508,6 +1506,12 @@ export const FlatStore = types
       hasStepArtifacts,
       completionRuleHolds,
       stageIsComplete,
+      /** Each unit's review state up to a stage, as an agent reads it beside the stored signatures. */
+      reviewStatuses(step: WorkflowStage): ReviewStatus[] {
+        return PROGRESS_STAGES.filter((stage) => !isBefore(step, stage)).flatMap((stage) =>
+          stageUnits(stage).map((unit) => ({ id: unit.id, stage, kind: unit.kind, status: reviewStatusOf(unit) })),
+        );
+      },
       laterStagesHoldingWork(step: WorkflowStage | null): WorkflowStage[] {
         const start = step == null ? WORKFLOW_STAGES.length : WORKFLOW_STAGES.indexOf(step) + 1;
         return WORKFLOW_STAGES.slice(start).filter(
@@ -1637,17 +1641,17 @@ export const FlatStore = types
       /** The signed text a draft shows its standing diff against. */
       signedTextOf(id: string): string | null {
         const unit = self.reviewUnit(id);
-        if (unit == null || unit.approved || unit.approval?.signed == null) return null;
-        return signedText(unit.approval.signed, self.structuralFragmentsCache[id]?.type ?? null);
+        if (unit == null || unit.approved || unit.signature?.signed == null) return null;
+        return signedText(unit.signature.signed, self.structuralFragmentsCache[id]?.type ?? null);
       },
     canRestore(id: string): boolean {
       if (self.isBusy) return false;
       const unit = self.reviewUnit(id);
-      if (unit == null || unit.approved || unit.approval?.signed == null) return false;
+      if (unit == null || unit.approved || unit.signature?.signed == null) return false;
       if (!self.stageIsEditable(unit.stage)) return false;
       return (
         unit.pendingRemoval ||
-        checkedHash(unit.approval.signed) !== checkedHash(unit.content)
+        checkedHash(unit.signature.signed) !== checkedHash(unit.content)
       );
     },
     isApprovable,
@@ -1706,20 +1710,20 @@ export const FlatStore = types
   })
   .actions((self) => {
     /** Write a unit's approval to whatever carries it. */
-    function writeApproval(unit: ReviewUnit, approval: ApprovalRecord | null): void {
+    function writeSignature(unit: ReviewUnit, signature: Signature | null): void {
       switch (unit.kind) {
         case "field":
-          self.productOverview.setPurposeApproval(approval);
+          self.productOverview.setPurposeSignature(signature);
           return;
         case "item":
-          self.structuralFragmentsCache[unit.id]!.setApproval(approval);
+          self.structuralFragmentsCache[unit.id]!.setSignature(signature);
           return;
         case "coverage":
         case "impact":
-          writeStandalone(unit.id, { approval });
+          writeStandalone(unit.id, { signature });
           return;
         case "artifact":
-          writeArtifact(unit.id, { approval });
+          writeArtifact(unit.id, { signature });
           return;
       }
     }
@@ -1741,13 +1745,13 @@ export const FlatStore = types
       }
     }
     function writeStandalone(id: string, patch: Partial<StandaloneReview>): void {
-      const current = self.review.units[id] ?? { approval: null, verdict: null };
+      const current = self.review.units[id] ?? { signature: null, verdict: null };
       self.review = {
         ...self.review,
         units: { ...self.review.units, [id]: { ...current, ...patch } },
       };
     }
-    function writeArtifact(id: string, patch: Pick<RevisionMetadata, "approval"> | Pick<RevisionMetadata, "verdict">): void {
+    function writeArtifact(id: string, patch: Pick<RevisionMetadata, "signature"> | Pick<RevisionMetadata, "verdict">): void {
       if (self.boundaryDesign?.id === id) {
         self.boundaryDesign = cast({ ...self.boundaryDesign, ...patch });
         return;
@@ -1799,9 +1803,9 @@ export const FlatStore = types
         settleAcknowledgedInputs(unit.stage);
         return;
       }
-      writeApproval(
+      writeSignature(
         unit,
-        approvalRecord(
+        signatureRecord(
           unit.checked,
           unit.kind === "item" || unit.kind === "field" ? unit.content : null,
           reviewer,
@@ -1845,9 +1849,9 @@ export const FlatStore = types
       acknowledgeInputs,
       settleAcknowledgedInputs,
       /** Write an approval record as given; migration is the one caller that bypasses the gates. */
-      recordApproval(id: string, approval: ApprovalRecord) {
+      recordSignature(id: string, signature: Signature) {
         const unit = self.reviewUnit(id);
-        if (unit != null) writeApproval(unit, approval);
+        if (unit != null) writeSignature(unit, signature);
       },
       settleAllAcknowledgedInputs() {
         IMPACT_STAGES.forEach(settleAcknowledgedInputs);
@@ -1877,7 +1881,7 @@ export const FlatStore = types
       restoreSigned(id: string) {
         if (!self.canRestore(id)) throw new Error(`Cannot restore ${id}.`);
         const unit = self.reviewUnit(id)!;
-        const signed = unit.approval!.signed as Record<string, unknown>;
+        const signed = unit.signature!.signed as Record<string, unknown>;
         if (unit.kind === "field") {
           self.productOverview.purpose = signed.purpose as string | null;
           return;
@@ -1908,10 +1912,10 @@ export const FlatStore = types
             throw new Error(`Cannot send back ${id}.`);
           }
           const fragment = self.structuralFragmentsCache[id]!;
-          if (unit.approval != null) {
-            fragment.setApproval({
-              ...unit.approval,
-              checked: checkedHash({ withdrawn: unit.approval.checked }),
+          if (unit.signature != null) {
+            fragment.setSignature({
+              ...unit.signature,
+              checked: checkedHash({ withdrawn: unit.signature.checked }),
             });
           }
           fragment.setBasis(null);
