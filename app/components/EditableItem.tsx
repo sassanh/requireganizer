@@ -3,7 +3,7 @@ import { observer } from "mobx-react-lite";
 import { isAlive } from "mobx-state-tree";
 
 import { useShownStore } from "presentation";
-import { type FragmentReference, StructuralFragment } from "store/models";
+import { StructuralFragment } from "store/models";
 
 import FragmentShell from "./FragmentShell";
 import { StagedTextField } from "./TextChange";
@@ -13,7 +13,6 @@ interface EditableItemProps<Type extends StructuralFragment>
   isDisabled: boolean;
   list: Type[];
   fragment: Type;
-  onComment: (parameters: { fragment: FragmentReference; comment: string }) => void;
 }
 
 const EditableItemContent = observer(function EditableItemContent<
@@ -22,16 +21,13 @@ const EditableItemContent = observer(function EditableItemContent<
   isDisabled,
   list,
   fragment,
-  onComment,
   ...props
 }: EditableItemProps<Type>) {
   const shown = useShownStore();
   return (
     <FragmentShell
-      isDisabled={isDisabled}
       list={list}
       fragment={fragment}
-      onComment={onComment}
       {...props}
     >
       <StagedTextField

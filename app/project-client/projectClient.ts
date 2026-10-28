@@ -6,7 +6,7 @@ import {
   type SnapshotIn,
 } from "mobx-state-tree";
 
-import type { AgentToolDescription } from "ai-agent/agent-access";
+import type { AgentCaller, AgentToolDescription } from "ai-agent/agent-access";
 import {
   addressOf,
   type ClientConnection,
@@ -369,9 +369,9 @@ export class ProjectClient {
   /** The tools an outside agent can call on the open project now. */
   listAgentTools = (): Promise<AgentToolDescription[]> => this.request("listAgentTools");
 
-  /** Run one of those tools; resolves to its text result. */
-  callAgentTool = (name: string, args: Record<string, unknown>): Promise<string> =>
-    this.request("callAgentTool", name, args);
+  /** Run one of those tools for the named agent; resolves to its text result. */
+  callAgentTool = (name: string, args: Record<string, unknown>, caller: AgentCaller): Promise<string> =>
+    this.request("callAgentTool", name, args, caller);
 
   /** Every visible module, backed by the replica or a sibling store. */
   getExportModules = (): ExportableModule[] => {

@@ -12,7 +12,7 @@ Requireganizer is a Next.js application with a MobX State Tree project model, an
 | Connection (`app/connection/`) | The versioned JSON messages between host and client, and the in-process and WebSocket links that carry them. |
 | Persistence adapter (`app/persistence/`) | Store projects, module timelines, revisions, and provider calls behind one asynchronous interface. |
 | Project server (`server/`) | Serve one project from its file: the host with the file adapter, the WebSocket link its own pages connect to, and the static interface. One process serves a project at a time; any other process that needs the project connects to it, and takes over when it stops. The file adapter reports edits made to the file elsewhere. |
-| MCP server (`server/mcp.ts`) | Serve a project's agent tools to a coding agent: the built-in agent's read tools and stage submission tools, run in the host. |
+| MCP server (`server/mcp.ts`) | Serve a project's agent tools to a coding agent: the built-in agent's read tools and stage submission tools, and, while the agent answers change requests, thread replies; run in the host. |
 | Project store | Own schema-v4 module registries and per-module artifacts, exact revision bindings, the review gate (approvals, verdicts, bases, the frontier), the conversation transcript, virtual files, import/export, and atomic state transitions. |
 | Contract domain | Define boundary, formal-contract, structured-test, setup types and authoritative validation. |
 | AI agent (`app/ai-agent/`) | Run a continuous pi-agent conversation: one system prompt, short structured commands per user action, artifact reads through tools, and validated result tools that apply proposals. Models are called directly, from wherever the host runs. |

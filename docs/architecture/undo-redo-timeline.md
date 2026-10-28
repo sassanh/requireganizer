@@ -30,7 +30,7 @@ type TurnNode = {
 
 ## Persistence
 
-The whole tree (nodes, root, active leaf) plus the artifact store is persisted per project (schema v3) with debounced writes and a `beforeunload` flush. On quota failure the tree prunes to the active path and retries. On load, a malformed payload starts a fresh tree. The store snapshot itself remains the authority for the *current* state: after a reload the timeline reconciles by appending the live state if it differs from the active leaf, so pre-reload history stays reachable through undo.
+The whole tree (nodes, root, active leaf) plus the artifact store is persisted per project (timeline version 4) with debounced writes and a `beforeunload` flush. On quota failure the tree prunes to the active path and retries. On load, a malformed payload starts a fresh tree. The store snapshot itself remains the authority for the *current* state: after a reload the timeline reconciles by appending the live state if it differs from the active leaf, so pre-reload history stays reachable through undo.
 
 ## Conversation integration
 
@@ -38,4 +38,4 @@ The pane header carries undo/redo buttons and a history panel (active-path outli
 
 ## Scope
 
-Per-project and per-browser (schema v3; older persisted projects are rejected by the schema gate). Ephemeral UI state (validation banners, sidebar visibility) is excluded and survives restores unchanged.
+Per-project and per-browser (timeline version 4; a persisted history of another version starts fresh). Ephemeral UI state (validation banners, sidebar visibility) is excluded and survives restores unchanged.

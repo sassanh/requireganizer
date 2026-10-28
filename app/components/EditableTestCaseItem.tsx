@@ -9,13 +9,11 @@ import FragmentShell from "./FragmentShell";
 import { StagedTextField } from "./TextChange";
 
 interface EditableTestCaseItemProps extends StackProps {
-  isDisabled: boolean;
   list: TestCase[];
   fragment: TestCase;
 }
 
 const EditableTestCaseItemContent = observer(function EditableTestCaseItemContent({
-  isDisabled,
   list,
   fragment,
   ...props
@@ -29,7 +27,6 @@ const EditableTestCaseItemContent = observer(function EditableTestCaseItemConten
 
   return (
     <FragmentShell
-      isDisabled={isDisabled}
       list={list}
       fragment={fragment}
       highlightSx={(theme) => ({

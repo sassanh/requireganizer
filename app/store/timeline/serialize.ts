@@ -21,6 +21,7 @@ export type ProjectSnapshot = {
   projectSetup: unknown;
   scaffoldFiles: unknown[];
   review: unknown;
+  threads: unknown[];
   conversation: unknown[];
   // Ephemeral fields the timeline excludes; preserved across restores.
   // `isClean` is bookkeeping flipped by undeclared side paths (imports,
@@ -47,6 +48,7 @@ export type StateTree = {
   projectSetup: Hash | null;
   scaffoldFiles: Hash[];
   review: Hash;
+  threads: Hash[];
   conversation: Hash[];
 };
 
@@ -158,6 +160,7 @@ export function captureState(snapshot: ProjectSnapshot): StateTree {
       : putArtifact(snapshot.projectSetup),
     scaffoldFiles: hashArray(snapshot.scaffoldFiles),
     review: putArtifact(snapshot.review),
+    threads: hashArray(snapshot.threads),
     conversation: hashArray(snapshot.conversation),
   };
 }
@@ -188,6 +191,7 @@ export function resolveStateValues(state: StateTree): ResolvedState {
     projectSetup: resolveArtifact(state.projectSetup),
     scaffoldFiles: state.scaffoldFiles.map(resolveArtifact),
     review: resolveArtifact(state.review),
+    threads: state.threads.map(resolveArtifact),
     conversation: state.conversation.map(resolveArtifact),
   };
 }
@@ -218,7 +222,7 @@ export function artifactCount(): number {
  * Version of a persisted timeline. Stored histories of another version
  * hold states of another project shape and start fresh instead.
  */
-export const TIMELINE_VERSION = 3 as const;
+export const TIMELINE_VERSION = 4 as const;
 
 /** The persisted form of the conversation tree + the artifact store. */
 export type PersistedTimeline = {

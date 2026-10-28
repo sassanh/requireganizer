@@ -11,6 +11,7 @@ import {
 } from "mobx-state-tree";
 import { createContext, useContext } from "react";
 
+import type { AiCommand, CommandStage, RevisionTarget } from "ai-agent/command";
 import { aiSettings, reviewerModel } from "ai-agent/settings";
 import { hydrateConversationThinking } from "ai-agent/thinking";
 import type {
@@ -56,6 +57,7 @@ import { uuid } from "utilities";
 
 
 import {
+  answerThread,
   generateAcceptanceCriteria,
   generateBoundaryDesign,
   generateImplementationProfile,
@@ -67,13 +69,9 @@ import {
   generateTestCode,
   generateTestScenarios,
   generateUserStories,
-  handleComment,
-  handleOverviewFieldComment,
   import as import_,
   refreshStage,
-  requestStageChange,
   reviewStage,
-  reviseFormalContract,
   sendConversationMessage,
   submitAgentProposal,
   regenerateLastReply,
@@ -158,6 +156,14 @@ import {
   revisionListing,
   signedText,
 } from "./review";
+import {
+  type ReviewThread,
+  type ThreadAnswer,
+  type ThreadAnswerer,
+  type ThreadAuthor,
+  waitsForPerson,
+  withMessage,
+} from "./threads";
 import { declareTimelineStep } from "./timeline/controller";
 import { withSelf } from "./utilities";
 
@@ -422,6 +428,7 @@ export const FlatStore = types
     projectSetup: types.maybeNull(types.frozen<ProjectSetup>()),
     scaffoldFiles: types.array(ScaffoldFileModel),
     review: types.optional(types.frozen<ReviewBook>(), EMPTY_REVIEW_BOOK),
+    threads: types.optional(types.frozen<ReviewThread[]>(), []),
     stageListChanges: types.map(types.frozen<ListChange>()),
     systemMessage: types.maybeNull(types.string),
     conversation: types.optional(types.frozen<unknown[]>(), []),
@@ -484,6 +491,7 @@ export const FlatStore = types
       self.projectSetup = null;
       self.scaffoldFiles = cast([]);
       self.review = EMPTY_REVIEW_BOOK;
+      self.threads = [];
       self.stageListChanges.clear();
       self.systemMessage = null;
       self.pendingImpactChange = null;
@@ -2059,6 +2067,190 @@ export const FlatStore = types
         );
       },
     };
+  })
+  .views((self) => {
+    /** The fragment types whose items take change requests. */
+    const REQUESTABLE_FRAGMENTS: ReadonlySet<StructuralFragmentName> = new Set([
+      StructuralFragmentName.PrimaryFeature,
+      StructuralFragmentName.TargetUser,
+      StructuralFragmentName.UserStory,
+      StructuralFragmentName.Requirement,
+      StructuralFragmentName.AcceptanceCriteria,
+    ]);
+    function formalTarget(id: string): RevisionTarget | null {
+      const suite = self.contractSuite;
+      if (suite == null) return null;
+      if (suite.interfaceContracts.some((bundle) => bundle.id === id)) return { kind: "interface", id };
+      if (suite.subjectContracts.some((bundle) => bundle.id === id)) return { kind: "subject", id };
+      if (suite.verificationContracts.some((bundle) => bundle.id === id)) return { kind: "verification", id };
+      return null;
+    }
+    /**
+     * The command that asks Requireganizer's writer for a change to one
+     * unit, or null for a unit that takes no change requests. The one
+     * place that knows which units do.
+     */
+    function changeRequestCommand(unitId: string, comment: string): AiCommand | null {
+      const unit = self.reviewUnit(unitId);
+      if (unit == null) return null;
+      switch (unit.kind) {
+        case "field":
+          return { kind: "comment", id: unitId, comment };
+        case "item": {
+          const fragment = self.structuralFragmentsCache[unitId];
+          if (fragment == null || !REQUESTABLE_FRAGMENTS.has(fragment.type)) return null;
+          return { kind: "comment", fragment: fragment.type, id: unitId, comment };
+        }
+        case "coverage": {
+          const parentId = coverageParentId(unitId)!;
+          const stage = unit.stage as CommandStage;
+          return { kind: "revise", stage, comment: `Coverage of ${self.getCode(parentId) ?? parentId}: ${comment}` };
+        }
+        case "artifact": {
+          if (unitId === self.boundaryDesign?.id) {
+            return { kind: "revise", stage: WorkflowStage.BoundaryDesign, comment };
+          }
+          const target = formalTarget(unitId);
+          return target == null
+            ? null
+            : { kind: "revise", stage: WorkflowStage.InterfaceContracts, target, comment };
+        }
+        case "impact":
+          return null;
+      }
+    }
+    /** Threads whose unit still exists; a thread on a removed unit is over. */
+    function liveThreads(): ReviewThread[] {
+      return self.threads.filter(({ unitId }) => self.reviewUnit(unitId) != null);
+    }
+    function openThreadOf(unitId: string): ReviewThread | null {
+      return liveThreads().find((thread) => thread.unitId === unitId && thread.resolvedAt == null) ?? null;
+    }
+    return {
+      changeRequestCommand,
+      get threadAnswerer(): ThreadAnswerer {
+        return self.review.answerer;
+      },
+      /** The unit is of a kind that takes change requests. */
+      takesChangeRequests(unitId: string): boolean {
+        return changeRequestCommand(unitId, "") != null;
+      },
+      /** The unit takes change requests now: its stage can change. */
+      canRequestChange(unitId: string): boolean {
+        const unit = self.reviewUnit(unitId);
+        return unit != null && self.stageIsEditable(unit.stage) && changeRequestCommand(unitId, "") != null;
+      },
+      /** The unit's threads, oldest first. */
+      threadsOf(unitId: string): ReviewThread[] {
+        return liveThreads().filter((thread) => thread.unitId === unitId);
+      },
+      openThreadOf,
+      /** A stage's open threads, oldest first. */
+      openThreads(step: WorkflowStage): ReviewThread[] {
+        return liveThreads().filter(
+          (thread) => thread.resolvedAt == null && self.reviewUnit(thread.unitId)!.stage === step,
+        );
+      },
+      threadsWaitingForPerson(step: WorkflowStage): number {
+        return liveThreads().filter(
+          (thread) => waitsForPerson(thread) && self.reviewUnit(thread.unitId)!.stage === step,
+        ).length;
+      },
+      /** Why the answers cannot be given now, or null; a submission's answers name threads of its own stage. */
+      threadAnswerProblem(
+        answers: readonly ThreadAnswer[],
+        author: ThreadAuthor,
+        step?: WorkflowStage,
+      ): string | null {
+        const answerer: ThreadAnswerer | null =
+          author.kind === "agent" ? "coding-agent" : author.kind === "model" ? "requireganizer" : null;
+        if (answerer !== self.review.answerer) {
+          return self.review.answerer === "requireganizer"
+            ? "Requireganizer's AI answers change requests in this project. The person can hand them to the coding agent in Requireganizer's project menu."
+            : "The coding agent answers change requests in this project.";
+        }
+        for (const { threadId, text } of answers) {
+          const thread = liveThreads().find(({ id }) => id === threadId);
+          if (thread == null) return `No open thread ${threadId}. Read the open threads with get_workflow_state.`;
+          if (thread.resolvedAt != null) return `The person resolved thread ${threadId}.`;
+          const stage = self.reviewUnit(thread.unitId)!.stage;
+          if (step != null && stage !== step) {
+            return `Thread ${threadId} is about ${self.stageLabel(stage)}; answer it with that stage's submission or with reply_to_thread.`;
+          }
+          if (text.trim().length === 0) return `The reply to thread ${threadId} is empty.`;
+        }
+        return null;
+      },
+    };
+  })
+  .actions((self) => {
+    function setThreads(threads: ReviewThread[]) {
+      self.threads = threads;
+    }
+    return {
+      /**
+       * The person asks for a change to a unit: a new thread, or the next
+       * message of the unit's open thread. Returns the thread's id.
+       */
+      requestChange(unitId: string, text: string): string {
+        if (!self.canRequestChange(unitId)) throw new Error(`Cannot request a change to ${unitId}.`);
+        if (text.trim().length === 0) throw new UserFacingError("Write what should change.");
+        const message = { author: PERSON, text: text.trim(), at: new Date().toISOString() };
+        const open = self.openThreadOf(unitId);
+        if (open != null) {
+          setThreads(withMessage(self.threads, open.id, message));
+          return open.id;
+        }
+        const thread: ReviewThread = { id: uuid(), unitId, messages: [message], resolvedAt: null };
+        setThreads([...self.threads, thread]);
+        return thread.id;
+      },
+      /** The person closes a thread; only the person does. */
+      resolveThread(threadId: string) {
+        const thread = self.threads.find(({ id }) => id === threadId);
+        if (thread == null || thread.resolvedAt != null) throw new Error(`Thread ${threadId} is not open.`);
+        setThreads(self.threads.map((candidate) =>
+          candidate === thread ? { ...thread, resolvedAt: new Date().toISOString() } : candidate,
+        ));
+      },
+      setThreadAnswerer(answerer: ThreadAnswerer) {
+        self.review = { ...self.review, answerer };
+      },
+      /**
+       * Post the answerer's replies. While a change waits for the person's
+       * confirmation, the replies wait with it: confirming applies them
+       * with the change, and cancelling drops them with it.
+       */
+      answerThreads(
+        answers: readonly ThreadAnswer[],
+        author: ThreadAuthor,
+        { withSubmission = false, step }: { withSubmission?: boolean; step?: WorkflowStage } = {},
+      ) {
+        const problem = self.threadAnswerProblem(answers, author, step);
+        if (problem != null) throw new UserFacingError(problem);
+        const add = (threads: ReviewThread[]) =>
+          answers.reduce(
+            (current, { threadId, text }) =>
+              withMessage(current, threadId, {
+                author,
+                text: text.trim(),
+                at: new Date().toISOString(),
+                ...(withSubmission ? { withSubmission: true as const } : {}),
+              }),
+            threads,
+          );
+        const pending = self.pendingImpactChange;
+        if (pending != null) {
+          const candidate = pending.candidateSnapshot as { threads?: ReviewThread[] };
+          self.pendingImpactChange = {
+            ...pending,
+            candidateSnapshot: { ...candidate, threads: add(candidate.threads ?? []) },
+          };
+          return;
+        }
+        setThreads(add(self.threads));
+      },
+    };
   });
 
 // Every AI flow, under the property name it is assigned on the store. The
@@ -2066,7 +2258,7 @@ export const FlatStore = types
 // flow's root action (property keys survive minification), and the flow's
 // `__timelineStep` tag supplies the operation label.
 const aiFlows = {
-  handleComment,
+  answerThread,
   sendConversationMessage,
   regenerateLastReply,
   refreshStage,
@@ -2077,13 +2269,10 @@ const aiFlows = {
   generateBoundaryDesign,
   generateImplementationProfile,
   generateInterfaceContracts,
-  reviseFormalContract,
   generateTestScenarios,
   generateTestCases,
   generateProjectSetup,
   generateTestCode,
-  handleOverviewFieldComment,
-  requestStageChange,
   reviewStage,
   submitAgentProposal,
 };

@@ -11,7 +11,6 @@ import {
   StructuralFragment as StructuralFragmentName,
 } from "store";
 import {
-  type FragmentReference,
   type TestCase,
   StructuralFragment as StructuralFragmentModel,
 } from "store/models";
@@ -104,7 +103,6 @@ interface StructuralFragmentsProps<Type extends StructuralFragmentModel> {
   isDisabled: boolean;
   structuralFragment: Type["type"];
   title?: string;
-  onComment: (parameters: { fragment: FragmentReference; comment: string }) => void;
 }
 
 const StructuralFragments = <Type extends StructuralFragmentModel>({
@@ -112,7 +110,6 @@ const StructuralFragments = <Type extends StructuralFragmentModel>({
   isDisabled,
   structuralFragment,
   title,
-  onComment,
 }: StructuralFragmentsProps<Type>): ReactElement => (
   <Stack sx={{ gap: 1 }}>
     {title != null ? (
@@ -129,7 +126,6 @@ const StructuralFragments = <Type extends StructuralFragmentModel>({
           list={options?.list ?? fragments}
           fragment={fragment}
           isDisabled={options?.isDisabled ?? isDisabled}
-          onComment={onComment}
         />
       )}
     />
@@ -157,7 +153,6 @@ export const TestCaseFragments = function TestCaseFragments({
         <EditableTestCaseItem
           list={options?.list ?? fragments}
           fragment={fragment}
-          isDisabled={options?.isDisabled ?? isDisabled}
         />
       )}
     />

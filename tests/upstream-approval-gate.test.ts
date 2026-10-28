@@ -110,20 +110,15 @@ describe("frontier gate", () => {
     assert.equal(errorSpy.mock.callCount(), 0);
   });
 
-  it("refuses a comment after the frontier without reaching the agent", async () => {
+  it("refuses a change request after the frontier, so no answerer is asked", () => {
     const store = storeWithOverview();
     approveStage(store, WorkflowStage.ProductOverview);
     generateStories(store);
     generateRequirements(store);
-    const fragment = store.requirements[0]!;
-    await store.handleComment({
-      fragment: { id: fragment.id, type: fragment.type },
-      comment: "Say it shorter.",
-    });
-    assert.match(
-      store.validationErrors ?? "",
-      /Complete User Stories before trying to apply the requested change\./,
-    );
+    const requirement = store.requirements[0]!;
+    assert.equal(store.canRequestChange(requirement.id), false);
+    assert.throws(() => store.requestChange(requirement.id, "Say it shorter."), /Cannot request a change/);
+    assert.deepEqual(store.threads, []);
   });
 
   it("refuses a generation while an earlier stage is incomplete", async () => {

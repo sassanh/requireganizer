@@ -42,12 +42,7 @@ const CoveragePanel = observer(function CoveragePanel({ step }: { step: Workflow
                   {children.length === 0 ? "Nothing covers it yet." : `Covered by ${children.join(", ")}`}
                 </Typography>
               </Stack>
-              <ApprovalMark
-                id={unitId}
-                onRequestChange={(comment) =>
-                  void store.requestStageChange(step, `Coverage of ${parentCode}: ${comment}`)
-                }
-              />
+              <ApprovalMark id={unitId} />
             </Stack>
           </ApprovalFrame>
         );

@@ -10,7 +10,7 @@ import { projectPlaceHref } from "lib/routes";
 import { useShownStore } from "presentation";
 import { useOpenProjectId } from "projectContext";
 import { FRAGMENT_CODES, Priority, StructuralFragment as StructuralFragmentName, useStore } from "store";
-import { type FragmentReference, fragmentReference, type TestCase, StructuralFragment } from "store/models";
+import { type TestCase, StructuralFragment } from "store/models";
 
 import { ApprovalFrame } from "./ApprovalFrame";
 import ApprovalMark from "./ApprovalMark";
@@ -52,14 +52,14 @@ interface FragmentFrameProps extends StackProps {
   approved?: boolean;
   qualityIssues?: readonly string[];
   children: ReactNode;
-  isDisabled: boolean;
   isHighlighted: boolean;
   highlightSx?:
   | React.CSSProperties
   | ((theme: Theme) => React.CSSProperties);
   dependencies: CaptionLink[];
   references: CaptionLink[];
-  onComment?: (comment: string) => void;
+  /** The unit shows the change-request button, which the captions leave room for. */
+  takesChangeRequests: boolean;
   getCopyText?: () => string;
 }
 
@@ -71,19 +71,18 @@ function FragmentFrame({
   approved,
   qualityIssues = [],
   children,
-  isDisabled,
   isHighlighted,
   highlightSx,
   dependencies,
   references,
-  onComment,
+  takesChangeRequests,
   onClick,
   getCopyText,
   sx,
   ...props
 }: FragmentFrameProps) {
   const hasCaptions = dependencies.length > 0 || references.length > 0;
-  const captionRightPadding = onComment != null ? 36 : 22;
+  const captionRightPadding = takesChangeRequests ? 36 : 22;
   // Clicking anywhere on the card (not a button or link) focuses its text,
   // so the whole card — not just the text box — shows the focus border.
   const handleFrameClick = (event: MouseEvent<HTMLDivElement>): void => {
@@ -173,11 +172,7 @@ function FragmentFrame({
           }}
         >
           <Stack direction="row" sx={{ alignItems: "center", gap: 0.5 }}>
-            <ApprovalMark
-              id={id}
-              onRequestChange={onComment}
-              requestChangeDisabled={isDisabled}
-            />
+            <ApprovalMark id={id} />
             <FragmentMoreMenu />
           </Stack>
         </Stack>
@@ -189,10 +184,8 @@ function FragmentFrame({
 
 interface FragmentShellProps<Type extends StructuralFragment>
   extends StackProps {
-  isDisabled: boolean;
   list: Type[];
   fragment: Type;
-  onComment?: (parameters: { fragment: FragmentReference; comment: string }) => void;
   highlightSx?:
   | React.CSSProperties
   | ((theme: Theme) => React.CSSProperties);
@@ -202,10 +195,8 @@ const FragmentShellContent = observer(function FragmentShellContent<
   Type extends StructuralFragment,
 >({
   children,
-  isDisabled,
   list,
   fragment,
-  onComment,
   highlightSx,
   sx,
   ...props
@@ -259,11 +250,6 @@ const FragmentShellContent = observer(function FragmentShellContent<
     pulseElement(node, HIGHLIGHT_MILLISECONDS);
   }, [hash, isHighlighted, fragmentId]);
 
-  const handleComment = (comment: string) => {
-    if (!isAlive(fragment)) return;
-    onComment?.({ fragment: fragmentReference(fragment), comment });
-  };
-
   const frame = (
     <FragmentFrame
       code={code}
@@ -271,12 +257,11 @@ const FragmentShellContent = observer(function FragmentShellContent<
       priority={fragmentPriority}
       approved={shown?.approvalOf(fragment.id) === "approved"}
       qualityIssues={qualityIssues}
-      isDisabled={isDisabled}
       isHighlighted={isHighlighted}
       highlightSx={highlightSx}
       dependencies={dependencies}
       references={references}
-      onComment={handleComment}
+      takesChangeRequests={store?.takesChangeRequests(fragmentId) ?? false}
       getCopyText={() =>
         formatFragmentCopy({
           code,
@@ -381,7 +366,6 @@ function itemBody(fragment: StructuralFragment): ReactNode {
 export function freezeFragmentSnapshot(
   id: string,
   snapshot: unknown,
-  isDisabled: boolean,
 ): void {
   if (getFrozenFragment(id) != null) return;
   if (snapshot == null || typeof snapshot !== "object") return;
@@ -394,8 +378,8 @@ export function freezeFragmentSnapshot(
       code=""
       type={type}
       priority={typeof record.priority === "string" ? record.priority : ""}
-      isDisabled={isDisabled}
       isHighlighted={false}
+      takesChangeRequests={false}
       dependencies={[]}
       references={[]}
     >

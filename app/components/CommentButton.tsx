@@ -1,27 +1,68 @@
-import { Paper, Popper, TextField } from "@mui/material";
+import { Button, Chip, Divider, Paper, Popper, Stack, TextField, Typography } from "@mui/material";
 import { observer } from "mobx-react-lite";
 import { ChangeEvent, FormEvent, useCallback, useEffect, useState } from "react";
 
 import { requestChangeAction, sendChangeRequestAction } from "actions/actions";
 import { ActionView } from "actions/ActionView";
+import { useStore } from "store";
+import { answererLabel, authorLabel, type ReviewThread, waitsForPerson } from "store/threads";
 
 import { sendOnEnter } from "./enterToSend";
 
 interface CommentButtonProps {
+  /** The reviewable unit whose change requests this shows. */
+  unitId: string;
   disabled?: boolean;
   /** Resolving to `false` keeps the box open: a decision dialog still owns the comment. */
   onSubmit: (comment: string) => unknown;
 }
 
+function ThreadMessages({ thread, faded = false }: { thread: ReviewThread; faded?: boolean }) {
+  return (
+    <Stack spacing={1} sx={{ opacity: faded ? 0.6 : 1 }}>
+      {thread.messages.map((message, index) => (
+        <Stack key={index}>
+          <Typography variant="caption" color="text.secondary">
+            {authorLabel(message.author)} · {new Date(message.at).toLocaleString()}
+            {message.withSubmission ? " · changed the work" : ""}
+          </Typography>
+          <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
+            {message.text}
+          </Typography>
+        </Stack>
+      ))}
+    </Stack>
+  );
+}
+
+/**
+ * A unit's change requests: the button that asks for one, the open
+ * thread's state, and the popover that holds the conversation. Only the
+ * person resolves a thread.
+ */
 const CommentButton = ({
+  unitId,
   disabled = false,
   onSubmit,
 }: CommentButtonProps) => {
+  const store = useStore();
   const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
   const [comment, setComment] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showResolved, setShowResolved] = useState(false);
 
   const [buttonRef, setButtonRef] = useState<HTMLButtonElement | null>(null);
+
+  const thread = store.openThreadOf(unitId);
+  const resolved = store.threadsOf(unitId).filter(({ resolvedAt }) => resolvedAt != null);
+  const waitingForYou = thread != null && waitsForPerson(thread);
+  const unit = store.reviewUnit(unitId);
+  const canAskAgain =
+    thread != null &&
+    !waitingForYou &&
+    store.threadAnswerer === "requireganizer" &&
+    unit != null &&
+    !store.isBusy;
 
   const isOpen = anchor !== null;
   const openPopover = useCallback(() => {
@@ -40,7 +81,7 @@ const CommentButton = ({
       if (target == null || anchor.contains(target)) return;
       if (
         target instanceof HTMLElement &&
-        target.closest("[data-comment-popover]") != null
+        target.closest("[data-comment-popover], [data-thread-state]") != null
       ) {
         return;
       }
@@ -83,6 +124,17 @@ const CommentButton = ({
 
   return (
     <>
+      {thread != null ? (
+        <Chip
+          size="small"
+          data-thread-state
+          data-thread-waiting={waitingForYou ? "" : undefined}
+          variant={waitingForYou ? "filled" : "outlined"}
+          color={waitingForYou ? "warning" : "default"}
+          label={waitingForYou ? "Waiting for you" : `Waiting for ${answererLabel(store.threadAnswerer)}`}
+          onClick={openPopover}
+        />
+      ) : null}
       <span data-comment-open={isOpen ? "" : undefined}>
         <ActionView
           variant="iconbutton"
@@ -101,7 +153,7 @@ const CommentButton = ({
         <Paper
           component="form"
           data-comment-popover
-          sx={{ p: 1, width: 320 }}
+          sx={{ p: 1, width: 360, maxHeight: "60vh", overflowY: "auto" }}
           onSubmit={handleFormSubmit}
           onKeyDown={(event) => {
             if (event.key === "Escape") {
@@ -112,27 +164,55 @@ const CommentButton = ({
             sendOnEnter(event, () => void handleSubmit());
           }}
         >
-          <TextField
-            fullWidth
-            minRows={2}
-            multiline
-            label="Change request"
-            value={comment}
-            disabled={disabled || isSubmitting}
-            autoFocus
-            onChange={handleCommentChange}
-          />
-          <ActionView
-            variant="iconbutton"
-            action={sendChangeRequestAction}
-            target={{
-              blocked: disabled || isSubmitting,
-              text: comment,
-              send: () => void handleSubmit(),
-            }}
-            submit
-            loading={isSubmitting}
-          />
+          <Stack spacing={1}>
+            {resolved.length > 0 ? (
+              <>
+                <Button size="small" sx={{ alignSelf: "flex-start" }} onClick={() => setShowResolved(!showResolved)}>
+                  {showResolved ? "Hide" : "Show"} {resolved.length} resolved
+                </Button>
+                {showResolved
+                  ? resolved.map((past) => <ThreadMessages key={past.id} thread={past} faded />)
+                  : null}
+                <Divider />
+              </>
+            ) : null}
+            {thread != null ? <ThreadMessages thread={thread} /> : null}
+            <Stack direction="row" sx={{ alignItems: "flex-end", gap: 0.5 }}>
+              <TextField
+                fullWidth
+                minRows={2}
+                multiline
+                label={thread == null ? "Change request" : "Reply"}
+                value={comment}
+                disabled={disabled || isSubmitting}
+                autoFocus
+                onChange={handleCommentChange}
+              />
+              <ActionView
+                variant="iconbutton"
+                action={sendChangeRequestAction}
+                target={{
+                  blocked: disabled || isSubmitting,
+                  text: comment,
+                  send: () => void handleSubmit(),
+                }}
+                submit
+                loading={isSubmitting}
+              />
+            </Stack>
+            {thread != null ? (
+              <Stack direction="row" sx={{ justifyContent: "flex-end", gap: 1 }}>
+                {canAskAgain ? (
+                  <Button size="small" onClick={() => void store.answerThread(unit.stage, thread.id)}>
+                    Ask again
+                  </Button>
+                ) : null}
+                <Button size="small" disabled={store.isBusy} onClick={() => void store.resolveThread(thread.id)}>
+                  Resolve
+                </Button>
+              </Stack>
+            ) : null}
+          </Stack>
         </Paper>
       </Popper>
     </>

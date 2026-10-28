@@ -10,6 +10,12 @@ Each item's left bar is its approval stamp: muted until approved, green when app
 
 In User Stories, Requirements, and Acceptance Criteria, the **Coverage** list under the items asks one approval per upstream item: the items referencing it cover it fully. Request a change there when something is missing.
 
+## Change requests
+
+**Request change** on an item opens a thread on it; another request while the thread is open adds to it. **Change requests go to** in the project menu names who answers: Requireganizer's AI, which starts as soon as you send a request, or the coding agent connected over MCP, which answers when you ask it to. An answer changes the item and says what changed, or only replies, such as with a question. When Requireganizer's AI could not answer, **Ask again** in the thread retries.
+
+An item whose thread waits for you is marked, and its stage tab counts those threads. Only you resolve a thread; resolved threads stay readable in the item's thread.
+
 ## Review modes
 
 Each stage runs in **Manual review** or **Auto review**. With a reviewer model configured (`AI_REVIEWER_MODEL` for a server, **AI settings** in the page build), the model judges every draft against the stage's quality contract. In manual review its verdict appears next to the item as a recommendation and you approve. In auto review its approval is the approval; a rejection waits for you with the model's reason. When you approve something the model rejected, or request a change to something it approved, you decide in a dialog that shows its reason. **Review with the model** asks for verdicts on drafts that have none.

@@ -15,6 +15,10 @@ Each list stage records the content of the inputs it last **acknowledged**: at a
 
 The frontier, stage status, editability, and every gate on generation, approval, refresh, and change requests follow from these units.
 
+## Change request threads
+
+A module stores its threads with the unit each is about, and its review state names who answers them. Whose turn it is follows from a thread's last message. A thread whose unit no longer exists has ended. Replies given with a proposal that waits for the person's confirmation wait with it.
+
 ## Exact dependencies
 
 Boundary Design, Implementation Profile, interface bundles, subject bundles, verification contracts, scenarios, cases, and Project Setup have stable artifact IDs and immutable revision IDs. Boundary Design records the revisions of the requirement and acceptance-criteria sets it consumes. The Implementation Profile records its Boundary Design revision, and every later artifact stores the exact revisions it consumes.

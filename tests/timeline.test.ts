@@ -10,7 +10,7 @@ import { applySnapshot, getSnapshot } from "mobx-state-tree";
 
 import { installGateway } from "../app/ai-agent/gateway";
 import { configureAiSettings, DEFAULT_AI_SETTINGS, fixedAiSettings } from "../app/ai-agent/settings";
-import { WorkflowStage } from "../app/store/constants";
+import { OVERVIEW_PURPOSE_QUALITY_ID, WorkflowStage } from "../app/store/constants";
 import { Store, generateStep } from "../app/store/store";
 import type { Store as StoreInstance } from "../app/store/store";
 import {
@@ -103,6 +103,7 @@ function snapshotOf(store: StoreInstance): Record<string, unknown> {
         projectSetup: store.projectSetup,
         scaffoldFiles: store.scaffoldFiles,
         review: store.review,
+        threads: store.threads,
         conversation: store.conversation,
       },
       // A fresh store leaves maybeNull(frozen) props undefined while a
@@ -157,6 +158,7 @@ describe("timeline serialization", () => {
       projectSetup: null,
       scaffoldFiles: [] as unknown[],
       review: {},
+      threads: [] as unknown[],
       conversation: [
         { role: "user", content: [{ type: "text", text: "q" }], timestamp: 1 },
       ],
@@ -195,6 +197,7 @@ describe("timeline serialization", () => {
       projectSetup: null,
       scaffoldFiles: [],
       review: {},
+      threads: [] as unknown[],
       conversation: [],
     } as never);
     const payload = {
@@ -621,6 +624,22 @@ describe("timeline controller", () => {
     assert.equal(fragment.getIndex(), 0);
   });
 
+  it("keeps a change request through the undo of a later step", () => {
+    const store = newStore();
+    store.setPurpose({ purpose: "Help people keep plants alive." });
+    commitTimelineSegment();
+    const threadId = store.requestChange(OVERVIEW_PURPOSE_QUALITY_ID, "Name who is helped.");
+    commitTimelineSegment();
+    store.setThreadAnswerer("coding-agent");
+    commitTimelineSegment();
+
+    undo();
+    assert.equal(store.threadAnswerer, "requireganizer");
+    assert.equal(store.openThreadOf(OVERVIEW_PURPOSE_QUALITY_ID)?.id, threadId);
+    undo();
+    assert.equal(store.openThreadOf(OVERVIEW_PURPOSE_QUALITY_ID), null);
+  });
+
   it("records only declared steps: infrastructure actions open no turn", () => {
     const store = newStore();
     const entriesBefore = getTimelineMeta().entries.length;
@@ -655,7 +674,7 @@ describe("timeline controller", () => {
     const declared = getDeclaredStepNames();
     for (const name of [
       "sendConversationMessage",
-      "handleComment",
+      "answerThread",
       "regenerateLastReply",
       "generateProductOverview",
       "generateUserStories",

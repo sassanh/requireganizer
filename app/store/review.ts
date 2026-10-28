@@ -7,6 +7,7 @@ import {
 } from "contract-domain";
 
 import { StructuralFragment, WorkflowStage } from "./constants";
+import type { ThreadAnswerer } from "./threads";
 
 export type { ApprovalRecord, ModelVerdict, Reviewer } from "contract-domain";
 
@@ -21,21 +22,23 @@ export interface StandaloneReview {
 }
 
 /**
- * The stage-level review bookkeeping of one module: standalone unit
- * reviews, the input content each stage last acknowledged, and each
- * stage's review mode. Frozen as a whole so the timeline and the
+ * The review bookkeeping of one module: standalone unit reviews, the input
+ * content each stage last acknowledged, each stage's review mode, and who
+ * answers change requests. Frozen as a whole so the timeline and the
  * presentation replica treat it as one value.
  */
 export interface ReviewBook {
   units: Record<string, StandaloneReview>;
   acknowledgedInputs: Partial<Record<WorkflowStage, Record<string, JsonValue>>>;
   modes: Partial<Record<WorkflowStage, ReviewMode>>;
+  answerer: ThreadAnswerer;
 }
 
 export const EMPTY_REVIEW_BOOK: ReviewBook = {
   units: {},
   acknowledgedInputs: {},
   modes: {},
+  answerer: "requireganizer",
 };
 
 const COVERAGE_PREFIX = "coverage:";

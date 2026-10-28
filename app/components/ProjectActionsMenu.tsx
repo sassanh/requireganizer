@@ -6,6 +6,7 @@ import {
   FileDownload,
   FileUpload,
   FolderZip,
+  Forum,
   Menu as MenuIcon,
   MenuBook,
   PictureAsPdf,
@@ -32,6 +33,7 @@ import { useAiSettingsDialog } from "hooks/useAiSettingsDialog";
 import { parseJson } from "lib/json";
 import { useProject } from "projectContext";
 import { useStore } from "store";
+import { answererLabel } from "store/threads";
 
 import AiSettingsDialog from "./AiSettingsDialog";
 import PersistentAlert from "./PersistentAlert";
@@ -230,6 +232,23 @@ export default function ProjectActionsMenu({
                 <ShortcutLabel shortcut={switchModuleShortcut} />
               </Box>
             }
+          />
+        </MenuItem>
+        <MenuItem
+          disabled={store.isBusy}
+          onClick={() => {
+            close();
+            void store.setThreadAnswerer(
+              store.threadAnswerer === "requireganizer" ? "coding-agent" : "requireganizer",
+            );
+          }}
+        >
+          <ListItemIcon>
+            <Forum fontSize="small" />
+          </ListItemIcon>
+          <ListItemText
+            primary="Change requests go to"
+            secondary={`${answererLabel(store.threadAnswerer)} (click to switch)`}
           />
         </MenuItem>
         <Divider />

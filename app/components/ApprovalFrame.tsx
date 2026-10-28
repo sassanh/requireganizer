@@ -58,6 +58,11 @@ export function ApprovalFrame({
             borderColor: "transparent",
             outlineOffset: "-2px",
           },
+          // A change request answered and waiting on the person stands out
+          // wherever the unit's thread chip renders inside the frame.
+          "&:has([data-thread-waiting])": {
+            boxShadow: (theme) => `inset 0 0 0 2px ${theme.palette.warning.main}`,
+          },
         },
         ...(Array.isArray(sx) ? sx : sx ? [sx] : []),
       ]}

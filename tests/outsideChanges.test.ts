@@ -117,7 +117,7 @@ describe("a project file changed outside Requireganizer", () => {
       assert.match(readFileSync(served.projectFile, "utf8"), /From git/);
       assert.equal(served.session.getSnapshot().persistenceError, null);
       await assert.rejects(
-        served.client.callAgentTool("get_workflow_state", {}),
+        served.client.callAgentTool("get_workflow_state", {}, { name: "Test agent" }),
         /requireganizer\.json changed outside Requireganizer\. Ask the person to choose/,
       );
 

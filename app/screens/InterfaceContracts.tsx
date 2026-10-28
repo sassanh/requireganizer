@@ -1,11 +1,9 @@
-import { Send } from "@mui/icons-material";
 import {
   Accordion,
   AccordionDetails,
   AccordionSummary,
   Alert,
   Box,
-  Button,
   Card,
   CardContent,
   Chip,
@@ -14,13 +12,8 @@ import {
   Typography,
 } from "@mui/material";
 import { observer } from "mobx-react-lite";
-import { useState } from "react";
 
-import {
-  artifactElementId,
-  CodeBlock,
-  GenerationButton,
-} from "components";
+import { artifactElementId, CodeBlock } from "components";
 import ApprovalMark from "components/ApprovalMark";
 import { jsonEqual, useStagedContent } from "components/changeQueue";
 import { useShownStore } from "presentation";
@@ -36,12 +29,8 @@ const PROFILE_FIELDS = [
   ["testEcosystem", "Test ecosystem"],
 ] as const;
 
-type Target = { kind: "interface" | "subject" | "verification"; id: string };
-
 const InterfaceContractsView = () => {
   const store = useStore();
-  const [target, setTarget] = useState<Target | null>(null);
-  const [comment, setComment] = useState("");
   const shown = useShownStore();
   const profile = useStagedContent(
     "implementationProfile",
@@ -63,13 +52,6 @@ const InterfaceContractsView = () => {
       </Alert>
     );
   }
-
-  const revise = async () => {
-    if (target == null || comment.trim().length === 0) return;
-    await store.reviseFormalContract(target, comment.trim());
-    setTarget(null);
-    setComment("");
-  };
 
   return (
     <Stack spacing={3}>
@@ -131,9 +113,6 @@ const InterfaceContractsView = () => {
                     </Stack>
                   ))}
                   <CodeBlock code={JSON.stringify(bundle.normalizedIndex, null, 2)} language="json" />
-                  <Stack direction="row" spacing={1} sx={{ justifyContent: "flex-end" }}>
-                    <Button startIcon={<Send />} onClick={() => setTarget({ kind: "interface", id: bundle.id })}>Request change</Button>
-                  </Stack>
                 </Stack>
               </AccordionDetails>
             </Accordion>
@@ -151,9 +130,6 @@ const InterfaceContractsView = () => {
               <AccordionDetails>
                 <Stack spacing={2}>
                   <CodeBlock code={JSON.stringify({ protocol: bundle.protocol, harness: bundle.harness }, null, 2)} language="json" />
-                  <Stack direction="row" spacing={1} sx={{ justifyContent: "flex-end" }}>
-                    <Button onClick={() => setTarget({ kind: "subject", id: bundle.id })}>Request change</Button>
-                  </Stack>
                 </Stack>
               </AccordionDetails>
             </Accordion>
@@ -170,27 +146,12 @@ const InterfaceContractsView = () => {
               </AccordionSummary>
               <AccordionDetails>
                 <CodeBlock code={JSON.stringify(bundle, null, 2)} language="json" />
-                <Stack direction="row" spacing={1} sx={{ justifyContent: "flex-end", mt: 2 }}>
-                  <Button onClick={() => setTarget({ kind: "verification", id: bundle.id })}>Request change</Button>
-                </Stack>
               </AccordionDetails>
             </Accordion>
           ))}
         </Box>
       )}
 
-      {target != null && (
-        <Card variant="outlined">
-          <CardContent component={Stack} spacing={1}>
-            <Typography variant="h6">Reconcile {target.kind} contract</Typography>
-            <TextField multiline minRows={3} value={comment} onChange={(event) => setComment(event.target.value)} label="Change request" />
-            <Stack direction="row" spacing={1} sx={{ justifyContent: "flex-end" }}>
-              <Button onClick={() => setTarget(null)}>Cancel</Button>
-              <GenerationButton onGenerate={revise} disabled={store.isBusy || !comment.trim()}>Generate reconciled draft</GenerationButton>
-            </Stack>
-          </CardContent>
-        </Card>
-      )}
     </Stack>
   );
 };

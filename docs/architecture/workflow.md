@@ -26,6 +26,8 @@ Product Overview → User Stories → Requirements
 
 Nobody types artifact prose; reviewers **Request change** or **Approve**. Generate and rewrite produce **draft**. Downstream generate consumes only a fully approved stage.
 
+A change request opens a thread on its unit. The project names who answers threads: Requireganizer's writer or a connected coding agent. An answer changes the unit or only replies, and only a person resolves a thread.
+
 Validators check IDs, allowed references, coverage of upstream IDs, and acyclic dependencies immediately in code. They do not parse sentence shape or ban words. Coverage holes remain standing after changes; they are not generate-time only.
 
 ## Progress

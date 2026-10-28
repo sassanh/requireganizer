@@ -4,6 +4,7 @@ import { Type } from "@earendil-works/pi-ai";
 import { CANONICAL_WORKFLOW } from "ai-harness/workflow";
 import { WORKFLOW_STAGE_LABELS, WorkflowStage } from "store/constants";
 import type { FlatStore } from "store/store";
+import { authorLabel, waitsForPerson } from "store/threads";
 
 function textResult(text: string): { content: [{ type: "text"; text: string }]; details: Record<string, never> } {
   return { content: [{ type: "text", text }], details: {} };
@@ -41,7 +42,7 @@ export function buildReadTools(
     name: "get_workflow_state",
     label: "Get workflow state",
     description:
-      `${moduleName == null ? "" : "Get the module the person has open in Requireganizer, which every tool reads and submits to, and its workflow state. "}Get the frontier (the first stage that is not complete; only it and earlier stages can change) and each stage's status: pending, completed, outdated, needs-approval, waiting (holds work, read-only until the frontier reaches it), or locked. Each stage lists its outdated items, which must be regenerated, its unapproved review units, and the reviewer model's rejections of them. Inputs that changed since the stage acknowledged them are listed by id; read them with get_input_changes.`,
+      `${moduleName == null ? "" : "Get the module the person has open in Requireganizer, which every tool reads and submits to, and its workflow state. "}Get the frontier (the first stage that is not complete; only it and earlier stages can change) and each stage's status: pending, completed, outdated, needs-approval, waiting (holds work, read-only until the frontier reaches it), or locked. Each stage lists its outdated items, which must be regenerated, its unapproved review units, and the reviewer model's rejections of them. Inputs that changed since the stage acknowledged them are listed by id; read them with get_input_changes. Each stage lists its open threads: the person's change requests on its units, with every reply; changeRequestsAnsweredBy names who answers them.`,
     parameters: Type.Object({}),
     execute: async () => {
       const stages = validStages.map((step) => {
@@ -61,11 +62,22 @@ export function buildReadTools(
             itemId,
             message,
           })),
+          openThreads: store.openThreads(step).map((thread) => ({
+            threadId: thread.id,
+            unitId: thread.unitId,
+            waitingFor: waitsForPerson(thread) ? "person" : store.threadAnswerer,
+            messages: thread.messages.map(({ author, text, withSubmission }) => ({
+              from: author.kind === "person" ? "person" : authorLabel(author),
+              text,
+              ...(withSubmission ? { withSubmission } : {}),
+            })),
+          })),
         };
       });
       return textResult(JSON.stringify({
         ...(moduleName == null ? {} : { module: moduleName }),
         frontier: store.frontier,
+        changeRequestsAnsweredBy: store.threadAnswerer,
         stages,
       }));
     },

@@ -7,7 +7,7 @@ import { approveAction } from "actions/actions";
 import { ActionView } from "actions/ActionView";
 import type { ModelVerdict } from "contract-domain";
 import { getUserFacingErrorMessage } from "lib/errors";
-import { useStore } from "store";
+import { type Store, useStore } from "store";
 
 import CommentButton from "./CommentButton";
 import { DecisionDialog } from "./DecisionDialog";
@@ -18,19 +18,27 @@ type PendingDecision =
   | { kind: "change"; verdict: ModelVerdict; comment: string };
 
 /**
+ * The person's change request joins the unit's thread; when Requireganizer's
+ * AI answers change requests, it starts on the thread at once.
+ */
+async function askForChange(store: Store, unitId: string, text: string): Promise<void> {
+  try {
+    const threadId = await store.requestChange(unitId, text);
+    const unit = store.reviewUnit(unitId);
+    if (store.threadAnswerer === "requireganizer" && unit != null) {
+      void store.answerThread(unit.stage, threadId);
+    }
+  } catch (error) {
+    notify(getUserFacingErrorMessage(error, "Unable to send the change request."), "error");
+  }
+}
+
+/**
  * Every review action on one unit: approve, request a change, restore the
  * signed version, and the reviewer model's verdict. A person acting
  * against a current model verdict decides explicitly first.
  */
-const ApprovalMark = observer(function ApprovalMark({
-  id,
-  onRequestChange,
-  requestChangeDisabled = false,
-}: {
-  id: string;
-  onRequestChange?: (comment: string) => void;
-  requestChangeDisabled?: boolean;
-}) {
+const ApprovalMark = observer(function ApprovalMark({ id }: { id: string }) {
   const store = useStore();
   const [decision, setDecision] = useState<PendingDecision | null>(null);
   // Resolves the comment box's pending submit when a decision dialog closes.
@@ -62,7 +70,7 @@ const ApprovalMark = observer(function ApprovalMark({
         decisionResolver.current = resolve;
       });
     }
-    onRequestChange?.(comment);
+    void askForChange(store, id, comment);
     return true;
   };
 
@@ -103,9 +111,10 @@ const ApprovalMark = observer(function ApprovalMark({
           buttonVariant="contained"
         />
       ) : null}
-      {onRequestChange != null ? (
+      {store.takesChangeRequests(id) ? (
         <CommentButton
-          disabled={requestChangeDisabled || !editable || store.isBusy}
+          unitId={id}
+          disabled={!editable || store.isBusy}
           onSubmit={requestChange}
         />
       ) : null}
@@ -119,9 +128,7 @@ const ApprovalMark = observer(function ApprovalMark({
         onConfirm={async () => {
           if (decision == null) return;
           if (decision.kind === "change") {
-            // The change flows are MST flows: they report their own
-            // failures through validation errors, so hand off and settle.
-            onRequestChange?.(decision.comment);
+            void askForChange(store, id, decision.comment);
             settleDecision(true);
             return;
           }

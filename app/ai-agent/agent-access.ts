@@ -1,7 +1,9 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 
 import { UserFacingError } from "lib/errors";
+import { isRecord } from "lib/json";
 import type { Store } from "store";
+import type { ThreadAnswer } from "store/threads";
 
 import { workflowStageOf } from "./command";
 import { buildReadTools, reviewerRejections } from "./read-tools";
@@ -39,6 +41,69 @@ export interface OpenModule {
   moduleName?: string;
 }
 
+/** The outside agent calling: the name it gave when it connected. */
+export interface AgentCaller {
+  name: string;
+}
+
+const REPLY_TOOL_NAME = "reply_to_thread";
+
+/** Listed while the coding agent answers change requests. */
+const REPLY_TOOL: AgentToolDescription = {
+  name: REPLY_TOOL_NAME,
+  description:
+    "Reply to one of the person's open threads without changing work, such as to ask what they mean or to say why the unit should stay as it is. To answer with a change, submit the unit's stage and name the thread in the submission's answers. Only the person resolves a thread.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      threadId: { type: "string", description: "The thread to reply to, from get_workflow_state." },
+      text: { type: "string", minLength: 1, description: "The reply the person reads." },
+    },
+    required: ["threadId", "text"],
+    additionalProperties: false,
+  },
+};
+
+const ANSWERS_PROPERTY = {
+  type: "array",
+  description:
+    "The open threads of this stage that the submission answers, each with a reply telling the person what changed. get_workflow_state lists them.",
+  items: {
+    type: "object",
+    properties: {
+      threadId: { type: "string" },
+      reply: { type: "string", minLength: 1 },
+    },
+    required: ["threadId", "reply"],
+    additionalProperties: false,
+  },
+};
+
+function withAnswers(description: AgentToolDescription): AgentToolDescription {
+  const properties = (description.inputSchema.properties ?? {}) as Record<string, unknown>;
+  return {
+    ...description,
+    inputSchema: { ...description.inputSchema, properties: { ...properties, answers: ANSWERS_PROPERTY } },
+  };
+}
+
+function parseAnswers(value: unknown): ThreadAnswer[] {
+  if (value == null) return [];
+  if (
+    !Array.isArray(value) ||
+    !value.every((entry) => isRecord(entry) && typeof entry.threadId === "string" && typeof entry.reply === "string")
+  ) {
+    throw new UserFacingError("answers must be a list of { threadId, reply }.");
+  }
+  return value.map(({ threadId, reply }: { threadId: string; reply: string }) => ({ threadId, text: reply }));
+}
+
+function stringArgument(args: Record<string, unknown>, name: string): string {
+  const value = args[name];
+  if (typeof value !== "string") throw new UserFacingError(`${name} must be a string.`);
+  return value;
+}
+
 /** The built-in agent's read tools, which an outside agent can call in every state of the project. */
 export function readToolDescriptions(store: Store, open: OpenModule = {}): AgentToolDescription[] {
   return buildReadTools(store, open).map(describe);
@@ -46,13 +111,17 @@ export function readToolDescriptions(store: Store, open: OpenModule = {}): Agent
 
 /**
  * The tools an outside agent works with on an open project: the read tools
- * and the submission tool of every stage that can take work now. Approving
- * stays with the person, so no tool approves.
+ * and the submission tool of every stage that can take work now, and, while
+ * it answers the person's change requests, the tools that answer them.
+ * Approving and resolving stay with the person, so no tool does either.
  */
 export function agentToolDescriptions(store: Store, open: OpenModule = {}): AgentToolDescription[] {
+  const answers = store.threadAnswerer === "coding-agent";
+  const submissions = buildStageSubmissionTools(store).map(({ tool }) => describe(tool));
   return [
     ...readToolDescriptions(store, open),
-    ...buildStageSubmissionTools(store).map(({ tool }) => describe(tool)),
+    ...(answers ? submissions.map(withAnswers) : submissions),
+    ...(answers ? [REPLY_TOOL] : []),
   ];
 }
 
@@ -66,9 +135,19 @@ export async function callAgentTool(
   name: string,
   args: Record<string, unknown>,
   open: OpenModule = {},
+  caller: AgentCaller = { name: "The coding agent" },
 ): Promise<string> {
   const read = buildReadTools(store, open).find((tool) => tool.name === name);
   if (read != null) return resultText(await read.execute(name, args as never));
+
+  const author = { kind: "agent" as const, name: caller.name };
+  if (name === REPLY_TOOL_NAME) {
+    store.answerThreads(
+      [{ threadId: stringArgument(args, "threadId"), text: stringArgument(args, "text") }],
+      author,
+    );
+    return "Replied. The thread waits for the person.";
+  }
 
   const submission = buildStageSubmissionTools(store).find(({ tool }) => tool.name === name);
   if (submission == null) {
@@ -76,7 +155,9 @@ export async function callAgentTool(
       `No tool named ${name} is available now. A stage's submission tool appears once its earlier stages are approved.`,
     );
   }
-  const outcome = await store.submitAgentProposal(submission.stage, name, args);
+  const { answers: answersArgument, ...proposal } = args;
+  const answers = parseAnswers(answersArgument);
+  const outcome = await store.submitAgentProposal(submission.stage, name, proposal, answers, caller.name);
   switch (outcome.status) {
     case "busy":
       throw new UserFacingError(
@@ -96,6 +177,9 @@ export async function callAgentTool(
       const items = (count: number) => (count === 1 ? "one item" : `${count} items`);
       const lines = [
         `Applied to ${stage}. The person approves it in Requireganizer; get_workflow_state shows what still awaits approval.`,
+        ...(answers.length > 0
+          ? [`Replied to ${answers.length === 1 ? "one thread" : `${answers.length} threads`}; the person reads the replies and resolves the threads.`]
+          : []),
       ];
       const rejections = reviewerRejections(store, step);
       if (rejections.length > 0) {

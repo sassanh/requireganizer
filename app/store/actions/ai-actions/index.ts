@@ -1,7 +1,5 @@
-export { default as handleComment } from "./handle-comment";
-export { default as handleOverviewFieldComment } from "./handle-overview-field-comment";
+export { default as answerThread } from "./answer-thread";
 export { default as refreshStage } from "./refresh-stage";
-export { default as requestStageChange } from "./request-stage-change";
 export { default as reviewStage } from "./review-stage";
 export { regenerateLastReply } from "./conversation-history";
 export { default as sendConversationMessage } from "./send-conversation-message";
@@ -17,4 +15,3 @@ export { default as generateTestCases } from "./generate-test-cases";
 export { default as generateTestCode } from "./generate-test-code";
 export { default as generateTestScenarios } from "./generate-test-scenarios";
 export { default as generateUserStories } from "./generate-user-stories";
-export { default as reviseFormalContract } from "./revise-formal-contract";

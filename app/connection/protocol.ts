@@ -1,6 +1,6 @@
 import type { IJsonPatch } from "mobx-state-tree";
 
-import type { AgentToolDescription } from "ai-agent/agent-access";
+import type { AgentCaller, AgentToolDescription } from "ai-agent/agent-access";
 import type { ModuleEntry, ModuleRegistry } from "lib/moduleSchema";
 import type { PersistenceAdapter, StorageTraits } from "persistence";
 import type { ProjectSessionSnapshot } from "project-session";
@@ -24,7 +24,7 @@ import type { PersistedTimeline } from "store/timeline/serialize";
  * different builds checks it before any message is exchanged; change it
  * whenever a message changes shape.
  */
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 /**
  * WebSocket close codes a host server ends a connection with when connecting
@@ -122,8 +122,8 @@ export interface HostApi {
   runPersistence(call: PersistenceCall): unknown;
   /** The tools an outside agent can call on the open project now. */
   listAgentTools(): Promise<AgentToolDescription[]>;
-  /** Run one of those tools; resolves to its text result. */
-  callAgentTool(name: string, args: Record<string, unknown>): Promise<string>;
+  /** Run one of those tools for the named agent; resolves to its text result. */
+  callAgentTool(name: string, args: Record<string, unknown>, caller: AgentCaller): Promise<string>;
 }
 
 export type RequestName = keyof HostApi;

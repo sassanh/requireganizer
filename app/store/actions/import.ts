@@ -20,6 +20,7 @@ import type { Store } from "store";
 import { StructuralFragment } from "store/constants";
 import { EMPTY_REVIEW_BOOK, type ReviewBook, type StandaloneReview } from "store/review";
 import { testDesignFingerprint } from "store/store";
+import { parseThreads, THREAD_ANSWERERS, type ThreadAnswerer } from "store/threads";
 
 import {
   completeV3Migration,
@@ -81,10 +82,16 @@ function parseReviewBook(value: unknown): ReviewBook {
       return [step, mode] as const;
     }),
   ) as ReviewBook["modes"];
+  // A module from before change requests had an answerer is answered as it was then.
+  const answerer = book.answerer ?? EMPTY_REVIEW_BOOK.answerer;
+  if (!THREAD_ANSWERERS.includes(answerer as ThreadAnswerer)) {
+    throw new InvalidJsonError(`Review answerer must be one of ${THREAD_ANSWERERS.map((name) => `"${name}"`).join(", ")}.`);
+  }
   return {
     units: parsedUnits,
     acknowledgedInputs: parsedAcknowledged as ReviewBook["acknowledgedInputs"],
     modes: parsedModes,
+    answerer: answerer as ThreadAnswerer,
   };
 }
 
@@ -172,6 +179,7 @@ const importProject = (self_: unknown, value: unknown): void => {
     projectSetup: value.projectSetup ?? null,
     scaffoldFiles: parseScaffoldFiles(value.scaffoldFiles ?? []),
     review: parseReviewBook(value.review),
+    threads: parseThreads(value.threads),
     conversation: Array.isArray(value.conversation) ? value.conversation : [],
     conversationSidebarOpen: value.conversationSidebarOpen === true,
     // The AI's pending question survives reloads; it only clears when the

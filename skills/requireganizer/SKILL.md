@@ -66,6 +66,16 @@ The person approves every item in Requireganizer's page; no tool approves.
 - When you lack the information a stage needs, ask the person. Do not invent
   scope.
 
+## Change requests from the person
+
+- `get_workflow_state` lists each stage's open threads, the person's change
+  requests on its items, and `changeRequestsAnsweredBy`.
+- When it is `coding-agent`, answer the threads waiting for you. To change an
+  item, submit its stage and name the thread in the submission's `answers`,
+  with a reply saying what changed. To ask or to disagree, use
+  `reply_to_thread`. Only the person resolves a thread.
+- When it is `requireganizer`, Requireganizer's AI answers them; leave them.
+
 ## Where the person works
 
 The server instructions give the page's address. Point the person there to

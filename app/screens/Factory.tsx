@@ -220,6 +220,7 @@ const FactoryTab = observer(function FactoryTab({
   }, [status]);
 
   const pulsing = navigatePulse || statusPulse;
+  const waitingThreads = store.threadsWaitingForPerson(tabStep);
   return (
     <Tab
       {...tabProps}
@@ -227,7 +228,29 @@ const FactoryTab = observer(function FactoryTab({
       disabled={store.isBusy || locked}
       {...(locked ? {} : { href })}
       value={tabStep}
-      label={store.stageLabel(tabStep)}
+      label={
+        <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 1 }}>
+          {store.stageLabel(tabStep)}
+          {waitingThreads > 0 ? (
+            <Box
+              component="span"
+              aria-label={`${waitingThreads} ${waitingThreads === 1 ? "thread waits" : "threads wait"} for you`}
+              sx={{
+                minWidth: 20,
+                px: 0.75,
+                borderRadius: 10,
+                bgcolor: "warning.main",
+                color: "warning.contrastText",
+                fontSize: 12,
+                lineHeight: "20px",
+                textAlign: "center",
+              }}
+            >
+              {waitingThreads}
+            </Box>
+          ) : null}
+        </Box>
+      }
       icon={<SlidingStatusIcon status={status} />}
       iconPosition="end"
       sx={[
@@ -462,7 +485,6 @@ const Factory: React.FunctionComponent<FactoryProps> = ({ activeProject }) => {
               fragments={shown.userStories}
               isDisabled={store.isBusy}
               structuralFragment={StructuralFragment.UserStory}
-              onComment={store.handleComment}
             />
             <CoveragePanel step={WorkflowStage.UserStories} />
           </AnimatedTabPanel>
@@ -477,7 +499,6 @@ const Factory: React.FunctionComponent<FactoryProps> = ({ activeProject }) => {
               fragments={shown.requirements}
               isDisabled={store.isBusy}
               structuralFragment={StructuralFragment.Requirement}
-              onComment={store.handleComment}
             />
             <CoveragePanel step={WorkflowStage.Requirements} />
           </AnimatedTabPanel>
@@ -492,7 +513,6 @@ const Factory: React.FunctionComponent<FactoryProps> = ({ activeProject }) => {
               fragments={shown.acceptanceCriteria}
               isDisabled={store.isBusy}
               structuralFragment={StructuralFragment.AcceptanceCriteria}
-              onComment={store.handleComment}
             />
             <CoveragePanel step={WorkflowStage.AcceptanceCriteria} />
           </AnimatedTabPanel>

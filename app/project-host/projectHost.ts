@@ -143,7 +143,7 @@ export class ProjectHost implements HostEndpoint {
           ? readToolDescriptions(session.getSnapshot().store)
           : agentToolDescriptions(store, this.openModule());
       },
-      callAgentTool: async (name, args) => {
+      callAgentTool: async (name, args, caller) => {
         const store = await this.openStore();
         // Whatever the call changed would be replaced with the imported project.
         if (session.importing) {
@@ -157,7 +157,7 @@ export class ProjectHost implements HostEndpoint {
             `${session.persistence.traits.name} changed outside Requireganizer. Ask the person to choose in Requireganizer which version to keep, then call get_workflow_state.`,
           );
         }
-        return callAgentTool(store, name, args, this.openModule());
+        return callAgentTool(store, name, args, this.openModule(), caller);
       },
     };
   }

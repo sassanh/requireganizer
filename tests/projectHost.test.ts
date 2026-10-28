@@ -216,10 +216,7 @@ describe("project host and client", () => {
       const replica = opened.replica();
       await assert.rejects(
         Promise.resolve(
-          replica.handleComment({
-            fragment: replica.userStories[0]!,
-            comment: "Shorter.",
-          }),
+          replica.requestChange(replica.userStories[0]! as unknown as string, "Shorter."),
         ),
         /store node/,
       );
@@ -688,7 +685,7 @@ describe("project host and client", () => {
 
   it("tells an agent which module it works on: the one the page shows", async () => {
     const workflowModule = async (client: ProjectClient) =>
-      (JSON.parse(await client.callAgentTool("get_workflow_state", {})) as { module?: string }).module;
+      (JSON.parse(await client.callAgentTool("get_workflow_state", {}, { name: "Test agent" })) as { module?: string }).module;
     const modules = await openProject(twoModules());
     try {
       assert.equal(await workflowModule(modules.client), "module-a");
@@ -724,7 +721,7 @@ describe("project host and client", () => {
           purpose: "Keep plants alive.",
           primaryFeatures: ["Track watering schedules"],
           targetUsers: ["Busy plant owners"],
-        }),
+        }, { name: "Test agent" }),
         /A project import is replacing this project/,
       );
       assert.notEqual(opened.authority().productOverview.name, "Plant Pal");

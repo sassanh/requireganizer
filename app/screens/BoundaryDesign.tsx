@@ -14,7 +14,7 @@ import { artifactElementId } from "components";
 import ApprovalMark from "components/ApprovalMark";
 import { jsonEqual, useStagedContent } from "components/changeQueue";
 import { useShownStore } from "presentation";
-import { WorkflowStage, useStore } from "store";
+import { useStore } from "store";
 
 const BoundaryDesignView = () => {
   const store = useStore();
@@ -33,13 +33,7 @@ const BoundaryDesignView = () => {
   return (
     <Stack spacing={3} id={artifactElementId("boundaryDesign")}>
       <Stack direction="row" sx={{ justifyContent: "flex-end" }}>
-        <ApprovalMark
-          id={design.id}
-          onRequestChange={(comment) =>
-            store.requestStageChange(WorkflowStage.BoundaryDesign, comment)
-          }
-          requestChangeDisabled={store.isBusy}
-        />
+        <ApprovalMark id={design.id} />
       </Stack>
       <Stack spacing={2}>
         <Typography variant="h5">Test subjects</Typography>

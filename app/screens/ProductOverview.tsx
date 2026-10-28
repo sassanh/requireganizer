@@ -37,13 +37,7 @@ const NameField = observer(function NameField() {
           slotProps={{ input: { readOnly: true } }}
         />
         <Stack sx={{ position: "absolute", right: 8, bottom: 8 }}>
-          <ApprovalMark
-            id={OVERVIEW_NAME_QUALITY_ID}
-            onRequestChange={(comment) =>
-              store.handleOverviewFieldComment({ field: "name", comment })
-            }
-            requestChangeDisabled={store.isBusy}
-          />
+          <ApprovalMark id={OVERVIEW_NAME_QUALITY_ID} />
         </Stack>
       </ApprovalFrame>
       <QualityIssues
@@ -78,13 +72,7 @@ const PurposeField = observer(function PurposeField() {
           slotProps={{ input: { readOnly: true } }}
         />
         <Stack sx={{ position: "absolute", right: 8, bottom: 8 }}>
-          <ApprovalMark
-            id={OVERVIEW_PURPOSE_QUALITY_ID}
-            onRequestChange={(comment) =>
-              store.handleOverviewFieldComment({ field: "purpose", comment })
-            }
-            requestChangeDisabled={store.isBusy}
-          />
+          <ApprovalMark id={OVERVIEW_PURPOSE_QUALITY_ID} />
         </Stack>
       </ApprovalFrame>
       <QualityIssues
@@ -130,14 +118,12 @@ const ProductOverview = observer(function ProductOverview() {
         isDisabled={store.isBusy}
         structuralFragment={StructuralFragment.PrimaryFeature}
         title="Primary Features"
-        onComment={store.handleComment}
       />
       <StructuralFragments
         fragments={shown.productOverview.targetUsers}
         isDisabled={store.isBusy}
         structuralFragment={StructuralFragment.TargetUser}
         title="Target Users"
-        onComment={store.handleComment}
       />
     </Stack>
   );

@@ -124,7 +124,10 @@ export async function serveMcp(
     }, options.progressIntervalMs ?? PROGRESS_INTERVAL_MS);
     try {
       await reachHost(client, hostWaitMs);
-      const text = await client.callAgentTool(request.params.name, request.params.arguments ?? {});
+      // The name the agent gave when it connected signs what it writes in threads.
+      const agent = server.getClientVersion();
+      const caller = { name: agent?.title ?? agent?.name ?? "The coding agent" };
+      const text = await client.callAgentTool(request.params.name, request.params.arguments ?? {}, caller);
       return { content: [{ type: "text", text }] };
     } catch (error) {
       const text = error instanceof ConnectionLostError

@@ -99,6 +99,11 @@ for (const actionName of [
   "setName",
   "setPurpose",
   "approve",
+  // Threads are recorded state: a change request or reply undoes like an edit.
+  "requestChange",
+  "resolveThread",
+  "setThreadAnswerer",
+  "answerThreads",
 ]) {
   declareTimelineStep(actionName, { kind: "user", label: actionName });
 }

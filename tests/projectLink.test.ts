@@ -65,7 +65,7 @@ describe("one host per project", () => {
     const two = connected(second);
     try {
       // The project file holds no project yet.
-      await assert.rejects(() => one.client.callAgentTool("get_workflow_state", {}), /holds no project yet/);
+      await assert.rejects(() => one.client.callAgentTool("get_workflow_state", {}, { name: "Test agent" }), /holds no project yet/);
       await one.client.persistence.projects.saveIndex([
         { id: "project-a", name: "Plant Pal", description: "", updatedAt: "2026-10-24T00:00:00.000Z" },
       ]);
@@ -81,15 +81,15 @@ describe("one host per project", () => {
       assert.deepEqual(serving, ["first"]);
 
       await assert.rejects(
-        () => two.client.callAgentTool("submit_product_overview", { ...OVERVIEW, primaryFeatures: [] }),
+        () => two.client.callAgentTool("submit_product_overview", { ...OVERVIEW, primaryFeatures: [] }, { name: "Test agent" }),
         (error: unknown) => error instanceof Error && error.message.length > 0,
       );
       assert.match(
-        await two.client.callAgentTool("submit_product_overview", OVERVIEW),
+        await two.client.callAgentTool("submit_product_overview", OVERVIEW, { name: "Test agent" }),
         /^Applied to Product Overview\./,
       );
       assert.equal(one.client.getSnapshot().store.productOverview.name, "Plant Pal");
-      const state = JSON.parse(await two.client.callAgentTool("get_workflow_state", {})) as {
+      const state = JSON.parse(await two.client.callAgentTool("get_workflow_state", {}, { name: "Test agent" })) as {
         frontier: string;
       };
       assert.equal(state.frontier, "product-overview");
