@@ -229,14 +229,14 @@ describe("review gate", () => {
     assert.deepEqual(store.changedInputIds(WorkflowStage.UserStories), []);
   });
 
-  it("makes an item sent back from impact review outdated until regenerated", () => {
+  it("keeps an item marked out of date in impact review outdated until regenerated", () => {
     const store = storeWithCompleteStories();
     applyProductOverviewProposal(
       store,
       overviewProposal({ purpose: "Help people keep every houseplant alive." }),
     );
     store.approve(OVERVIEW_PURPOSE_QUALITY_ID);
-    store.sendBackForRegeneration(["story-1"]);
+    store.markOutOfDate(["story-1"]);
     assert.deepEqual(store.outdatedItemIds(WorkflowStage.UserStories), ["story-1"]);
     assert.equal(store.reviewUnit(impactUnitId(WorkflowStage.UserStories)), null);
     applyArtifactListProposal(store, storyProposal([{ id: "story-1", content: STORY }]));

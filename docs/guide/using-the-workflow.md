@@ -24,7 +24,7 @@ Each stage runs in **Manual review** or **Auto review**. With a reviewer model c
 
 A change to a stage before the frontier applies at once and reopens that stage: the changed items wait for your approval. When later stages hold work, a recovery snapshot of the project before the change is saved first.
 
-When an item changes, every item that references it is outdated: refresh the stage to regenerate them. A regenerated item returns to draft even when the rewriter kept it word for word. Items that reference none of the changed inputs keep their approvals but need one **impact** approval: the change affects none of them. Send back any item it does affect; it becomes outdated until regenerated.
+When an item changes, every item that references it is outdated: refresh the stage to regenerate them. A regenerated item returns to draft even when the rewriter kept it word for word. Items that reference none of the changed inputs keep their approvals but need one **impact** approval: the change affects none of them. Mark out of date any item it does affect, until it is regenerated.
 
 ## Stage tabs
 

@@ -1887,15 +1887,15 @@ export const FlatStore = types
         }
       },
       /**
-       * Send untouched items back: the person withdraws their approval, and
-       * they stay outdated until regenerated. The signed content stays for
-       * the standing diff.
+       * Mark untouched items out of date: the person withdraws their
+       * approval, and they stay outdated until regenerated. The signed
+       * content stays for the standing diff.
        */
-      sendBackForRegeneration(ids: readonly string[]) {
+      markOutOfDate(ids: readonly string[]) {
         for (const id of ids) {
           const unit = self.reviewUnit(id);
           if (unit?.kind !== "item" || !self.stageIsEditable(unit.stage)) {
-            throw new Error(`Cannot send back ${id}.`);
+            throw new Error(`Cannot mark ${id} out of date.`);
           }
           const fragment = self.structuralFragmentsCache[id]!;
           if (unit.signature != null) {

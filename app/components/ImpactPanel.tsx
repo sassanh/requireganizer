@@ -10,8 +10,8 @@ import ApprovalMark from "./ApprovalMark";
 
 /**
  * One impact approval per upstream change: it affects none of the items
- * that reference none of the changed inputs. Items it does affect are sent
- * back, which makes them outdated until regenerated.
+ * that reference none of the changed inputs. Items it does affect are
+ * marked out of date, until regenerated.
  */
 const ImpactPanel = observer(function ImpactPanel({ step }: { step: WorkflowStage }) {
   const store = useStore();
@@ -28,7 +28,7 @@ const ImpactPanel = observer(function ImpactPanel({ step }: { step: WorkflowStag
     >
       <Stack sx={{ gap: 1 }}>
         <Typography variant="body2">
-          Inputs changed. Approve if the change affects none of these items; send back any it does.
+          Inputs changed. Approve if the change affects none of these items; mark out of date any it does.
         </Typography>
         <Stack component="ul" sx={{ m: 0, pl: 2 }}>
           {changes.map((line) => (
@@ -45,9 +45,9 @@ const ImpactPanel = observer(function ImpactPanel({ step }: { step: WorkflowStag
               variant="outlined"
               startIcon={<Undo fontSize="small" />}
               disabled={store.isBusy || !editable}
-              onClick={() => store.sendBackForRegeneration([id])}
+              onClick={() => store.markOutOfDate([id])}
             >
-              Send back {store.getCode(id) ?? id}
+              Mark out of date {store.getCode(id) ?? id}
             </Button>
           ))}
         </Stack>
