@@ -29,7 +29,7 @@ import { ProjectHost } from "../app/project-host";
 import { ProjectSession } from "../app/project-session";
 import { OVERVIEW_PURPOSE_QUALITY_ID, WorkflowStage } from "../app/store/constants";
 import { Store } from "../app/store/store";
-import { getCurrentStepKind } from "../app/store/timeline/controller";
+import { getCurrentTurnPresentation } from "../app/store/timeline/controller";
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -397,7 +397,7 @@ describe("project host and client", () => {
     try {
       const replica = opened.replica();
       const kinds: (string | null)[] = [];
-      onSnapshot(replica, () => kinds.push(opened.client.changeSource.currentStepKind()));
+      onSnapshot(replica, () => kinds.push(opened.client.changeSource.currentTurnPresentation()));
       const focused: { subjects: string[]; purpose: string | null }[] = [];
       opened.client.changeSource.onChangeFocus((focus) => {
         focused.push({
@@ -406,7 +406,7 @@ describe("project host and client", () => {
         });
       });
       const authorityKinds: (string | null)[] = [];
-      onSnapshot(opened.authority(), () => authorityKinds.push(getCurrentStepKind()));
+      onSnapshot(opened.authority(), () => authorityKinds.push(getCurrentTurnPresentation()));
 
       const toolCall: ToolCall = {
         type: "toolCall",
@@ -431,9 +431,9 @@ describe("project host and client", () => {
       assert.ok(focused[0]!.subjects.includes("productOverview/purpose"));
       // The replica already shows the change its focus describes.
       assert.equal(focused[0]!.purpose, "Help people keep houseplants alive.");
-      assert.ok(authorityKinds.includes("ai"));
-      assert.ok(kinds.includes("ai"));
-      assert.equal(opened.client.changeSource.currentStepKind(), null);
+      assert.ok(authorityKinds.includes("presented"));
+      assert.ok(kinds.includes("presented"));
+      assert.equal(opened.client.changeSource.currentTurnPresentation(), null);
       assert.deepEqual(asJson(getSnapshot(replica)), asJson(getSnapshot(opened.authority())));
     } finally {
       opened.dispose();

@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import type { ElementType } from "react";
 
 import { registerDomGlobals } from "./support/domGlobals";
+import { createThemedRoot } from "./support/themedRoot";
 import type { Store as StoreInstance } from "../app/store/store";
 
 
@@ -28,7 +29,6 @@ describe("product overview sync across restores", () => {
     await registerDomGlobals();
 
     const React = await import("react");
-    const { createRoot } = await import("react-dom/client");
     const { observer } = await import("mobx-react-lite");
     const { clone, getSnapshot, applySnapshot } = await import(
       "mobx-state-tree"
@@ -58,7 +58,7 @@ describe("product overview sync across restores", () => {
     const dom = await React.act(async (): Promise<RenderedDom> => {
       const container = document.createElement("div");
       document.body.appendChild(container);
-      const root = createRoot(container);
+      const root = await createThemedRoot(container);
       root.render(
         React.createElement(
           React.StrictMode,
@@ -139,6 +139,71 @@ describe("product overview sync across restores", () => {
     } finally {
       await React.act(async () => {
         dom.unmount();
+      });
+    }
+  });
+});
+
+describe("fragment list across undo and redo", () => {
+  it("shows every item again when an undo brings a removed one back", async () => {
+    await registerDomGlobals();
+
+    const React = await import("react");
+    const { Store } = await import("../app/store/store");
+    const { attachTimeline, redo, undo } = await import(
+      "../app/store/timeline/controller"
+    );
+    const StructuralFragments = (await import(
+      "../app/components/StructuralFragments"
+    )).default as unknown as ElementType;
+
+    const ids = ["feature-1", "feature-2", "feature-3", "feature-4"];
+    const store: StoreInstance = Store.create({
+      productOverview: {
+        primaryFeatures: ids.map((id) => ({
+          id,
+          content: `Feature ${id}`,
+          pendingRemoval: id === "feature-2",
+        })),
+      },
+    });
+    attachTimeline(store);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = await createThemedRoot(container);
+    const { observer } = await import("mobx-react-lite");
+    const List = observer(() =>
+      React.createElement(StructuralFragments, {
+        fragments: store.productOverview.primaryFeatures,
+        isDisabled: false,
+        structuralFragment: "primary_feature",
+      }),
+    );
+    await React.act(async () => {
+      root.render(React.createElement(List));
+    });
+    const shown = () =>
+      [...container.querySelectorAll("[data-fragment^='primary_feature:']")].map(
+        (node) => node.getAttribute("data-fragment")!.slice("primary_feature:".length),
+      );
+
+    try {
+      // Approving the removal drops the item; an undo restores it as a new
+      // model under its old id, at its old position. Each turn below
+      // crosses that restore again.
+      await React.act(async () => store.approve("feature-2"));
+      assert.deepEqual(shown(), ["feature-1", "feature-3", "feature-4"]);
+      await React.act(async () => undo());
+      assert.deepEqual(shown(), ids);
+      await React.act(async () => redo());
+      assert.deepEqual(shown(), ["feature-1", "feature-3", "feature-4"]);
+      await React.act(async () => undo());
+      assert.deepEqual(shown(), ids);
+    } finally {
+      await React.act(async () => {
+        root.unmount();
+        container.remove();
       });
     }
   });

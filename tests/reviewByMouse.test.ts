@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { registerDomGlobals } from "./support/domGlobals";
+import { createThemedRoot } from "./support/themedRoot";
 
 /**
  * Reviewing with the mouse: the pointer lands on icons and buttons that
@@ -12,7 +13,6 @@ import { registerDomGlobals } from "./support/domGlobals";
 async function renderUnits(ids: string[]) {
   await registerDomGlobals();
   const React = await import("react");
-  const { createRoot } = await import("react-dom/client");
   const { Store, storeContext } = await import("../app/store/store");
   const { default: ApprovalMark } = await import("../app/components/ApprovalMark");
   const { ApprovalFrame } = await import("../app/components/ApprovalFrame");
@@ -27,7 +27,7 @@ async function renderUnits(ids: string[]) {
   store.setThreadAnswerer("coding-agent");
   const container = globalThis.document.createElement("div");
   globalThis.document.body.appendChild(container);
-  const root = createRoot(container);
+  const root = await createThemedRoot(container);
   await React.act(async () => {
     root.render(
       React.createElement(

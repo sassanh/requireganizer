@@ -86,7 +86,12 @@ export function applyOpToTree(
       const alreadyThere =
         newId != null &&
         collection.some((entry) => itemIdOf(entry) === newId);
-      if (!alreadyThere) collection.push(op.itemSnapshot);
+      // Adds play in list order after their change's removes, so the item
+      // before this one is already in place; with none, it goes first.
+      const previousIndex = collection.findIndex(
+        (entry) => itemIdOf(entry) === op.previousId,
+      );
+      if (!alreadyThere) collection.splice(previousIndex + 1, 0, op.itemSnapshot);
     }
     return omitUndefined(next);
   }

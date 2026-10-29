@@ -40,8 +40,8 @@ import type { WorkflowStage } from "store/constants";
 import type {
   ChangeFocus,
   ChangeSource,
-  StepKind,
   TimelineMeta,
+  TurnPresentation,
 } from "store/timeline/controller";
 import type { PersistedTimeline } from "store/timeline/serialize";
 
@@ -186,7 +186,7 @@ export class ProjectClient {
   private snapshot: ProjectSessionSnapshot;
   private timelineMeta: TimelineMeta = EMPTY_TIMELINE;
   /** The turn kind of the update being applied; null between updates. */
-  private applyingStepKind: StepKind | null = null;
+  private applyingTurn: TurnPresentation | null = null;
   private applyingLocally = false;
 
   constructor(connect: () => ClientConnection) {
@@ -219,7 +219,7 @@ export class ProjectClient {
           this.focusListeners.delete(listener);
         };
       },
-      currentStepKind: () => this.applyingStepKind,
+      currentTurnPresentation: () => this.applyingTurn,
     };
   }
 
@@ -567,7 +567,7 @@ export class ProjectClient {
    */
   private applyUpdate(update: StoreUpdate): void {
     const replica = this.replica;
-    this.applyingStepKind = update.stepKind;
+    this.applyingTurn = update.turn;
     try {
       runInAction(() => {
         this.local(() => {
@@ -583,7 +583,7 @@ export class ProjectClient {
         }
       });
     } finally {
-      this.applyingStepKind = null;
+      this.applyingTurn = null;
     }
     if (update.timeline != null) {
       this.timelineMeta = update.timeline;

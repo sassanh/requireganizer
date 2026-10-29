@@ -267,22 +267,30 @@ export const MemoMembershipMotion = memo(
 );
 
 /**
- * Row content cached per key across list renders: the memoized row above
- * only skips settled rows while it keeps receiving the identical element.
- * The key must capture everything the built content reads (identity,
- * position, labels, flags) — a stale key shows stale content. Appends
- * reuse settled rows' keys, so only the arriving row builds.
+ * Row content cached across list renders: the memoized row above only
+ * skips settled rows while it keeps receiving the identical element.
+ * Content is cached per model it renders, so a model replaced under the
+ * same id (an undo, a snapshot restore) builds fresh instead of showing
+ * the destroyed one. The key must capture everything else the built
+ * content reads (position, labels, flags). Appends reuse settled rows'
+ * entries, so only the arriving row builds.
  */
 export function useMembershipContent(): (
+  model: object,
   key: string,
   build: () => ReactNode,
 ) => ReactNode {
-  const cacheRef = useRef(new Map<string, ReactNode>());
-  return useCallback((key: string, build: () => ReactNode) => {
-    const hit = cacheRef.current.get(key);
+  const cacheRef = useRef(new WeakMap<object, Map<string, ReactNode>>());
+  return useCallback((model: object, key: string, build: () => ReactNode) => {
+    let entries = cacheRef.current.get(model);
+    if (entries == null) {
+      entries = new Map();
+      cacheRef.current.set(model, entries);
+    }
+    const hit = entries.get(key);
     if (hit !== undefined) return hit;
     const node = build();
-    cacheRef.current.set(key, node);
+    entries.set(key, node);
     return node;
   }, []);
 }

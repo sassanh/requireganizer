@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { getSnapshot } from "mobx-state-tree";
+import { reaction } from "mobx";
+import { getSnapshot, type SnapshotIn } from "mobx-state-tree";
 
 import {
   attachPresentation,
@@ -21,6 +22,7 @@ import {
   declareTimelineStep,
   resetTimeline,
   timelineChangeSource,
+  undo,
 } from "../app/store/timeline/controller";
 
 function delay(ms: number): Promise<void> {
@@ -32,10 +34,13 @@ function featureText(shown: Store): string {
   return shown.productOverview.primaryFeatures.map(({ content }) => content).join("\n");
 }
 
-function attachPair(step: WorkflowStage = WorkflowStage.ProductOverview) {
+function attachPair(
+  step: WorkflowStage = WorkflowStage.ProductOverview,
+  snapshot: SnapshotIn<typeof Store> = { productOverview: {} },
+) {
   resetTimeline();
   resetPresentation();
-  const real = Store.create({ productOverview: {} });
+  const real = Store.create(snapshot);
   const shown = Store.create(getSnapshot(real));
   attachTimeline(real);
   setPresentationNav({
@@ -236,5 +241,41 @@ describe("presentation sequencer", () => {
     claim(tick);
     complete(tick);
     assert.equal(isPresenting(), false);
+  });
+
+  it("slides an approved removal out and an undo puts it back in its place", () => {
+    const { real, shown } = attachPair(WorkflowStage.ProductOverview, {
+      productOverview: {
+        primaryFeatures: [
+          { id: "f1", content: "one" },
+          { id: "f2", content: "two", pendingRemoval: true },
+          { id: "f3", content: "three" },
+        ],
+      },
+    });
+    const shownIds = () => shown.productOverview.primaryFeatures.map(({ id }) => id);
+    const changes: { ids: string[]; presenting: boolean }[] = [];
+    const stop = reaction(
+      () => shownIds().join(","),
+      () => changes.push({ ids: shownIds(), presenting: isPresenting() }),
+    );
+    const playAll = () => {
+      while (isPresenting()) {
+        const tick = getPresentationTick();
+        claim(tick);
+        complete(tick);
+      }
+    };
+    real.approve("f2");
+    playAll();
+    undo();
+    playAll();
+    stop();
+    // Each change plays as a frame, and the restored item enters where it
+    // was: catching up with the real store moves nothing.
+    assert.deepEqual(changes, [
+      { ids: ["f1", "f3"], presenting: true },
+      { ids: ["f1", "f2", "f3"], presenting: true },
+    ]);
   });
 });

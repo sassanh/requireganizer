@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { registerDomGlobals } from "./support/domGlobals";
+import { createThemedRoot } from "./support/themedRoot";
 
 /**
  * Presenters animate the replica: one recorded frame at a time, displayed
@@ -50,7 +51,6 @@ describe("change queue", () => {
     resetChangeQueue();
 
     const React = await import("react");
-    const { createRoot } = await import("react-dom/client");
     const { observer } = await import("mobx-react-lite");
     const { Store } = await import("../app/store/store");
     const { attachTimeline, declareTimelineStep } = await import(
@@ -110,7 +110,7 @@ describe("change queue", () => {
 
     const container = globalThis.document.createElement("div");
     globalThis.document.body.appendChild(container);
-    const root = createRoot(container);
+    const root = await createThemedRoot(container);
     const textOf = (field: string): string =>
       container.querySelector(`[data-field="${field}"]`)?.textContent ?? "";
 
@@ -167,7 +167,6 @@ describe("change queue", () => {
     resetChangeQueue();
 
     const React = await import("react");
-    const { createRoot } = await import("react-dom/client");
     const { Store } = await import("../app/store/store");
     const { attachTimeline, declareTimelineStep } = await import(
       "../app/store/timeline/controller"
@@ -208,7 +207,7 @@ describe("change queue", () => {
     const StructuralFragments = StructuralFragmentsModule.default;
     const container = globalThis.document.createElement("div");
     globalThis.document.body.appendChild(container);
-    const root = createRoot(container);
+    const root = await createThemedRoot(container);
     const itemTexts = (): string[] =>
       [...container.querySelectorAll("[data-fragment^='user_story:']")].map(
         (card) =>
@@ -267,7 +266,6 @@ describe("change queue", () => {
     resetChangeQueue();
 
     const React = await import("react");
-    const { createRoot } = await import("react-dom/client");
     const { Store } = await import("../app/store/store");
     const { attachTimeline, declareTimelineStep } = await import(
       "../app/store/timeline/controller"
@@ -291,7 +289,7 @@ describe("change queue", () => {
     const StructuralFragments = StructuralFragmentsModule.default;
     const container = globalThis.document.createElement("div");
     globalThis.document.body.appendChild(container);
-    const root = createRoot(container);
+    const root = await createThemedRoot(container);
     const readText = (): string =>
       container.querySelector("textarea")?.value ??
       container.querySelector("textarea")?.textContent ??
@@ -341,7 +339,6 @@ describe("change queue", () => {
     resetChangeQueue();
 
     const React = await import("react");
-    const { createRoot } = await import("react-dom/client");
     const { Store } = await import("../app/store/store");
     const { attachTimeline, declareTimelineStep } = await import(
       "../app/store/timeline/controller"
@@ -362,7 +359,7 @@ describe("change queue", () => {
     const StructuralFragments = StructuralFragmentsModule.default;
     const container = globalThis.document.createElement("div");
     globalThis.document.body.appendChild(container);
-    const root = createRoot(container);
+    const root = await createThemedRoot(container);
     const itemTexts = (): string[] =>
       [...container.querySelectorAll("[data-fragment^='user_story:']")].map(
         (card) =>
@@ -423,7 +420,6 @@ describe("change queue", () => {
     resetChangeQueue();
 
     const React = await import("react");
-    const { createRoot } = await import("react-dom/client");
     const { Store } = await import("../app/store/store");
     const { attachTimeline, declareTimelineStep, redo, undo } = await import(
       "../app/store/timeline/controller"
@@ -444,7 +440,7 @@ describe("change queue", () => {
     const StructuralFragments = StructuralFragmentsModule.default;
     const container = globalThis.document.createElement("div");
     globalThis.document.body.appendChild(container);
-    const root = createRoot(container);
+    const root = await createThemedRoot(container);
     const itemTexts = (): string[] =>
       [...container.querySelectorAll("[data-fragment^='user_story:']")].map(
         (card) =>
@@ -506,7 +502,6 @@ describe("change queue", () => {
     resetChangeQueue();
 
     const React = await import("react");
-    const { createRoot } = await import("react-dom/client");
     const { observer } = await import("mobx-react-lite");
     const { Store } = await import("../app/store/store");
     const { attachTimeline, declareTimelineStep } = await import(
@@ -530,7 +525,7 @@ describe("change queue", () => {
 
     const container = globalThis.document.createElement("div");
     globalThis.document.body.appendChild(container);
-    const root = createRoot(container);
+    const root = await createThemedRoot(container);
     const readText = (): string =>
       container.querySelector("output")?.textContent ?? "";
 
@@ -556,7 +551,6 @@ describe("change queue", () => {
     resetChangeQueue();
 
     const React = await import("react");
-    const { createRoot } = await import("react-dom/client");
     const { observer } = await import("mobx-react-lite");
     const { Store, storeContext } = await import("../app/store/store");
     const { attachTimeline, declareTimelineStep } = await import(
@@ -617,7 +611,7 @@ describe("change queue", () => {
 
     const container = globalThis.document.createElement("div");
     globalThis.document.body.appendChild(container);
-    const root = createRoot(container);
+    const root = await createThemedRoot(container);
     const textOf = (field: string): string =>
       container.querySelector(`[data-field="${field}"]`)?.textContent ?? "";
     const featureTexts = (): string[] =>

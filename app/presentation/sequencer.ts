@@ -334,8 +334,8 @@ export function attachPresentation(
     if (idle) applyHead();
   });
   unsubSnap = onSnapshot(real, () => {
-    const kind = source.currentStepKind();
-    if (kind === "user") {
+    const presentation = source.currentTurnPresentation();
+    if (presentation === "mirrored") {
       if (isIdle()) {
         syncPresentationFrom(real);
       } else {
@@ -346,7 +346,8 @@ export function attachPresentation(
       return;
     }
     queueMicrotask(() => {
-      if (kind === "ai" && hasSubjectDiff()) return;
+      // A presented turn's subjects wait for its change focus to play them.
+      if (presentation === "presented" && hasSubjectDiff()) return;
       syncPresentationFrom(real);
     });
   });

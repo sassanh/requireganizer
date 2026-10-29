@@ -62,24 +62,19 @@ const FragmentList = observer(function FragmentList<
     useMembershipTurns(liveIds);
   const contentFor = useMembershipContent();
 
-  const renderedChildFor = (id: string): ReactNode => {
-    const live = liveFragments.find((fragment) => fragment.id === id);
-    if (live != null) {
-      return renderFragment(live, { list: liveFragments });
-    }
-    return getFrozenFragment(id);
-  };
-
   return (
     <Stack sx={{ gap: 1 }}>
       {presentedIds.map((id, index) => {
-        // The key captures everything the row shows: identity, position,
-        // label number, and flags. Appends reuse settled rows' keys, so
-        // only the arriving row builds fresh content.
-        const contentKey = liveIds.includes(id)
-          ? `${id}:${seqFor(id)}:${index}:${liveIds.indexOf(id)}:${isDisabled}`
-          : `${id}:${seqFor(id)}:${index}:gone`;
-        const content = contentFor(contentKey, () => renderedChildFor(id));
+        // A departing row shows its stored last picture. A live row's key
+        // captures the rest of what it shows: position, label number, and
+        // flags.
+        const live = liveFragments.find((fragment) => fragment.id === id);
+        const content =
+          live == null
+            ? getFrozenFragment(id)
+            : contentFor(live, `${seqFor(id)}:${index}:${liveIds.indexOf(id)}:${isDisabled}`, () =>
+              renderFragment(live, { list: liveFragments }),
+            );
         if (content == null) return null;
         return (
           <MemoMembershipMotion

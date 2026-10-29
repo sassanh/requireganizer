@@ -8,7 +8,7 @@ import type { ReplicatedVolatileState } from "store";
 import type { WorkflowStage } from "store/constants";
 import type {
   ChangeFocus,
-  StepKind,
+  TurnPresentation,
   TimelineMeta,
 } from "store/timeline/controller";
 import type { PersistedTimeline } from "store/timeline/serialize";
@@ -24,7 +24,7 @@ import type { PersistedTimeline } from "store/timeline/serialize";
  * different builds checks it before any message is exchanged; change it
  * whenever a message changes shape.
  */
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 6;
 
 /**
  * WebSocket close codes a host server ends a connection with when connecting
@@ -200,9 +200,9 @@ export interface HostInfo {
 /**
  * What the shown store and its timeline went through since the previous
  * update, sent as one message so a client applies a host change whole.
- * `stepKind` is the kind of timeline turn open when the change was flushed,
- * and `focus` the change focus the timeline emitted with it; presenters read
- * both the way they read the timeline next to a local store.
+ * `turn` is how the timeline turn open when the change was flushed is
+ * presented, and `focus` the change focus the timeline emitted with it;
+ * presenters read both the way they read the timeline next to a local store.
  */
 export interface StoreUpdate {
   patches: IJsonPatch[];
@@ -210,7 +210,7 @@ export interface StoreUpdate {
   volatile: Partial<ReplicatedVolatileState>;
   /** Text added to the end of a replicated volatile value, such as streamed thinking. */
   appended: Partial<Record<VolatileTextKey, string>>;
-  stepKind: StepKind | null;
+  turn: TurnPresentation | null;
   focus: ChangeFocus | null;
   /** The timeline's history when it changed; null when unchanged. */
   timeline: TimelineMeta | null;

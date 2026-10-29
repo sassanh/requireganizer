@@ -89,6 +89,24 @@ export function getCurrentStepKind(): Source["kind"] | null {
   return openTurn?.step.kind ?? null;
 }
 
+/**
+ * How presenters show a turn's change. A presented turn plays its change
+ * focus when it closes, so a presenter holds the changed subjects until
+ * then; a mirrored turn shows at once, as its author is already looking at
+ * it (a person's text edits).
+ */
+export type TurnPresentation = "presented" | "mirrored";
+
+/** The one rule for which turns present their change: AI turns and Approve. */
+function presentationOf(step: TimelineStep): TurnPresentation {
+  return step.kind === "ai" || step.label === "approve" ? "presented" : "mirrored";
+}
+
+/** How the turn open now is presented; null outside any turn. */
+export function getCurrentTurnPresentation(): TurnPresentation | null {
+  return openTurn == null ? null : presentationOf(openTurn.step);
+}
+
 /** Declared step action names (introspection for diagnostics). */
 export function getDeclaredStepNames(): string[] {
   return [...stepDeclarations.keys()];
@@ -190,6 +208,9 @@ export type ChangeFocusOp = {
   subject: string;
   itemId?: string;
   itemSnapshot?: unknown;
+  /** An add's place: the id before the item in its list after the change,
+   * null when it comes first. */
+  previousId?: string | null;
   /** After-value of a scalar/artifact update. The presenter captures this
    * at schedule time and animates it; it does not re-read the store. */
   value?: unknown;
@@ -215,18 +236,18 @@ export function getChangeFocus(): ChangeFocus {
 
 /**
  * Where a presenter learns how the real store changed: the change focus of
- * each finished turn, and the kind of turn whose change the store is
- * applying right now. The timeline is the source next to the authority's
+ * each finished turn, and how the turn whose change the store is applying
+ * right now is presented. The timeline is the source next to the authority's
  * store; a replica reports the same two facts as they arrive.
  */
 export interface ChangeSource {
   onChangeFocus(listener: (focus: ChangeFocus) => void): () => void;
-  currentStepKind(): StepKind | null;
+  currentTurnPresentation(): TurnPresentation | null;
 }
 
 export const timelineChangeSource: ChangeSource = {
   onChangeFocus,
-  currentStepKind: getCurrentStepKind,
+  currentTurnPresentation: getCurrentTurnPresentation,
 };
 
 /** State-tree keys that can be subjects; conversation follows itself. */
@@ -309,6 +330,7 @@ function diffArrayOps(
     ops.push(op);
   }
 
+  let previousId: string | null = null;
   for (const item of afterList) {
     const id = snapshotItemId(item);
     if (id == null) continue;
@@ -319,10 +341,9 @@ function diffArrayOps(
         subject: `${subjectPrefix}/${id}`,
         itemId: id,
         itemSnapshot: item,
+        previousId,
       });
-      continue;
-    }
-    if (JSON.stringify(beforeItem) !== JSON.stringify(item)) {
+    } else if (JSON.stringify(beforeItem) !== JSON.stringify(item)) {
       ops.push({
         kind: "update",
         subject: `${subjectPrefix}/${id}`,
@@ -330,6 +351,7 @@ function diffArrayOps(
         itemSnapshot: item,
       });
     }
+    previousId = id;
   }
 }
 
@@ -840,10 +862,9 @@ export function attachTimeline(
       const { step, beforeState } = openTurn;
       openTurn = null;
       closeOpenTurn(step, getPath(call.context), error != null);
-      // AI-driven turns, and Approve: publish where the change landed so
-      // the presentation sequencer can play it. Human text edits do not
-      // emit — their author is already looking at the field.
-      if (step.kind === "ai" || step.label === "approve") {
+      // Publish where a presented turn's change landed so the presentation
+      // sequencer can play it.
+      if (presentationOf(step) === "presented") {
         const afterState = captureState(snapshotNow() as never);
         const ops = diffOps(beforeState, afterState);
         emitChangeFocus(ops);

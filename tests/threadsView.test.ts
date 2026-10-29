@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { registerDomGlobals } from "./support/domGlobals";
+import { createThemedRoot } from "./support/themedRoot";
 
 /**
  * A unit's thread shows whose turn it is on the unit itself, and a thread
@@ -12,7 +13,6 @@ describe("change request thread state", () => {
   it("says who the thread waits for, and marks the units waiting on the person", async () => {
     await registerDomGlobals();
     const React = await import("react");
-    const { createRoot } = await import("react-dom/client");
     const { Store, storeContext } = await import("../app/store/store");
     const { default: ApprovalMark } = await import("../app/components/ApprovalMark");
 
@@ -28,7 +28,7 @@ describe("change request thread state", () => {
 
     const container = globalThis.document.createElement("div");
     globalThis.document.body.appendChild(container);
-    const root = createRoot(container);
+    const root = await createThemedRoot(container);
     await React.act(async () => {
       root.render(
         React.createElement(storeContext.Provider, { value: store }, React.createElement(ApprovalMark, { id: "user-1" })),
