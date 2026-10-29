@@ -49,13 +49,14 @@ export function ApprovalFrame({
       sx={[
         {
           position: "relative",
-          // An open change-request popover portals out of the frame, so
-          // focus leaves with it: keep the frame's border through :has
-          // instead of drilling open state up through every parent.
-          "&:has([data-comment-open])": {
+          // The focus border is the frame's, so every navigation target shows
+          // the same one however focus arrived: a click, j/k, or a signature
+          // moving on. An open change-request popover portals out of the
+          // frame, so focus leaves with it: :has keeps the border instead of
+          // drilling open state up through every parent.
+          "&:focus-within, &:has([data-comment-open])": {
             outline: "2px solid",
             outlineColor: "primary.main",
-            borderColor: "transparent",
             outlineOffset: "-2px",
           },
           // The border only shows focus; status lives on the bar. A change

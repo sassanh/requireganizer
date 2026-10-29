@@ -106,11 +106,6 @@ function FragmentFrame({
           position: 'relative',
           borderRadius: 1,
           bgcolor: "background.paper",
-          "&:focus-within": {
-            outline: "2px solid",
-            outlineColor: "primary.main",
-            outlineOffset: "-2px",
-          },
         },
         isHighlighted ? highlightSx ?? { backgroundColor: "action.focus" } : {},
         ...(Array.isArray(sx) ? sx : sx ? [sx] : []),
