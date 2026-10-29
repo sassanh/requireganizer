@@ -8,7 +8,7 @@ import {
   type ChangeSource,
 } from "store/timeline/controller";
 
-import { applyOpToTree } from "./applyOp";
+import { applyOpToStore } from "./applyOp";
 import {
   noteMomentumPlayed,
   setMomentumBacklog,
@@ -171,10 +171,10 @@ function enqueueOps(ops: ChangeFocusOp[]): void {
   }
 }
 
-function applyReplicaSnapshot(tree: Record<string, unknown>): void {
+function applyReplicaOp(op: ChangeFocusOp): void {
   if (replica == null) return;
   try {
-    applySnapshot(replica, tree as never);
+    applyOpToStore(replica, op);
   } catch (error) {
     console.error("Presentation replica could not apply a change.", error);
   }
@@ -264,12 +264,7 @@ function applyHead(): void {
   latch = { tick: latch.tick + 1, claims: 0 };
   const tick = latch.tick;
   presenting = true;
-  applyReplicaSnapshot(
-    applyOpToTree(
-      getSnapshot(replica) as Record<string, unknown>,
-      frame.op,
-    ),
-  );
+  applyReplicaOp(frame.op);
   armPresentTimers(tick);
 }
 

@@ -1,3 +1,11 @@
+import {
+  applyPatch,
+  applySnapshot,
+  getSnapshot,
+  isStateTreeNode,
+  type IAnyStateTreeNode,
+} from "mobx-state-tree";
+
 import type { ChangeFocusOp } from "store/timeline/controller";
 
 function itemIdOf(value: unknown): string | undefined {
@@ -70,6 +78,15 @@ function mergeItem(current: unknown, incoming: unknown): unknown {
   return incoming;
 }
 
+/**
+ * Where an added item goes: after the item before it, or first. Adds play
+ * in list order after their change's removes, so that item is already in
+ * place.
+ */
+function insertionIndex(collection: readonly unknown[], op: ChangeFocusOp): number {
+  return collection.findIndex((entry) => itemIdOf(entry) === op.previousId) + 1;
+}
+
 /** Apply one recorded op onto a plain store snapshot. */
 export function applyOpToTree(
   tree: Record<string, unknown>,
@@ -86,12 +103,7 @@ export function applyOpToTree(
       const alreadyThere =
         newId != null &&
         collection.some((entry) => itemIdOf(entry) === newId);
-      // Adds play in list order after their change's removes, so the item
-      // before this one is already in place; with none, it goes first.
-      const previousIndex = collection.findIndex(
-        (entry) => itemIdOf(entry) === op.previousId,
-      );
-      if (!alreadyThere) collection.splice(previousIndex + 1, 0, op.itemSnapshot);
+      if (!alreadyThere) collection.splice(insertionIndex(collection, op), 0, op.itemSnapshot);
     }
     return omitUndefined(next);
   }
@@ -129,4 +141,52 @@ export function applyOpToTree(
     else record[key] = op.value;
   }
   return omitUndefined(next);
+}
+
+/**
+ * Apply one recorded op onto a live store at the node it names, so a frame
+ * costs what it changes rather than the whole tree. An item op on a live
+ * list touches only that item; any other op rewrites the nearest node
+ * holding its subject, as `applyOpToTree` would rewrite it.
+ */
+export function applyOpToStore(root: IAnyStateTreeNode, op: ChangeFocusOp): void {
+  const parts = op.subject.split("/").filter((part) => part.length > 0);
+  if (parts.length === 0) return;
+  let holder: IAnyStateTreeNode = root;
+  let depth = 0;
+  while (depth < parts.length - 1) {
+    const next = walk(holder, [parts[depth]!]);
+    if (!isStateTreeNode(next)) break;
+    holder = next;
+    depth += 1;
+  }
+  const collection = holder as unknown;
+  if (depth === parts.length - 1 && Array.isArray(collection) && op.itemId != null) {
+    const index = collection.findIndex((entry) => itemIdOf(entry) === op.itemId);
+    if (op.kind === "add") {
+      const newId = itemIdOf(op.itemSnapshot) ?? op.itemId;
+      if (op.itemSnapshot == null || collection.some((entry) => itemIdOf(entry) === newId)) return;
+      applyPatch(holder, {
+        op: "add",
+        path: `/${insertionIndex(collection, op)}`,
+        value: omitUndefined(op.itemSnapshot),
+      });
+      return;
+    }
+    if (op.kind === "remove") {
+      if (index >= 0) applyPatch(holder, { op: "remove", path: `/${index}` });
+      return;
+    }
+    if (op.itemSnapshot != null) {
+      const item = collection[index] as IAnyStateTreeNode | undefined;
+      if (item == null) return;
+      applySnapshot(item, omitUndefined(mergeItem(getSnapshot(item), op.itemSnapshot)));
+      return;
+    }
+  }
+  const local = applyOpToTree(
+    { holder: getSnapshot(holder) },
+    { ...op, subject: ["holder", ...parts.slice(depth)].join("/") },
+  );
+  applySnapshot(holder, local.holder);
 }

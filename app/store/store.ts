@@ -100,6 +100,7 @@ import {
   type IntegrityItem,
   type MechanicalIssue,
 } from "./integrity";
+import { cachedView, keyedView } from "./keyedView";
 import {
   classifyListChange,
   listChangeCaption,
@@ -230,23 +231,27 @@ function criterionIdsFrom(
     .map(({ id }) => id);
 }
 
-function integrityGraphFromStore(source: {
-  productOverview: ProductOverview;
-  userStories: readonly UserStory[];
-  requirements: readonly Requirement[];
-  acceptanceCriteria: readonly AcceptanceCriteria[];
-  boundaryDesign: BoundaryDesign | null;
-  testScenarios: readonly TestScenario[];
-}): IntegrityGraph {
+/** `itemOf` builds each item's entry; the store passes one cached per item. */
+function integrityGraphFromStore(
+  source: {
+    productOverview: ProductOverview;
+    userStories: readonly UserStory[];
+    requirements: readonly Requirement[];
+    acceptanceCriteria: readonly AcceptanceCriteria[];
+    boundaryDesign: BoundaryDesign | null;
+    testScenarios: readonly TestScenario[];
+  },
+  itemOf: (fragment: Parameters<typeof integrityItem>[0]) => IntegrityItem,
+): IntegrityGraph {
   return {
     productOverview: {
       purpose: source.productOverview.purpose,
-      primaryFeatures: source.productOverview.primaryFeatures.map(integrityItem),
-      targetUsers: source.productOverview.targetUsers.map(integrityItem),
+      primaryFeatures: source.productOverview.primaryFeatures.map(itemOf),
+      targetUsers: source.productOverview.targetUsers.map(itemOf),
     },
-    userStories: source.userStories.map(integrityItem),
-    requirements: source.requirements.map(integrityItem),
-    acceptanceCriteria: source.acceptanceCriteria.map(integrityItem),
+    userStories: source.userStories.map(itemOf),
+    requirements: source.requirements.map(itemOf),
+    acceptanceCriteria: source.acceptanceCriteria.map(itemOf),
     boundaryDesign: source.boundaryDesign,
     testScenarios: source.testScenarios.map((scenario) => ({
       id: scenario.id,
@@ -841,7 +846,9 @@ export const FlatStore = types
           : {}),
       };
     },
-    get structuralFragmentsCache() {
+  }))
+  .views((self) => {
+    const fragmentsById = cachedView(() => {
       const all = [
         ...self.productOverview.primaryFeatures,
         ...self.productOverview.targetUsers,
@@ -852,14 +859,24 @@ export const FlatStore = types
         ...self.testScenarios.flatMap((scenario) => scenario.testCases),
       ] as unknown as StructuralFragment[];
       return Object.fromEntries(all.map((fragment) => [fragment.id, fragment]));
-    },
-    get integrityGraph(): IntegrityGraph {
-      return integrityGraphFromStore(self);
-    },
-    get mechanicalIssues(): MechanicalIssue[] {
-      return collectMechanicalIssues(integrityGraphFromStore(self));
-    },
-  }))
+    });
+    const integrityItemOf = keyedView((id: string) => integrityItem(fragmentsById()[id]!));
+    const integrityGraph = cachedView(() =>
+      integrityGraphFromStore(self, (fragment) => integrityItemOf(fragment.id)),
+    );
+    const mechanicalIssues = cachedView(() => collectMechanicalIssues(integrityGraph()));
+    return {
+      get structuralFragmentsCache() {
+        return fragmentsById();
+      },
+      get integrityGraph(): IntegrityGraph {
+        return integrityGraph();
+      },
+      get mechanicalIssues(): MechanicalIssue[] {
+        return mechanicalIssues();
+      },
+    };
+  })
   .views((self) => ({
     get projectSetupIsCurrent() {
       return !(
@@ -928,7 +945,7 @@ export const FlatStore = types
       fragment.type === StructuralFragmentName.TestCase;
 
     /** The current revision of any unit an item can reference. */
-    function revisionOf(id: string): string | null {
+    const revisionOf = keyedView(function deriveRevision(id: string): string | null {
       if (id === OVERVIEW_PURPOSE_QUALITY_ID) {
         return checkedHash({ purpose: self.productOverview.purpose });
       }
@@ -942,7 +959,7 @@ export const FlatStore = types
       if (self.implementationProfile?.id === id) return self.implementationProfile.revisionId;
       if (self.projectSetup?.id === id) return self.projectSetup.revisionId;
       return contractBundle(id)?.revisionId ?? null;
-    }
+    });
 
     /** The units an item was generated against: its references, plus the contracts a scenario binds. */
     function referencedUnitIds(fragment: {
@@ -1146,43 +1163,50 @@ export const FlatStore = types
       return { revisionId: revisionOf(id) };
     }
 
-    function currentInputs(step: WorkflowStage): Record<string, JsonValue> {
-      return Object.fromEntries(
+    const currentInputs = keyedView((step: WorkflowStage): Record<string, JsonValue> =>
+      Object.fromEntries(
         (STAGE_INPUTS[step] ?? []).flatMap((input) =>
           itemUnitIds(input).map((id) => [id, inputContentOf(id)] as const),
         ),
-      );
-    }
+      ),
+    );
+
+    const inputHashOf = keyedView((id: string) => checkedHash(inputContentOf(id)));
+
+    /** The hash of each input as the stage last acknowledged it. */
+    const acknowledgedHashes = keyedView((step: WorkflowStage): Record<string, string> =>
+      Object.fromEntries(
+        Object.entries(self.review.acknowledgedInputs[step] ?? {}).map(([id, content]) => [id, checkedHash(content)]),
+      ),
+    );
 
     /** Inputs whose content differs from what the stage last acknowledged. */
-    function changedInputIds(step: WorkflowStage): string[] {
-      const acknowledged = self.review.acknowledgedInputs[step];
-      if (acknowledged == null) return [];
+    const changedInputIds = keyedView((step: WorkflowStage): string[] => {
+      if (self.review.acknowledgedInputs[step] == null) return [];
+      const acknowledged = acknowledgedHashes(step);
       const current = currentInputs(step);
       const ids = new Set([...Object.keys(acknowledged), ...Object.keys(current)]);
       return [...ids]
         .filter((id) =>
           acknowledged[id] === undefined ||
           current[id] === undefined ||
-          checkedHash(acknowledged[id]) !== checkedHash(current[id]),
+          acknowledged[id] !== inputHashOf(id),
         )
         .sort();
-    }
+    });
 
     function liveItems(step: WorkflowStage): readonly StructuralFragment[] {
       return (LIST_STAGE_ITEMS[step]?.() ?? []).filter(({ pendingRemoval }) => !pendingRemoval);
     }
 
-    function inputsHash(step: WorkflowStage): string {
-      return checkedHash(currentInputs(step));
-    }
+    const inputsHash = keyedView((step: WorkflowStage): string => checkedHash(currentInputs(step)));
 
     /**
      * Approved items an upstream change did not reach through their
      * references, approved before the inputs changed: what impact review
      * confirms. Drafts are reviewed one by one against the current inputs.
      */
-    function untouchedItems(step: WorkflowStage): StructuralFragment[] {
+    const untouchedItems = keyedView((step: WorkflowStage): StructuralFragment[] => {
       const changed = new Set(changedInputIds(step));
       if (changed.size === 0) return [];
       const current = inputsHash(step);
@@ -1191,7 +1215,7 @@ export const FlatStore = types
         if (unit?.approved !== true || unit.signature!.inputs === current) return false;
         return referencedUnitIds(item as never).every((id) => !changed.has(id));
       });
-    }
+    });
 
     function impactIsPending(step: WorkflowStage): boolean {
       return IMPACT_STAGES.has(step) && untouchedItems(step).length > 0;
@@ -1224,12 +1248,21 @@ export const FlatStore = types
       return COVERAGE_STAGE_BY_PARENT_TYPE[parent.type] ?? null;
     }
 
+    /** A stage's live items grouped by each item they reference. */
+    const itemsByReference = keyedView((step: WorkflowStage): Map<string, StructuralFragment[]> => {
+      const index = new Map<string, StructuralFragment[]>();
+      for (const item of liveItems(step)) {
+        for (const id of new Set(item.references.map((reference) => reference.id))) {
+          index.set(id, [...(index.get(id) ?? []), item]);
+        }
+      }
+      return index;
+    });
+
     function coverageChildren(parentId: string): StructuralFragment[] {
       const step = coverageStageOf(parentId);
       if (step == null) return [];
-      return liveItems(step).filter((item) =>
-        item.references.some(({ id }) => id === parentId),
-      );
+      return itemsByReference(step).get(parentId) ?? [];
     }
 
     function coverageChecked(parentId: string): string {
@@ -1246,7 +1279,7 @@ export const FlatStore = types
     }
 
     /** The one place a unit's review state is assembled. */
-    function reviewUnit(id: string): ReviewUnit | null {
+    const reviewUnit = keyedView(function deriveReviewUnit(id: string): ReviewUnit | null {
       const finish = (
         unit: Omit<ReviewUnit, "approved">,
       ): ReviewUnit => ({
@@ -1356,7 +1389,7 @@ export const FlatStore = types
         signature: artifact.signature ?? null,
         verdict: artifact.verdict ?? null,
       });
-    }
+    });
 
     function stageUnitIds(step: WorkflowStage): string[] {
       const ids = itemUnitIds(step);
@@ -1367,11 +1400,11 @@ export const FlatStore = types
       return ids;
     }
 
-    function stageUnits(step: WorkflowStage): ReviewUnit[] {
-      return stageUnitIds(step)
-        .map(reviewUnit)
-        .filter((unit): unit is ReviewUnit => unit != null);
-    }
+    const stageUnits = keyedView((step: WorkflowStage): ReviewUnit[] =>
+      stageUnitIds(step)
+        .map((id) => reviewUnit(id))
+        .filter((unit): unit is ReviewUnit => unit != null),
+    );
 
     // ---- Progress ---------------------------------------------------
 
