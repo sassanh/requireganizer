@@ -117,7 +117,7 @@ interface CommentButtonProps {
 
 function ThreadMessages({ thread, faded = false }: { thread: ReviewThread; faded?: boolean }) {
   return (
-    <Stack spacing={1.5} sx={{ opacity: faded ? 0.6 : 1 }}>
+    <Stack spacing={1.5} divider={<Divider flexItem />} sx={{ opacity: faded ? 0.6 : 1 }}>
       {thread.messages.map((message, index) => (
         <Stack key={index} spacing={0.25}>
           <Typography variant="caption" color="text.secondary">
