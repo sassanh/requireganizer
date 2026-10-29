@@ -44,7 +44,10 @@ const EditableItemContent = observer(function EditableItemContent<
         slotProps={{
           input: {
             readOnly: true,
-            sx: { pl: 9 },
+            sx: {
+              fontSize: '1.2rem',
+              pl: 9,
+            },
           },
         }}
       />

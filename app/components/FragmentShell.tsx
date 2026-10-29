@@ -31,7 +31,7 @@ const codeSx = (priority: string) => (theme: Theme) => ({
   fontWeight: 800,
   mr: -8,
   mt: 2,
-  flexBasis: "calc(var(--mui-spacing) * 7)",
+  flexBasis: "calc(var(--mui-spacing) * 8)",
   flexShrink: 0,
   flexGrow: 0,
   color: {
@@ -130,7 +130,7 @@ function FragmentFrame({
             variant="body1"
             sx={codeSx(priority)}
           >
-            {code}.
+            {code}
           </Typography>
           {children}
         </Stack>
