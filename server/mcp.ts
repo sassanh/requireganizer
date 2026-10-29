@@ -7,6 +7,7 @@ import { onSnapshot } from "mobx-state-tree";
 
 import type { AgentToolDescription } from "ai-agent/agent-access";
 import { ConnectionLostError, ProjectClient } from "project-client";
+import { threadTurn } from "store/threads";
 
 import { projectLink } from "./projectLink";
 import type { ProjectServerOptions } from "./projectServer";
@@ -177,7 +178,7 @@ export async function serveMcp(
     const waiting = new Set<string>();
     const store = client.getSnapshot().store;
     for (const thread of store.openThreadsWaitingFor("coding-agent")) {
-      const turn = `${thread.id}:${thread.messages.length}`;
+      const turn = threadTurn(thread);
       waiting.add(turn);
       if (announced.has(turn)) continue;
       server.notification({

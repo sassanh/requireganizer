@@ -44,7 +44,12 @@ export interface OpenModule {
 /** The outside agent calling: the name it gave when it connected. */
 export interface AgentCaller {
   name: string;
+  /** The connection it calls through, set by the host; what the agent takes up ends with it. */
+  connection?: string;
 }
+
+/** Reading a thread with it, while the coding agent answers, takes the thread up. */
+const THREAD_TOOL_NAME = "get_thread";
 
 const REPLY_TOOL_NAME = "reply_to_thread";
 
@@ -138,7 +143,13 @@ export async function callAgentTool(
   caller: AgentCaller = { name: "The coding agent" },
 ): Promise<string> {
   const read = buildReadTools(store, open).find((tool) => tool.name === name);
-  if (read != null) return resultText(await read.execute(name, args as never));
+  if (read != null) {
+    const text = resultText(await read.execute(name, args as never));
+    if (name === THREAD_TOOL_NAME && store.threadAnswerer === "coding-agent") {
+      store.takeUpThread(stringArgument(args, "threadId"), caller.connection ?? caller.name);
+    }
+    return text;
+  }
 
   const author = { kind: "agent" as const, name: caller.name };
   if (name === REPLY_TOOL_NAME) {

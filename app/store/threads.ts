@@ -59,6 +59,17 @@ export function waitsForPerson(thread: ReviewThread): boolean {
   return thread.resolvedAt == null && thread.messages.at(-1)?.author.kind !== "person";
 }
 
+/** One turn of a thread: it changes with every message, so whatever concerned a turn ends with it. */
+export function threadTurn(thread: ReviewThread): string {
+  return `${thread.id}:${thread.messages.length}`;
+}
+
+/** An answerer at work on one turn of a thread, by the connection or flow that took it up. */
+export interface ThreadInHand {
+  turn: string;
+  by: string;
+}
+
 /** Who an open thread waits for: the person once anyone else spoke last, otherwise the project's answerer. */
 export function waitingFor(thread: ReviewThread, answerer: ThreadAnswerer): "person" | ThreadAnswerer {
   return waitsForPerson(thread) ? "person" : answerer;

@@ -1,4 +1,5 @@
 import { Button, Chip, Divider, Paper, Popper, Stack, TextField, Typography } from "@mui/material";
+import { keyframes, type Theme } from "@mui/material/styles";
 import { observer } from "mobx-react-lite";
 import { ChangeEvent, FormEvent, useCallback, useEffect, useState } from "react";
 
@@ -7,8 +8,41 @@ import { ActionView } from "actions/ActionView";
 import { useStore } from "store";
 import { answererLabel, authorLabel, type ReviewThread, waitsForPerson } from "store/threads";
 
+import { animationSeconds } from "./animation";
 import { sendOnEnter } from "./enterToSend";
 import { formatMessageTime } from "./messageTime";
+
+const turn = keyframes`
+  from { transform: translate(-50%, -50%) rotate(0turn); }
+  to { transform: translate(-50%, -50%) rotate(1turn); }
+`;
+
+/** A border that runs around the chip while an answerer is at work on the thread. */
+const answeringSx = (theme: Theme) => ({
+  position: "relative",
+  overflow: "hidden",
+  isolation: "isolate",
+  borderColor: "transparent",
+  "&::before": {
+    content: '""',
+    position: "absolute",
+    top: "50%",
+    left: "50%",
+    width: "200%",
+    aspectRatio: "1",
+    zIndex: -2,
+    background: `conic-gradient(${theme.palette.primary.main} 0turn 0.25turn, ${theme.palette.divider} 0.25turn)`,
+    animation: `${turn} ${animationSeconds(1.5)}s linear infinite`,
+  },
+  "&::after": {
+    content: '""',
+    position: "absolute",
+    inset: "1px",
+    borderRadius: "inherit",
+    zIndex: -1,
+    background: theme.palette.background.paper,
+  },
+});
 
 interface CommentButtonProps {
   /** The reviewable unit whose change requests this shows. */
@@ -61,6 +95,7 @@ const CommentButton = ({
   const thread = store.openThreadOf(unitId);
   const resolved = store.threadsOf(unitId).filter(({ resolvedAt }) => resolvedAt != null);
   const waitingForYou = thread != null && waitsForPerson(thread);
+  const answering = thread != null && store.isBeingAnswered(thread.id);
   const unit = store.reviewUnit(unitId);
   const canAskAgain =
     thread != null &&
@@ -134,6 +169,8 @@ const CommentButton = ({
           size="small"
           data-thread-state
           data-thread-waiting={waitingForYou ? "" : undefined}
+          aria-busy={answering || undefined}
+          sx={answering ? answeringSx : undefined}
           variant={waitingForYou ? "filled" : "outlined"}
           color={waitingForYou ? "warning" : "default"}
           label={waitingForYou ? "Waiting for you" : `Waiting for ${answererLabel(store.threadAnswerer)}`}

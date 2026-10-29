@@ -21,6 +21,9 @@ function lastReply(conversation: readonly unknown[]): string | null {
   return null;
 }
 
+/** What Requireganizer's writer takes a thread up as while it answers. */
+const REQUIREGANIZER_ANSWERER = "requireganizer";
+
 /**
  * Requireganizer's writer answers a thread of the stage: it reads the whole
  * thread as the change request, changes the unit or says why not, and its
@@ -44,13 +47,18 @@ export default generator(
     const problem = self.threadAnswerProblem([{ threadId, text: "-" }], author, step);
     if (problem != null) throw new UserFacingError(problem);
     const before = self.json(step);
-    yield* toGenerator(runAgentCommand(self, "apply the requested change", command, streamFn));
-    const changed = self.json(step) !== before;
-    self.answerThreads(
-      [{ threadId, text: lastReply(self.conversation ?? []) ?? (changed ? "Changed it." : "No change.") }],
-      author,
-      { withSubmission: changed },
-    );
+    self.takeUpThread(threadId, REQUIREGANIZER_ANSWERER);
+    try {
+      yield* toGenerator(runAgentCommand(self, "apply the requested change", command, streamFn));
+      const changed = self.json(step) !== before;
+      self.answerThreads(
+        [{ threadId, text: lastReply(self.conversation ?? []) ?? (changed ? "Changed it." : "No change.") }],
+        author,
+        { withSubmission: changed },
+      );
+    } finally {
+      self.releaseThreads(REQUIREGANIZER_ANSWERER);
+    }
     self.eventTarget.emit("stepUpdate", step);
   },
   {

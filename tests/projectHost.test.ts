@@ -27,7 +27,7 @@ import { MemoryPersistenceAdapter } from "../app/persistence";
 import { ProjectClient } from "../app/project-client";
 import { ProjectHost } from "../app/project-host";
 import { ProjectSession } from "../app/project-session";
-import { WorkflowStage } from "../app/store/constants";
+import { OVERVIEW_PURPOSE_QUALITY_ID, WorkflowStage } from "../app/store/constants";
 import { Store } from "../app/store/store";
 import { getCurrentStepKind } from "../app/store/timeline/controller";
 
@@ -679,6 +679,23 @@ describe("project host and client", () => {
     } finally {
       disconnect();
       session.dispose();
+    }
+  });
+
+  it("shows the page a thread the agent took up until the agent's connection ends", async () => {
+    const opened = await openProject(singleModule());
+    const agent = new ProjectClient(() => linkInProcess(opened.host));
+    const disconnectAgent = agent.open();
+    try {
+      opened.authority().setThreadAnswerer("coding-agent");
+      const threadId = opened.authority().requestChange(OVERVIEW_PURPOSE_QUALITY_ID, "Say who is helped.");
+      await agent.callAgentTool("get_thread", { threadId }, { name: "Test agent" });
+      await waitFor("the page to show the thread in hand", () => opened.replica().isBeingAnswered(threadId));
+      disconnectAgent();
+      await waitFor("the page to show it released", () => !opened.replica().isBeingAnswered(threadId));
+    } finally {
+      disconnectAgent();
+      opened.dispose();
     }
   });
 

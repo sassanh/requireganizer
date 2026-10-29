@@ -228,6 +228,8 @@ export class ProjectHost implements HostEndpoint {
     // image the new client starts from, so they go out first.
     this.flushUpdate();
     this.links.add(send);
+    // Names this client to what it takes up, so that it ends with the connection.
+    const connection = uuid();
     const snapshot = this.session.getSnapshot();
     send({ type: "event", event: { type: "host", info: this.sentHostInfo } });
     send({
@@ -256,9 +258,10 @@ export class ProjectHost implements HostEndpoint {
       },
     });
     return {
-      receive: (message: ClientMessage) => this.receive(send, message),
+      receive: (message: ClientMessage) => this.receive(send, message, connection),
       close: () => {
         if (!this.links.delete(send)) return;
+        this.shown?.store.releaseThreads(connection);
         if (this.links.size === 0) this.stopObserving();
       },
     };
@@ -268,18 +271,19 @@ export class ProjectHost implements HostEndpoint {
     for (const send of this.links) send({ type: "event", event });
   }
 
-  private receive(send: (message: HostMessage) => void, message: ClientMessage): void {
+  private receive(send: (message: HostMessage) => void, message: ClientMessage, connection: string): void {
     if (message.type !== "request") return;
-    void this.respond(send, message);
+    void this.respond(send, message, connection);
   }
 
   private async respond(
     send: (message: HostMessage) => void,
     message: RequestMessage,
+    connection: string,
   ): Promise<void> {
     let response: ResponseMessage;
     try {
-      const value = await this.dispatch(message);
+      const value = await this.dispatch(message, connection);
       response = { type: "response", id: message.id, ok: true, value };
     } catch (error) {
       response = { type: "response", id: message.id, ok: false, error: wireError(error) };
@@ -295,9 +299,13 @@ export class ProjectHost implements HostEndpoint {
     }
   }
 
-  private dispatch(message: RequestMessage): unknown {
+  private dispatch(message: RequestMessage, connection: string): unknown {
     if (!Object.hasOwn(this.api, message.name)) {
       throw new Error(`The project host has no request named ${String(message.name)}.`);
+    }
+    if (message.name === "callAgentTool") {
+      const [name, args, caller] = message.args as Parameters<HostApi["callAgentTool"]>;
+      return this.api.callAgentTool(name, args, { ...caller, connection });
     }
     const handler = this.api[message.name] as (...args: unknown[]) => unknown;
     return handler(...message.args);

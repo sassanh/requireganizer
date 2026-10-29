@@ -162,6 +162,8 @@ import {
   type ThreadAnswer,
   type ThreadAnswerer,
   type ThreadAuthor,
+  type ThreadInHand,
+  threadTurn,
   waitingFor,
   waitsForPerson,
   withMessage,
@@ -376,6 +378,8 @@ export interface ReplicatedVolatileState {
   thinkingLabel: string | null;
   thinkingText: string;
   pendingRetry: PendingRetry | null;
+  /** The thread turns an answerer is at work on now. */
+  threadsInHand: ThreadInHand[];
 }
 
 const REPLICATED_VOLATILE_KEYS = [
@@ -385,6 +389,7 @@ const REPLICATED_VOLATILE_KEYS = [
   "thinkingLabel",
   "thinkingText",
   "pendingRetry",
+  "threadsInHand",
 ] as const satisfies readonly (keyof ReplicatedVolatileState)[];
 
 export const ScaffoldFileModel = types.model({
@@ -452,6 +457,7 @@ export const FlatStore = types
     thinkingLabel: null,
     thinkingText: "",
     pendingRetry: null,
+    threadsInHand: [],
     aiAbortController: null,
     activeAgent: null,
   }))
@@ -2134,6 +2140,13 @@ export const FlatStore = types
           (thread) => thread.resolvedAt == null && self.reviewUnit(thread.unitId)!.stage === step,
         );
       },
+      /** An answerer is at work on the thread's turn now: the person's last message is being answered. */
+      isBeingAnswered(threadId: string): boolean {
+        const thread = liveThreads().find(({ id }) => id === threadId);
+        if (thread == null || thread.resolvedAt != null || waitsForPerson(thread)) return false;
+        const turn = threadTurn(thread);
+        return self.threadsInHand.some((inHand) => inHand.turn === turn);
+      },
       /** The open threads of every stage that wait for `who`, oldest first. */
       openThreadsWaitingFor(who: "person" | ThreadAnswerer): ReviewThread[] {
         return liveThreads().filter(
@@ -2201,6 +2214,26 @@ export const FlatStore = types
         setThreads(self.threads.map((candidate) =>
           candidate === thread ? { ...thread, resolvedAt: new Date().toISOString() } : candidate,
         ));
+      },
+      /**
+       * An answerer takes up the thread's current turn, which ends with the
+       * thread's next message; turns already over are dropped.
+       */
+      takeUpThread(threadId: string, by: string) {
+        const waiting = (thread: ReviewThread) => thread.resolvedAt == null && !waitsForPerson(thread);
+        const thread = self.threads.find(({ id }) => id === threadId);
+        if (thread == null || !waiting(thread)) return;
+        const turn = threadTurn(thread);
+        const current = new Set(self.threads.filter(waiting).map(threadTurn));
+        self.threadsInHand = [
+          ...self.threadsInHand.filter((inHand) => current.has(inHand.turn) && !(inHand.turn === turn && inHand.by === by)),
+          { turn, by },
+        ];
+      },
+      /** What `by` took up is no longer in hand, such as once its connection ends. */
+      releaseThreads(by: string) {
+        if (!self.threadsInHand.some((inHand) => inHand.by === by)) return;
+        self.threadsInHand = self.threadsInHand.filter((inHand) => inHand.by !== by);
       },
       setThreadAnswerer(answerer: ThreadAnswerer) {
         self.review = { ...self.review, answerer };

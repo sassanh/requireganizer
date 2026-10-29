@@ -24,7 +24,7 @@ import type { PersistedTimeline } from "store/timeline/serialize";
  * different builds checks it before any message is exchanged; change it
  * whenever a message changes shape.
  */
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 
 /**
  * WebSocket close codes a host server ends a connection with when connecting

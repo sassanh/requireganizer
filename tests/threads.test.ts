@@ -175,6 +175,49 @@ describe("change request threads over MCP", () => {
   });
 });
 
+describe("a thread in hand", () => {
+  it("is being answered from when an answerer takes up its turn until that turn ends", async () => {
+    const store = await overviewStore();
+    store.setThreadAnswerer("coding-agent");
+    const unitId = targetUserId(store);
+    const threadId = store.requestChange(unitId, "Shorter.");
+    assert.equal(store.isBeingAnswered(threadId), false);
+    store.takeUpThread(threadId, "connection-1");
+    assert.equal(store.isBeingAnswered(threadId), true);
+
+    // The person's next message is a new turn, which nobody has taken up yet.
+    store.requestChange(unitId, "Much shorter.");
+    assert.equal(store.isBeingAnswered(threadId), false);
+
+    store.takeUpThread(threadId, "connection-1");
+    store.releaseThreads("connection-2");
+    assert.equal(store.isBeingAnswered(threadId), true);
+    store.releaseThreads("connection-1");
+    assert.equal(store.isBeingAnswered(threadId), false);
+
+    // An answer ends the turn: the thread waits for the person.
+    store.takeUpThread(threadId, "connection-1");
+    store.answerThreads([{ threadId, text: "Shortened." }], AGENT_AUTHOR);
+    assert.equal(store.isBeingAnswered(threadId), false);
+    store.takeUpThread(threadId, "connection-1");
+    assert.equal(store.isBeingAnswered(threadId), false);
+  });
+
+  it("is taken up when the coding agent reads it, and only while the coding agent answers", async () => {
+    const store = await overviewStore();
+    const threadId = store.requestChange(targetUserId(store), "Shorter.");
+    const read = () =>
+      callAgentTool(store, "get_thread", { threadId }, {}, { ...AGENT, connection: "connection-1" });
+    await read();
+    assert.equal(store.isBeingAnswered(threadId), false);
+    store.setThreadAnswerer("coding-agent");
+    await read();
+    assert.equal(store.isBeingAnswered(threadId), true);
+    store.releaseThreads("connection-1");
+    assert.equal(store.isBeingAnswered(threadId), false);
+  });
+});
+
 describe("Requireganizer's AI answering a thread", () => {
   it("revises the unit and replies in the thread", async () => {
     const store = await overviewStore();
@@ -198,5 +241,7 @@ describe("Requireganizer's AI answering a thread", () => {
     assert.equal(reply.author.kind, "model");
     assert.equal(reply.text, "Named them as owners who travel.");
     assert.equal(reply.withSubmission, true);
+    // Nothing stays in hand once the answer is in.
+    assert.deepEqual(store.threadsInHand, []);
   });
 });

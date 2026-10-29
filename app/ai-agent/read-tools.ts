@@ -194,7 +194,7 @@ export function buildReadTools(
     name: "get_thread",
     label: "Get thread",
     description:
-      "Read one of the person's threads: whom it waits for, every message, and its unit; for an item, the item as get_items gives it. A channel event about a change request names its thread.",
+      "Read one of the person's threads: whom it waits for, every message, and its unit; for an item, the item as get_items gives it. A channel event about a change request names its thread. While you answer change requests, reading a thread that waits for you shows the person you are working on it, until you answer or they write again.",
     parameters: Type.Object({
       threadId: Type.String({ description: "The thread to read." }),
     }),
