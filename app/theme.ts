@@ -1,5 +1,13 @@
 import { createTheme } from "@mui/material";
 
+// The theme renders every color as a CSS variable of the shown scheme;
+// `theme.palette` holds only the light scheme's values.
+declare module "@mui/material/styles" {
+  interface CssThemeVariables {
+    enabled: true;
+  }
+}
+
 export const theme = createTheme({
   cssVariables: true,
   colorSchemes: {

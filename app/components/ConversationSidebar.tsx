@@ -30,7 +30,6 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import { alpha } from "@mui/material/styles";
 import { observer } from "mobx-react-lite";
 import {
   Fragment,
@@ -160,7 +159,7 @@ function JsonTree({ name, value }: { name?: string; value: unknown }) {
             ...JSON_MONO,
             color: valueColor,
             ...(isString && {
-              bgcolor: (theme) => alpha(theme.palette.success.main, 0.07),
+              bgcolor: (theme) => theme.alpha(theme.vars.palette.success.main, 0.07),
               borderRadius: 0.5,
               px: 0.5,
             }),
@@ -521,7 +520,7 @@ const MessageView = memo(function MessageView({
                   fontSize: 12,
                   px: 0.5,
                   borderRadius: 0.5,
-                  bgcolor: (theme) => alpha(theme.palette.text.primary, 0.08),
+                  bgcolor: (theme) => theme.alpha(theme.vars.palette.text.primary, 0.08),
                 }}
               >
                 {children}
@@ -536,7 +535,7 @@ const MessageView = memo(function MessageView({
                   overflowX: "auto",
                   borderRadius: 1,
                   fontSize: 12,
-                  bgcolor: (theme) => alpha(theme.palette.text.primary, 0.06),
+                  bgcolor: (theme) => theme.alpha(theme.vars.palette.text.primary, 0.06),
                 }}
               >
                 {children}
@@ -589,7 +588,7 @@ function UserBubble({
         sx={{
           p: 1.25,
           minWidth: 0,
-          bgcolor: (theme) => alpha(theme.palette.primary.main, 0.08),
+          bgcolor: (theme) => theme.alpha(theme.vars.palette.primary.main, 0.08),
           borderColor: "primary.main",
         }}
       >
@@ -988,7 +987,7 @@ function ConversationSidebar() {
                             "0%, 100%": { boxShadow: "none" },
                             "50%": {
                               boxShadow: (theme) =>
-                                `0 0 0 4px ${alpha(theme.palette.primary.main, 0.45)}`,
+                                `0 0 0 4px ${theme.alpha(theme.vars.palette.primary.main, 0.45)}`,
                             },
                           },
                           animation: `conversationBlink ${animationMs(600)}ms ease-in-out 2`,
@@ -1085,7 +1084,7 @@ function CommandBubble({ summary, command }: { summary: string; command: AiComma
           // by the interface rather than typed by the reader.
           alignSelf: "flex-end",
           ml: 8,
-          bgcolor: (theme) => alpha(theme.palette.primary.main, 0.08),
+          bgcolor: (theme) => theme.alpha(theme.vars.palette.primary.main, 0.08),
           borderColor: "primary.main",
           borderStyle: "dashed",
         }}

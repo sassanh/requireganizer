@@ -35,9 +35,9 @@ const codeSx = (priority: string) => (theme: Theme) => ({
   flexShrink: 0,
   flexGrow: 0,
   color: {
-    [Priority.P2]: theme.palette.warning.main,
-    [Priority.P1]: theme.palette.warning.dark,
-    [Priority.P0]: theme.palette.error.main,
+    [Priority.P2]: theme.vars.palette.warning.main,
+    [Priority.P1]: theme.vars.palette.warning.dark,
+    [Priority.P0]: theme.vars.palette.error.main,
     "": "inherit",
   }[priority],
 });

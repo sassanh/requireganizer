@@ -1,5 +1,5 @@
 import { Box, TextField, Typography, type TextFieldProps } from "@mui/material";
-import { alpha, keyframes, useTheme } from "@mui/material/styles";
+import { keyframes, type Theme } from "@mui/material/styles";
 import {
   useLayoutEffect,
   useRef,
@@ -41,6 +41,23 @@ const insertFlash = keyframes`
   100% { opacity: 1; background-color: transparent; }
 `;
 
+/** A dark background swallows the light scheme's tint, so dark mode multiplies it. */
+const DARK_TINT_GAIN = 2;
+
+/**
+ * Tints of the color scheme's success or error color, each property at its
+ * strength. The colors come from the scheme's CSS variables, so they follow
+ * the scheme the page shows.
+ */
+function changeTint(theme: Theme, color: "success" | "error", strengths: Record<string, number>) {
+  const main = theme.vars.palette[color].main;
+  const tints = (gain: number) =>
+    Object.fromEntries(
+      Object.entries(strengths).map(([property, strength]) => [property, theme.alpha(main, strength * gain)]),
+    );
+  return { ...tints(1), ...theme.applyStyles("dark", tints(DARK_TINT_GAIN)) };
+}
+
 export type TextChangePhase = "idle" | "remove" | "insert";
 
 function TextChangeSpans({
@@ -50,9 +67,7 @@ function TextChangeSpans({
   hunks: DiffHunk[];
   phase: "remove" | "insert";
 }) {
-  const theme = useTheme();
-  const flash =
-    phase === "remove" ? theme.palette.error.main : theme.palette.success.main;
+  const flash = phase === "remove" ? "error" : "success";
   const shown = phase === "remove" ? "delete" : "insert";
 
   return (
@@ -64,18 +79,17 @@ function TextChangeSpans({
           <Box
             component="span"
             key={`${hunk.kind}:${index}`}
-            sx={{
+            sx={(theme) => ({
               borderRadius: "2px",
               boxDecorationBreak: "clone",
               WebkitBoxDecorationBreak: "clone",
-              "--text-change-flash": alpha(flash, 0.32),
-              "--text-change-flash-mid": alpha(flash, 0.12),
+              ...changeTint(theme, flash, { "--text-change-flash": 0.32, "--text-change-flash-mid": 0.12 }),
               animation:
                 phase === "remove"
                   ? `${removeFlash} ${presentationMs(TEXT_REMOVE_MILLISECONDS)}ms ease-out forwards`
                   : `${insertFlash} ${presentationMs(TEXT_INSERT_MILLISECONDS)}ms ease-out forwards`,
               ...(phase === "insert" ? { opacity: 0 } : {}),
-            }}
+            })}
           >
             {hunk.text}
           </Box>
@@ -270,7 +284,6 @@ function StandingTextDiff({
   fullWidth?: boolean;
   sx?: TextFieldProps["sx"];
 }) {
-  const theme = useTheme();
   const hunks = wordDiff(before, after);
   return (
     <Box sx={{ width: fullWidth ? "100%" : undefined, position: "relative" }}>
@@ -316,14 +329,14 @@ function StandingTextDiff({
               <Box
                 component="span"
                 key={`${hunk.kind}:${index}`}
-                sx={{
+                sx={(theme) => ({
                   textDecoration: "line-through",
                   color: "text.secondary",
-                  backgroundColor: alpha(theme.palette.error.main, 0.12),
+                  ...changeTint(theme, "error", { backgroundColor: 0.12 }),
                   borderRadius: "2px",
                   boxDecorationBreak: "clone",
                   WebkitBoxDecorationBreak: "clone",
-                }}
+                })}
               >
                 {hunk.text}
               </Box>
@@ -333,12 +346,12 @@ function StandingTextDiff({
             <Box
               component="span"
               key={`${hunk.kind}:${index}`}
-              sx={{
-                backgroundColor: alpha(theme.palette.success.main, 0.16),
+              sx={(theme) => ({
+                ...changeTint(theme, "success", { backgroundColor: 0.16 }),
                 borderRadius: "2px",
                 boxDecorationBreak: "clone",
                 WebkitBoxDecorationBreak: "clone",
-              }}
+              })}
             >
               {hunk.text}
             </Box>

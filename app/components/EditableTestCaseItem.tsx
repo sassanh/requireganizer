@@ -30,22 +30,18 @@ const EditableTestCaseItemContent = observer(function EditableTestCaseItemConten
       list={list}
       fragment={fragment}
       highlightSx={(theme) => ({
-        outline: `2px solid ${theme.palette.action.focus}`,
+        outline: `2px solid ${theme.vars.palette.action.focus}`,
       })}
-      sx={(theme) => ({
-        py: 1,
-        backgroundColor:
-          testStatus === "generated"
-            ? theme.palette.mode === "dark"
-              ? "rgba(46, 125, 50, 0.15)"
-              : "rgba(46, 125, 50, 0.08)"
-            : testStatus === "out-of-sync"
-              ? theme.palette.mode === "dark"
-                ? "rgba(237, 108, 2, 0.15)"
-                : "rgba(237, 108, 2, 0.08)"
-              : theme.palette.background.paper,
-        transition: `background-color ${animationSeconds(0.2)}s`,
-      })}
+      sx={(theme) => {
+        const tint =
+          testStatus === "generated" ? "46, 125, 50" : testStatus === "out-of-sync" ? "237, 108, 2" : null;
+        return {
+          py: 1,
+          backgroundColor: tint == null ? theme.vars.palette.background.paper : `rgba(${tint}, 0.08)`,
+          ...(tint == null ? {} : theme.applyStyles("dark", { backgroundColor: `rgba(${tint}, 0.15)` })),
+          transition: `background-color ${animationSeconds(0.2)}s`,
+        };
+      }}
       {...props}
     >
       <Stack spacing={1} sx={{ flexGrow: 1 }}>

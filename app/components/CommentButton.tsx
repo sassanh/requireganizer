@@ -31,7 +31,7 @@ const answeringSx = (theme: Theme) => ({
     width: "200%",
     aspectRatio: "1",
     zIndex: -2,
-    background: `conic-gradient(${theme.palette.primary.main} 0turn 0.25turn, ${theme.palette.divider} 0.25turn)`,
+    background: `conic-gradient(${theme.vars.palette.primary.main} 0turn 0.25turn, ${theme.vars.palette.divider} 0.25turn)`,
     animation: `${turn} ${animationSeconds(1.5)}s linear infinite`,
   },
   "&::after": {
@@ -40,7 +40,7 @@ const answeringSx = (theme: Theme) => ({
     inset: "1px",
     borderRadius: "inherit",
     zIndex: -1,
-    background: theme.palette.background.paper,
+    background: theme.vars.palette.background.paper,
   },
 });
 
