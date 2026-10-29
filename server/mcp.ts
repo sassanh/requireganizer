@@ -2,7 +2,7 @@
 // host and change with the project, which the high-level one does not serve.
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { CallToolRequestSchema, ListToolsRequestSchema, type Request } from "@modelcontextprotocol/sdk/types.js";
 import { onSnapshot } from "mobx-state-tree";
 
 import type { AgentToolDescription } from "ai-agent/agent-access";
@@ -19,6 +19,16 @@ const ADDRESS_WAIT_MS = 5_000;
 const TOOL_LIST_CHECK_DELAY_MS = 500;
 /** How often a call still running, such as a submission under review, tells the client so. */
 const PROGRESS_INTERVAL_MS = 10_000;
+
+/**
+ * A Claude Code channel event: a session started with this server as a
+ * channel receives it as if the person had written it, and other clients
+ * ignore it.
+ */
+interface ChannelNotification {
+  method: "notifications/claude/channel";
+  params: { content: string; meta: Record<string, string> };
+}
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -57,7 +67,7 @@ function reachHost(client: ProjectClient, waitMs: number): Promise<void> {
 
 function instructionsFor(url: string | null): string {
   const where = url == null ? "in Requireganizer" : `at ${url}`;
-  return `Requireganizer holds the spec the person approves for this project, from the product overview to test cases, each item traced to what it serves. Read it before building: get_workflow_state shows which stage can change now; get_stage_artifacts reads the work. Submit a stage's work with its submit tool; the person reviews and approves it ${where}, and no tool approves.`;
+  return `Requireganizer holds the spec the person approves for this project, from the product overview to test cases, each item traced to what it serves. Read it before building: get_workflow_state shows which stage can change now; get_stage_artifacts reads the work. Submit a stage's work with its submit tool; the person reviews and approves it ${where}, and no tool approves. A channel event with a thread_id means a change request of the person's waits for you: read it with get_workflow_state and answer it with reply_to_thread or with its stage's submission.`;
 }
 
 export interface McpService {
@@ -94,9 +104,12 @@ export async function serveMcp(
     process.stderr.write(`${messageOf(error)}\n`);
   });
 
-  const server = new Server(
+  const server = new Server<Request, ChannelNotification>(
     { name: "requireganizer", version: options.version },
-    { capabilities: { tools: { listChanged: true } }, instructions: instructionsFor(link.url()) },
+    {
+      capabilities: { tools: { listChanged: true }, experimental: { "claude/channel": {} } },
+      instructions: instructionsFor(link.url()),
+    },
   );
 
   const hostWaitMs = options.hostWaitMs ?? HOST_WAIT_MS;
@@ -155,16 +168,43 @@ export async function serveMcp(
       );
     }, TOOL_LIST_CHECK_DELAY_MS);
   };
+  // Each change request that waits for the agent is announced once, and
+  // again only after the person writes in it again.
+  let initialized = false;
+  let announced = new Set<string>();
+  const announceWaitingThreads = () => {
+    if (!initialized) return;
+    const waiting = new Set<string>();
+    for (const thread of client.getSnapshot().store.openThreadsWaitingFor("coding-agent")) {
+      const turn = `${thread.id}:${thread.messages.length}`;
+      waiting.add(turn);
+      if (announced.has(turn)) continue;
+      server.notification({
+        method: "notifications/claude/channel",
+        params: { content: "A change request waits for you.", meta: { thread_id: thread.id } },
+      }).catch(() => {});
+    }
+    announced = waiting;
+  };
+  server.oninitialized = () => {
+    initialized = true;
+    announceWaitingThreads();
+  };
+
+  const onProjectChange = () => {
+    checkToolList();
+    announceWaitingThreads();
+  };
   let shownStore = client.getSnapshot().store;
-  let stopWatchingStore = onSnapshot(shownStore, checkToolList);
+  let stopWatchingStore = onSnapshot(shownStore, onProjectChange);
   const stopWatchingClient = client.subscribe(() => {
     const store = client.getSnapshot().store;
     if (store !== shownStore) {
       stopWatchingStore();
       shownStore = store;
-      stopWatchingStore = onSnapshot(store, checkToolList);
+      stopWatchingStore = onSnapshot(store, onProjectChange);
     }
-    checkToolList();
+    onProjectChange();
   });
 
   await server.connect(options.transport);

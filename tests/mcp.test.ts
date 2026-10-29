@@ -7,7 +7,7 @@ import { after, before, describe, it } from "node:test";
 import { type Context, createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { ToolListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
+import { type Notification, ToolListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
 
 import { installGateway } from "../app/ai-agent/gateway";
 import { configureAiSettings } from "../app/ai-agent/settings";
@@ -242,6 +242,87 @@ describe("MCP server", () => {
     } finally {
       await client.close();
       await service.close();
+    }
+  });
+
+  it("announces each change request that waits for the agent, once per message of the person's", async () => {
+    const channelFile = join(root, "channel", "requireganizer.json");
+    mkdirSync(dirname(channelFile));
+    const options = {
+      projectFile: channelFile,
+      aiSettings: environmentAiSettings({ AI_API_KEY: "test-key" }),
+      serveInterface: (_request: unknown, response: { end(body: string): void }) => response.end("interface"),
+    };
+    const connectAgent = async () => {
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+      const service = await serveMcp({ ...options, version: "test", transport: serverTransport });
+      const client = new Client({ name: "test-agent", version: "1" });
+      const threadIds: string[] = [];
+      client.fallbackNotificationHandler = async (notification: Notification) => {
+        if (notification.method === "notifications/claude/channel") {
+          threadIds.push((notification.params as { meta: { thread_id: string } }).meta.thread_id);
+        }
+      };
+      await client.connect(clientTransport);
+      return { service, client, threadIds };
+    };
+    const announced = async (threadIds: string[], count: number) => {
+      for (let attempt = 0; attempt < 40 && threadIds.length < count; attempt += 1) await delay(50);
+      // Long enough for an announcement that should not come to arrive.
+      await delay(300);
+      assert.equal(threadIds.length, count);
+    };
+    const first = await connectAgent();
+    let second: Awaited<ReturnType<typeof connectAgent>> | null = null;
+    const page = projectLink(options);
+    const pageClient = new ProjectClient(page.connect);
+    const closePage = pageClient.open();
+    const store = () => pageClient.getSnapshot().store;
+    try {
+      await pageClient.persistence.projects.saveIndex([
+        { id: "project-c", name: "Plant Pal", description: "", updatedAt: "2026-10-24T00:00:00.000Z" },
+      ]);
+      await pageClient.selectProject("project-c", "Plant Pal");
+      await first.client.callTool({
+        name: "submit_product_overview",
+        arguments: {
+          purpose: "Keep plants alive.",
+          primaryFeatures: ["Track watering schedules"],
+          targetUsers: ["Busy plant owners"],
+        },
+      });
+      for (let attempt = 0; attempt < 40 && store().productOverview.targetUsers.length === 0; attempt += 1) {
+        await delay(50);
+      }
+
+      // While Requireganizer's AI answers, nothing waits for the agent.
+      const threadId = await store().requestChange(store().productOverview.targetUsers[0]!.id, "Say who they are.");
+      await announced(first.threadIds, 0);
+
+      // Handed to the agent, the request waits for it.
+      await store().setThreadAnswerer("coding-agent");
+      await announced(first.threadIds, 1);
+      assert.equal(first.threadIds[0], threadId);
+
+      // Its reply hands the turn back; the person's next message waits for it again.
+      await first.client.callTool({ name: "reply_to_thread", arguments: { threadId, text: "Owners who travel?" } });
+      await announced(first.threadIds, 1);
+      await store().requestChange(store().productOverview.targetUsers[0]!.id, "Yes, those.");
+      await announced(first.threadIds, 2);
+
+      // An agent that connects later hears of the request already waiting.
+      second = await connectAgent();
+      await announced(second.threadIds, 1);
+      assert.deepEqual(second.threadIds, [threadId]);
+    } finally {
+      closePage();
+      await page.close();
+      if (second != null) {
+        await second.client.close();
+        await second.service.close();
+      }
+      await first.client.close();
+      await first.service.close();
     }
   });
 });

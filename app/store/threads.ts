@@ -59,6 +59,11 @@ export function waitsForPerson(thread: ReviewThread): boolean {
   return thread.resolvedAt == null && thread.messages.at(-1)?.author.kind !== "person";
 }
 
+/** Who an open thread waits for: the person once anyone else spoke last, otherwise the project's answerer. */
+export function waitingFor(thread: ReviewThread, answerer: ThreadAnswerer): "person" | ThreadAnswerer {
+  return waitsForPerson(thread) ? "person" : answerer;
+}
+
 /** The thread as one text, for an answerer that reads it as a request. */
 export function threadText(thread: ReviewThread): string {
   if (thread.messages.length === 1) return thread.messages[0]!.text;

@@ -162,6 +162,7 @@ import {
   type ThreadAnswer,
   type ThreadAnswerer,
   type ThreadAuthor,
+  waitingFor,
   waitsForPerson,
   withMessage,
 } from "./threads";
@@ -2120,6 +2121,12 @@ export const FlatStore = types
       openThreads(step: WorkflowStage): ReviewThread[] {
         return liveThreads().filter(
           (thread) => thread.resolvedAt == null && self.reviewUnit(thread.unitId)!.stage === step,
+        );
+      },
+      /** The open threads of every stage that wait for `who`, oldest first. */
+      openThreadsWaitingFor(who: "person" | ThreadAnswerer): ReviewThread[] {
+        return liveThreads().filter(
+          (thread) => thread.resolvedAt == null && waitingFor(thread, self.review.answerer) === who,
         );
       },
       threadsWaitingForPerson(step: WorkflowStage): number {

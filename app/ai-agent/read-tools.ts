@@ -4,7 +4,7 @@ import { Type } from "@earendil-works/pi-ai";
 import { CANONICAL_WORKFLOW } from "ai-harness/workflow";
 import { WORKFLOW_STAGE_LABELS, WorkflowStage } from "store/constants";
 import type { FlatStore } from "store/store";
-import { authorLabel, waitsForPerson } from "store/threads";
+import { authorLabel, waitingFor } from "store/threads";
 
 function textResult(text: string): { content: [{ type: "text"; text: string }]; details: Record<string, never> } {
   return { content: [{ type: "text", text }], details: {} };
@@ -65,7 +65,7 @@ export function buildReadTools(
           openThreads: store.openThreads(step).map((thread) => ({
             threadId: thread.id,
             unitId: thread.unitId,
-            waitingFor: waitsForPerson(thread) ? "person" : store.threadAnswerer,
+            waitingFor: waitingFor(thread, store.threadAnswerer),
             messages: thread.messages.map(({ author, text, withSubmission }) => ({
               from: author.kind === "person" ? "person" : authorLabel(author),
               text,
