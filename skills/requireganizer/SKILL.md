@@ -50,8 +50,9 @@ The person approves every item in Requireganizer's page; no tool approves.
 ## When writing a stage
 
 - Submit with the stage's `submit_*` tool. Each submission is the complete
-  proposal for that stage, not a patch. The tool description states the
-  stage's quality contract.
+  proposal for that stage, not a patch. In it, an entry that names an
+  existing item gives only the fields that change; the rest stay as they
+  are. The tool description states the stage's quality contract.
 - A rejected submission comes back with the reason, such as an unknown id,
   missing coverage or an empty field. Fix exactly that and submit again. Never
   weaken the proposal to get past a check.

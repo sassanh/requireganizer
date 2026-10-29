@@ -328,12 +328,17 @@ function parseReferences(
   });
 }
 
+/**
+ * One entry of a list result. An entry naming an existing item changes only
+ * the fields it gives and keeps the rest from `kept`, that item as it stands.
+ */
 function parseArtifactItem(
   value: unknown,
   index: number,
   definition: ArtifactStageDefinition,
   artifacts: Map<string, ArtifactIdentity>,
   existingTargetIds: Set<string>,
+  kept: (id: string) => ArtifactProposalItem,
 ): ArtifactProposalItem {
   const label = `Artifact result.items[${index}]`;
   if (!isRecord(value)) {
@@ -346,33 +351,47 @@ function parseArtifactItem(
     label,
   );
 
-  const key = requiredSingleLineString(value, "key", label);
+  const id = optionalString(value, "id", label);
+  if (id !== undefined && !existingTargetIds.has(id)) {
+    throw new InvalidJsonError(`${label}.id must identify an existing target item.`);
+  }
+  const existing = id === undefined ? undefined : kept(id);
+  const given = (field: string) => existing == null || value[field] !== undefined;
+
+  const key = given("key") ? requiredSingleLineString(value, "key", label) : existing!.key;
   if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(key) || key.length > 80) {
     throw new InvalidJsonError(
       `${label}.key must be 1-80 letters, numbers, underscores, or hyphens and start with a letter or number.`,
     );
   }
-  const id = optionalString(value, "id", label);
-  if (id !== undefined && !existingTargetIds.has(id)) {
-    throw new InvalidJsonError(`${label}.id must identify an existing target item.`);
+  let references = existing?.references ?? [];
+  if (given("references")) {
+    references = parseReferences(value, label, artifacts, definition);
+    if (references.length === 0) {
+      throw new InvalidJsonError(`${label}.references must not be empty.`);
+    }
   }
-
-  const references = parseReferences(value, label, artifacts, definition);
-  if (references.length === 0) {
-    throw new InvalidJsonError(`${label}.references must not be empty.`);
-  }
-  const base = {
+  return {
     key,
     id,
-    priority: enumValue(value.priority, Priority, `${label}.priority`),
+    content: given("content") ? requiredString(value, "content", label) : existing!.content,
+    priority: given("priority") ? enumValue(value.priority, Priority, `${label}.priority`) : existing!.priority,
     references,
-    dependencies: stringArray(value, "dependencies", label),
+    dependencies: given("dependencies") ? stringArray(value, "dependencies", label) : existing!.dependencies,
   };
+}
 
-  return {
-    ...base,
-    content: requiredString(value, "content", label),
-  };
+/**
+ * A dependency names a proposal key, or an item of the result by its
+ * existing id whatever key its entry uses; each becomes that entry's key.
+ */
+function withDependencyKeys(items: ArtifactProposalItem[]): ArtifactProposalItem[] {
+  const keys = new Set(items.map(({ key }) => key));
+  const keyById = new Map(items.flatMap(({ id, key }) => (id === undefined ? [] : [[id, key] as const])));
+  return items.map((item) => ({
+    ...item,
+    dependencies: item.dependencies.map((name) => (keys.has(name) ? name : keyById.get(name) ?? name)),
+  }));
 }
 
 function assertValidDependencies(items: ArtifactProposalItem[]): void {
@@ -481,7 +500,27 @@ export function parseArtifactListProposal(
     existingList.find(
       (candidate) => isRecord(candidate) && candidate.id === id,
     ) as Record<string, unknown> | undefined;
-  const items = rawItems.map((item, index) => {
+  // An existing item as it stands: what a bare id keeps, and what a patch changes.
+  const kept = (id: string): ArtifactProposalItem => {
+    const existing = findExisting(id);
+    if (existing == null) {
+      throw new InvalidJsonError(`Artifact result names ${id}, which matches no existing ${entityType}.`);
+    }
+    return {
+      key: id,
+      id,
+      content: typeof existing.content === "string" ? existing.content : "",
+      priority:
+        typeof existing.priority === "string" && isEnumMember(existing.priority, Priority)
+          ? (existing.priority as Priority)
+          : Priority.P1,
+      references: Array.isArray(existing.references)
+        ? (existing.references as ArtifactProposalItem["references"])
+        : [],
+      dependencies: Array.isArray(existing.dependencies) ? (existing.dependencies as string[]) : [],
+    };
+  };
+  const items = withDependencyKeys(rawItems.map((item, index) => {
     if (typeof item === "string") {
       const id = item.trim();
       if (id.length === 0) {
@@ -490,29 +529,7 @@ export function parseArtifactListProposal(
       if (!existingTargetIds.has(id)) {
         throw new InvalidJsonError(`Artifact result.items[${index}] must be an existing id.`);
       }
-      const existing = findExisting(id);
-      if (existing == null) {
-        throw new InvalidJsonError(`Artifact result.items[${index}] does not match any existing ${entityType}.`);
-      }
-      const content = typeof existing.content === "string" ? existing.content : "";
-      const priority =
-        typeof existing.priority === "string" && isEnumMember(existing.priority, Priority)
-          ? (existing.priority as Priority)
-          : Priority.P1;
-      const references = Array.isArray(existing.references)
-        ? (existing.references as ArtifactProposalItem["references"])
-        : [];
-      const dependencies = Array.isArray(existing.dependencies)
-        ? (existing.dependencies as string[])
-        : [];
-      return {
-        key: id,
-        id,
-        content,
-        priority,
-        references,
-        dependencies,
-      } as ArtifactProposalItem;
+      return kept(id);
     }
     return parseArtifactItem(
       item,
@@ -520,8 +537,9 @@ export function parseArtifactListProposal(
       definition,
       artifacts,
       existingTargetIds,
+      kept,
     );
-  });
+  }));
 
   const ids = items.flatMap((item) => (item.id === undefined ? [] : [item.id]));
   if (new Set(ids).size !== ids.length) {

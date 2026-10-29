@@ -20,22 +20,15 @@ function record(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function artifactItemSchema(tool: ReturnType<typeof buildArtifactListTool>) {
+/** The item variants of a list tool that are objects: a new item, then, once items exist, a change to one. */
+function artifactItemSchemas(tool: ReturnType<typeof buildArtifactListTool>) {
   const parameters = record(tool.parameters);
   const properties = record(parameters.properties);
   const items = record(properties.items);
-  const itemsItems = record(items.items);
-  const oneOf = (itemsItems as { oneOf?: unknown[] }).oneOf;
-  if (Array.isArray(oneOf)) {
-    const objectSchema = oneOf.find(
-      (candidate) =>
-        typeof candidate === "object" &&
-        candidate !== null &&
-        (candidate as Record<string, unknown>).type === "object",
-    ) as Record<string, unknown> | undefined;
-    if (objectSchema) return record(objectSchema);
-  }
-  return itemsItems;
+  const oneOf = record(items.items).oneOf as unknown[];
+  return oneOf
+    .filter((candidate) => record(candidate).type === "object")
+    .map(record);
 }
 
 describe("AI function-tool schemas", () => {
@@ -64,9 +57,12 @@ describe("AI function-tool schemas", () => {
     });
 
     assert.equal(tool.name, "submit_acceptance_criteria_list");
-    const item = artifactItemSchema(tool);
-    const properties = record(item.properties);
-    assert.ok((item.required as unknown[]).includes("key"));
+    const [newItem, change] = artifactItemSchemas(tool);
+    assert.ok((newItem!.required as unknown[]).includes("key"));
+    assert.equal("id" in record(newItem!.properties), false);
+    // A change names its item and keeps every field it leaves out.
+    assert.deepEqual(change!.required, ["id"]);
+    const properties = record(change!.properties);
     assert.deepEqual(record(properties.id).enum, ["criterion-1"]);
 
     const references = record(properties.references);
@@ -94,7 +90,9 @@ describe("AI function-tool schemas", () => {
       },
     });
 
-    const properties = record(artifactItemSchema(tool).properties);
+    const variants = artifactItemSchemas(tool);
+    assert.equal(variants.length, 1);
+    const properties = record(variants[0]!.properties);
     assert.equal("id" in properties, false);
     assert.ok("key" in properties);
   });

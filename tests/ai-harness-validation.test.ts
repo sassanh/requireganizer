@@ -183,6 +183,49 @@ describe("artifact-list proposal parsing", () => {
       /duplicate proposal keys/,
     );
   });
+
+  describe("an entry that names an existing item", () => {
+    const stories = {
+      ...userStoryState,
+      userStories: [
+        {
+          id: "story-a",
+          content: "As a kid, I want big buttons, so that I can calculate.",
+          priority: "p1",
+          references: [{ id: "feat-1", type: "primary_feature" }],
+          dependencies: [],
+        },
+        {
+          id: "story-b",
+          content: "As a kid, I want to undo, so that a mistake costs nothing.",
+          priority: "p2",
+          references: [{ id: "feat-1", type: "primary_feature" }],
+          dependencies: ["story-a"],
+        },
+      ],
+    };
+    const parse = (items: unknown[]) =>
+      parseArtifactListProposal({ items }, { expectedEntityType: StructuralFragment.UserStory, state: stories });
+
+    it("changes only the fields it gives and keeps the rest", () => {
+      const [a, b] = parse([
+        "story-a",
+        { id: "story-b", content: "As a kid, I want to undo, so that I try freely." },
+      ]).items;
+      assert.equal(b!.content, "As a kid, I want to undo, so that I try freely.");
+      assert.equal(b!.priority, "p2");
+      assert.deepEqual(b!.references, [{ id: "feat-1", type: "primary_feature" }]);
+      assert.deepEqual(b!.dependencies, [a!.key]);
+      // Links it gives replace the old ones, an empty list included.
+      assert.deepEqual(parse(["story-a", { id: "story-b", dependencies: [] }]).items[1]!.dependencies, []);
+    });
+
+    it("stays a dependency by its id whatever key its entry uses", () => {
+      const [a, b] = parse([{ id: "story-a", key: "renamed", content: "As a kid, I want huge buttons, so that I can calculate." }, "story-b"]).items;
+      assert.equal(a!.key, "renamed");
+      assert.deepEqual(b!.dependencies, ["renamed"]);
+    });
+  });
 });
 
 describe("fragment revision proposal parsing", () => {

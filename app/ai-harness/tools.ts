@@ -200,7 +200,7 @@ export function buildArtifactListTool({
       description: "The artifact priority.",
     },
     dependencies: stringArray(
-      "Proposal-local keys of items in this same result that must precede this item. Use an empty array when there are none.",
+      "Keys of items in this same result that must precede this item, or their existing ids. Use an empty array when there are none.",
     ),
     references: {
       type: "array",
@@ -208,29 +208,38 @@ export function buildArtifactListTool({
       description: "Traceability references to exact upstream artifacts.",
       items: referenceSchema(definition, state),
     },
-    ...(existingIds.length === 0
-      ? {}
-      : {
-        id: {
+  };
+  const newItem = objectSchema(itemProperties, ["key", "content", "priority", "references", "dependencies"]);
+  const variants: Record<string, unknown>[] = existingIds.length === 0
+    ? [newItem]
+    : [
+        newItem,
+        {
+          ...objectSchema(
+            {
+              id: {
+                type: "string",
+                enum: existingIds,
+                description: "The existing item to move here and change.",
+              },
+              ...itemProperties,
+            },
+            ["id"],
+          ),
+          description:
+            "Change an existing item: give only the fields that change; every field left out keeps its current value. Its key is its id unless given.",
+        },
+        {
           type: "string",
           enum: existingIds,
-          description:
-            "Include only when preserving the intent of this exact existing target artifact. Omit for new artifacts.",
+          description: "Existing id to keep as-is at this position (reorder only).",
         },
-      }),
-  };
-  const itemRequired = [
-    "key",
-    "content",
-    "priority",
-    "references",
-    "dependencies",
-  ];
+      ];
 
   return {
     name: `submit_${definition.entityType}_list`,
     description: withQualityContract(
-      `Submit the complete desired ${definition.entityType} list for the requested target only. Each entry is either an existing id (keep as-is, reposition) or a full object (add or move+patch).`,
+      `Submit the complete desired ${definition.entityType} list for the requested target only. Each entry is an existing id (keep as-is, reposition), an object with an id (move and change only the fields it gives), or a full object without an id (add).`,
       qualityContractForStage(definition.step),
     ),
     parameters: objectSchema(
@@ -239,21 +248,8 @@ export function buildArtifactListTool({
           type: "array",
           minItems: 1,
           description:
-            "The complete desired target list, in display order. Bare string = existing id to keep as-is at this position; object with id = move that id here and patch its content; object without id = add new item here.",
-          items: {
-            oneOf: [
-              objectSchema(itemProperties, itemRequired),
-              ...(existingIds.length === 0
-                ? []
-                : [
-                    {
-                      type: "string",
-                      enum: existingIds,
-                      description: "Existing id to keep as-is at this position (reorder only).",
-                    },
-                  ]),
-            ],
-          },
+            "The complete desired target list, in display order. Bare string = existing id to keep as-is at this position; object with id = move that item here and change only the fields it gives; object without id = add a new item here.",
+          items: { oneOf: variants },
         },
       },
       ["items"],
