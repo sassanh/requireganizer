@@ -136,7 +136,7 @@ describe("change request threads over MCP", () => {
     assert.equal(state.changeRequestsAnsweredBy, "coding-agent");
     const overview = state.stages.find(({ stage }) => stage === WorkflowStage.ProductOverview)!;
     assert.deepEqual(overview.openThreads, [
-      { threadId, unitId: targetUserId(store), waitingFor: "coding-agent", messages: [{ from: "person", text: "Say who they are." }] },
+      { threadId, unitId: targetUserId(store), unit: "USR-01", waitingFor: "coding-agent", messages: [{ from: "person", text: "Say who they are." }] },
     ] as never);
 
     const text = await callAgentTool(

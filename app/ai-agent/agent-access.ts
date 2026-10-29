@@ -56,7 +56,7 @@ const REPLY_TOOL: AgentToolDescription = {
   inputSchema: {
     type: "object",
     properties: {
-      threadId: { type: "string", description: "The thread to reply to, from get_workflow_state." },
+      threadId: { type: "string", description: "The thread to reply to, from get_workflow_state or get_thread." },
       text: { type: "string", minLength: 1, description: "The reply the person reads." },
     },
     required: ["threadId", "text"],

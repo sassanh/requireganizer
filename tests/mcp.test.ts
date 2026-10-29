@@ -77,7 +77,7 @@ describe("MCP server", () => {
       assert.match(client.getInstructions() ?? "", /approves it at http:\/\/127\.0\.0\.1:\d+\//);
 
       // A repository with no project yet: the agent can still ask why nothing else is listed.
-      assert.deepEqual(await toolNames(), ["get_workflow_state", "get_stage_artifacts", "get_input_changes", "get_scaffold_files"]);
+      assert.deepEqual(await toolNames(), ["get_workflow_state", "get_items", "get_thread", "get_stage_artifacts", "get_input_changes", "get_scaffold_files"]);
       const noProject = await client.callTool({ name: "get_workflow_state", arguments: {} });
       assert.equal(noProject.isError, true);
       assert.match(textOf(noProject), /holds no project yet\. Ask the person to create it in Requireganizer/);

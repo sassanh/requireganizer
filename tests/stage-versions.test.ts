@@ -75,6 +75,69 @@ describe("workflow reads", () => {
     assert.deepEqual(stories.changedInputIds, ["feat-1"]);
   });
 
+  it("names listed units by code and only counts the units of stages that cannot change yet", async () => {
+    const store = storeWithChangedFeature();
+    const state = await readTool(store, "get_workflow_state") as { stages: Record<string, unknown>[] };
+    const stage = (step: WorkflowStage) => state.stages.find(({ stage: candidate }) => candidate === step)!;
+    assert.deepEqual(stage(WorkflowStage.UserStories).labels, {
+      "story-1": "US-01",
+      "coverage:feat-1": "coverage of FEA-01",
+      "feat-1": "FEA-01",
+    });
+    const requirements = stage(WorkflowStage.Requirements);
+    assert.equal(requirements.unapprovedUnitIds, undefined);
+    assert.equal(typeof requirements.unapprovedUnitCount, "number");
+  });
+
+  it("lists a stage's items with codes, links by code, and what the last signature covered", async () => {
+    const store = storeWithChangedFeature();
+    const story = {
+      code: "US-01",
+      id: "story-1",
+      status: "outdated",
+      priority: "p1",
+      content: "As a busy plant owner, I want watering reminders, so that plants stay alive.",
+      references: ["FEA-01", "USR-01"],
+      dependencies: [],
+    };
+    assert.deepEqual(await readTool(store, "get_items", { stage: WorkflowStage.UserStories }), {
+      stage: WorkflowStage.UserStories,
+      items: [story],
+    });
+    assert.deepEqual(await readTool(store, "get_items", { stage: WorkflowStage.UserStories, items: ["US-01"] }), {
+      stage: WorkflowStage.UserStories,
+      items: [story],
+    });
+    const tool = buildReadTools(store).find(({ name }) => name === "get_items")!;
+    await assert.rejects(
+      tool.execute("call-1", { stage: WorkflowStage.UserStories, items: ["US-09"] } as never),
+      /User Stories has no item US-09/,
+    );
+
+    applyProductOverviewProposal(store, {
+      purpose: "Help people keep houseplants alive.",
+      primaryFeatures: [{ id: "feat-1", content: "Track watering, feeding and light" }],
+      targetUsers: ["user-1"],
+    });
+    const overview = await readTool(store, "get_items", { stage: WorkflowStage.ProductOverview, items: ["FEA-01"] }) as {
+      items: { content: string; sinceSigned?: { content?: string } }[];
+    };
+    assert.equal(overview.items[0]!.content, "Track watering, feeding and light");
+    assert.deepEqual(overview.items[0]!.sinceSigned, { content: "Track watering and feeding" });
+  });
+
+  it("reads one thread with the item it is on", async () => {
+    const store = storeWithChangedFeature();
+    const threadId = store.requestChange("user-1", "Say who they are.");
+    const thread = await readTool(store, "get_thread", { threadId }) as Record<string, unknown>;
+    assert.equal(thread.unit, "USR-01");
+    assert.equal(thread.stage, WorkflowStage.ProductOverview);
+    assert.equal(thread.waitingFor, "requireganizer");
+    assert.equal(thread.resolved, false);
+    assert.deepEqual(thread.messages, [{ from: "person", text: "Say who they are." }]);
+    assert.equal((thread.item as { code: string; openThreadId: string }).openThreadId, threadId);
+  });
+
   it("returns a changed input's content before and after", async () => {
     const store = storeWithChangedFeature();
     const changes = await readTool(store, "get_input_changes", {

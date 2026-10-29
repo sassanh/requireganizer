@@ -67,7 +67,7 @@ function reachHost(client: ProjectClient, waitMs: number): Promise<void> {
 
 function instructionsFor(url: string | null): string {
   const where = url == null ? "in Requireganizer" : `at ${url}`;
-  return `Requireganizer holds the spec the person approves for this project, from the product overview to test cases, each item traced to what it serves. Read it before building: get_workflow_state shows which stage can change now; get_stage_artifacts reads the work. Submit a stage's work with its submit tool; the person reviews and approves it ${where}, and no tool approves. A channel event with a thread_id means a change request of the person's waits for you: read it with get_workflow_state and answer it with reply_to_thread or with its stage's submission.`;
+  return `Requireganizer holds the spec the person approves for this project, from the product overview to test cases, each item traced to what it serves. Read it before building: get_workflow_state shows which stage can change now; get_items reads a stage's items by code, and get_stage_artifacts reads everything a stage holds. Submit a stage's work with its submit tool; the person reviews and approves it ${where}, and no tool approves. A channel event with a thread_id means a change request of the person's waits for you: read it with get_thread and answer it with reply_to_thread or with its stage's submission.`;
 }
 
 export interface McpService {
@@ -175,13 +175,14 @@ export async function serveMcp(
   const announceWaitingThreads = () => {
     if (!initialized) return;
     const waiting = new Set<string>();
-    for (const thread of client.getSnapshot().store.openThreadsWaitingFor("coding-agent")) {
+    const store = client.getSnapshot().store;
+    for (const thread of store.openThreadsWaitingFor("coding-agent")) {
       const turn = `${thread.id}:${thread.messages.length}`;
       waiting.add(turn);
       if (announced.has(turn)) continue;
       server.notification({
         method: "notifications/claude/channel",
-        params: { content: "A change request waits for you.", meta: { thread_id: thread.id } },
+        params: { content: `A change request on ${store.unitLabel(thread.unitId)} waits for you.`, meta: { thread_id: thread.id } },
       }).catch(() => {});
     }
     announced = waiting;

@@ -1494,6 +1494,17 @@ export const FlatStore = types
       completionRuleHolds,
       stageIsComplete,
       /** Each unit's review state up to a stage, as an agent reads it beside the stored signatures. */
+      /** A unit as the page names it: an item by its code, other units by what they cover. */
+      unitLabel(id: string): string {
+        if (id === OVERVIEW_PURPOSE_QUALITY_ID) return "the purpose";
+        const coverageParent = coverageParentId(id);
+        if (coverageParent != null) return `coverage of ${self.getCode(coverageParent) ?? coverageParent}`;
+        const impact = impactStage(id);
+        if (impact != null) return `impact on ${self.stageLabel(impact)}`;
+        const unit = reviewUnit(id);
+        if (unit?.kind === "artifact") return self.stageLabel(unit.stage);
+        return self.getCode(id) ?? id;
+      },
       reviewStatuses(step: WorkflowStage): ReviewStatus[] {
         return PROGRESS_STAGES.filter((stage) => !isBefore(step, stage)).flatMap((stage) =>
           stageUnits(stage).map((unit) => ({ id: unit.id, stage, kind: unit.kind, status: reviewStatusOf(unit) })),
@@ -2074,9 +2085,9 @@ export const FlatStore = types
           return { kind: "comment", fragment: fragment.type, id: unitId, comment };
         }
         case "coverage": {
-          const parentId = coverageParentId(unitId)!;
           const stage = unit.stage as CommandStage;
-          return { kind: "revise", stage, comment: `Coverage of ${self.getCode(parentId) ?? parentId}: ${comment}` };
+          const label = self.unitLabel(unitId);
+          return { kind: "revise", stage, comment: `${label[0]!.toUpperCase()}${label.slice(1)}: ${comment}` };
         }
         case "artifact": {
           if (unitId === self.boundaryDesign?.id) {

@@ -32,11 +32,13 @@ The person approves every item in Requireganizer's page; no tool approves.
   - In a project with modules, it names the module the person has open in
     Requireganizer. Every tool works on that module. To work on another, ask
     the person to open it.
-- Read the work with `get_stage_artifacts`. It returns every stage up to and
-  including the one you name, and each unit's current status in
-  `reviewStatus`. A unit's `signature` records its last approval, not whether
-  it still holds. Read it again before changing or citing anything, rather
-  than relying on an earlier read.
+- Read a stage's items with `get_items`: each item's code, status, text,
+  links by code, open thread, and what its last signature covered where that
+  differs. Read it again before changing or citing anything, rather than
+  relying on an earlier read.
+- `get_stage_artifacts` returns everything every stage up to the one you
+  name holds, such as a boundary design. A unit's `signature` records its
+  last approval, not whether it still holds.
 - `get_input_changes` shows how a stage's inputs changed since that stage last
   took them in.
 
@@ -71,7 +73,8 @@ The person approves every item in Requireganizer's page; no tool approves.
 ## Change requests from the person
 
 - `get_workflow_state` lists each stage's open threads, the person's change
-  requests on its items, and `changeRequestsAnsweredBy`.
+  requests on its items, and `changeRequestsAnsweredBy`. `get_thread` reads
+  one thread with its item.
 - When it is `coding-agent`, answer the threads waiting for you. To change an
   item, submit its stage and name the thread in the submission's `answers`,
   with a reply saying what changed. To ask or to disagree, use
