@@ -1,7 +1,7 @@
-import { Button, Chip, Divider, Paper, Popper, Stack, TextField, Typography } from "@mui/material";
+import { Button, Chip, Divider, Paper, Popper, type PopperProps, Stack, TextField, Typography } from "@mui/material";
 import { keyframes, type Theme } from "@mui/material/styles";
 import { observer } from "mobx-react-lite";
-import { ChangeEvent, FormEvent, useCallback, useEffect, useState } from "react";
+import { ChangeEvent, FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import { requestChangeAction, sendChangeRequestAction } from "actions/actions";
 import { ActionView } from "actions/ActionView";
@@ -43,6 +43,69 @@ const answeringSx = (theme: Theme) => ({
     background: theme.palette.background.paper,
   },
 });
+
+type PopperModifier = NonNullable<PopperProps["modifiers"]>[number];
+type PopperInstance = NonNullable<Extract<PopperProps["popperRef"], { current: unknown }>["current"]>;
+
+type PopperState = Parameters<NonNullable<PopperModifier["fn"]>>[0]["state"];
+
+const MARGIN = 8;
+
+/**
+ * The room above and below the popover's button within the visible part of
+ * the list that scrolls it: the list's own box clipped to the window, so a
+ * bar above the list or the window's edge both bound it. Ancestors that only
+ * clip, such as an item's animation wrapper, do not bound a popover that
+ * renders outside them.
+ */
+function spaceAround(state: PopperState) {
+  const reference = state.rects.reference;
+  const list = state.scrollParents.reference.find(
+    (parent): parent is Element =>
+      parent instanceof Element && /auto|scroll|overlay/.test(getComputedStyle(parent).overflowY),
+  );
+  const listBox = list?.getBoundingClientRect();
+  const top = Math.max(0, listBox?.top ?? 0);
+  const bottom = Math.min(window.innerHeight, listBox?.bottom ?? window.innerHeight);
+  return {
+    above: reference.y - top - MARGIN,
+    below: bottom - reference.y - reference.height - MARGIN,
+  };
+}
+
+/**
+ * The popover stays inside the visible list: it opens on the side of its
+ * button with more room and never grows past that room. A popover reaching
+ * past the window would lengthen the page and scroll the whole layout; one
+ * reaching above the list would slide under the bar over it.
+ */
+const fitListModifiers: PopperModifier[] = [
+  { name: "flip", enabled: false },
+  {
+    name: "sideWithMoreRoom",
+    enabled: true,
+    phase: "main",
+    fn({ state }) {
+      const { above, below } = spaceAround(state);
+      const placement = below >= above ? "bottom-end" : "top-end";
+      if (state.placement !== placement) {
+        state.placement = placement;
+        state.reset = true;
+      }
+    },
+  },
+  {
+    name: "heightWithinRoom",
+    enabled: true,
+    phase: "beforeWrite",
+    requires: ["computeStyles"],
+    fn({ state }) {
+      const { above, below } = spaceAround(state);
+      const room = state.placement.startsWith("top") ? above : below;
+      state.styles.popper = { ...state.styles.popper, maxHeight: `${Math.min(room, window.innerHeight * 0.6)}px` };
+    },
+  },
+];
 
 interface CommentButtonProps {
   /** The reviewable unit whose change requests this shows. */
@@ -91,6 +154,7 @@ const CommentButton = ({
   const [showResolved, setShowResolved] = useState(false);
 
   const [buttonRef, setButtonRef] = useState<HTMLButtonElement | null>(null);
+  const popperRef = useRef<PopperInstance | null>(null);
 
   const thread = store.openThreadOf(unitId);
   const resolved = store.threadsOf(unitId).filter(({ resolvedAt }) => resolvedAt != null);
@@ -105,6 +169,11 @@ const CommentButton = ({
     !store.isBusy;
 
   const isOpen = anchor !== null;
+  // A new message changes the popover's height; placing it again keeps it in the window.
+  const messageCount = thread?.messages.length ?? 0;
+  useEffect(() => {
+    void popperRef.current?.update();
+  }, [messageCount, showResolved]);
   const openPopover = useCallback(() => {
     if (buttonRef != null) setAnchor(buttonRef);
   }, [buttonRef]);
@@ -191,12 +260,16 @@ const CommentButton = ({
         open={isOpen}
         anchorEl={anchor}
         placement="bottom-end"
+        popperRef={popperRef}
+        popperOptions={{ strategy: "fixed" }}
+        modifiers={fitListModifiers}
+        sx={{ display: "flex", flexDirection: "column" }}
       >
         <Paper
           component="form"
           data-comment-popover
           elevation={8}
-          sx={{ p: 1.5, width: 380, maxHeight: "60vh", overflowY: "auto" }}
+          sx={{ p: 1.5, width: 380, minHeight: 0, overflowY: "auto" }}
           onSubmit={handleFormSubmit}
           onKeyDown={(event) => {
             if (event.key === "Escape") {
