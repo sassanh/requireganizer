@@ -43,10 +43,16 @@ function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
+/** The codesVersion an agent reads with get_items before it submits. */
+async function readCodesVersion(client: { callAgentTool(name: string, args: Record<string, unknown>, caller: { name: string }): Promise<string> }): Promise<string> {
+  const read = await client.callAgentTool("get_items", { stage: "product-overview" }, { name: "Test agent" });
+  return (JSON.parse(read) as { codesVersion: string }).codesVersion;
+}
+
 const OVERVIEW = {
   purpose: "Help people keep houseplants alive.",
-  primaryFeatures: ["Track watering schedules"],
-  targetUsers: ["Busy plant owners"],
+  primaryFeatures: [{ content: "Track watering schedules" }],
+  targetUsers: [{ content: "Busy plant owners" }],
 };
 
 describe("one host per project", () => {
@@ -79,12 +85,13 @@ describe("one host per project", () => {
       assert.equal(second.url(), url);
       assert.deepEqual(serving, ["first"]);
 
+      const codesVersion = await readCodesVersion(two.client);
       await assert.rejects(
-        () => two.client.callAgentTool("submit_product_overview", { ...OVERVIEW, primaryFeatures: [] }, { name: "Test agent" }),
+        () => two.client.callAgentTool("submit_product_overview", { ...OVERVIEW, codesVersion, primaryFeatures: [] }, { name: "Test agent" }),
         (error: unknown) => error instanceof Error && error.message.length > 0,
       );
       assert.match(
-        await two.client.callAgentTool("submit_product_overview", OVERVIEW, { name: "Test agent" }),
+        await two.client.callAgentTool("submit_product_overview", { ...OVERVIEW, codesVersion }, { name: "Test agent" }),
         /^Applied to Product Overview\./,
       );
       assert.equal(one.client.getSnapshot().store.productOverview.purpose, "Help people keep houseplants alive.");

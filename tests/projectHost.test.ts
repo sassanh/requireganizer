@@ -413,9 +413,10 @@ describe("project host and client", () => {
         id: "call-1",
         name: "submit_product_overview",
         arguments: {
+          codesVersion: opened.authority().codesVersion,
           purpose: "Help people keep houseplants alive.",
-          primaryFeatures: ["Track watering schedules"],
-          targetUsers: ["Busy plant owners"],
+          primaryFeatures: [{ content: "Track watering schedules" }],
+          targetUsers: [{ content: "Busy plant owners" }],
         },
       };
       await opened.authority().sendConversationMessage(
@@ -733,9 +734,10 @@ describe("project host and client", () => {
       });
       await assert.rejects(
         opened.client.callAgentTool("submit_product_overview", {
+          codesVersion: opened.authority().codesVersion,
           purpose: "Keep plants alive.",
-          primaryFeatures: ["Track watering schedules"],
-          targetUsers: ["Busy plant owners"],
+          primaryFeatures: [{ content: "Track watering schedules" }],
+          targetUsers: [{ content: "Busy plant owners" }],
         }, { name: "Test agent" }),
         /A project import is replacing this project/,
       );

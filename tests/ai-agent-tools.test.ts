@@ -53,9 +53,10 @@ describe("agent result tools", () => {
     const submit = resultTool(store, "submit_product_overview");
 
     const response = await submit.execute!("call-1", {
+      codesVersion: store.codesVersion,
       purpose: "Help people keep houseplants alive.",
-      primaryFeatures: ["Track watering schedules"],
-      targetUsers: ["Busy plant owners"],
+      primaryFeatures: [{ content: "Track watering schedules" }],
+      targetUsers: [{ content: "Busy plant owners" }],
     } as never);
 
     assert.match((response.content[0] as { text: string }).text, /applied/);
@@ -73,9 +74,10 @@ describe("agent result tools", () => {
     await assert.rejects(
       () =>
         submit.execute!("call-1", {
+          codesVersion: store.codesVersion,
           purpose: "Help people keep houseplants alive.",
           primaryFeatures: [],
-          targetUsers: ["Busy plant owners"],
+          targetUsers: [{ content: "Busy plant owners" }],
         } as never),
       (error: unknown) => error instanceof Error && error.message.length > 0,
     );

@@ -102,10 +102,12 @@ describe("workflow reads", () => {
     };
     assert.deepEqual(await readTool(store, "get_items", { stage: WorkflowStage.UserStories }), {
       stage: WorkflowStage.UserStories,
+      codesVersion: store.codesVersion,
       items: [story],
     });
-    assert.deepEqual(await readTool(store, "get_items", { stage: WorkflowStage.UserStories, items: ["US-01"] }), {
+    assert.deepEqual(await readTool(store, "get_items", { stage: WorkflowStage.UserStories, items: ["US-1"] }), {
       stage: WorkflowStage.UserStories,
+      codesVersion: store.codesVersion,
       items: [story],
     });
     const tool = buildReadTools(store).find(({ name }) => name === "get_items")!;

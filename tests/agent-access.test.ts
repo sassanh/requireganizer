@@ -9,14 +9,14 @@ import { Store } from "../app/store/store";
 
 const OVERVIEW = {
   purpose: "Help people keep houseplants alive.",
-  primaryFeatures: ["Track watering schedules"],
-  targetUsers: ["Busy plant owners"],
+  primaryFeatures: [{ content: "Track watering schedules" }],
+  targetUsers: [{ content: "Busy plant owners" }],
 };
 
 /** A store whose approved overview has user stories built on it. */
 async function storeWithStories(): Promise<Store> {
   const store = Store.create({ productOverview: {} });
-  await callAgentTool(store, "submit_product_overview", OVERVIEW);
+  await callAgentTool(store, "submit_product_overview", { ...OVERVIEW, codesVersion: store.codesVersion });
   for (const unit of store.stageUnits(WorkflowStage.ProductOverview)) store.approve(unit.id);
   applyArtifactListProposal(store, {
     entityType: StructuralFragment.UserStory,
@@ -62,7 +62,7 @@ describe("outside agent tools", () => {
     const submit = agentToolDescriptions(store).find(({ name }) => name === "submit_product_overview")!;
     assert.equal((submit.inputSchema.properties as Record<string, unknown>).name, undefined);
     await assert.rejects(
-      callAgentTool(store, "submit_product_overview", { ...OVERVIEW, name: "Plant Pal" }),
+      callAgentTool(store, "submit_product_overview", { codesVersion: store.codesVersion, ...OVERVIEW, name: "Plant Pal" }),
       /unsupported field\(s\): name/,
     );
     assert.equal(store.productOverview.isEmpty, true);
@@ -95,7 +95,7 @@ describe("outside agent tools", () => {
 
   it("applies a valid submission and says the person approves it", async () => {
     const store = Store.create({ productOverview: {} });
-    const text = await callAgentTool(store, "submit_product_overview", OVERVIEW);
+    const text = await callAgentTool(store, "submit_product_overview", { ...OVERVIEW, codesVersion: store.codesVersion });
     assert.match(text, /^Applied to Product Overview\. The person approves it/);
     assert.equal(store.productOverview.purpose, "Help people keep houseplants alive.");
     assert.equal(store.getStepStatus(WorkflowStage.ProductOverview), "needs-approval");
@@ -105,11 +105,63 @@ describe("outside agent tools", () => {
     const store = Store.create({ productOverview: {} });
     store.setValidationError({ message: "The person's own error." });
     await assert.rejects(
-      () => callAgentTool(store, "submit_product_overview", { ...OVERVIEW, primaryFeatures: [] }),
+      () => callAgentTool(store, "submit_product_overview", { codesVersion: store.codesVersion, ...OVERVIEW, primaryFeatures: [] }),
       /primaryFeatures/,
     );
     assert.equal(store.productOverview.purpose, null);
     assert.equal(store.validationErrors, "The person's own error.");
+  });
+
+  it("takes items by the codes the page shows", async () => {
+    const store = await storeWithStories();
+    await callAgentTool(store, "submit_user_story_list", {
+      codesVersion: store.codesVersion,
+      items: [
+        { item: "US-01", content: "As a plant owner, I want watering reminders on my phone." },
+        {
+          key: "feeding",
+          content: "As a plant owner, I want feeding reminders.",
+          priority: Priority.P2,
+          references: ["FEA-01"],
+          dependencies: ["US-01"],
+        },
+      ],
+    });
+    assert.deepEqual(
+      store.userStories.map((story) => [story.getCode(), story.content]),
+      [
+        ["US-01", "As a plant owner, I want watering reminders on my phone."],
+        ["US-02", "As a plant owner, I want feeding reminders."],
+      ],
+    );
+    const feeding = store.userStories[1]!;
+    assert.deepEqual(feeding.references.map(({ id }) => id), [store.productOverview.primaryFeatures[0]!.id]);
+    assert.deepEqual(feeding.dependencies, ["story-1"]);
+  });
+
+  it("refuses a submission whose codes were read before the lists changed, and changes nothing", async () => {
+    const store = await storeWithStories();
+    const read = JSON.parse(await callAgentTool(store, "get_items", { stage: "user-stories" })) as { codesVersion: string };
+    const before = read.codesVersion;
+    await callAgentTool(store, "submit_user_story_list", {
+      codesVersion: before,
+      items: [
+        { key: "first", content: "As a plant owner, I want a plant list.", priority: Priority.P1, references: ["FEA-01"], dependencies: [] },
+        "US-01",
+      ],
+    });
+    // US-01 now names the new story, so the old read must not patch it.
+    await assert.rejects(
+      () => callAgentTool(store, "submit_user_story_list", {
+        codesVersion: before,
+        items: [{ item: "US-01", content: "As a plant owner, I want watering reminders on my phone." }],
+      }),
+      /Codes may have moved since the get_items read/,
+    );
+    assert.deepEqual(
+      store.userStories.map(({ content }) => content),
+      ["As a plant owner, I want a plant list.", "As a plant owner, I want watering reminders."],
+    );
   });
 
   it("says when Requireganizer is busy with other work", async () => {
@@ -117,7 +169,7 @@ describe("outside agent tools", () => {
     const store = Store.create({ productOverview: {}, businessCounter: 1 });
     store.beginAiOperation({ operation: "generate user stories", controller: new AbortController() });
     await assert.rejects(
-      () => callAgentTool(store, "submit_product_overview", OVERVIEW),
+      () => callAgentTool(store, "submit_product_overview", { ...OVERVIEW, codesVersion: store.codesVersion }),
       /^UserFacingError: Requireganizer is busy \(generate user stories\)\. Try again when it finishes\.$/,
     );
     assert.equal(store.productOverview.purpose, null);
@@ -140,12 +192,12 @@ describe("outside agent tools", () => {
   it("applies a submission that reopens an earlier stage for the person to approve", async () => {
     const store = await storeWithStories();
     const revised = { ...OVERVIEW, purpose: "Help people keep every houseplant alive." };
-    const text = await callAgentTool(store, "submit_product_overview", revised);
+    const text = await callAgentTool(store, "submit_product_overview", { ...revised, codesVersion: store.codesVersion });
     assert.match(text, /^Applied to Product Overview\. The person approves it/);
     assert.equal(store.productOverview.purpose, revised.purpose);
     assert.equal(store.frontier, WorkflowStage.ProductOverview);
     // The next submission is not held up by the first.
-    await callAgentTool(store, "submit_product_overview", OVERVIEW);
+    await callAgentTool(store, "submit_product_overview", { ...OVERVIEW, codesVersion: store.codesVersion });
     assert.equal(store.productOverview.purpose, OVERVIEW.purpose);
   });
 });

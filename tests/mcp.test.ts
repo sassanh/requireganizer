@@ -49,6 +49,12 @@ function textOf(result: Awaited<ReturnType<Client["callTool"]>>): string {
   return (result.content as { type: string; text?: string }[]).map((part) => part.text ?? "").join("");
 }
 
+/** The codesVersion an agent reads with get_items before it submits. */
+async function readCodesVersion(client: Client): Promise<string> {
+  const read = await client.callTool({ name: "get_items", arguments: { stage: "product-overview" } });
+  return (JSON.parse(textOf(read)) as { codesVersion: string }).codesVersion;
+}
+
 describe("MCP server", () => {
   it("serves the project's agent tools to an MCP client and tells it when they change", async () => {
     const options = {
@@ -89,10 +95,12 @@ describe("MCP server", () => {
       await pageClient.selectProject("project-a", "Plant Pal");
       await listChanged(1);
       assert.ok((await toolNames()).includes("submit_product_overview"));
+      const definitions = async () => JSON.stringify((await client.listTools()).tools);
+      const before = await definitions();
 
       const rejected = await client.callTool({
         name: "submit_product_overview",
-        arguments: { purpose: "Keep plants alive.", primaryFeatures: [], targetUsers: [] },
+        arguments: { codesVersion: await readCodesVersion(client), purpose: "Keep plants alive.", primaryFeatures: [], targetUsers: [] },
       });
       assert.equal(rejected.isError, true);
       assert.ok(textOf(rejected).length > 0);
@@ -100,16 +108,18 @@ describe("MCP server", () => {
       const applied = await client.callTool({
         name: "submit_product_overview",
         arguments: {
+          codesVersion: await readCodesVersion(client),
           purpose: "Keep plants alive.",
-          primaryFeatures: ["Track watering schedules"],
-          targetUsers: ["Busy plant owners"],
+          primaryFeatures: [{ content: "Track watering schedules" }],
+          targetUsers: [{ content: "Busy plant owners" }],
         },
       });
       assert.equal(applied.isError, undefined);
       assert.match(textOf(applied), /^Applied to Product Overview\./);
 
-      // The overview's submit tool now names the items it holds.
-      await listChanged(2);
+      // The tools name no items, so a submission leaves them as they were.
+      assert.equal(await definitions(), before);
+      assert.equal(listChanges, 1);
       const overview = JSON.parse(
         textOf(await client.callTool({ name: "get_stage_artifacts", arguments: { stage: "product-overview" } })),
       ) as { productOverview: { purpose: string } };
@@ -201,9 +211,10 @@ describe("MCP server", () => {
         {
           name: "submit_product_overview",
           arguments: {
+            codesVersion: await readCodesVersion(client),
             purpose: "Keep plants alive.",
-            primaryFeatures: ["Track watering schedules"],
-            targetUsers: ["Busy plant owners"],
+            primaryFeatures: [{ content: "Track watering schedules" }],
+            targetUsers: [{ content: "Busy plant owners" }],
           },
         },
         undefined,
@@ -232,9 +243,10 @@ describe("MCP server", () => {
       const resubmitted = await client.callTool({
         name: "submit_product_overview",
         arguments: {
+          codesVersion: await readCodesVersion(client),
           purpose: "Help busy plant owners keep their houseplants alive.",
-          primaryFeatures: ["Track watering schedules"],
-          targetUsers: ["Busy plant owners"],
+          primaryFeatures: [{ content: "Track watering schedules" }],
+          targetUsers: [{ content: "Busy plant owners" }],
         },
       });
       assert.match(textOf(resubmitted), /\nThe reviewer model could not review 3 items\. Tell the person/);
@@ -286,9 +298,10 @@ describe("MCP server", () => {
       await first.client.callTool({
         name: "submit_product_overview",
         arguments: {
+          codesVersion: await readCodesVersion(first.client),
           purpose: "Keep plants alive.",
-          primaryFeatures: ["Track watering schedules"],
-          targetUsers: ["Busy plant owners"],
+          primaryFeatures: [{ content: "Track watering schedules" }],
+          targetUsers: [{ content: "Busy plant owners" }],
         },
       });
       for (let attempt = 0; attempt < 40 && store().productOverview.targetUsers.length === 0; attempt += 1) {

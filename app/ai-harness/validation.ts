@@ -17,9 +17,11 @@ import {
   renderTestCaseExpectedResult,
   renderTestCaseSteps,
 } from "contract-domain";
+import { codesMatch, formatCode } from "lib/fragmentCodes";
 import { InvalidJsonError, isRecord } from "lib/json";
 import { assertSafeVirtualPath } from "lib/scaffold";
 import {
+  FRAGMENT_CODES,
   Priority,
   StructuralFragment,
 } from "store/constants";
@@ -28,6 +30,7 @@ import { isEnumMember } from "utilities";
 
 export interface ArtifactIdentity {
   id: string;
+  code: string;
   type: StructuralFragment;
 }
 
@@ -151,78 +154,149 @@ function enumValue<Value>(
   return value;
 }
 
+/**
+ * Collects each entry's problem instead of stopping at the first, so one
+ * rejected submission reports everything it must fix.
+ */
+function collectingProblems() {
+  const problems: string[] = [];
+  return {
+    attempt<Value>(parse: () => Value): Value | undefined {
+      try {
+        return parse();
+      } catch (error) {
+        if (!(error instanceof InvalidJsonError)) throw error;
+        problems.push(error.message);
+        return undefined;
+      }
+    },
+    report(problem: string): void {
+      problems.push(problem);
+    },
+    throwIfAny(): void {
+      if (problems.length > 0) throw new InvalidJsonError(problems.join("\n"));
+    },
+  };
+}
+
+/**
+ * Codes are positions, so one read before the lists last changed can name
+ * other items now. A submission says which read its codes come from.
+ */
+function assertCurrentCodes(
+  value: Record<string, unknown>,
+  codesVersion: string,
+  label: string,
+): void {
+  const given = value.codesVersion;
+  if (typeof given !== "string" || given.length === 0) {
+    throw new InvalidJsonError(
+      `${label}.codesVersion must be the codesVersion of the get_items read whose codes this submission uses.`,
+    );
+  }
+  if (given !== codesVersion) {
+    throw new InvalidJsonError(
+      `Codes may have moved since the get_items read with codesVersion ${given}: a list that codes name has changed since. Read the items again with get_items and submit with its codesVersion.`,
+    );
+  }
+}
+
+/** Reports, by code, each existing item that one list names more than once. */
+function reportRepeatedItems(
+  ids: string[],
+  artifacts: Map<string, ArtifactIdentity>,
+  label: string,
+  report: (problem: string) => void,
+): void {
+  new Set(ids.filter((id, index) => ids.indexOf(id) !== index)).forEach((id) => {
+    report(`${label} names ${artifacts.get(id)?.code ?? id} more than once.`);
+  });
+}
+
+/** The item a submission names, by its code however padded, or by its id. */
+function identityNamed(
+  name: string,
+  artifacts: Map<string, ArtifactIdentity>,
+): ArtifactIdentity | undefined {
+  const trimmed = name.trim();
+  return artifacts.get(trimmed) ?? [...artifacts.values()].find(({ code }) => codesMatch(trimmed, code));
+}
+
+/** The id of the existing item of `type` that `name` names. */
+function existingIdNamed(
+  name: string,
+  type: StructuralFragment,
+  artifacts: Map<string, ArtifactIdentity>,
+  label: string,
+): string {
+  const identity = identityNamed(name, artifacts);
+  if (identity?.type !== type) {
+    throw new InvalidJsonError(`${label} names ${name}, which is no existing ${type}.`);
+  }
+  return identity.id;
+}
+
 export function parseProductOverviewProposal(
   value: unknown,
-  state?: Record<string, unknown>,
+  {
+    state,
+    codesVersion,
+  }: {
+    state: Record<string, unknown>;
+    codesVersion: string;
+  },
 ): ProductOverviewProposal {
   if (!isRecord(value)) {
     throw new InvalidJsonError("Product overview result must be an object.");
   }
   assertAllowedKeys(
     value,
-    ["purpose", "primaryFeatures", "targetUsers"],
+    ["codesVersion", "purpose", "primaryFeatures", "targetUsers"],
     "Product overview",
   );
+  assertCurrentCodes(value, codesVersion, "Product overview");
+  const artifacts = collectArtifactIdentities(state);
+  const problems = collectingProblems();
 
-  const primaryFeatureIds =
-    state != null ? [...getExistingTargetIds(state, StructuralFragment.PrimaryFeature)] : [];
-  const targetUserIds =
-    state != null ? [...getExistingTargetIds(state, StructuralFragment.TargetUser)] : [];
-
-  const parsePatchList = (
-    raw: unknown[],
+  const parseEntry = (
+    entry: unknown,
     label: string,
-    existingIds: string[],
-  ): ProductOverviewPatchItem[] => {
-    return raw.map((item, index) => {
-      const itemLabel = `${label}[${index}]`;
-      if (typeof item === "string") {
-        const trimmed = item.trim();
-        if (trimmed.length === 0) {
-          throw new InvalidJsonError(`${itemLabel} must be non-empty text.`);
-        }
-        // Bare string: if it matches an existing id, keep as-is; otherwise treat as new content
-        // (backward compat for old string[] payloads where strings are new feature texts).
-        if (existingIds.length > 0 && existingIds.includes(trimmed)) {
-          return trimmed;
-        }
-        // New content via bare string — normalize to object for the apply layer
-        // (keeps proposal type uniform; apply will mint a new id).
-        return { content: trimmed };
-      }
-      if (!isRecord(item)) {
-        throw new InvalidJsonError(`${itemLabel} must be a string or an object.`);
-      }
-      assertAllowedKeys(item, ["id", "content"], itemLabel);
-      const content = requiredString(item, "content", itemLabel);
-      const id = optionalString(item, "id", itemLabel);
-      if (id !== undefined) {
-        if (id.trim().length === 0) {
-          throw new InvalidJsonError(`${itemLabel}.id must be non-empty.`);
-        }
-        if (existingIds.length > 0 && !existingIds.includes(id)) {
-          throw new InvalidJsonError(`${itemLabel}.id must be an existing id.`);
-        }
-        return { id: id.trim(), content };
-      }
-      return { content };
+    type: StructuralFragment,
+  ): ProductOverviewPatchItem => {
+    if (typeof entry === "string") return existingIdNamed(entry, type, artifacts, label);
+    if (!isRecord(entry)) {
+      throw new InvalidJsonError(`${label} must be a code or an object.`);
+    }
+    assertAllowedKeys(entry, ["item", "content"], label);
+    const content = requiredString(entry, "content", label);
+    const name = optionalString(entry, "item", label);
+    return name === undefined
+      ? { content }
+      : { id: existingIdNamed(name, type, artifacts, label), content };
+  };
+  const parseList = (field: string, type: StructuralFragment): ProductOverviewPatchItem[] => {
+    const raw = requiredArray(value, field, "Product overview");
+    if (raw.length === 0) {
+      throw new InvalidJsonError(`Product overview.${field} must not be empty.`);
+    }
+    const entries = raw.flatMap((entry, index) => {
+      const parsed = problems.attempt(() => parseEntry(entry, `Product overview.${field}[${index}]`, type));
+      return parsed === undefined ? [] : [parsed];
     });
+    reportRepeatedItems(
+      entries.flatMap((entry) => (typeof entry === "string" ? [entry] : entry.id === undefined ? [] : [entry.id])),
+      artifacts,
+      `Product overview.${field}`,
+      problems.report,
+    );
+    return entries;
   };
 
-  const primaryRaw = requiredArray(value, "primaryFeatures", "Product overview");
-  const targetRaw = requiredArray(value, "targetUsers", "Product overview");
-  if (primaryRaw.length === 0) {
-    throw new InvalidJsonError("Product overview.primaryFeatures must not be empty.");
-  }
-  if (targetRaw.length === 0) {
-    throw new InvalidJsonError("Product overview.targetUsers must not be empty.");
-  }
-
-  return {
-    purpose: requiredString(value, "purpose", "Product overview"),
-    primaryFeatures: parsePatchList(primaryRaw, "Product overview.primaryFeatures", primaryFeatureIds),
-    targetUsers: parsePatchList(targetRaw, "Product overview.targetUsers", targetUserIds),
-  };
+  const purpose = problems.attempt(() => requiredString(value, "purpose", "Product overview"));
+  const primaryFeatures = parseList("primaryFeatures", StructuralFragment.PrimaryFeature);
+  const targetUsers = parseList("targetUsers", StructuralFragment.TargetUser);
+  problems.throwIfAny();
+  return { purpose: purpose!, primaryFeatures, targetUsers };
 }
 
 function collectList(
@@ -231,9 +305,13 @@ function collectList(
   target: Map<string, ArtifactIdentity>,
 ): void {
   if (!Array.isArray(value)) return;
-  value.forEach((candidate) => {
+  value.forEach((candidate, index) => {
     if (!isRecord(candidate) || typeof candidate.id !== "string") return;
-    target.set(candidate.id, { id: candidate.id, type });
+    target.set(candidate.id, {
+      id: candidate.id,
+      code: formatCode(FRAGMENT_CODES[type], index + 1, value.length),
+      type,
+    });
   });
 }
 
@@ -258,46 +336,6 @@ export function collectArtifactIdentities(
   return artifacts;
 }
 
-export function getExistingTargetIds(
-  state: Record<string, unknown>,
-  entityType: StructuralFragment,
-): Set<string> {
-  let list: unknown;
-  const overview = isRecord(state.productOverview) ? state.productOverview : {};
-  switch (entityType) {
-    case StructuralFragment.PrimaryFeature:
-      list = overview.primaryFeatures;
-      break;
-    case StructuralFragment.TargetUser:
-      list = overview.targetUsers;
-      break;
-    case StructuralFragment.UserStory:
-      list = state.userStories;
-      break;
-    case StructuralFragment.Requirement:
-      list = state.requirements;
-      break;
-    case StructuralFragment.AcceptanceCriteria:
-      list = state.acceptanceCriteria;
-      break;
-    case StructuralFragment.TestScenario:
-    case StructuralFragment.TestCase:
-    case StructuralFragment.TestCode:
-      throw new InvalidJsonError(`${entityType} uses the contract-first parser.`);
-  }
-
-  return new Set(
-    Array.isArray(list)
-      ? list
-        .filter(
-          (candidate): candidate is Record<string, unknown> =>
-            isRecord(candidate) && typeof candidate.id === "string",
-        )
-        .map((candidate) => candidate.id as string)
-      : [],
-  );
-}
-
 function parseReferences(
   value: Record<string, unknown>,
   label: string,
@@ -305,27 +343,37 @@ function parseReferences(
   definition: ArtifactStageDefinition,
 ): ArtifactProposalItem["references"] {
   const seen = new Set<string>();
-  return requiredArray(value, "references", label).map((candidate, index) => {
-    const referenceLabel = `${label}.references[${index}]`;
-    if (!isRecord(candidate)) {
-      throw new InvalidJsonError(`${referenceLabel} must be an object.`);
+  return requiredArray(value, "references", label).map((candidate) => {
+    if (typeof candidate !== "string" || candidate.trim().length === 0) {
+      throw new InvalidJsonError(`${label}.references must hold codes.`);
     }
-    assertAllowedKeys(candidate, ["id", "type"], referenceLabel);
-    const id = requiredString(candidate, "id", referenceLabel);
-    if (seen.has(id)) {
-      throw new InvalidJsonError(`${label} contains duplicate reference ${id}.`);
+    const identity = identityNamed(candidate, artifacts);
+    if (identity == null) {
+      throw new InvalidJsonError(`${label} references ${candidate}, which matches no item.`);
     }
-    seen.add(id);
-    const type = enumValue(candidate.type, StructuralFragment, `${referenceLabel}.type`);
-    const actual = artifacts.get(id);
-    if (actual == null || actual.type !== type) {
-      throw new InvalidJsonError(`${referenceLabel} does not identify an existing ${type}.`);
+    if (!definition.allowedReferenceTypes.includes(identity.type)) {
+      throw new InvalidJsonError(`${label} references ${identity.code}, outside this stage's allowed scope.`);
     }
-    if (!definition.allowedReferenceTypes.includes(type)) {
-      throw new InvalidJsonError(`${referenceLabel} is outside this stage's allowed scope.`);
+    if (seen.has(identity.id)) {
+      throw new InvalidJsonError(`${label} references ${identity.code} twice.`);
     }
-    return { id, type };
+    seen.add(identity.id);
+    return { id: identity.id, type: identity.type };
   });
+}
+
+/** How errors name an entry: by the code of the item it keeps or changes, or by its key. */
+function entryLabel(
+  entry: unknown,
+  index: number,
+  artifacts: Map<string, ArtifactIdentity>,
+): string {
+  const name = typeof entry === "string"
+    ? entry
+    : isRecord(entry) && typeof entry.item === "string" ? entry.item : undefined;
+  if (name !== undefined) return identityNamed(name, artifacts)?.code ?? `Artifact result.items[${index}]`;
+  if (isRecord(entry) && typeof entry.key === "string") return `New item "${entry.key}"`;
+  return `Artifact result.items[${index}]`;
 }
 
 /**
@@ -334,27 +382,28 @@ function parseReferences(
  */
 function parseArtifactItem(
   value: unknown,
-  index: number,
+  label: string,
   definition: ArtifactStageDefinition,
   artifacts: Map<string, ArtifactIdentity>,
-  existingTargetIds: Set<string>,
   kept: (id: string) => ArtifactProposalItem,
 ): ArtifactProposalItem {
-  const label = `Artifact result.items[${index}]`;
+  if (typeof value === "string") {
+    return kept(existingIdNamed(value, definition.entityType, artifacts, label));
+  }
   if (!isRecord(value)) {
-    throw new InvalidJsonError(`${label} must be an object.`);
+    throw new InvalidJsonError(`${label} must be a code or an object.`);
   }
 
   assertAllowedKeys(
     value,
-    ["key", "id", "content", "priority", "references", "dependencies"],
+    ["key", "item", "content", "priority", "references", "dependencies"],
     label,
   );
 
-  const id = optionalString(value, "id", label);
-  if (id !== undefined && !existingTargetIds.has(id)) {
-    throw new InvalidJsonError(`${label}.id must identify an existing target item.`);
-  }
+  const name = optionalString(value, "item", label);
+  const id = name === undefined
+    ? undefined
+    : existingIdNamed(name, definition.entityType, artifacts, label);
   const existing = id === undefined ? undefined : kept(id);
   const given = (field: string) => existing == null || value[field] !== undefined;
 
@@ -382,75 +431,81 @@ function parseArtifactItem(
 }
 
 /**
- * A dependency names a proposal key, or an item of the result by its
- * existing id whatever key its entry uses; each becomes that entry's key.
+ * A dependency names a proposal key, or an item of the result by its code
+ * or id whatever key its entry uses; each becomes that entry's key.
  */
-function withDependencyKeys(items: ArtifactProposalItem[]): ArtifactProposalItem[] {
+function withDependencyKeys(
+  items: ArtifactProposalItem[],
+  artifacts: Map<string, ArtifactIdentity>,
+): ArtifactProposalItem[] {
   const keys = new Set(items.map(({ key }) => key));
   const keyById = new Map(items.flatMap(({ id, key }) => (id === undefined ? [] : [[id, key] as const])));
   return items.map((item) => ({
     ...item,
-    dependencies: item.dependencies.map((name) => (keys.has(name) ? name : keyById.get(name) ?? name)),
+    dependencies: item.dependencies.map((name) => {
+      if (keys.has(name)) return name;
+      const id = identityNamed(name, artifacts)?.id;
+      return (id === undefined ? undefined : keyById.get(id)) ?? name;
+    }),
   }));
 }
 
-function assertValidDependencies(items: ArtifactProposalItem[]): void {
+function reportInvalidDependencies(
+  items: ArtifactProposalItem[],
+  labelOf: (key: string) => string,
+  report: (problem: string) => void,
+): void {
   const itemKeys = new Set(items.map(({ key }) => key));
   const dependenciesByKey = new Map<string, string[]>();
 
-  items.forEach((item, index) => {
+  items.forEach((item) => {
+    const label = labelOf(item.key);
     const seen = new Set<string>();
     item.dependencies.forEach((dependency) => {
       if (seen.has(dependency)) {
-        throw new InvalidJsonError(
-          `Artifact result.items[${index}] contains duplicate dependency ${dependency}.`,
-        );
+        report(`${label} depends on ${labelOf(dependency)} twice.`);
+      } else if (!itemKeys.has(dependency)) {
+        report(`${label} depends on ${dependency}, which is no item of this result.`);
+      } else if (item.key === dependency) {
+        report(`${label} depends on itself.`);
       }
       seen.add(dependency);
-      if (!itemKeys.has(dependency)) {
-        throw new InvalidJsonError(
-          `Artifact result.items[${index}] depends on unknown proposal key ${dependency}.`,
-        );
-      }
-      if (item.key === dependency) {
-        throw new InvalidJsonError("An artifact cannot depend on itself.");
-      }
     });
-    dependenciesByKey.set(item.key, item.dependencies);
+    dependenciesByKey.set(item.key, item.dependencies.filter((dependency) => itemKeys.has(dependency)));
   });
 
   const visiting = new Set<string>();
   const visited = new Set<string>();
-  function visit(id: string): void {
-    if (visiting.has(id)) {
-      throw new InvalidJsonError("Artifact dependencies must not contain cycles.");
+  function visit(key: string): void {
+    if (visiting.has(key)) {
+      report(`Dependencies form a cycle through ${labelOf(key)}.`);
+      return;
     }
-    if (visited.has(id)) return;
-    visiting.add(id);
-    (dependenciesByKey.get(id) ?? []).forEach(visit);
-    visiting.delete(id);
-    visited.add(id);
+    if (visited.has(key)) return;
+    visiting.add(key);
+    (dependenciesByKey.get(key) ?? []).forEach(visit);
+    visiting.delete(key);
+    visited.add(key);
   }
-  dependenciesByKey.forEach((_, id) => visit(id));
+  dependenciesByKey.forEach((_, key) => visit(key));
 }
 
-function assertCoverage(
+function reportMissingCoverage(
   items: ArtifactProposalItem[],
   artifacts: Map<string, ArtifactIdentity>,
   definition: ArtifactStageDefinition,
+  report: (problem: string) => void,
 ): void {
   if (definition.coverageReferenceType == null) return;
-  const requiredIds = [...artifacts.values()]
-    .filter(({ type }) => type === definition.coverageReferenceType)
-    .map(({ id }) => id);
-  const missing = uncoveredIds(
-    requiredIds,
+  const required = [...artifacts.values()]
+    .filter(({ type }) => type === definition.coverageReferenceType);
+  const missing = new Set(uncoveredIds(
+    required.map(({ id }) => id),
     items.flatMap((item) => item.references.map(({ id }) => id)),
-  );
-  if (missing.length > 0) {
-    throw new InvalidJsonError(
-      `${definition.entityType} result does not cover ${missing.length} required upstream artifact(s).`,
-    );
+  ));
+  if (missing.size > 0) {
+    const codes = required.filter(({ id }) => missing.has(id)).map(({ code }) => code);
+    report(`${definition.entityType} result does not cover ${codes.join(", ")}.`);
   }
 }
 
@@ -459,19 +514,21 @@ export function parseArtifactListProposal(
   {
     expectedEntityType,
     state,
+    codesVersion,
   }: {
     expectedEntityType: StructuralFragment;
     state: Record<string, unknown>;
+    codesVersion: string;
   },
 ): ArtifactListProposal {
   if (!isRecord(value)) {
     throw new InvalidJsonError("Artifact-list result must be an object.");
   }
-  assertAllowedKeys(value, ["items"], "Artifact result");
+  assertAllowedKeys(value, ["codesVersion", "items"], "Artifact result");
+  assertCurrentCodes(value, codesVersion, "Artifact result");
   const entityType = expectedEntityType;
   const definition = getArtifactStageDefinition(entityType);
   const artifacts = collectArtifactIdentities(state);
-  const existingTargetIds = getExistingTargetIds(state, entityType);
   const rawItems = requiredArray(value, "items", "Artifact result");
   if (rawItems.length === 0) {
     throw new InvalidJsonError("Artifact result.items must not be empty.");
@@ -500,7 +557,7 @@ export function parseArtifactListProposal(
     existingList.find(
       (candidate) => isRecord(candidate) && candidate.id === id,
     ) as Record<string, unknown> | undefined;
-  // An existing item as it stands: what a bare id keeps, and what a patch changes.
+  // An existing item as it stands: what a bare code keeps, and what a patch changes.
   const kept = (id: string): ArtifactProposalItem => {
     const existing = findExisting(id);
     if (existing == null) {
@@ -520,37 +577,35 @@ export function parseArtifactListProposal(
       dependencies: Array.isArray(existing.dependencies) ? (existing.dependencies as string[]) : [],
     };
   };
-  const items = withDependencyKeys(rawItems.map((item, index) => {
-    if (typeof item === "string") {
-      const id = item.trim();
-      if (id.length === 0) {
-        throw new InvalidJsonError(`Artifact result.items[${index}] must be non-empty text.`);
-      }
-      if (!existingTargetIds.has(id)) {
-        throw new InvalidJsonError(`Artifact result.items[${index}] must be an existing id.`);
-      }
-      return kept(id);
-    }
-    return parseArtifactItem(
-      item,
-      index,
-      definition,
-      artifacts,
-      existingTargetIds,
-      kept,
-    );
-  }));
+  const problems = collectingProblems();
+  const parsed = rawItems.flatMap((item, index) => {
+    const label = entryLabel(item, index, artifacts);
+    const entry = problems.attempt(() => parseArtifactItem(item, label, definition, artifacts, kept));
+    return entry === undefined ? [] : [entry];
+  });
+  // Graph checks over a partial result would only report what the failed entries left out.
+  problems.throwIfAny();
+  const items = withDependencyKeys(parsed, artifacts);
 
-  const ids = items.flatMap((item) => (item.id === undefined ? [] : [item.id]));
-  if (new Set(ids).size !== ids.length) {
-    throw new InvalidJsonError("Artifact result contains duplicate item ids.");
-  }
+  const labelOf = (key: string): string => {
+    const item = items.find((candidate) => candidate.key === key);
+    if (item == null) return key;
+    return item.id === undefined ? `New item "${key}"` : artifacts.get(item.id)?.code ?? key;
+  };
+  reportRepeatedItems(
+    items.flatMap((item) => (item.id === undefined ? [] : [item.id])),
+    artifacts,
+    "Artifact result",
+    problems.report,
+  );
   const keys = items.map(({ key }) => key);
-  if (new Set(keys).size !== keys.length) {
-    throw new InvalidJsonError("Artifact result contains duplicate proposal keys.");
-  }
-  assertValidDependencies(items);
-  assertCoverage(items, artifacts, definition);
+  new Set(keys.filter((key, index) => keys.indexOf(key) !== index)).forEach((key) => {
+    problems.report(`Artifact result uses the key ${key} more than once.`);
+  });
+  problems.throwIfAny();
+  reportInvalidDependencies(items, labelOf, problems.report);
+  reportMissingCoverage(items, artifacts, definition, problems.report);
+  problems.throwIfAny();
   return { entityType, items };
 }
 

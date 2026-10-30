@@ -52,12 +52,14 @@ The person approves every item in Requireganizer's page; no tool approves.
 ## When writing a stage
 
 - Submit with the stage's `submit_*` tool. Each submission is the complete
-  proposal for that stage, not a patch. In it, an entry that names an
-  existing item gives only the fields that change; the rest stay as they
-  are. The tool description states the stage's quality contract.
-- A rejected submission comes back with the reason, such as an unknown id,
-  missing coverage or an empty field. Fix exactly that and submit again. Never
-  weaken the proposal to get past a check.
+  proposal for that stage, not a patch. It names existing items by the
+  codes `get_items` shows. An entry that names an existing item gives only
+  the fields that change; the rest stay as they are. The tool description
+  states the stage's quality contract.
+- A rejected submission comes back with every reason at once, such as an
+  unknown code, missing coverage or an empty field, each naming its item. Fix
+  exactly those and submit again. Never weaken the proposal to get past a
+  check.
 - An applied submission comes back with what the reviewer model rejected and
   why. Fix it and submit the stage again, or tell the person why you disagree:
   they can overrule the reviewer.

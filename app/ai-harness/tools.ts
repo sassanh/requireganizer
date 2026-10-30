@@ -1,10 +1,6 @@
 import type { FunctionDefinition } from "openai/resources/shared";
 
 import {
-  collectArtifactIdentities,
-  getExistingTargetIds,
-} from "ai-harness/validation";
-import {
   contractSuiteQualityContracts,
   QUALITY_CONTRACTS,
   qualityContractForFragment,
@@ -20,6 +16,7 @@ import type {
 } from "contract-domain";
 import { projectProviderSchema } from "contract-domain";
 import {
+  FRAGMENT_CODES,
   Priority,
   StructuralFragment,
   WorkflowStage,
@@ -73,117 +70,66 @@ export const COMMUNICATE_TOOL: HarnessToolDefinition = {
   ),
 };
 
-export function buildProductOverviewTool(
-  state?: Record<string, unknown>,
-): HarnessToolDefinition {
-  const primaryFeatureIds =
-    state != null ? [...getExistingTargetIds(state, StructuralFragment.PrimaryFeature)] : [];
-  const targetUserIds =
-    state != null ? [...getExistingTargetIds(state, StructuralFragment.TargetUser)] : [];
-  const patchString = (ids: string[], label: string) => ({
+const CODES_VERSION_PROPERTY = nonEmptyString(
+  "The codesVersion of the get_items read whose codes this submission uses. Codes taken from several reads must all come from reads with this same codesVersion. Read again after any change, your own submissions included.",
+);
+
+export function buildProductOverviewTool(): HarnessToolDefinition {
+  const overviewEntry = (label: string) => ({
     oneOf: [
-      ...(ids.length === 0
-        ? []
-        : [
-            {
-              type: "string",
-              enum: ids,
-              description: `Existing ${label} id to keep as-is at this position (reorder only).`,
-            },
-          ]),
       {
         type: "string",
         minLength: 1,
-        ...(ids.length === 0 ? {} : { not: { enum: ids } }),
-        description: `New ${label} text (add) as a bare string.`,
+        description: `Code of an existing ${label} to keep as is at this position.`,
       },
       {
-        type: "object",
-        additionalProperties: false,
-        required: ["content"],
-        properties: {
-          ...(ids.length === 0
-            ? {}
-            : {
-                id: {
-                  type: "string",
-                  enum: ids,
-                  description: `Existing ${label} id to move here and patch its content.`,
-                },
-              }),
-          content: nonEmptyString(
-            `Feature text; when id is present it replaces that ${label}'s content, otherwise it adds a new ${label}.`,
-          ),
-        },
-        description: `New ${label} or patch of existing ${label} as an object.`,
+        ...objectSchema(
+          {
+            item: nonEmptyString(`Code of the existing ${label} to move here and change.`),
+            content: nonEmptyString(`The ${label}'s text.`),
+          },
+          ["content"],
+        ),
+        description: `With item, that ${label} moved here with this text; without item, a new ${label}.`,
       },
     ],
   });
   return {
     name: "submit_product_overview",
     description: withQualityContract(
-      "Submit the complete product-overview proposal. Each list entry is either an existing id (keep as-is, reposition) or an object {id?, content} (add or move+patch).",
+      "Submit the complete product-overview proposal. Each list entry is an existing item's code (keep as is, reposition) or an object {item?, content} (add, or move and change).",
       qualityContractForStage(WorkflowStage.ProductOverview),
     ),
     parameters: objectSchema(
       {
+        codesVersion: CODES_VERSION_PROPERTY,
         purpose: nonEmptyString("The product purpose."),
         primaryFeatures: {
           type: "array",
           minItems: 1,
           description:
-            "Complete desired primary-feature list in display order (id strings keep, objects add/patch).",
-          items: patchString(primaryFeatureIds, "primary feature"),
+            "Complete desired primary-feature list in display order; a feature left out is proposed for removal.",
+          items: overviewEntry("primary feature"),
         },
         targetUsers: {
           type: "array",
           minItems: 1,
           description:
-            "Complete desired target-user list in display order (id strings keep, objects add/patch).",
-          items: patchString(targetUserIds, "target user"),
+            "Complete desired target-user list in display order; a target user left out is proposed for removal.",
+          items: overviewEntry("target user"),
         },
       },
-      ["purpose", "primaryFeatures", "targetUsers"],
+      ["codesVersion", "purpose", "primaryFeatures", "targetUsers"],
     ),
   };
 }
 
-function referenceSchema(
-  definition: ArtifactStageDefinition,
-  state: Record<string, unknown>,
-): Record<string, unknown> {
-  const allowedTypes = definition.allowedReferenceTypes;
-  const allowedIds = [...collectArtifactIdentities(state).values()]
-    .filter(({ type }) => allowedTypes.includes(type))
-    .map(({ id }) => id);
-
-  return objectSchema(
-    {
-      type: {
-        type: "string",
-        enum: allowedTypes,
-        description: "The exact type of the referenced artifact.",
-      },
-      id: {
-        ...nonEmptyString("An exact existing artifact ID from projectContext."),
-        ...(allowedIds.length === 0 ? {} : { enum: allowedIds }),
-      },
-    },
-    ["id", "type"],
-  );
-}
-
 export function buildArtifactListTool({
   definition,
-  state,
 }: {
   definition: ArtifactStageDefinition;
-  state: Record<string, unknown>;
 }): HarnessToolDefinition {
-  const existingIds = [...getExistingTargetIds(
-    state,
-    definition.entityType,
-  )];
+  const referencePrefixes = definition.allowedReferenceTypes.map((type) => FRAGMENT_CODES[type]).join(", ");
   const itemProperties: Record<string, unknown> = {
     key: {
       type: "string",
@@ -191,7 +137,7 @@ export function buildArtifactListTool({
       maxLength: 80,
       pattern: "^[A-Za-z0-9][A-Za-z0-9_-]*$",
       description:
-        "A proposal-local key unique within this result. Dependencies refer to these keys; this is not a persisted artifact ID.",
+        "A proposal-local key unique within this result, for other entries' dependencies to name a new item. Not a code.",
     },
     content: nonEmptyString("The complete artifact text."),
     priority: {
@@ -200,59 +146,53 @@ export function buildArtifactListTool({
       description: "The artifact priority.",
     },
     dependencies: stringArray(
-      "Keys of items in this same result that must precede this item, or their existing ids. Use an empty array when there are none.",
+      "Items of this same result that must precede this item: an existing item's code, or a new item's key. Use an empty array when there are none.",
     ),
     references: {
       type: "array",
       minItems: 1,
-      description: "Traceability references to exact upstream artifacts.",
-      items: referenceSchema(definition, state),
+      description: `Codes of the upstream items (${referencePrefixes}) this item traces to.`,
+      items: { type: "string", minLength: 1 },
     },
   };
-  const newItem = objectSchema(itemProperties, ["key", "content", "priority", "references", "dependencies"]);
-  const variants: Record<string, unknown>[] = existingIds.length === 0
-    ? [newItem]
-    : [
-        newItem,
+  const variants: Record<string, unknown>[] = [
+    objectSchema(itemProperties, ["key", "content", "priority", "references", "dependencies"]),
+    {
+      ...objectSchema(
         {
-          ...objectSchema(
-            {
-              id: {
-                type: "string",
-                enum: existingIds,
-                description: "The existing item to move here and change.",
-              },
-              ...itemProperties,
-            },
-            ["id"],
-          ),
-          description:
-            "Change an existing item: give only the fields that change; every field left out keeps its current value. Its key is its id unless given.",
+          item: nonEmptyString("Code of the existing item to move here and change."),
+          ...itemProperties,
         },
-        {
-          type: "string",
-          enum: existingIds,
-          description: "Existing id to keep as-is at this position (reorder only).",
-        },
-      ];
+        ["item"],
+      ),
+      description:
+        "Change an existing item: give only the fields that change; every field left out keeps its current value.",
+    },
+    {
+      type: "string",
+      minLength: 1,
+      description: "Code of an existing item to keep as is at this position.",
+    },
+  ];
 
   return {
     name: `submit_${definition.entityType}_list`,
     description: withQualityContract(
-      `Submit the complete desired ${definition.entityType} list for the requested target only. Each entry is an existing id (keep as-is, reposition), an object with an id (move and change only the fields it gives), or a full object without an id (add).`,
+      `Submit the complete desired ${definition.entityType} list for the requested target only. Each entry is an existing item's code (keep as is, reposition), an object with item (move it and change only the fields it gives), or a full object without item (add). Items are named by the codes get_items shows.`,
       qualityContractForStage(definition.step),
     ),
     parameters: objectSchema(
       {
+        codesVersion: CODES_VERSION_PROPERTY,
         items: {
           type: "array",
           minItems: 1,
           description:
-            "The complete desired target list, in display order. Bare string = existing id to keep as-is at this position; object with id = move that item here and change only the fields it gives; object without id = add a new item here.",
+            "The complete desired target list, in display order. Bare string = existing item's code to keep as is at this position; object with item = move that item here and change only the fields it gives; object without item = add a new item here. An existing item left out is proposed for removal.",
           items: { oneOf: variants },
         },
       },
-      ["items"],
+      ["codesVersion", "items"],
     ),
   };
 }

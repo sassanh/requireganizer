@@ -237,9 +237,10 @@ describe("generate apply", () => {
     const submit = tools.find(({ name }) => name === "submit_product_overview");
     assert.ok(submit != null);
     await submit.execute!("call-1", {
+      codesVersion: store.codesVersion,
       purpose: "Help people keep houseplants alive.",
-      primaryFeatures: ["Track watering schedules"],
-      targetUsers: ["Busy plant owners"],
+      primaryFeatures: [{ content: "Track watering schedules" }],
+      targetUsers: [{ content: "Busy plant owners" }],
     } as never);
     assert.equal(
       store.getStepStatus(WorkflowStage.ProductOverview),

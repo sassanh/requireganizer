@@ -37,99 +37,25 @@ describe("AI function-tool schemas", () => {
     assert.deepEqual(record(COMMUNICATE_TOOL.parameters).required, ["message"]);
   });
 
-  it("requires proposal-local keys and constrains preserved IDs", () => {
-    const definition = getArtifactStageDefinition(
-      StructuralFragment.AcceptanceCriteria,
-    );
+  it("names existing items by code and embeds no project ids", () => {
     const tool = buildArtifactListTool({
-      definition,
-      state: {
-        requirements: [
-          { id: "requirement-1", type: StructuralFragment.Requirement },
-        ],
-        userStories: [
-          { id: "story-1", type: StructuralFragment.UserStory },
-        ],
-        acceptanceCriteria: [
-          { id: "criterion-1", type: StructuralFragment.AcceptanceCriteria },
-        ],
-      },
+      definition: getArtifactStageDefinition(StructuralFragment.AcceptanceCriteria),
     });
 
     assert.equal(tool.name, "submit_acceptance_criteria_list");
     const [newItem, change] = artifactItemSchemas(tool);
     assert.ok((newItem!.required as unknown[]).includes("key"));
-    assert.equal("id" in record(newItem!.properties), false);
+    assert.equal("item" in record(newItem!.properties), false);
     // A change names its item and keeps every field it leaves out.
-    assert.deepEqual(change!.required, ["id"]);
+    assert.deepEqual(change!.required, ["item"]);
     const properties = record(change!.properties);
-    assert.deepEqual(record(properties.id).enum, ["criterion-1"]);
+    assert.equal(record(properties.item).enum, undefined);
 
     const references = record(properties.references);
-    const reference = record(references.items);
-    const referenceProperties = record(reference.properties);
-    assert.deepEqual(record(referenceProperties.id).enum, [
-      "story-1",
-      "requirement-1",
-    ]);
-  });
-
-  it("does not expose a persisted id field when the target list is empty", () => {
-    const tool = buildArtifactListTool({
-      definition: getArtifactStageDefinition(StructuralFragment.UserStory),
-      state: {
-        productOverview: {
-          primaryFeatures: [
-            { id: "feature-1", type: StructuralFragment.PrimaryFeature },
-          ],
-          targetUsers: [
-            { id: "user-1", type: StructuralFragment.TargetUser },
-          ],
-        },
-        userStories: [],
-      },
-    });
-
-    const variants = artifactItemSchemas(tool);
-    assert.equal(variants.length, 1);
-    const properties = record(variants[0]!.properties);
-    assert.equal("id" in properties, false);
-    assert.ok("key" in properties);
-  });
-
-  it("serializes stable schema fields before request-specific ID enums", () => {
-    const tool = buildArtifactListTool({
-      definition: getArtifactStageDefinition(
-        StructuralFragment.AcceptanceCriteria,
-      ),
-      state: {
-        requirements: [
-          { id: "requirement-dynamic", type: StructuralFragment.Requirement },
-        ],
-        userStories: [
-          { id: "story-dynamic", type: StructuralFragment.UserStory },
-        ],
-        acceptanceCriteria: [
-          {
-            id: "criterion-dynamic",
-            type: StructuralFragment.AcceptanceCriteria,
-          },
-        ],
-      },
-    });
-    const serialized = JSON.stringify(tool.parameters);
-
-    assert.ok(
-      serialized.indexOf('"required"') < serialized.indexOf('"properties"'),
-    );
-    assert.ok(
-      serialized.indexOf('"dependencies"') <
-        serialized.indexOf("story-dynamic"),
-    );
-    assert.ok(
-      serialized.indexOf("story-dynamic") <
-        serialized.indexOf("criterion-dynamic"),
-    );
+    assert.deepEqual(references.items, { type: "string", minLength: 1 });
+    assert.match(String(references.description), /\(US, REQ\)/);
+    // The only enum left is the priority, so the schema never goes stale as items change.
+    assert.equal(JSON.stringify(tool.parameters).match(/"enum"/g)?.length, 2);
   });
 
   it("puts the stage quality contract on submit tools", () => {
@@ -139,16 +65,7 @@ describe("AI function-tool schemas", () => {
     assert.ok(overview.description?.includes(formatQualityContract(overviewContract)));
 
     const definition = getArtifactStageDefinition(StructuralFragment.UserStory);
-    const stories = buildArtifactListTool({
-      definition,
-      state: {
-        productOverview: {
-          primaryFeatures: [{ id: "feature-1", type: StructuralFragment.PrimaryFeature }],
-          targetUsers: [{ id: "user-1", type: StructuralFragment.TargetUser }],
-        },
-        userStories: [],
-      },
-    });
+    const stories = buildArtifactListTool({ definition });
     const storyContract = qualityContractForStage(WorkflowStage.UserStories);
     assert.ok(storyContract != null);
     assert.ok(stories.description?.includes(formatQualityContract(storyContract)));

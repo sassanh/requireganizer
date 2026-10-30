@@ -371,9 +371,10 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
 
     switch (command.stage) {
       case WorkflowStage.ProductOverview: {
-        const state = JSON.parse(store.json(WorkflowStage.ProductOverview)) as Record<string, unknown>;
-        stageTools.push(agentTool(buildProductOverviewTool(state), async (args) => {
-          const proposal = parseProductOverviewProposal(args, state);
+        stageTools.push(agentTool(buildProductOverviewTool(), async (args) => {
+          // Codes resolve against the lists as they are when the submission arrives.
+          const state = JSON.parse(store.json(WorkflowStage.ProductOverview)) as Record<string, unknown>;
+          const proposal = parseProductOverviewProposal(args, { state, codesVersion: store.codesVersion });
           applyProductOverviewProposal(store, proposal);
           return "Product overview applied.";
         }));
@@ -391,13 +392,14 @@ export function buildResultTools(store: FlatStore, command: AiCommand): AgentToo
           throw new Error(`No artifact stage for ${command.stage}.`);
         }
         const definition = getArtifactStageDefinition(fragmentType);
-        const state = JSON.parse(store.json(definition.step)) as Record<string, unknown>;
         stageTools.push(agentTool(
-          buildArtifactListTool({ definition, state }),
+          buildArtifactListTool({ definition }),
           async (args) => {
+            const state = JSON.parse(store.json(definition.step)) as Record<string, unknown>;
             const proposal = parseArtifactListProposal(args, {
               expectedEntityType: fragmentType,
               state,
+              codesVersion: store.codesVersion,
             });
             applyArtifactListProposal(store, proposal);
             return `${definition.entityType} list applied.`;

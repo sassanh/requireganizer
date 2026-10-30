@@ -2,6 +2,7 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Type } from "@earendil-works/pi-ai";
 
 import { CANONICAL_WORKFLOW } from "ai-harness/workflow";
+import { codesMatch } from "lib/fragmentCodes";
 import { WORKFLOW_STAGE_LABELS, WorkflowStage } from "store/constants";
 import { reviewStatusOf } from "store/review";
 import type { FlatStore } from "store/store";
@@ -169,7 +170,7 @@ export function buildReadTools(
     name: "get_items",
     label: "Get items",
     description:
-      "List one stage's items compactly, in the order the page shows them: each with its code and id, status (approved, draft, outdated or removal-proposed), priority, text, references and dependencies by code, its open thread, and, when it changed since its last signature, sinceSigned with what the signed version had instead. Pass items, as codes or ids, to read only those. For stages of other artifacts, use get_stage_artifacts.",
+      "List one stage's items compactly, in the order the page shows them, with the codesVersion a submission naming them by code sends back: each with its code and id, status (approved, draft, outdated or removal-proposed), priority, text, references and dependencies by code, its open thread, and, when it changed since its last signature, sinceSigned with what the signed version had instead. Pass items, as codes or ids, to read only those. For stages of other artifacts, use get_stage_artifacts.",
     parameters: Type.Object({
       stage: Type.String({ description: "The workflow stage to read." }),
       items: Type.Optional(Type.Array(Type.String(), { description: "Codes or ids of the items to read; all of the stage's items when left out." })),
@@ -182,11 +183,11 @@ export function buildReadTools(
       const chosen = wanted == null
         ? all
         : wanted.map((name) => {
-          const item = all.find(({ id }) => id === name || store.getCode(id) === name);
+          const item = all.find(({ id }) => id === name || codesMatch(name, store.getCode(id) ?? ""));
           if (item == null) throw new Error(`${WORKFLOW_STAGE_LABELS[step]} has no item ${name}.`);
           return item;
         });
-      return textResult(JSON.stringify({ stage: step, items: chosen.map(({ id }) => itemView(store, id)) }));
+      return textResult(JSON.stringify({ stage: step, codesVersion: store.codesVersion, items: chosen.map(({ id }) => itemView(store, id)) }));
     },
   };
 

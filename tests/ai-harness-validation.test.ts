@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   parseArtifactListProposal,
   parseFragmentRevisionProposal,
+  parseProductOverviewProposal,
   parseTestCodeProposal,
   parseTestCodeRequest,
 } from "../app/ai-harness/validation";
@@ -40,15 +41,17 @@ const userStoryState = {
 const validStory = {
   key: "story-1",
   priority: "p0",
-  references: [{ id: "feat-1", type: "primary_feature" }],
+  references: ["FEA-01"],
   dependencies: [],
   content: "As a kid, I want big buttons, so that I can calculate.",
 };
 
+const CODES_VERSION = "codes-1";
+
 function parseStories(items: unknown) {
   return parseArtifactListProposal(
-    { items },
-    { expectedEntityType: StructuralFragment.UserStory, state: userStoryState },
+    { codesVersion: CODES_VERSION, items },
+    { expectedEntityType: StructuralFragment.UserStory, state: userStoryState, codesVersion: CODES_VERSION },
   );
 }
 
@@ -59,6 +62,7 @@ describe("artifact-list proposal parsing", () => {
     assert.equal(proposal.items.length, 1);
     assert.equal(proposal.items[0].key, "story-1");
     assert.equal(proposal.items[0].priority, "p0");
+    assert.deepEqual(proposal.items[0].references, [{ id: "feat-1", type: "primary_feature" }]);
   });
 
   it("does not reject writing quality in code", () => {
@@ -84,9 +88,22 @@ describe("artifact-list proposal parsing", () => {
   });
 
   it("rejects non-object results, missing items, and empty item lists", () => {
-    assert.match(parseError(() => parseArtifactListProposal(null, { expectedEntityType: StructuralFragment.UserStory, state: userStoryState })), /must be an object/);
+    assert.match(parseError(() => parseArtifactListProposal(null, { expectedEntityType: StructuralFragment.UserStory, state: userStoryState, codesVersion: CODES_VERSION })), /must be an object/);
     assert.match(parseError(() => parseStories("nope")), /must be an array/);
     assert.match(parseError(() => parseStories([])), /must not be empty/);
+  });
+
+  it("refuses codes read before the lists last changed", () => {
+    const parse = (value: Record<string, unknown>) =>
+      parseArtifactListProposal(value, { expectedEntityType: StructuralFragment.UserStory, state: userStoryState, codesVersion: CODES_VERSION });
+    assert.match(
+      parseError(() => parse({ items: [validStory] })),
+      /codesVersion must be the codesVersion of the get_items read/,
+    );
+    assert.match(
+      parseError(() => parse({ codesVersion: "codes-0", items: [validStory] })),
+      /^Codes may have moved since the get_items read with codesVersion codes-0: .* Read the items again with get_items/,
+    );
   });
 
   it("rejects items with unsupported fields or malformed keys", () => {
@@ -104,10 +121,14 @@ describe("artifact-list proposal parsing", () => {
     );
   });
 
-  it("rejects preserved ids outside the existing target set", () => {
+  it("rejects an entry naming no existing item of its stage", () => {
     assert.match(
-      parseError(() => parseStories([{ ...validStory, id: "ghost-story" }])),
-      /must identify an existing target item/,
+      parseError(() => parseStories([{ ...validStory, item: "US-09" }])),
+      /names US-09, which is no existing user_story/,
+    );
+    assert.match(
+      parseError(() => parseStories(["FEA-01"])),
+      /names FEA-01, which is no existing user_story/,
     );
   });
 
@@ -117,16 +138,16 @@ describe("artifact-list proposal parsing", () => {
       /references must not be empty/,
     );
     assert.match(
-      parseError(() => parseStories([{ ...validStory, references: [{ id: "feat-1", type: "primary_feature" }, { id: "feat-1", type: "primary_feature" }] }])),
-      /duplicate reference feat-1/,
+      parseError(() => parseStories([{ ...validStory, references: ["FEA-01", "feat-1"] }])),
+      /references FEA-01 twice/,
     );
     assert.match(
-      parseError(() => parseStories([{ ...validStory, references: [{ id: "ghost", type: "primary_feature" }] }])),
-      /does not identify an existing primary_feature/,
+      parseError(() => parseStories([{ ...validStory, references: ["FEA-07"] }])),
+      /references FEA-07, which matches no item/,
     );
     assert.match(
-      parseError(() => parseStories([{ ...validStory, references: [{ id: "feat-1", type: "user_story" }] }])),
-      /does not identify an existing user_story/,
+      parseError(() => parseStories([{ ...validStory, references: [{ id: "feat-1", type: "primary_feature" }] }])),
+      /references must hold codes/,
     );
     const stateWithRequirements = {
       ...userStoryState,
@@ -134,54 +155,66 @@ describe("artifact-list proposal parsing", () => {
     };
     assert.match(
       parseError(() => parseArtifactListProposal(
-        { items: [{ ...validStory, references: [{ id: "req-1", type: "requirement" }] }] },
-        { expectedEntityType: StructuralFragment.UserStory, state: stateWithRequirements },
+        { codesVersion: CODES_VERSION, items: [{ ...validStory, references: ["REQ-01"] }] },
+        { expectedEntityType: StructuralFragment.UserStory, state: stateWithRequirements, codesVersion: CODES_VERSION },
       )),
-      /outside this stage's allowed scope/,
+      /references REQ-01, outside this stage's allowed scope/,
     );
     assert.match(
-      parseError(() => parseStories([{ ...validStory, references: [{ id: "user-1", type: "target_user" }] }])),
-      /does not cover 1 required upstream artifact/,
+      parseError(() => parseStories([{ ...validStory, references: ["USR-01"] }])),
+      /does not cover FEA-01\./,
     );
   });
 
   it("validates dependency uniqueness, existence, self-reference, and cycles", () => {
-    const second = { ...validStory, key: "story-2", references: [{ id: "feat-1", type: "primary_feature" }] };
+    const second = { ...validStory, key: "story-2" };
     assert.match(
       parseError(() => parseStories([{ ...validStory, dependencies: ["story-2", "story-2"] }, second])),
-      /duplicate dependency story-2/,
+      /New item "story-1" depends on New item "story-2" twice/,
     );
     assert.match(
       parseError(() => parseStories([{ ...validStory, dependencies: ["ghost-key"] }, second])),
-      /depends on unknown proposal key ghost-key/,
+      /depends on ghost-key, which is no item of this result/,
     );
     assert.match(
       parseError(() => parseStories([{ ...validStory, dependencies: ["story-1"] }])),
-      /cannot depend on itself/,
+      /depends on itself/,
     );
     assert.match(
       parseError(() => parseStories([
         { ...validStory, key: "a", dependencies: ["b"] },
         { ...second, key: "b", dependencies: ["a"] },
       ])),
-      /must not contain cycles/,
+      /Dependencies form a cycle through/,
     );
   });
 
-  it("rejects duplicate preserved ids and duplicate proposal keys", () => {
+  it("rejects an item named twice and a key used twice", () => {
     const existing = {
       ...userStoryState,
-      userStories: [{ id: "story-existing" }],
+      userStories: [{ id: "story-existing", content: "As a kid, I want big buttons.", priority: "p1", references: [{ id: "feat-1", type: "primary_feature" }], dependencies: [] }],
     };
-    const item = { ...validStory, id: "story-existing" };
     assert.match(
-      parseError(() => parseArtifactListProposal({ items: [item, item] }, { expectedEntityType: StructuralFragment.UserStory, state: existing })),
-      /duplicate item ids/,
+      parseError(() => parseArtifactListProposal({ codesVersion: CODES_VERSION, items: ["US-01", { item: "story-existing" }] }, { expectedEntityType: StructuralFragment.UserStory, state: existing, codesVersion: CODES_VERSION })),
+      /names US-01 more than once/,
     );
     assert.match(
       parseError(() => parseStories([validStory, validStory])),
-      /duplicate proposal keys/,
+      /uses the key story-1 more than once/,
     );
+  });
+
+  it("reports every entry's problem at once, each by its code or key", () => {
+    const message = parseError(() => parseStories([
+      { ...validStory, references: ["FEA-07"] },
+      { ...validStory, key: "story-2", content: "" },
+      { ...validStory, key: "story-3", item: "US-04" },
+    ]));
+    assert.deepEqual(message.split("\n"), [
+      'New item "story-1" references FEA-07, which matches no item.',
+      'New item "story-2".content must be non-empty text.',
+      "Artifact result.items[2] names US-04, which is no existing user_story.",
+    ]);
   });
 
   describe("an entry that names an existing item", () => {
@@ -205,26 +238,67 @@ describe("artifact-list proposal parsing", () => {
       ],
     };
     const parse = (items: unknown[]) =>
-      parseArtifactListProposal({ items }, { expectedEntityType: StructuralFragment.UserStory, state: stories });
+      parseArtifactListProposal({ codesVersion: CODES_VERSION, items }, { expectedEntityType: StructuralFragment.UserStory, state: stories, codesVersion: CODES_VERSION });
 
     it("changes only the fields it gives and keeps the rest", () => {
       const [a, b] = parse([
-        "story-a",
-        { id: "story-b", content: "As a kid, I want to undo, so that I try freely." },
+        "US-01",
+        { item: "US-02", content: "As a kid, I want to undo, so that I try freely." },
       ]).items;
+      assert.equal(a!.id, "story-a");
+      assert.equal(b!.id, "story-b");
       assert.equal(b!.content, "As a kid, I want to undo, so that I try freely.");
       assert.equal(b!.priority, "p2");
       assert.deepEqual(b!.references, [{ id: "feat-1", type: "primary_feature" }]);
       assert.deepEqual(b!.dependencies, [a!.key]);
       // Links it gives replace the old ones, an empty list included.
-      assert.deepEqual(parse(["story-a", { id: "story-b", dependencies: [] }]).items[1]!.dependencies, []);
+      assert.deepEqual(parse(["US-01", { item: "US-02", dependencies: [] }]).items[1]!.dependencies, []);
     });
 
-    it("stays a dependency by its id whatever key its entry uses", () => {
-      const [a, b] = parse([{ id: "story-a", key: "renamed", content: "As a kid, I want huge buttons, so that I can calculate." }, "story-b"]).items;
+    it("is named by its code however padded, or by its id", () => {
+      const ids = (items: unknown[]) => parse(items).items.map(({ id }) => id);
+      assert.deepEqual(ids(["US-1", "story-b"]), ["story-a", "story-b"]);
+      assert.deepEqual(ids([{ item: "US-001" }, "US-02"]), ["story-a", "story-b"]);
+    });
+
+    it("stays a dependency by its code or id whatever key its entry uses", () => {
+      const [a, b, c] = parse([
+        { item: "US-01", key: "renamed", content: "As a kid, I want huge buttons, so that I can calculate." },
+        "US-02",
+        { ...validStory, key: "new-story", dependencies: ["US-01", "story-b"] },
+      ]).items;
       assert.equal(a!.key, "renamed");
       assert.deepEqual(b!.dependencies, ["renamed"]);
+      assert.deepEqual(c!.dependencies, ["renamed", "story-b"]);
     });
+  });
+});
+
+describe("product overview proposal parsing", () => {
+  const state = {
+    productOverview: {
+      primaryFeatures: [{ id: "feat-1" }, { id: "feat-2" }],
+      targetUsers: [{ id: "user-1" }],
+    },
+  };
+  const parse = (primaryFeatures: unknown[]) => parseProductOverviewProposal(
+    { codesVersion: CODES_VERSION, purpose: "Keep plants alive.", primaryFeatures, targetUsers: ["USR-01"] },
+    { state, codesVersion: CODES_VERSION },
+  );
+
+  it("names existing items by code, and adds an item given as an object", () => {
+    assert.deepEqual(parse(["FEA-02", { item: "FEA-1", content: "Track feeding" }, { content: "Track light" }]).primaryFeatures, [
+      "feat-2",
+      { id: "feat-1", content: "Track feeding" },
+      { content: "Track light" },
+    ]);
+    assert.match(parseError(() => parse(["Track light"])), /names Track light, which is no existing primary_feature/);
+  });
+
+  it("rejects an item named twice, however it is named", () => {
+    for (const entries of [["FEA-01", "FEA-02", "FEA-01"], ["FEA-01", { item: "FEA-01", content: "Track feeding" }], ["FEA-01", "feat-1"]]) {
+      assert.equal(parseError(() => parse(entries)), "Product overview.primaryFeatures names FEA-01 more than once.");
+    }
   });
 });
 

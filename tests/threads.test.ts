@@ -15,8 +15,8 @@ import { waitsForPerson } from "../app/store/threads";
 
 const OVERVIEW = {
   purpose: "Help people keep houseplants alive.",
-  primaryFeatures: ["Track watering schedules"],
-  targetUsers: ["Busy plant owners"],
+  primaryFeatures: [{ content: "Track watering schedules" }],
+  targetUsers: [{ content: "Busy plant owners" }],
 };
 
 const AGENT = { name: "Claude Code" };
@@ -24,7 +24,7 @@ const AGENT_AUTHOR = { kind: "agent" as const, name: AGENT.name };
 
 async function overviewStore(): Promise<Store> {
   const store = Store.create({ productOverview: {} });
-  await callAgentTool(store, "submit_product_overview", OVERVIEW, {}, AGENT);
+  await callAgentTool(store, "submit_product_overview", { ...OVERVIEW, codesVersion: store.codesVersion }, {}, AGENT);
   return store;
 }
 
@@ -142,7 +142,7 @@ describe("change request threads over MCP", () => {
     const text = await callAgentTool(
       store,
       "submit_product_overview",
-      { ...OVERVIEW, targetUsers: ["Busy plant owners who travel"], answers: [{ threadId, reply: "Named them." }] },
+      { codesVersion: store.codesVersion, ...OVERVIEW, targetUsers: [{ content: "Busy plant owners who travel" }], answers: [{ threadId, reply: "Named them." }] },
       {},
       AGENT,
     );

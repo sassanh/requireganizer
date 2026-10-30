@@ -892,6 +892,17 @@ export const FlatStore = types
   }))
   .views((self) => ({
     /**
+     * Changes whenever a code may come to name another item: when a list
+     * whose items submissions name by code gains, loses or reorders one.
+     */
+    get codesVersion(): string {
+      const { primaryFeatures, targetUsers } = self.productOverview;
+      return fingerprint(
+        [primaryFeatures, targetUsers, self.userStories, self.requirements, self.acceptanceCriteria]
+          .map((list) => list.map(({ id }) => id)),
+      ).slice(0, 12);
+    },
+    /**
      * Cross-module references resolve at display level only: a code
      * belongs to its module, so a miss falls through to the sibling
      * modules while every workflow decision stays on the active one.

@@ -20,9 +20,10 @@ describe("agent command run", () => {
       id: "call-1",
       name: "submit_product_overview",
       arguments: {
+        codesVersion: store.codesVersion,
         purpose: "Help people keep houseplants alive.",
-        primaryFeatures: ["Track watering schedules"],
-        targetUsers: ["Busy plant owners"],
+        primaryFeatures: [{ content: "Track watering schedules" }],
+        targetUsers: [{ content: "Busy plant owners" }],
       },
     };
 
@@ -203,9 +204,10 @@ describe("conversation history", () => {
             id: "call-1",
             name: "submit_product_overview",
             arguments: {
+              codesVersion: store.codesVersion,
               purpose: "Help people keep houseplants alive.",
-              primaryFeatures: ["Track watering schedules"],
-              targetUsers: ["Busy plant owners"],
+              primaryFeatures: [{ content: "Track watering schedules" }],
+              targetUsers: [{ content: "Busy plant owners" }],
             },
           },
         ]),
