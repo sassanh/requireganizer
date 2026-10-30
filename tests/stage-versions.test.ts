@@ -67,25 +67,22 @@ describe("workflow reads", () => {
     const store = storeWithChangedFeature();
     const state = await readTool(store, "get_workflow_state") as {
       frontier: string;
-      stages: { stage: string; outdatedItemIds: string[]; changedInputIds: string[] }[];
+      stages: { stage: string; outdatedItems: string[]; changedInputs: string[] }[];
     };
     assert.equal(state.frontier, WorkflowStage.UserStories);
     const stories = state.stages.find(({ stage }) => stage === WorkflowStage.UserStories)!;
-    assert.deepEqual(stories.outdatedItemIds, ["story-1"]);
-    assert.deepEqual(stories.changedInputIds, ["feat-1"]);
+    assert.deepEqual(stories.outdatedItems, ["US-01"]);
+    assert.deepEqual(stories.changedInputs, ["FEA-01"]);
   });
 
   it("names listed units by code and only counts the units of stages that cannot change yet", async () => {
     const store = storeWithChangedFeature();
-    const state = await readTool(store, "get_workflow_state") as { stages: Record<string, unknown>[] };
+    const state = await readTool(store, "get_workflow_state") as { codesVersion: string; stages: Record<string, unknown>[] };
     const stage = (step: WorkflowStage) => state.stages.find(({ stage: candidate }) => candidate === step)!;
-    assert.deepEqual(stage(WorkflowStage.UserStories).labels, {
-      "story-1": "US-01",
-      "coverage:feat-1": "coverage of FEA-01",
-      "feat-1": "FEA-01",
-    });
+    assert.equal(state.codesVersion, store.codesVersion);
+    assert.deepEqual(stage(WorkflowStage.UserStories).unapprovedUnits, ["coverage of FEA-01"]);
     const requirements = stage(WorkflowStage.Requirements);
-    assert.equal(requirements.unapprovedUnitIds, undefined);
+    assert.equal(requirements.unapprovedUnits, undefined);
     assert.equal(typeof requirements.unapprovedUnitCount, "number");
   });
 
@@ -144,12 +141,23 @@ describe("workflow reads", () => {
     const store = storeWithChangedFeature();
     const changes = await readTool(store, "get_input_changes", {
       stage: WorkflowStage.UserStories,
-    }) as { id: string; code: string; before: { content: string }; after: { content: string } }[];
+    }) as { input: string; before: { content: string }; after: { content: string } }[];
     assert.equal(changes.length, 1);
-    assert.equal(changes[0]!.id, "feat-1");
-    assert.equal(changes[0]!.code, "FEA-01");
+    assert.equal(changes[0]!.input, "FEA-01");
     assert.equal(changes[0]!.before.content, "Track watering");
     assert.equal(changes[0]!.after.content, "Track watering and feeding");
+  });
+
+  it("names a removed input by the start of the text it had", async () => {
+    const store = storeWithChangedFeature();
+    applyProductOverviewProposal(store, {
+      purpose: "Help people keep houseplants alive.",
+      primaryFeatures: [{ content: "Track light" }],
+      targetUsers: ["user-1"],
+    });
+    store.approve("feat-1");
+    const changes = await readTool(store, "get_input_changes", { stage: WorkflowStage.UserStories }) as { input: string }[];
+    assert.ok(changes.some(({ input }) => input === "a removed item: Track watering"), JSON.stringify(changes));
   });
 
   it("rejects an unknown stage", async () => {

@@ -3,10 +3,12 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { UserFacingError } from "lib/errors";
 import { isRecord } from "lib/json";
 import type { Store } from "store";
+import { OVERVIEW_PURPOSE_QUALITY_ID } from "store/constants";
+import type { ListChange } from "store/listChange";
 import type { ThreadAnswer } from "store/threads";
 
 import { workflowStageOf } from "./command";
-import { buildReadTools, reviewerRejections } from "./read-tools";
+import { buildReadTools, excerpt, reviewerRejections } from "./read-tools";
 import { buildStageSubmissionTools } from "./result-tools";
 import { reviewerModel } from "./settings";
 
@@ -25,6 +27,26 @@ function describe(tool: AgentTool): AgentToolDescription {
     // The schema builders tag their output with symbols; only the JSON is the schema.
     inputSchema: JSON.parse(JSON.stringify(tool.parameters)) as Record<string, unknown>,
   };
+}
+
+/**
+ * What one submission did to its list, each item by code and the start of
+ * its text. `change.dropped` holds every item awaiting removal, so the ones
+ * that awaited it before this submission are not its doing; one it lists
+ * again has its removal withdrawn.
+ */
+function listChangeLines(store: Store, change: ListChange, pendingBefore: ReadonlySet<string>): string[] {
+  const named = (id: string) => {
+    const text = store.structuralFragmentsCache[id]?.content ?? (id === OVERVIEW_PURPOSE_QUALITY_ID ? store.productOverview.purpose : "");
+    return `- ${store.unitLabel(id)}: ${excerpt(text)}`;
+  };
+  const section = (heading: string, ids: string[]) => (ids.length === 0 ? [] : [heading, ...ids.map(named)]);
+  return [
+    ...section("Added:", change.added),
+    ...section("Changed:", change.changed),
+    ...section("Proposed for removal:", change.dropped.map(({ id }) => id).filter((id) => !pendingBefore.has(id))),
+    ...section("Removal withdrawn:", [...pendingBefore].filter((id) => store.reviewUnit(id)?.pendingRemoval === false)),
+  ];
 }
 
 function resultText(result: Awaited<ReturnType<AgentTool["execute"]>>): string {
@@ -168,6 +190,10 @@ export async function callAgentTool(
   }
   const { answers: answersArgument, ...proposal } = args;
   const answers = parseAnswers(answersArgument);
+  const listChangeBefore = store.stageListChange(workflowStageOf(submission.stage));
+  const pendingBefore = new Set(store.stageUnits(workflowStageOf(submission.stage))
+    .filter(({ pendingRemoval }) => pendingRemoval).map(({ id }) => id));
+  const codesVersionBefore = store.codesVersion;
   const outcome = await store.submitAgentProposal(submission.stage, name, proposal, answers, caller.name);
   switch (outcome.status) {
     case "busy":
@@ -188,11 +214,17 @@ export async function callAgentTool(
           ? [`Replied to ${answers.length === 1 ? "one thread" : `${answers.length} threads`}; the person reads the replies and resolves the threads.`]
           : []),
       ];
+      // Only a submission of listed items records a list change; another stage keeps the one before.
+      const listChange = store.stageListChange(step);
+      if (listChange != null && listChange !== listChangeBefore) lines.push(...listChangeLines(store, listChange, pendingBefore));
+      if (store.codesVersion !== codesVersionBefore) {
+        lines.push(`Codes may have moved (codesVersion ${store.codesVersion}): read get_items again before naming items.`);
+      }
       const rejections = reviewerRejections(store, step);
       if (rejections.length > 0) {
         lines.push(
           `The reviewer model rejected ${items(rejections.length)}. Fix what it names and submit the stage again, or leave it to the person, who can overrule it:`,
-          ...rejections.map(({ unitId, reason }) => `- ${unitId}: ${reason}`),
+          ...rejections.map(({ unit, reason }) => `- ${unit}: ${reason}`),
         );
       }
       // The review runs within the submission, so what it left without a verdict it could not review.

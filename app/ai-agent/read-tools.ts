@@ -3,7 +3,8 @@ import { Type } from "@earendil-works/pi-ai";
 
 import { CANONICAL_WORKFLOW } from "ai-harness/workflow";
 import { codesMatch } from "lib/fragmentCodes";
-import { WORKFLOW_STAGE_LABELS, WorkflowStage } from "store/constants";
+import { isRecord } from "lib/json";
+import { WorkflowStage } from "store/constants";
 import { reviewStatusOf } from "store/review";
 import type { FlatStore } from "store/store";
 import { authorLabel, type ReviewThread, waitingFor } from "store/threads";
@@ -12,12 +13,12 @@ function textResult(text: string): { content: [{ type: "text"; text: string }]; 
   return { content: [{ type: "text", text }], details: {} };
 }
 
-/** The reviewer model's rejections standing on a stage's unapproved items, each with its reason. */
-export function reviewerRejections(store: FlatStore, step: WorkflowStage): { unitId: string; reason: string }[] {
+/** The reviewer model's rejections standing on a stage's unapproved units, each named as the page does, with its reason. */
+export function reviewerRejections(store: FlatStore, step: WorkflowStage): { unit: string; reason: string }[] {
   return store.stageUnits(step).flatMap((unit) => {
     if (unit.approved || unit.outdated) return [];
     const verdict = store.currentVerdictOf(unit.id);
-    return verdict?.verdict === "reject" ? [{ unitId: unit.id, reason: verdict.reason }] : [];
+    return verdict?.verdict === "reject" ? [{ unit: store.unitLabel(unit.id), reason: verdict.reason }] : [];
   });
 }
 
@@ -80,10 +81,26 @@ function itemView(store: FlatStore, id: string): Record<string, unknown> {
   };
 }
 
+/** The start of an item's text, enough to tell which item a code names. */
+export function excerpt(text: string): string {
+  const line = text.trim().split("\n")[0]!;
+  return line.length > 80 ? `${line.slice(0, 80)}…` : line;
+}
+
+/**
+ * How an agent reads a changed input: by its code, or, once removed and
+ * without one, by the start of the text it had.
+ */
+function inputNameOf(store: FlatStore, change: { id: string; code: string | null; before: unknown; after: unknown }): string {
+  if (change.code != null) return change.code;
+  if (change.after != null) return store.unitLabel(change.id);
+  const text = isRecord(change.before) && typeof change.before.content === "string" ? change.before.content : "";
+  return `a removed item: ${excerpt(text)}`;
+}
+
 function threadView(store: FlatStore, thread: ReviewThread): Record<string, unknown> {
   return {
     threadId: thread.id,
-    unitId: thread.unitId,
     unit: store.unitLabel(thread.unitId),
     waitingFor: waitingFor(thread, store.threadAnswerer),
     messages: thread.messages.map(({ author, text, withSubmission }) => ({
@@ -112,14 +129,16 @@ export function buildReadTools(
     }
     return step;
   };
+  const inputName = (change: { id: string; code: string | null; before: unknown; after: unknown }) => inputNameOf(store, change);
 
   const workflowState: AgentTool = {
     name: "get_workflow_state",
     label: "Get workflow state",
     description:
-      `${moduleName == null ? "" : "Get the module the person has open in Requireganizer, which every tool reads and submits to, and its workflow state. "}Get the frontier (the first stage that is not complete; only it and earlier stages can change) and each stage's status: pending, completed, outdated, needs-approval, waiting (holds work, read-only until the frontier reaches it), or locked. Each stage up to the frontier lists its outdated items, which must be regenerated, its unapproved review units, and the reviewer model's rejections of them; a later stage gives only how many of each it holds. labels names each listed unit as the page does, such as US-07 or coverage of US-03. Inputs that changed since the stage acknowledged them are listed by id; read them with get_input_changes. Each stage lists its open threads: the person's change requests on its units, with every reply; changeRequestsAnsweredBy names who answers them.`,
+      `${moduleName == null ? "" : "Get the module the person has open in Requireganizer, which every tool reads and submits to, and its workflow state. "}Get the frontier (the first stage that is not complete; only it and earlier stages can change) and each stage's status: pending, completed, outdated, needs-approval, waiting (holds work, read-only until the frontier reaches it), or locked. Each stage up to the frontier lists its outdated items, which must be regenerated, its unapproved review units, the reviewer model's rejections of them, and its changed inputs, read in full with get_input_changes; a later stage gives only how many of each it holds. Units are named as the page does, such as US-07 or coverage of US-03, by the codes of codesVersion. Each stage lists its open threads: the person's change requests on its units, with every reply; changeRequestsAnsweredBy names who answers them.`,
     parameters: Type.Object({}),
     execute: async () => {
+      const label = (id: string) => store.unitLabel(id);
       const stages = validStages.map((step) => {
         const units = store.stageUnits(step);
         const outdated = units.filter(({ outdated }) => outdated).map(({ id }) => id);
@@ -127,7 +146,7 @@ export function buildReadTools(
         const openThreads = store.openThreads(step).map((thread) => threadView(store, thread));
         const summary = {
           stage: step,
-          label: WORKFLOW_STAGE_LABELS[step],
+          label: store.stageLabel(step),
           status: store.getStepStatus(step),
           hasArtifacts: store.hasStepArtifacts(step),
         };
@@ -140,25 +159,22 @@ export function buildReadTools(
             ...(openThreads.length === 0 ? {} : { openThreads }),
           };
         }
-        const rejections = reviewerRejections(store, step);
-        const changedInputIds = store.changedInputIds(step);
-        const listed = [...outdated, ...unapproved, ...rejections.map(({ unitId }) => unitId), ...changedInputIds];
         return {
           ...summary,
-          outdatedItemIds: outdated,
-          unapprovedUnitIds: unapproved,
-          reviewerRejections: rejections,
-          changedInputIds,
+          outdatedItems: outdated.map(label),
+          unapprovedUnits: unapproved.map(label),
+          reviewerRejections: reviewerRejections(store, step),
+          changedInputs: store.inputChanges(step).map(inputName),
           mechanicalIssues: store.mechanicalIssuesForStage(step).map(({ itemId, message }) => ({
-            itemId,
+            ...(itemId == null ? {} : { item: label(itemId) }),
             message,
           })),
           openThreads,
-          labels: Object.fromEntries(listed.map((id) => [id, store.unitLabel(id)])),
         };
       });
       return textResult(JSON.stringify({
         ...(moduleName == null ? {} : { module: moduleName }),
+        codesVersion: store.codesVersion,
         frontier: store.frontier,
         changeRequestsAnsweredBy: store.threadAnswerer,
         stages,
@@ -179,12 +195,12 @@ export function buildReadTools(
       const { stage, items: wanted } = params as { stage: string; items?: string[] };
       const step = stageNamed(stage);
       const all = stageItems(store, step);
-      if (all == null) throw new Error(`${WORKFLOW_STAGE_LABELS[step]} holds no list of items; read it with get_stage_artifacts.`);
+      if (all == null) throw new Error(`${store.stageLabel(step)} holds no list of items; read it with get_stage_artifacts.`);
       const chosen = wanted == null
         ? all
         : wanted.map((name) => {
           const item = all.find(({ id }) => id === name || codesMatch(name, store.getCode(id) ?? ""));
-          if (item == null) throw new Error(`${WORKFLOW_STAGE_LABELS[step]} has no item ${name}.`);
+          if (item == null) throw new Error(`${store.stageLabel(step)} has no item ${name}.`);
           return item;
         });
       return textResult(JSON.stringify({ stage: step, codesVersion: store.codesVersion, items: chosen.map(({ id }) => itemView(store, id)) }));
@@ -232,13 +248,17 @@ export function buildReadTools(
     name: "get_input_changes",
     label: "Get input changes",
     description:
-      "Get every input of one stage that changed since the stage acknowledged its inputs: each entry has the input's id and its content before and after (null when it did not exist).",
+      "Get every input of one stage that changed since the stage acknowledged its inputs: each entry names the input as the page does and gives its content before and after (null when it did not exist).",
     parameters: Type.Object({
       stage: Type.String({ description: "The workflow stage whose changed inputs to read." }),
     }),
     execute: async (_toolCallId, params) => {
       const { stage } = params as { stage: string };
-      return textResult(JSON.stringify(store.inputChanges(stageNamed(stage))));
+      return textResult(JSON.stringify(store.inputChanges(stageNamed(stage)).map((change) => ({
+        input: inputName(change),
+        before: change.before,
+        after: change.after,
+      }))));
     },
   };
 

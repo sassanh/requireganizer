@@ -136,13 +136,13 @@ describe("change request threads over MCP", () => {
     assert.equal(state.changeRequestsAnsweredBy, "coding-agent");
     const overview = state.stages.find(({ stage }) => stage === WorkflowStage.ProductOverview)!;
     assert.deepEqual(overview.openThreads, [
-      { threadId, unitId: targetUserId(store), unit: "USR-01", waitingFor: "coding-agent", messages: [{ from: "person", text: "Say who they are." }] },
+      { threadId, unit: "USR-01", waitingFor: "coding-agent", messages: [{ from: "person", text: "Say who they are." }] },
     ] as never);
 
     const text = await callAgentTool(
       store,
       "submit_product_overview",
-      { codesVersion: store.codesVersion, ...OVERVIEW, targetUsers: [{ content: "Busy plant owners who travel" }], answers: [{ threadId, reply: "Named them." }] },
+      { codesVersion: store.codesVersion, purpose: OVERVIEW.purpose, primaryFeatures: ["FEA-01"], targetUsers: [{ item: "USR-01", content: "Busy plant owners who travel" }], answers: [{ threadId, reply: "Named them." }] },
       {},
       AGENT,
     );

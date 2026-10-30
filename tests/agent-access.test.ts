@@ -139,6 +139,40 @@ describe("outside agent tools", () => {
     assert.deepEqual(feeding.dependencies, ["story-1"]);
   });
 
+  it("says what a submission added, changed and proposed for removal, by code, and when codes moved", async () => {
+    const store = await storeWithStories();
+    const added = await callAgentTool(store, "submit_user_story_list", {
+      codesVersion: store.codesVersion,
+      items: [
+        { key: "first", content: "As a plant owner, I want a plant list.", priority: Priority.P1, references: ["FEA-01"], dependencies: [] },
+        { item: "US-01", content: "As a plant owner, I want watering reminders on my phone." },
+      ],
+    });
+    assert.match(added, /\nAdded:\n- US-01: As a plant owner, I want a plant list\.\nChanged:\n- US-02: As a plant owner, I want watering reminders on my phone\.\nCodes may have moved \(codesVersion \w+\): read get_items again before naming items\./);
+
+    const removed = await callAgentTool(store, "submit_user_story_list", {
+      codesVersion: store.codesVersion,
+      items: ["US-02"],
+      remove: ["US-01"],
+    });
+    assert.match(removed, /\nProposed for removal:\n- US-01: As a plant owner, I want a plant list\.$/);
+    assert.doesNotMatch(removed, /Added:|Changed:|Codes may have moved/);
+
+    // A removal proposed earlier is not this submission's doing.
+    const later = await callAgentTool(store, "submit_user_story_list", {
+      codesVersion: store.codesVersion,
+      items: [{ item: "US-02", content: "As a plant owner, I want watering reminders by text." }],
+    });
+    assert.match(later, /\nChanged:\n- US-02: As a plant owner, I want watering reminders by text\.$/);
+    assert.doesNotMatch(later, /removal/);
+
+    const withdrawn = await callAgentTool(store, "submit_user_story_list", {
+      codesVersion: store.codesVersion,
+      items: ["US-01", "US-02"],
+    });
+    assert.match(withdrawn, /\nRemoval withdrawn:\n- US-01: As a plant owner, I want a plant list\.$/);
+  });
+
   it("refuses a submission whose codes were read before the lists changed, and changes nothing", async () => {
     const store = await storeWithStories();
     const read = JSON.parse(await callAgentTool(store, "get_items", { stage: "user-stories" })) as { codesVersion: string };
@@ -191,13 +225,14 @@ describe("outside agent tools", () => {
 
   it("applies a submission that reopens an earlier stage for the person to approve", async () => {
     const store = await storeWithStories();
-    const revised = { ...OVERVIEW, purpose: "Help people keep every houseplant alive." };
+    const kept = { primaryFeatures: ["FEA-01"], targetUsers: ["USR-01"] };
+    const revised = { ...kept, purpose: "Help people keep every houseplant alive." };
     const text = await callAgentTool(store, "submit_product_overview", { ...revised, codesVersion: store.codesVersion });
     assert.match(text, /^Applied to Product Overview\. The person approves it/);
     assert.equal(store.productOverview.purpose, revised.purpose);
     assert.equal(store.frontier, WorkflowStage.ProductOverview);
     // The next submission is not held up by the first.
-    await callAgentTool(store, "submit_product_overview", { ...OVERVIEW, codesVersion: store.codesVersion });
+    await callAgentTool(store, "submit_product_overview", { ...kept, purpose: OVERVIEW.purpose, codesVersion: store.codesVersion });
     assert.equal(store.productOverview.purpose, OVERVIEW.purpose);
   });
 });

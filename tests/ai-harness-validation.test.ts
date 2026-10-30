@@ -204,6 +204,26 @@ describe("artifact-list proposal parsing", () => {
     );
   });
 
+  it("takes an item out only when remove names it, and refuses a remove that disagrees with the list", () => {
+    const story = (id: string, extra: Record<string, unknown> = {}) => ({
+      id, content: "As a kid, I want big buttons.", priority: "p1", references: [{ id: "feat-1", type: "primary_feature" }], dependencies: [], ...extra,
+    });
+    const state = { ...userStoryState, userStories: [story("story-a"), story("story-b"), story("story-c", { pendingRemoval: true })] };
+    const parse = (value: Record<string, unknown>) => parseArtifactListProposal(
+      { codesVersion: CODES_VERSION, ...value },
+      { expectedEntityType: StructuralFragment.UserStory, state, codesVersion: CODES_VERSION },
+    );
+    assert.deepEqual(parse({ items: ["US-01"], remove: ["US-2"] }).items.map(({ id }) => id), ["story-a"]);
+    // An item already proposed for removal stays so, named in remove or not.
+    assert.deepEqual(parse({ items: ["US-01", "US-02"] }).items.map(({ id }) => id), ["story-a", "story-b"]);
+    assert.deepEqual(parseError(() => parse({ items: ["US-01", "US-03"], remove: ["US-01", "US-09", "FEA-01"] })).split("\n"), [
+      "US-01 is both listed and in remove.",
+      "Artifact result.remove names US-09, which is no existing user_story.",
+      "Artifact result.remove names FEA-01, which is no existing user_story.",
+      "US-02 is left out but not in remove: list it to keep it, or name it in remove to propose its removal.",
+    ]);
+  });
+
   it("reports every entry's problem at once, each by its code or key", () => {
     const message = parseError(() => parseStories([
       { ...validStory, references: ["FEA-07"] },
@@ -295,8 +315,27 @@ describe("product overview proposal parsing", () => {
     assert.match(parseError(() => parse(["Track light"])), /names Track light, which is no existing primary_feature/);
   });
 
+  it("takes a feature or target user out only when remove names it", () => {
+    const parseWith = (remove: string[] | undefined) => parseProductOverviewProposal(
+      { codesVersion: CODES_VERSION, purpose: "Keep plants alive.", primaryFeatures: ["FEA-01"], targetUsers: [{ content: "Gardeners" }], ...(remove == null ? {} : { remove }) },
+      { state, codesVersion: CODES_VERSION },
+    );
+    assert.deepEqual(parseWith(["FEA-02", "USR-01"]).primaryFeatures, ["feat-1"]);
+    assert.deepEqual(parseError(() => parseWith(undefined)).split("\n"), [
+      "FEA-02 is left out but not in remove: list it to keep it, or name it in remove to propose its removal.",
+      "USR-01 is left out but not in remove: list it to keep it, or name it in remove to propose its removal.",
+    ]);
+  });
+
+  it("reports no removal for an item whose entry failed", () => {
+    assert.equal(
+      parseError(() => parse([{ item: "FEA-99", content: "Track feeding" }, "FEA-02"])),
+      "Product overview.primaryFeatures[0] names FEA-99, which is no existing primary_feature.",
+    );
+  });
+
   it("rejects an item named twice, however it is named", () => {
-    for (const entries of [["FEA-01", "FEA-02", "FEA-01"], ["FEA-01", { item: "FEA-01", content: "Track feeding" }], ["FEA-01", "feat-1"]]) {
+    for (const entries of [["FEA-01", "FEA-02", "FEA-01"], ["FEA-01", { item: "FEA-01", content: "Track feeding" }, "FEA-02"], ["FEA-01", "feat-1", "FEA-02"]]) {
       assert.equal(parseError(() => parse(entries)), "Product overview.primaryFeatures names FEA-01 more than once.");
     }
   });

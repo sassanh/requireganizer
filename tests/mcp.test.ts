@@ -223,14 +223,14 @@ describe("MCP server", () => {
       assert.ok(progressReports > 0);
       assert.match(
         textOf(submitted),
-        /^Applied to Product Overview\..*\nThe reviewer model rejected one item\..*\n- productOverview\/purpose: Name who is helped\.$/s,
+        /^Applied to Product Overview\..*\nThe reviewer model rejected one item\..*\n- the purpose: Name who is helped\.$/s,
       );
       const state = JSON.parse(textOf(await client.callTool({ name: "get_workflow_state", arguments: {} }))) as {
-        stages: { stage: string; reviewerRejections: { unitId: string; reason: string }[] }[];
+        stages: { stage: string; reviewerRejections: { unit: string; reason: string }[] }[];
       };
       assert.deepEqual(
         state.stages.find(({ stage }) => stage === "product-overview")?.reviewerRejections,
-        [{ unitId: "productOverview/purpose", reason: "Name who is helped." }],
+        [{ unit: "the purpose", reason: "Name who is helped." }],
       );
 
       // A review that fails is no pass.
@@ -247,6 +247,7 @@ describe("MCP server", () => {
           purpose: "Help busy plant owners keep their houseplants alive.",
           primaryFeatures: [{ content: "Track watering schedules" }],
           targetUsers: [{ content: "Busy plant owners" }],
+          remove: ["FEA-01", "USR-01"],
         },
       });
       assert.match(textOf(resubmitted), /\nThe reviewer model could not review 3 items\. Tell the person/);

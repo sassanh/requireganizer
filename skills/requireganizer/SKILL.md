@@ -23,24 +23,11 @@ The person approves every item in Requireganizer's page; no tool approves.
 
 ## Read before you act
 
-- Call `get_workflow_state` first, and again after anything changes. It gives
-  the frontier and each stage's status:
-  - The frontier is the first stage that is not complete. Only the frontier
-    and the stages before it can change.
-  - Each stage lists its outdated items, its items awaiting approval, and its
-    changed inputs.
-  - In a project with modules, it names the module the person has open in
-    Requireganizer. Every tool works on that module. To work on another, ask
-    the person to open it.
-- Read a stage's items with `get_items`: each item's code, status, text,
-  links by code, open thread, and what its last signature covered where that
-  differs. Read it again before changing or citing anything, rather than
-  relying on an earlier read.
-- `get_stage_artifacts` returns everything every stage up to the one you
-  name holds, such as a boundary design. A unit's `signature` records its
-  last approval, not whether it still holds.
-- `get_input_changes` shows how a stage's inputs changed since that stage last
-  took them in.
+- Call `get_workflow_state` first, and again after anything changes.
+- To work on a module other than the one the person has open, ask the person
+  to open it.
+- Read items with `get_items` again before changing or citing them, rather
+  than relying on an earlier read: codes are positions and move.
 
 ## When implementing code
 
@@ -51,15 +38,10 @@ The person approves every item in Requireganizer's page; no tool approves.
 
 ## When writing a stage
 
-- Submit with the stage's `submit_*` tool. Each submission is the complete
-  proposal for that stage, not a patch. It names existing items by the
-  codes `get_items` shows. An entry that names an existing item gives only
-  the fields that change; the rest stay as they are. The tool description
-  states the stage's quality contract.
-- A rejected submission comes back with every reason at once, such as an
-  unknown code, missing coverage or an empty field, each naming its item. Fix
-  exactly those and submit again. Never weaken the proposal to get past a
-  check.
+- Check what an applied submission reports it added, changed and proposed for
+  removal against what you meant to do, before telling the person.
+- Fix exactly what a rejected submission names and submit again. Never weaken
+  the proposal to get past a check.
 - An applied submission comes back with what the reviewer model rejected and
   why. Fix it and submit the stage again, or tell the person why you disagree:
   they can overrule the reviewer.
@@ -74,10 +56,8 @@ The person approves every item in Requireganizer's page; no tool approves.
 
 ## Change requests from the person
 
-- `get_workflow_state` lists each stage's open threads, the person's change
-  requests on its items, and `changeRequestsAnsweredBy`. `get_thread` reads
-  one thread with its item.
-- When it is `coding-agent`, answer the threads waiting for you. To change an
+- When `get_workflow_state` gives `changeRequestsAnsweredBy` as
+  `coding-agent`, answer the threads waiting for you. To change an
   item, submit its stage and name the thread in the submission's `answers`,
   with a reply saying what changed. To ask or to disagree, use
   `reply_to_thread`. Only the person resolves a thread.

@@ -74,6 +74,13 @@ const CODES_VERSION_PROPERTY = nonEmptyString(
   "The codesVersion of the get_items read whose codes this submission uses. Codes taken from several reads must all come from reads with this same codesVersion. Read again after any change, your own submissions included.",
 );
 
+const REMOVE_PROPERTY = {
+  type: "array",
+  description:
+    "Codes of every existing item this submission leaves out, each proposed for removal. A submission that leaves out an item it does not name here, or names a listed item, is refused. An item already proposed for removal may be left out without being named.",
+  items: { type: "string", minLength: 1 },
+};
+
 export function buildProductOverviewTool(): HarnessToolDefinition {
   const overviewEntry = (label: string) => ({
     oneOf: [
@@ -108,16 +115,17 @@ export function buildProductOverviewTool(): HarnessToolDefinition {
           type: "array",
           minItems: 1,
           description:
-            "Complete desired primary-feature list in display order; a feature left out is proposed for removal.",
+            "Complete desired primary-feature list in display order; a feature left out must be named in remove.",
           items: overviewEntry("primary feature"),
         },
         targetUsers: {
           type: "array",
           minItems: 1,
           description:
-            "Complete desired target-user list in display order; a target user left out is proposed for removal.",
+            "Complete desired target-user list in display order; a target user left out must be named in remove.",
           items: overviewEntry("target user"),
         },
+        remove: REMOVE_PROPERTY,
       },
       ["codesVersion", "purpose", "primaryFeatures", "targetUsers"],
     ),
@@ -188,9 +196,10 @@ export function buildArtifactListTool({
           type: "array",
           minItems: 1,
           description:
-            "The complete desired target list, in display order. Bare string = existing item's code to keep as is at this position; object with item = move that item here and change only the fields it gives; object without item = add a new item here. An existing item left out is proposed for removal.",
+            "The complete desired target list, in display order. Bare string = existing item's code to keep as is at this position; object with item = move that item here and change only the fields it gives; object without item = add a new item here. An existing item left out must be named in remove.",
           items: { oneOf: variants },
         },
+        remove: REMOVE_PROPERTY,
       },
       ["codesVersion", "items"],
     ),

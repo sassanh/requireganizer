@@ -213,6 +213,46 @@ function reportRepeatedItems(
   });
 }
 
+/**
+ * Leaving an item out proposes its removal, so a forgotten or mistyped code
+ * would remove the wrong item. A submission names every item it leaves out in
+ * `remove`, and each must agree with the list. An item already proposed for
+ * removal stays so whether or not `remove` names it.
+ */
+function reportUndeclaredRemovals(
+  value: Record<string, unknown>,
+  existing: readonly unknown[],
+  listedIds: ReadonlySet<string>,
+  types: readonly StructuralFragment[],
+  artifacts: Map<string, ArtifactIdentity>,
+  label: string,
+  problems: ReturnType<typeof collectingProblems>,
+): void {
+  const raw = value.remove === undefined ? [] : problems.attempt(() => requiredArray(value, "remove", label)) ?? [];
+  const declared = new Set<string>();
+  raw.forEach((name) => {
+    if (typeof name !== "string" || name.trim().length === 0) {
+      problems.report(`${label}.remove must hold codes.`);
+      return;
+    }
+    const identity = identityNamed(name, artifacts);
+    if (identity == null || !types.includes(identity.type)) {
+      problems.report(`${label}.remove names ${name}, which is no existing ${types.join(" or ")}.`);
+    } else if (listedIds.has(identity.id)) {
+      problems.report(`${identity.code} is both listed and in remove.`);
+    } else {
+      declared.add(identity.id);
+    }
+  });
+  existing.forEach((item) => {
+    if (!isRecord(item) || typeof item.id !== "string" || item.pendingRemoval === true) return;
+    if (listedIds.has(item.id) || declared.has(item.id)) return;
+    problems.report(
+      `${artifacts.get(item.id)?.code ?? item.id} is left out but not in remove: list it to keep it, or name it in remove to propose its removal.`,
+    );
+  });
+}
+
 /** The item a submission names, by its code however padded, or by its id. */
 function identityNamed(
   name: string,
@@ -251,7 +291,7 @@ export function parseProductOverviewProposal(
   }
   assertAllowedKeys(
     value,
-    ["codesVersion", "purpose", "primaryFeatures", "targetUsers"],
+    ["codesVersion", "purpose", "primaryFeatures", "targetUsers", "remove"],
     "Product overview",
   );
   assertCurrentCodes(value, codesVersion, "Product overview");
@@ -295,6 +335,19 @@ export function parseProductOverviewProposal(
   const purpose = problems.attempt(() => requiredString(value, "purpose", "Product overview"));
   const primaryFeatures = parseList("primaryFeatures", StructuralFragment.PrimaryFeature);
   const targetUsers = parseList("targetUsers", StructuralFragment.TargetUser);
+  // A failed entry leaves its item out of the lists, which is no removal.
+  problems.throwIfAny();
+  const overview = isRecord(state.productOverview) ? state.productOverview : {};
+  reportUndeclaredRemovals(
+    value,
+    [overview.primaryFeatures, overview.targetUsers].flatMap((list) => (Array.isArray(list) ? list : [])),
+    new Set([...primaryFeatures, ...targetUsers].flatMap((entry) =>
+      typeof entry === "string" ? [entry] : entry.id === undefined ? [] : [entry.id])),
+    [StructuralFragment.PrimaryFeature, StructuralFragment.TargetUser],
+    artifacts,
+    "Product overview",
+    problems,
+  );
   problems.throwIfAny();
   return { purpose: purpose!, primaryFeatures, targetUsers };
 }
@@ -524,7 +577,7 @@ export function parseArtifactListProposal(
   if (!isRecord(value)) {
     throw new InvalidJsonError("Artifact-list result must be an object.");
   }
-  assertAllowedKeys(value, ["codesVersion", "items"], "Artifact result");
+  assertAllowedKeys(value, ["codesVersion", "items", "remove"], "Artifact result");
   assertCurrentCodes(value, codesVersion, "Artifact result");
   const entityType = expectedEntityType;
   const definition = getArtifactStageDefinition(entityType);
@@ -602,6 +655,15 @@ export function parseArtifactListProposal(
   new Set(keys.filter((key, index) => keys.indexOf(key) !== index)).forEach((key) => {
     problems.report(`Artifact result uses the key ${key} more than once.`);
   });
+  reportUndeclaredRemovals(
+    value,
+    existingList,
+    new Set(items.flatMap(({ id }) => (id === undefined ? [] : [id]))),
+    [entityType],
+    artifacts,
+    "Artifact result",
+    problems,
+  );
   problems.throwIfAny();
   reportInvalidDependencies(items, labelOf, problems.report);
   reportMissingCoverage(items, artifacts, definition, problems.report);
