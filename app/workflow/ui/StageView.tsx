@@ -20,7 +20,7 @@ import { observer } from "mobx-react-lite";
 import { type KeyboardEvent, useCallback, useRef, useState } from "react";
 
 import type { CoverageState, ImpactState, ItemState } from "../module";
-import { revisionOf, type ItemVersion } from "../records";
+import { revisionOf, textValue, type ItemVersion } from "../records";
 import { LINK_REASON_LABELS, STAGE_PROGRESS_LABELS, WAITING_CATEGORY_LABELS } from "../units";
 import { perform, useWorkflowView } from "./context";
 import ItemEditor, { itemExcerpt } from "./ItemEditor";
@@ -49,21 +49,18 @@ interface CardControls {
   stageOpen: boolean;
 }
 
+/** An item's version as it reads, with each choice field's value beside it. */
 function Fields({ kind, version }: { kind: string; version: ItemVersion }) {
-  const { workflow } = useWorkflowView();
+  const { module, workflow } = useWorkflowView();
+  const choices = workflow.kind(kind).fields.flatMap((field) => (field.type === "choice" && textValue(version.content[field.name]) !== "" ? [field] : []));
   return (
     <Stack spacing={0.5}>
-      {workflow.kind(kind).fields.map((field) => {
-        const value = version.content[field.name];
-        if (value == null || value === "") return null;
-        return field.type === "priority" ? (
-          <Chip key={field.name} size="small" label={value.toUpperCase()} sx={{ alignSelf: "flex-start" }} />
-        ) : (
-          <Typography key={field.name} variant="body1" sx={{ whiteSpace: "pre-wrap" }}>
-            {value}
-          </Typography>
-        );
-      })}
+      <Typography variant="body1" sx={{ whiteSpace: "pre-wrap" }}>
+        {module.shownText(kind, version.content)}
+      </Typography>
+      {choices.map((field) => (
+        <Chip key={field.name} size="small" label={textValue(version.content[field.name])} sx={{ alignSelf: "flex-start" }} />
+      ))}
     </Stack>
   );
 }
@@ -170,12 +167,7 @@ const ItemCard = observer(function ItemCard({ state, controls }: { state: ItemSt
           <>
             <SignatureLine signature={state.signature} counts={state.signatureCounts} />
             {state.phase === "active" && changedSinceSigned && (
-              <VersionDiff
-                signed={signed}
-                current={state.version}
-                fieldLabel={(field) => definition.fields.find(({ name: fieldName }) => fieldName === field)?.label ?? field}
-                name={name}
-              />
+              <VersionDiff kind={state.itemKind} signed={signed} current={state.version} name={name} />
             )}
           </>
         )}
@@ -211,7 +203,7 @@ const CoverageCard = observer(function CoverageCard({ state, controls }: { state
         <Stack spacing={0.25} sx={{ mt: 0.5 }}>
           {state.referencing.map((id) => (
             <Typography key={id} variant="body2">
-              <b>{module.codeOf(id)}</b> {itemExcerpt(module.versionOf(id)!.content)}
+              <b>{module.codeOf(id)}</b> {itemExcerpt(module.textOf(id))}
             </Typography>
           ))}
         </Stack>
@@ -242,7 +234,6 @@ const ImpactCard = observer(function ImpactCard({ state, controls }: { state: Im
       setTarget(null);
     }
   };
-  const fieldLabel = (field: string) => (kind == null ? field : workflow.kind(kind).fields.find(({ name: fieldName }) => fieldName === field)?.label ?? field);
   return (
     <UnitFrame
       unitId={state.unitId}
@@ -270,7 +261,7 @@ const ImpactCard = observer(function ImpactCard({ state, controls }: { state: Im
         <Box sx={{ flex: 1 }}>
           <Typography variant="caption" color="text.secondary">As it was</Typography>
           {kind == null ? (
-            <Typography variant="body1">{itemExcerpt(state.before.content)}</Typography>
+            <Typography variant="body1">{label}</Typography>
           ) : (
             <Fields kind={kind} version={state.before} />
           )}
@@ -286,14 +277,14 @@ const ImpactCard = observer(function ImpactCard({ state, controls }: { state: Im
           )}
         </Box>
       </Stack>
-      {state.after != null && <Box sx={{ mt: 1 }}><VersionDiff signed={state.before} current={state.after} fieldLabel={fieldLabel} name={name} /></Box>}
+      {state.after != null && kind != null && <Box sx={{ mt: 1 }}><VersionDiff kind={kind} signed={state.before} current={state.after} name={name} /></Box>}
       {requesting && (
         <Stack direction="row" sx={{ gap: 1, mt: 1, alignItems: "center" }}>
           <Autocomplete
             size="small"
             sx={{ minWidth: 320 }}
             options={candidates.map(({ id }) => id)}
-            getOptionLabel={(id) => `${module.codeOf(id)} ${itemExcerpt(module.versionOf(id)?.content ?? {})}`}
+            getOptionLabel={(id) => `${module.codeOf(id)} ${itemExcerpt(module.textOf(id))}`}
             value={target}
             onChange={(_event, value) => setTarget(value)}
             renderInput={(params) => <TextField {...params} label="Item missing the reference" />}

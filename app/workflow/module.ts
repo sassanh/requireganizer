@@ -5,9 +5,10 @@ import { codesMatch, formatCode } from "lib/fragmentCodes";
 import { uuid } from "utilities";
 
 import { cachedView, keyedView } from "./cachedViews";
-import { PRIORITIES, type Workflow } from "./definition";
+import type { ShownParts, Workflow } from "./definition";
 import { fingerprint } from "./hash";
 import {
+  chosenItems,
   type CoverageSignature,
   type ImpactSignature,
   type ItemContent,
@@ -20,6 +21,7 @@ import {
   type SignatureRecord,
   type Signer,
   SPEC_OWNER,
+  textValue,
 } from "./records";
 import {
   type Thread,
@@ -273,8 +275,12 @@ export function workflowModuleModel(workflow: Workflow) {
         return threadsOfUnit().get(unitId)?.find(({ resolvedAt }) => resolvedAt == null) ?? null;
       }
 
+      function referencesOf(item: Item): string[] {
+        return workflow.referencesOf(item.kind, item);
+      }
+
       function linksOf(item: Item): string[] {
-        return [...new Set([...item.references, ...item.dependencies])];
+        return [...new Set([...referencesOf(item), ...item.dependencies])];
       }
 
       function currentBasisOf(item: Item): Record<string, string> {
@@ -372,7 +378,7 @@ export function workflowModuleModel(workflow: Workflow) {
       const coverageStates = keyedView((stage: string): CoverageState[] => {
         const referencingIndex = new Map<string, Item[]>();
         for (const item of activeItems(stage)) {
-          for (const reference of new Set(item.references)) {
+          for (const reference of referencesOf(item)) {
             referencingIndex.set(reference, [...(referencingIndex.get(reference) ?? []), item]);
           }
         }
@@ -504,10 +510,36 @@ export function workflowModuleModel(workflow: Workflow) {
         }
       }
 
+      /** An item's content as every view of it shows it, each chosen item named by its shown field. */
+      function shownText(kind: string, content: ItemContent): string {
+        const definition = workflow.kind(kind);
+        const field = (name: string) => definition.fields.find((candidate) => candidate.name === name);
+        const parts: ShownParts = {
+          text: (name) => textValue(content[name]),
+          names: (name) => {
+            const chosen = field(name);
+            return chosenItems(content[name]).map((id) => {
+              const located = locate(id);
+              if (located == null) return "a removed item";
+              const shown = chosen?.type === "items" ? textValue(located.item.content[chosen.shows]) : "";
+              return shown === "" ? codeById(id)! : shown;
+            });
+          },
+        };
+        return definition.display(parts);
+      }
+
       return {
         itemsOf,
         locate,
         findLinked,
+        referencesOf,
+        shownText,
+        /** An item's text as it is now. */
+        textOf(id: string): string {
+          const located = locate(id);
+          return located == null ? "" : shownText(located.item.kind, located.item.content);
+        },
         codeOf: (id: string) => codeById(id),
         revisionOf: (id: string) => revisionById(id),
         versionOf: (id: string): ItemVersion | null => {
@@ -797,7 +829,8 @@ export function workflowModuleModel(workflow: Workflow) {
         return { id, label: deleteItem(id) };
       }
 
-      function validContent(kind: string, content: ItemContent, name: string): string[] {
+      /** The content's problems against its kind's fields: unknown fields, values of the wrong shape, required fields left empty. */
+      function contentProblems(kind: string, content: ItemContent, name: string): string[] {
         const definition = workflow.kind(kind);
         const problems: string[] = [];
         const known = new Set(definition.fields.map((field) => field.name));
@@ -806,50 +839,95 @@ export function workflowModuleModel(workflow: Workflow) {
         }
         for (const field of definition.fields) {
           const value = content[field.name] ?? null;
-          if (value == null || (field.type === "text" && value.trim().length === 0)) {
-            if (field.required) problems.push(`${name} needs ${field.label.toLowerCase()}.`);
+          if (field.type === "items") {
+            if (value != null && (!Array.isArray(value) || !value.every((entry) => typeof entry === "string"))) {
+              problems.push(`${name}'s ${field.label} must be a list of ${workflow.kind(field.of).plural.toLowerCase()}.`);
+            } else if (field.required && chosenItems(value).length === 0) {
+              problems.push(`${name} is missing ${field.label}: choose at least one ${workflow.kind(field.of).label.toLowerCase()}.`);
+            }
             continue;
           }
-          if (typeof value !== "string") problems.push(`${name}'s ${field.label.toLowerCase()} must be text.`);
-          else if (field.type === "priority" && !(PRIORITIES as readonly string[]).includes(value)) {
-            problems.push(`${name}'s ${field.label.toLowerCase()} must be one of ${PRIORITIES.join(", ")}.`);
+          if (value != null && typeof value !== "string") {
+            problems.push(`${name}'s ${field.label} must be text.`);
+          } else if (textValue(value).trim().length === 0) {
+            if (field.required) problems.push(`${name} is missing ${field.label}.`);
+          } else if (field.type === "choice" && !field.options.includes(textValue(value))) {
+            problems.push(`${name}'s ${field.label} must be one of ${field.options.join(", ")}.`);
           }
         }
         return problems;
       }
 
-      function normalizedContent(kind: string, content: Partial<ItemContent>): ItemContent {
+      /** The content as stored: every field of its kind, text trimmed, and an empty text or choice as null. */
+      function normalizedContent(kind: string, content: ItemContent): ItemContent {
         return Object.fromEntries(
           workflow.kind(kind).fields.map((field) => {
             const value = content[field.name] ?? null;
-            return [field.name, typeof value === "string" && field.type === "text" ? value.trim() : value];
+            if (field.type === "items") return [field.name, [...chosenItems(value)]];
+            const text = textValue(value).trim();
+            return [field.name, text === "" ? null : text];
           }),
         );
       }
 
-      function referenceProblems(stage: string, references: readonly string[], name: string): string[] {
+      /**
+       * The problems of an item's references, those its items fields choose
+       * included. A reference it did not hold before must name an item of a
+       * basis stage that is not removed; `before` lists those it held.
+       */
+      function referenceProblems(stage: string, kind: string, content: ItemContent, references: readonly string[], before: ReadonlySet<string>, name: string): string[] {
         const problems: string[] = [];
+        const definition = workflow.kind(kind);
         const basis = workflow.basisStages(stage);
-        for (const reference of references) {
+        const chosenKinds = workflow.chosenKinds(kind);
+        const check = (reference: string, expectedKind: string | null) => {
           const located = self.locate(reference);
           if (located == null) {
-            problems.push(`${name} references ${reference}, which is not an item of this module.`);
-          } else if (!basis.includes(located.stage)) {
+            if (!before.has(reference)) problems.push(`${name} references ${reference}, which is not an item of this module.`);
+            return;
+          }
+          const code = self.codeOf(reference);
+          if (expectedKind != null && located.item.kind !== expectedKind) {
+            problems.push(`${name} chooses ${code} as one of its ${workflow.kind(expectedKind).plural.toLowerCase()}, but it is a ${workflow.kind(located.item.kind).label.toLowerCase()}.`);
+          } else if (expectedKind == null && chosenKinds.includes(located.item.kind)) {
+            const field = definition.fields.find((candidate) => candidate.type === "items" && candidate.of === located.item.kind)!;
+            problems.push(`${name} lists ${code} in its references; a ${definition.label.toLowerCase()} names its ${workflow.kind(located.item.kind).plural.toLowerCase()} in ${field.label} instead, and counts as referencing them.`);
+          }
+          if (before.has(reference)) return;
+          if (!basis.includes(located.stage)) {
             problems.push(
               basis.length === 0
-                ? `${name} cannot reference ${self.codeOf(reference)}: ${workflow.stage(stage).label} builds on no stage.`
-                : `${name} references ${self.codeOf(reference)}, which is not in ${basis.map((id) => workflow.stage(id).label).join(" or ")}.`,
+                ? `${name} cannot reference ${code}: ${workflow.stage(stage).label} builds on no stage.`
+                : `${name} references ${code}, which is not in ${basis.map((id) => workflow.stage(id).label).join(" or ")}.`,
             );
           } else if (located.item.removal != null) {
-            problems.push(`${name} references ${self.codeOf(reference)}, which is removed.`);
+            problems.push(`${name} references ${code}, which is removed.`);
           }
+        };
+        for (const field of definition.fields) {
+          if (field.type !== "items") continue;
+          const chosen = chosenItems(content[field.name]);
+          if (new Set(chosen).size !== chosen.length) problems.push(`${name} chooses an item twice in ${field.label}.`);
+          for (const reference of chosen) check(reference, field.of);
         }
         if (new Set(references).size !== references.length) problems.push(`${name} references an item twice.`);
+        for (const reference of references) check(reference, null);
+        const all = workflow.referencesOf(kind, { content, references });
+        for (const required of definition.mustReference ?? []) {
+          const referenced = all.some((id) => {
+            const located = self.locate(id);
+            return located != null && located.item.kind === required && phaseOf(located.item.removal) !== "removed";
+          });
+          if (!referenced) {
+            problems.push(`${name} references no ${workflow.kind(required).label.toLowerCase()} of this module; reference at least one.`);
+          }
+        }
         return problems;
       }
 
       /** Apply one change to this module, returning its problems; nothing is changed when there are any. */
-      function applyChange(change: ItemChange, outcome: ChangeOutcome, label: string): string[] {
+      /** `single` says this is the only change written, so a new item is named on its own rather than by its place in the list. */
+      function applyChange(change: ItemChange, outcome: ChangeOutcome, label: string, single: boolean): string[] {
         if (change.type === "add") {
           if (!workflow.isStage(change.stage)) return [`${label}: there is no stage ${change.stage}.`];
           const stage = workflow.stage(change.stage);
@@ -857,15 +935,15 @@ export function workflowModuleModel(workflow: Workflow) {
             return [`${label}: ${stage.label} holds ${stage.kinds.map(({ kind }) => kind).join(", ")}, not ${change.kind}.`];
           }
           const definition = workflow.kind(change.kind);
+          const name = single ? `The new ${definition.label.toLowerCase()}` : `${label} (a new ${definition.label.toLowerCase()})`;
+          const shapeProblems = contentProblems(change.kind, change.content, name);
+          if (shapeProblems.length > 0) return shapeProblems;
           const content = normalizedContent(change.kind, change.content);
-          const problems = [
-            ...validContent(change.kind, { ...change.content }, label),
-            ...referenceProblems(change.stage, change.references, label),
-          ];
+          const problems = referenceProblems(change.stage, change.kind, content, change.references, new Set(), name);
           if (definition.single && self.itemsOf(change.stage).some(({ kind, removal }) => kind === change.kind && removal == null)) {
-            problems.push(`${label}: ${stage.label} already has its ${definition.label.toLowerCase()}; change it instead.`);
+            problems.push(`${name}: ${stage.label} already has its ${definition.label.toLowerCase()}; change it instead.`);
           }
-          if (!self.stageOpen(change.stage)) problems.push(`${label}: ${stage.label} is closed until the stages it builds on are complete.`);
+          if (!self.stageOpen(change.stage)) problems.push(`${name}: ${stage.label} is closed until the stages it builds on are complete.`);
           if (problems.length > 0) return problems;
           const item = ItemModel.create({
             id: uuid(),
@@ -904,13 +982,13 @@ export function workflowModuleModel(workflow: Workflow) {
           outcome.proposedForRemoval.push(item.id);
           return [];
         }
-        const content = normalizedContent(item.kind, { ...item.content, ...(change.content ?? {}) });
+        const merged = { ...item.content, ...(change.content ?? {}) } as ItemContent;
+        const shapeProblems = contentProblems(item.kind, merged, name);
+        if (shapeProblems.length > 0) return shapeProblems;
+        const content = normalizedContent(item.kind, merged);
         const references = change.references ?? [...item.references];
         const dependencies = change.dependencies ?? [...item.dependencies];
-        const problems = [
-          ...validContent(item.kind, { ...item.content, ...(change.content ?? {}) } as ItemContent, name),
-          ...(change.references == null ? [] : referenceProblems(stage, references, name)),
-        ];
+        const problems = referenceProblems(stage, item.kind, content, references, new Set(self.referencesOf(item)), name);
         if (problems.length > 0) return problems;
         const before = self.revisionOf(item.id);
         const withdrawn = phase === "proposed-removal";
@@ -933,7 +1011,7 @@ export function workflowModuleModel(workflow: Workflow) {
 
       function applyAll(changes: readonly ItemChange[]): { outcome: ChangeOutcome; problems: string[] } {
         const outcome: ChangeOutcome = { added: [], changed: [], proposedForRemoval: [], removalWithdrawn: [], deleted: [], unchanged: [] };
-        const problems = changes.flatMap((change, index) => applyChange(change, outcome, `Change ${index + 1}`));
+        const problems = changes.flatMap((change, index) => applyChange(change, outcome, `Change ${index + 1}`, changes.length === 1));
         problems.push(...self.dependencyProblems([...outcome.added, ...outcome.changed]));
         return { outcome, problems };
       }

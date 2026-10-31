@@ -35,6 +35,11 @@ tool signs.
 
 ## When writing a stage
 
+- Write each item in the fields `get_stage_rules` lists. A target user is a
+  name and a one-sentence description. A user story is its target users, as
+  codes, an outcome and a reason. A requirement holds only what follows "The
+  system must". An acceptance criterion is a Given, a When, left empty for a
+  state that holds with no event, and a Then.
 - Write, change and remove items with `write_items`. Check what it reports it
   added, changed and proposed for removal against what you meant to do,
   before telling the person.

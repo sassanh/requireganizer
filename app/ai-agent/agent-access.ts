@@ -4,6 +4,7 @@ import type { Store } from "store";
 import {
   authorLabel,
   type ChangeOutcome,
+  chosenItems,
   type ItemChange,
   type ItemContent,
   type ItemVersion,
@@ -81,9 +82,19 @@ function linkName(store: Store, id: string): string {
   return `a removed item (${id})`;
 }
 
-function versionView(store: Store, version: ItemVersion): Record<string, unknown> {
+/** A version as an agent reads it: its text as the page shows it, its fields with chosen items by code, and its links by code. */
+function versionView(store: Store, kind: string | null, version: ItemVersion): Record<string, unknown> {
+  const fields = kind == null
+    ? version.content
+    : Object.fromEntries(
+        store.workflow.kind(kind).fields.map((field) => {
+          const value = version.content[field.name] ?? null;
+          return [field.name, field.type === "items" ? chosenItems(value).map((id) => linkName(store, id)) : value];
+        }),
+      );
   return {
-    fields: version.content,
+    ...(kind == null ? {} : { text: store.shownText(kind, version.content) }),
+    fields,
     references: version.references.map((id) => linkName(store, id)),
     dependencies: version.dependencies.map((id) => linkName(store, id)),
   };
@@ -92,11 +103,11 @@ function versionView(store: Store, version: ItemVersion): Record<string, unknown
 /** One item as an agent works with it: its code, state, fields and links by code, and what changed since it was signed. */
 function itemView(store: Store, id: string): Record<string, unknown> {
   const state = store.itemState(id)!;
-  const now = versionView(store, state.version);
-  const signed = state.signature == null ? null : versionView(store, state.signature.version);
+  const now = versionView(store, state.itemKind, state.version);
+  const signed = state.signature == null ? null : versionView(store, state.itemKind, state.signature.version);
   const sinceSigned: Record<string, unknown> = {};
   if (signed != null && !state.signatureCounts) {
-    for (const key of ["fields", "references", "dependencies"] as const) {
+    for (const key of ["text", "fields", "references", "dependencies"] as const) {
       if (JSON.stringify(signed[key]) !== JSON.stringify(now[key])) sinceSigned[key] = signed[key];
     }
   }
@@ -161,14 +172,17 @@ function coverageAndImpactViews(store: Store, stage: string): Record<string, unk
     referencedBy: coverage.referencing.map((id) => store.codeOf(id)),
     ...(coverage.openThread == null ? {} : { openThreadId: coverage.openThread.id }),
   }));
-  const impacts = store.impactStates(stage).map((impact) => ({
-    unit: store.unitLabel(impact.unitId),
-    approved: impact.approved,
-    ...(impact.approved ? {} : { notApprovedBecause: impact.reasons.map((reason) => NOT_APPROVED_REASON_LABELS[reason]) }),
-    before: versionView(store, impact.before),
-    after: impact.after == null ? "removed" : versionView(store, impact.after),
-    ...(impact.openThread == null ? {} : { openThreadId: impact.openThread.id }),
-  }));
+  const impacts = store.impactStates(stage).map((impact) => {
+    const kind = store.locate(impact.itemId)?.item.kind ?? null;
+    return {
+      unit: store.unitLabel(impact.unitId),
+      approved: impact.approved,
+      ...(impact.approved ? {} : { notApprovedBecause: impact.reasons.map((reason) => NOT_APPROVED_REASON_LABELS[reason]) }),
+      before: versionView(store, kind, impact.before),
+      after: impact.after == null ? "removed" : versionView(store, kind, impact.after),
+      ...(impact.openThread == null ? {} : { openThreadId: impact.openThread.id }),
+    };
+  });
   return { coverages, impacts };
 }
 
@@ -188,12 +202,25 @@ function resolveLink(store: Store, name: string, allowOtherModules: boolean, lab
   throw new UserFacingError(`${label}: this module has no item ${name}.`);
 }
 
-function parseFields(value: unknown, label: string): Partial<ItemContent> | undefined {
+/** The fields an agent wrote, with the codes an items field chooses resolved to ids; the model checks the rest. */
+function parseFields(store: Store, kind: string, value: unknown, label: string): ItemContent | undefined {
   if (value == null) return undefined;
-  if (!isRecord(value) || !Object.values(value).every((field) => field === null || typeof field === "string")) {
-    throw new UserFacingError(`${label}: fields must map field names to text or null.`);
-  }
-  return value as Partial<ItemContent>;
+  if (!isRecord(value)) throw new UserFacingError(`${label}: fields must be an object mapping field names to values.`);
+  const fields = store.workflow.kind(kind).fields;
+  return Object.fromEntries(
+    Object.entries(value).map(([name, entry]) => {
+      const field = fields.find((candidate) => candidate.name === name);
+      if (field?.type !== "items") {
+        if (entry !== null && typeof entry !== "string") throw new UserFacingError(`${label}: ${name} must be text or null.`);
+        return [name, entry];
+      }
+      if (entry === null) return [name, []];
+      if (!Array.isArray(entry) || !entry.every((code) => typeof code === "string")) {
+        throw new UserFacingError(`${label}: ${name} must be a list of ${store.workflow.kind(field.of).label.toLowerCase()} codes.`);
+      }
+      return [name, entry.map((code: string) => resolveLink(store, code, false, label))];
+    }),
+  );
 }
 
 /** The changes an agent asked for, with every code resolved against the module as it is now. */
@@ -206,7 +233,6 @@ function parseChanges(store: Store, value: unknown): ItemChange[] {
       if (!isRecord(entry)) throw new UserFacingError(`${label} must be an object.`);
       const references = optionalStrings(entry, "references", label)?.map((name) => resolveLink(store, name, false, label));
       const dependencies = optionalStrings(entry, "dependencies", label)?.map((name) => resolveLink(store, name, true, label));
-      const fields = parseFields(entry.fields, label);
       switch (entry.action) {
         case "add": {
           const stage = stageNamed(store, entry.stage);
@@ -215,10 +241,14 @@ function parseChanges(store: Store, value: unknown): ItemChange[] {
           if (typeof kind !== "string") {
             throw new UserFacingError(`${label}: name the kind, one of ${kinds.map(({ kind: name }) => name).join(", ")}.`);
           }
-          return [{ type: "add", stage, kind, content: (fields ?? {}) as ItemContent, references: references ?? [], dependencies: dependencies ?? [] }];
+          if (!store.workflow.isKind(kind)) throw new UserFacingError(`${label}: there is no kind ${kind}.`);
+          return [{ type: "add", stage, kind, content: parseFields(store, kind, entry.fields, label) ?? {}, references: references ?? [], dependencies: dependencies ?? [] }];
         }
-        case "change":
-          return [{ type: "change", item: resolveLink(store, stringArgument(entry, "item"), false, label), content: fields, references, dependencies }];
+        case "change": {
+          const item = resolveLink(store, stringArgument(entry, "item"), false, label);
+          const content = parseFields(store, store.locate(item)!.item.kind, entry.fields, label);
+          return [{ type: "change", item, content, references, dependencies }];
+        }
         case "remove":
           return [{ type: "remove", item: resolveLink(store, stringArgument(entry, "item"), false, label) }];
         default:
@@ -299,7 +329,7 @@ const stageRulesTool: AgentTool = {
   description: {
     name: "get_stage_rules",
     description:
-      "Read one stage's published rules, the same the spec owner reads and signs against: what it builds on and which kinds of items it covers there, the kinds of item it holds with their codes and fields, and the rules every item of it follows. Read them before writing a stage.",
+      "Read one stage's published rules, the same the spec owner reads and signs against: what it builds on and which kinds of items it covers there, the kinds of item it holds with their codes, fields and the kinds each must reference at least one of, and the rules every item of it follows. Each field has a type: text; choice, one of its options; or items, a list of codes of the kind it chooses, which count as the item's references and are never listed again in references. A field with shownAfter holds only what follows those words. Read them before writing a stage.",
     inputSchema: { type: "object", properties: { stage: STAGE_PROPERTY }, required: ["stage"], additionalProperties: false },
   },
   run: (store, args) => {
@@ -310,9 +340,19 @@ const stageRulesTool: AgentTool = {
       buildsOn: stage.buildsOn.map(({ stage: basis, covers }) => ({ stage: basis, covers })),
       kinds: stage.kinds.map((kind) => ({
         kind: kind.kind,
+        label: kind.label,
         code: kind.code,
         ...(kind.single ? { single: true } : {}),
-        fields: kind.fields.map(({ name, type, required }) => ({ name, type, required })),
+        fields: kind.fields.map((field) => ({
+          name: field.name,
+          type: field.type,
+          required: field.required,
+          description: field.description,
+          ...(field.type === "choice" ? { options: field.options } : {}),
+          ...(field.type === "text" && field.prefix != null ? { shownAfter: field.prefix } : {}),
+          ...(field.type === "items" ? { chooses: field.of, countsAsReferences: true } : {}),
+        })),
+        ...(kind.mustReference == null ? {} : { mustReferenceAtLeastOne: kind.mustReference }),
       })),
       rules: stage.rules,
     });
@@ -323,7 +363,7 @@ const itemsTool: AgentTool = {
   description: {
     name: "get_items",
     description:
-      "List one stage's items in the order the page shows them, with the codesVersion a write naming them by code sends back: each with its code and id, kind, whether it is approved and if not why, its fields, its references and dependencies by code (another module's as \"Module name/CODE\"), what makes it out of date, which items it makes out of date, who signed it, what its last signature covered where that differs from it now (sinceSigned), and its open thread. Read without items to also get the stage's coverages and impacts. Pass items, as codes or ids, to read only those.",
+      "List one stage's items in the order the page shows them, with the codesVersion a write naming them by code sends back: each with its code and id, kind, whether it is approved and if not why, its text as the spec owner reads it, its fields (an items field as codes), its references and dependencies by code (another module's as \"Module name/CODE\"), what makes it out of date, which items it makes out of date, who signed it, what its last signature covered where that differs from it now (sinceSigned), and its open thread. Read without items to also get the stage's coverages and impacts. Pass items, as codes or ids, to read only those.",
     inputSchema: {
       type: "object",
       properties: {
@@ -405,7 +445,7 @@ const writeTool: AgentTool = {
   description: {
     name: "write_items",
     description:
-      "Write, change and remove items of any open stages, all or none, following each stage's published rules from get_stage_rules. Name items by the codes of the codesVersion you send. An added or changed item rests on the current versions of what it references and depends on; an item changed to exactly what it was stays as it was. Removing a signed item proposes its removal, which the spec owner signs; an item never signed is removed at once. A reference links to an item of a stage this stage builds on; a dependency links to an item of the same stage, or of another module as \"Module name/CODE\" in the same stage or one it builds on. Pass answers to reply to the threads these changes answer. Only the spec owner signs and resolves threads.",
+      "Write, change and remove items of any open stages, all or none, following each stage's published rules from get_stage_rules. Name items by the codes of the codesVersion you send. An item missing a required field, or referencing none of a kind it must reference, is refused with what is missing. An added or changed item rests on the current versions of what it references and depends on; an item changed to exactly what it was stays as it was. Removing a signed item proposes its removal, which the spec owner signs; an item never signed is removed at once. A reference links to an item of a stage this stage builds on; a dependency links to an item of the same stage, or of another module as \"Module name/CODE\" in the same stage or one it builds on. Pass answers to reply to the threads these changes answer. Only the spec owner signs and resolves threads.",
     inputSchema: {
       type: "object",
       properties: {
@@ -421,9 +461,9 @@ const writeTool: AgentTool = {
               item: { type: "string", description: "For change and remove: the item's code." },
               fields: {
                 type: "object",
-                description: "For add and change: the item's fields by name, as get_stage_rules lists them, such as text and priority (p0, p1 or p2). A change replaces only the fields it names.",
+                description: "For add and change: the item's fields by name, as get_stage_rules lists them: a text or choice field as text, an items field as a list of codes, such as a user story's {\"targetUsers\": [\"USR-01\"], \"outcome\": \"…\", \"reason\": \"…\", \"priority\": \"P1\"}. null empties an optional field. A change replaces only the fields it names.",
               },
-              references: { type: "array", items: { type: "string" }, description: "Codes of the items it references; a change replaces them all." },
+              references: { type: "array", items: { type: "string" }, description: "Codes of the items it references, besides those its items fields choose; a change replaces them all." },
               dependencies: { type: "array", items: { type: "string" }, description: "Codes of the items it depends on; a change replaces them all." },
             },
             required: ["action"],

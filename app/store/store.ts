@@ -62,8 +62,10 @@ function parseItem(stage: string, value: unknown, label: string): Record<string,
   if (!WORKFLOW.isKind(value.kind) || WORKFLOW.stageOfKind(value.kind) !== stage) {
     throw new InvalidJsonError(`${label} has kind ${JSON.stringify(value.kind)}, which ${WORKFLOW.stage(stage).label} does not hold.`);
   }
-  if (!isRecord(value.content) || !Object.values(value.content).every((field) => field === null || typeof field === "string")) {
-    throw new InvalidJsonError(`${label} content must map field names to text or null.`);
+  const isFieldValue = (field: unknown) =>
+    field === null || typeof field === "string" || (Array.isArray(field) && field.every((entry) => typeof entry === "string"));
+  if (!isRecord(value.content) || !Object.values(value.content).every(isFieldValue)) {
+    throw new InvalidJsonError(`${label} content must map field names to text, a list of item ids, or null.`);
   }
   return value;
 }

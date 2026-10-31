@@ -4,7 +4,8 @@ import { Box, Stack, Typography } from "@mui/material";
 
 import { wordDiff } from "components/wordDiff";
 
-import type { ItemVersion } from "../records";
+import { chosenItems, type ItemVersion, textValue } from "../records";
+import { useWorkflowView } from "./context";
 
 function TextDiff({ before, after }: { before: string; after: string }) {
   return (
@@ -44,30 +45,35 @@ function LinkDiff({ label, before, after, name }: { label: string; before: reado
 
 /** How a version differs from the one its last signature covers, field by field and link by link. */
 export default function VersionDiff({
+  kind,
   signed,
   current,
-  fieldLabel,
   name,
 }: {
+  kind: string;
   signed: ItemVersion;
   current: ItemVersion;
-  fieldLabel: (field: string) => string;
   name: (id: string) => string;
 }) {
-  const fields = [...new Set([...Object.keys(signed.content), ...Object.keys(current.content)])].filter(
-    (field) => (signed.content[field] ?? null) !== (current.content[field] ?? null),
-  );
+  const { workflow } = useWorkflowView();
+  const changed = workflow
+    .kind(kind)
+    .fields.filter((field) => JSON.stringify(signed.content[field.name] ?? null) !== JSON.stringify(current.content[field.name] ?? null));
   return (
     <Stack spacing={0.5} sx={{ p: 1, borderRadius: 1, bgcolor: "action.hover" }}>
       <Typography variant="caption" color="text.secondary">
         Since the last signature
       </Typography>
-      {fields.map((field) => (
-        <Stack key={field} spacing={0.25}>
-          <Typography variant="caption">{fieldLabel(field)}</Typography>
-          <TextDiff before={signed.content[field] ?? ""} after={current.content[field] ?? ""} />
-        </Stack>
-      ))}
+      {changed.map((field) =>
+        field.type === "items" ? (
+          <LinkDiff key={field.name} label={field.label} before={chosenItems(signed.content[field.name])} after={chosenItems(current.content[field.name])} name={name} />
+        ) : (
+          <Stack key={field.name} spacing={0.25}>
+            <Typography variant="caption">{field.label}</Typography>
+            <TextDiff before={textValue(signed.content[field.name])} after={textValue(current.content[field.name])} />
+          </Stack>
+        ),
+      )}
       <LinkDiff label="References" before={signed.references} after={current.references} name={name} />
       <LinkDiff label="Dependencies" before={signed.dependencies} after={current.dependencies} name={name} />
     </Stack>

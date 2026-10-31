@@ -1,15 +1,50 @@
-/** A field of an item's content, as its kind declares it. */
-export interface FieldDefinition {
+import { chosenItems, type ItemContent } from "./records";
+
+interface FieldBase {
   /** The key the field has in an item's content. */
   name: string;
   label: string;
-  /** Free text, or one of the three priorities. */
-  type: "text" | "priority";
+  /** What the field holds, as a writer of the item is told. */
+  description: string;
+  /** Whether an item is refused without a value for it. */
   required: boolean;
 }
 
-export const PRIORITIES = ["p0", "p1", "p2"] as const;
-export type Priority = (typeof PRIORITIES)[number];
+/** Free text. */
+export interface TextFieldDefinition extends FieldBase {
+  type: "text";
+  /** Words the form shows in front of the value, which the value does not repeat. */
+  prefix?: string;
+}
+
+/** One of a fixed list of values, such as a priority. */
+export interface ChoiceFieldDefinition extends FieldBase {
+  type: "choice";
+  options: readonly string[];
+}
+
+/**
+ * A choice of items of one kind of a basis stage, by id. The item counts
+ * as referencing each item chosen, so its references never list them again.
+ */
+export interface ItemsFieldDefinition extends FieldBase {
+  type: "items";
+  /** The kind of the items chosen. */
+  of: string;
+  /** The text field of a chosen item that names it where the item is shown. */
+  shows: string;
+}
+
+/** A field of an item's content, as its kind declares it. */
+export type FieldDefinition = TextFieldDefinition | ChoiceFieldDefinition | ItemsFieldDefinition;
+
+/** An item's content as it is shown: each text field's text and, for each items field, the chosen items' names. */
+export interface ShownParts {
+  /** A text or choice field's value, or "" when it has none. */
+  text(field: string): string;
+  /** The names of the items an items field chooses. */
+  names(field: string): string[];
+}
 
 /** One kind of item a stage holds, such as user stories. */
 export interface ItemKindDefinition {
@@ -25,6 +60,10 @@ export interface ItemKindDefinition {
   code: string;
   single?: boolean;
   fields: readonly FieldDefinition[];
+  /** Kinds of a basis stage of which an item must reference at least one item, through its references or an items field. */
+  mustReference?: readonly string[];
+  /** The item as one text, as every view of it shows it; choice fields show beside it. */
+  display(parts: ShownParts): string;
 }
 
 /** A stage this stage builds on, and the kinds of its items this stage covers. */
@@ -65,8 +104,22 @@ export function defineWorkflow(definition: WorkflowDefinition): WorkflowDefiniti
         }
       }
     }
+    const basisKinds = new Map(
+      stage.buildsOn.flatMap((basis) => seenStages.get(basis.stage)!.kinds.map((kind) => [kind.kind, kind] as const)),
+    );
     for (const kind of stage.kinds) {
       if (seenKinds.has(kind.kind)) throw new Error(`Item kind ${kind.kind} is defined twice.`);
+      for (const field of kind.fields) {
+        if (field.type !== "items") continue;
+        const chosen = basisKinds.get(field.of);
+        if (chosen == null) throw new Error(`${kind.kind}.${field.name} chooses ${field.of}, which no stage ${stage.id} builds on holds.`);
+        if (!chosen.fields.some(({ name, type }) => name === field.shows && type === "text")) {
+          throw new Error(`${kind.kind}.${field.name} shows ${field.shows}, which is not a text field of ${field.of}.`);
+        }
+      }
+      for (const required of kind.mustReference ?? []) {
+        if (!basisKinds.has(required)) throw new Error(`${kind.kind} must reference ${required}, which no stage ${stage.id} builds on holds.`);
+      }
       if (seenCodes.has(kind.code)) throw new Error(`Item code ${kind.code} is defined twice.`);
       seenKinds.add(kind.kind);
       seenCodes.add(kind.code);
@@ -159,6 +212,17 @@ export class Workflow {
     return this.definition.stages
       .filter(({ buildsOn }) => buildsOn.some((basis) => basis.stage === stage && basis.covers.includes(kind)))
       .map(({ id }) => id);
+  }
+
+  /** The kinds whose items an item of `kind` chooses through an items field rather than its references. */
+  chosenKinds(kind: string): string[] {
+    return this.kind(kind).fields.flatMap((field) => (field.type === "items" ? [field.of] : []));
+  }
+
+  /** Every item an item references: those its items fields choose, then its references, each once. */
+  referencesOf(kind: string, version: { content: ItemContent; references: readonly string[] }): string[] {
+    const chosen = this.kind(kind).fields.flatMap((field) => (field.type === "items" ? chosenItems(version.content[field.name]) : []));
+    return [...new Set([...chosen, ...version.references])];
   }
 
   /** The kinds of a basis stage's items that a stage covers. */

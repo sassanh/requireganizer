@@ -1,7 +1,20 @@
 import { fingerprint } from "./hash";
 
-/** An item's content: its kind's fields by name, each text or null. */
-export type ItemContent = Readonly<Record<string, string | null>>;
+/** A field's value: text for a text or choice field, item ids for an items field, or null for none. */
+export type FieldValue = string | readonly string[] | null;
+
+/** An item's content: its kind's fields by name. */
+export type ItemContent = Readonly<Record<string, FieldValue>>;
+
+/** The item ids an items field's value chooses. */
+export function chosenItems(value: FieldValue | undefined): readonly string[] {
+  return Array.isArray(value) ? value : [];
+}
+
+/** A text or choice field's value, or "" when it has none. */
+export function textValue(value: FieldValue | undefined): string {
+  return typeof value === "string" ? value : "";
+}
 
 /** What an item states and links to: everything a signature on it covers. */
 export interface ItemVersion {
