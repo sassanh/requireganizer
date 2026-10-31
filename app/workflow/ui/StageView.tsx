@@ -53,6 +53,7 @@ interface CardControls {
 function Fields({ kind, version }: { kind: string; version: ItemVersion }) {
   const { module, workflow } = useWorkflowView();
   const choices = workflow.kind(kind).fields.flatMap((field) => (field.type === "choice" && textValue(version.content[field.name]) !== "" ? [field] : []));
+  const marks = module.marksOf(kind, version.content);
   return (
     <Stack spacing={0.5}>
       <Typography variant="body1" sx={{ whiteSpace: "pre-wrap" }}>
@@ -60,6 +61,9 @@ function Fields({ kind, version }: { kind: string; version: ItemVersion }) {
       </Typography>
       {choices.map((field) => (
         <Chip key={field.name} size="small" label={textValue(version.content[field.name])} sx={{ alignSelf: "flex-start" }} />
+      ))}
+      {marks.map((mark) => (
+        <Chip key={mark} size="small" color="warning" variant="outlined" label={mark} sx={{ alignSelf: "flex-start" }} />
       ))}
     </Stack>
   );

@@ -1,19 +1,57 @@
 import { fingerprint } from "./hash";
 
-/** A field's value: text for a text or choice field, item ids for an items field, or null for none. */
-export type FieldValue = string | readonly string[] | null;
+/**
+ * A field's value: text for a text or choice field, yes or no for a flag,
+ * texts for a texts field, item ids for an items field, a record for a
+ * record field, records for a records field, or null for none.
+ */
+export type FieldValue = string | boolean | readonly string[] | RecordContent | readonly RecordContent[] | null;
+
+/** A record's content: its fields by name. */
+export interface RecordContent {
+  readonly [field: string]: FieldValue;
+}
 
 /** An item's content: its kind's fields by name. */
-export type ItemContent = Readonly<Record<string, FieldValue>>;
+export type ItemContent = RecordContent;
 
-/** The item ids an items field's value chooses. */
-export function chosenItems(value: FieldValue | undefined): readonly string[] {
-  return Array.isArray(value) ? value : [];
+function isRecordContent(value: FieldValue | undefined): value is RecordContent {
+  return value != null && typeof value === "object" && !Array.isArray(value);
 }
+
+/** The item ids an items field's value chooses, or the texts of a texts field. */
+export function chosenItems(value: FieldValue | undefined): readonly string[] {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
+}
+
+/** The texts a texts field holds. */
+export const textsValue = chosenItems;
 
 /** A text or choice field's value, or "" when it has none. */
 export function textValue(value: FieldValue | undefined): string {
   return typeof value === "string" ? value : "";
+}
+
+/** A flag's value: false when it has none. */
+export function flagValue(value: FieldValue | undefined): boolean {
+  return value === true;
+}
+
+/** A record field's record, or null when it has none. */
+export function recordValue(value: FieldValue | undefined): RecordContent | null {
+  return isRecordContent(value) ? value : null;
+}
+
+/** A records field's records. */
+export function recordsValue(value: FieldValue | undefined): readonly RecordContent[] {
+  return Array.isArray(value) ? value.filter((entry): entry is RecordContent => isRecordContent(entry as FieldValue)) : [];
+}
+
+/** Whether a value is one a field can hold in any shape, as a stored item's content is first checked. */
+export function isFieldValue(value: unknown): value is FieldValue {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+  if (Array.isArray(value)) return value.every((entry) => typeof entry === "string") || value.every((entry) => isFieldValue(entry) && isRecordContent(entry as FieldValue));
+  return typeof value === "object" && Object.values(value as Record<string, unknown>).every(isFieldValue);
 }
 
 /** What an item states and links to: everything a signature on it covers. */

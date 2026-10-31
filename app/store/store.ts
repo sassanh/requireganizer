@@ -6,12 +6,13 @@ import { createContext, useContext } from "react";
 import { InvalidJsonError, isRecord } from "lib/json";
 import { assertModuleSnapshotSchema, MODULE_SCHEMA_VERSION } from "lib/projectSchema";
 import { REQUIREMENTS_ENGINEERING_STAGES } from "requirements-engineering";
-import { parseThreads, type ThreadInHand, Workflow, workflowModuleModel } from "workflow";
+import { TEST_DESIGN_STAGES } from "test-design";
+import { isFieldValue, parseThreads, type ThreadInHand, Workflow, workflowModuleModel } from "workflow";
 
 export { MODULE_SCHEMA_VERSION, PROJECT_SCHEMA_VERSION } from "lib/projectSchema";
 
 /** The workflow every module of a project follows. */
-export const WORKFLOW = new Workflow({ stages: REQUIREMENTS_ENGINEERING_STAGES });
+export const WORKFLOW = new Workflow({ stages: [...REQUIREMENTS_ENGINEERING_STAGES, ...TEST_DESIGN_STAGES] });
 
 /**
  * The volatile state the interface reads. It never enters a snapshot or a
@@ -62,10 +63,8 @@ function parseItem(stage: string, value: unknown, label: string): Record<string,
   if (!WORKFLOW.isKind(value.kind) || WORKFLOW.stageOfKind(value.kind) !== stage) {
     throw new InvalidJsonError(`${label} has kind ${JSON.stringify(value.kind)}, which ${WORKFLOW.stage(stage).label} does not hold.`);
   }
-  const isFieldValue = (field: unknown) =>
-    field === null || typeof field === "string" || (Array.isArray(field) && field.every((entry) => typeof entry === "string"));
   if (!isRecord(value.content) || !Object.values(value.content).every(isFieldValue)) {
-    throw new InvalidJsonError(`${label} content must map field names to text, a list of item ids, or null.`);
+    throw new InvalidJsonError(`${label} content must map field names to text, true or false, a list of texts or item ids, a record, a list of records, or null.`);
   }
   return value;
 }
