@@ -1,10 +1,8 @@
-import { WorkflowStage } from "store/constants";
+import { WORKFLOW } from "store";
 
 import { InvalidJsonError, isRecord } from "./json";
 import {
   assertModuleSnapshotSchema,
-  isModuleSchemaVersion,
-  LEGACY_MODULE_SCHEMA_VERSION,
   MODULE_SCHEMA_VERSION,
   PROJECT_SCHEMA_VERSION,
 } from "./projectSchema";
@@ -22,7 +20,7 @@ export interface ModuleEntry {
   /** Set when archived: kept in storage for round trips, hidden from the interface. */
   archivedAt: string | null;
   /** The stage this module last showed; reopening restores it (module mode only). */
-  openStep: WorkflowStage;
+  openStep: string;
   snapshot: Record<string, unknown>;
 }
 
@@ -130,14 +128,12 @@ export function pickActiveModule(registry: ModuleRegistry): ModuleEntry {
   return fallback;
 }
 
-function parseOpenStep(value: unknown): WorkflowStage {
-  if (
-    typeof value === "string" &&
-    (Object.values(WorkflowStage) as string[]).includes(value)
-  ) {
-    return value as WorkflowStage;
-  }
-  return WorkflowStage.ProductOverview;
+/** The stage a module shows when it opens and has shown none yet. */
+export const FIRST_STAGE = WORKFLOW.firstStage;
+
+/** A stage id as stored; the page falls back to the first stage for one the workflow does not define. */
+function parseOpenStep(value: unknown): string {
+  return typeof value === "string" ? value : FIRST_STAGE;
 }
 
 function parseModuleEntry(value: unknown, index: number): ModuleEntry {
@@ -205,9 +201,9 @@ function parseRegistry(value: Record<string, unknown>): ModuleRegistry {
 
 /**
  * The one reader of stored project bytes: a schema 4 payload is
- * validated as a module registry, a bare module snapshot (schema 6, or
- * schema 3 migrated on load) wraps as the single hidden legacy module,
- * anything else fails with the accepted versions named.
+ * validated as a module registry, a bare module snapshot wraps as the
+ * single hidden legacy module, anything else fails with the accepted
+ * versions named.
  */
 export function parseProjectPayload(value: unknown): ProjectPayload {
   if (!isRecord(value)) {
@@ -216,7 +212,7 @@ export function parseProjectPayload(value: unknown): ProjectPayload {
   if (value.schemaVersion === PROJECT_SCHEMA_VERSION) {
     return { schemaVersion: PROJECT_SCHEMA_VERSION, ...parseRegistry(value) };
   }
-  if (isModuleSchemaVersion(value.schemaVersion)) {
+  if (value.schemaVersion === MODULE_SCHEMA_VERSION) {
     assertModuleSnapshotSchema(value);
     return {
       schemaVersion: PROJECT_SCHEMA_VERSION,
@@ -227,14 +223,14 @@ export function parseProjectPayload(value: unknown): ProjectPayload {
           id: LEGACY_MODULE_ID,
           name: LEGACY_MODULE_ID,
           archivedAt: null,
-          openStep: WorkflowStage.ProductOverview,
+          openStep: FIRST_STAGE,
           snapshot: value,
         },
       ],
     };
   }
   throw new InvalidJsonError(
-    `This import uses obsolete project schema ${JSON.stringify(value.schemaVersion)}. Requireganizer accepts schema ${PROJECT_SCHEMA_VERSION} (modular), or ${MODULE_SCHEMA_VERSION} or ${LEGACY_MODULE_SCHEMA_VERSION} (single module).`,
+    `This import uses project schema ${JSON.stringify(value.schemaVersion)}. Requireganizer accepts schema ${PROJECT_SCHEMA_VERSION} (modular), or ${MODULE_SCHEMA_VERSION} (single module).`,
   );
 }
 
@@ -248,7 +244,7 @@ export function createEmptyRegistry(): ModuleRegistry {
         id: LEGACY_MODULE_ID,
         name: LEGACY_MODULE_ID,
         archivedAt: null,
-        openStep: WorkflowStage.ProductOverview,
+        openStep: FIRST_STAGE,
         // Replaced from the live store at every save; a project with no
         // stored data never reads this.
         snapshot: {},

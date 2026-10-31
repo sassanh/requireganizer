@@ -3,7 +3,8 @@ import Button from "@mui/material/Button";
 import DefaultPropsProvider from "@mui/material/DefaultPropsProvider";
 import { ThemeProvider } from "@mui/material/styles";
 import { AppRouterCacheProvider } from "@mui/material-nextjs/v15-appRouter";
-import { applySnapshot, getSnapshot } from "mobx-state-tree";
+import { saveAs } from "file-saver";
+import { getSnapshot } from "mobx-state-tree";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 import { installAiRuntime } from "ai-agent/runtime";
@@ -12,29 +13,13 @@ import { NoticeHost } from "components/NoticeHost";
 import PersistentAlert from "components/PersistentAlert";
 import { connectWebSocket, linkInProcess, linkUrlFor } from "connection";
 import { PROJECT_HOST_LOCATION } from "deployment";
-import { useUndoRedoKeyboardShortcuts } from "hooks/useUndoRedoKeyboardShortcuts";
 import { browserAiSettings } from "lib/aiSettingsStorage";
-import { activeModule } from "lib/moduleSchema";
-import {
-  type CodeArchiveFormat,
-  exportCodeArchive as runCodeArchiveExport,
-  type ExportModule,
-  exportProjectJson,
-  exportProjectPdf,
-  exportProjectText,
-  type ProjectExportFormat,
-} from "lib/projectExport";
+import { activeModule, buildProjectPayload, FIRST_STAGE } from "lib/moduleSchema";
 import { webPersistence } from "persistence";
-import {
-  attachPresentation,
-  presentationStoreContext,
-  resetPresentation,
-} from "presentation";
 import { ProjectClient } from "project-client";
 import { ProjectHost } from "project-host";
 import { moduleSummaries, ProjectSession } from "project-session";
-import { hasGeneratedScaffoldIn, Store, storeContext } from "store";
-import { WorkflowStage } from "store/constants";
+import { storeContext } from "store";
 
 import { projectContext, type ProjectContextValue } from "./projectContext";
 import { theme } from "./theme";
@@ -76,7 +61,6 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     isStoreReloadNeeded = false;
     return connectProject();
   });
-  useUndoRedoKeyboardShortcuts(client.timeline);
   const sessionState = useSyncExternalStore(
     client.subscribe,
     client.getSnapshot,
@@ -84,7 +68,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
   );
   const { status, activeProject, persistenceError, outsideChange, registry, store } =
     sessionState;
-  const { reviewerModel, missingReviewerModelMessage, storage } = useSyncExternalStore(
+  const { storage } = useSyncExternalStore(
     client.subscribe,
     client.getHostInfo,
     client.getHostInfo,
@@ -94,14 +78,11 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     client.getConnectionStatus,
     client.getConnectionStatus,
   );
-  const [shown] = useState(() => Store.create(getSnapshot(store)));
-
   useEffect(() => client.open(), [client]);
 
   useEffect(() => {
     if (session == null) return;
     if (isStoreReloadNeeded) {
-      resetPresentation();
       session.reloadStore();
       isStoreReloadNeeded = false;
     }
@@ -109,14 +90,8 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     return () => session.dispose();
   }, [session]);
 
-  useEffect(() => {
-    resetPresentation();
-    applySnapshot(shown, getSnapshot(store));
-    return attachPresentation(shown, store, client.changeSource);
-  }, [store, shown, client]);
-
-  // The host lives in this tab: never leave recent timeline nodes or
-  // project changes unsaved when the tab goes away.
+  // The host lives in this tab: never leave project changes unsaved when
+  // the tab goes away.
   useEffect(() => {
     if (session == null) return;
     const handleBeforeUnload = () => {
@@ -127,58 +102,13 @@ export default function Providers({ children }: { children: React.ReactNode }) {
       window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [session]);
 
-  const exportProject = useCallback(
-    async (format: ProjectExportFormat): Promise<void> => {
-      if (registry == null || activeProject == null) return;
-      const modules: ExportModule[] = client.getExportModules();
-      if (format === "json") {
-        exportProjectJson(
-          registry,
-          getSnapshot(store) as unknown as Record<string, unknown>,
-        );
-        return;
-      }
-      if (format === "pdf") {
-        await exportProjectPdf(activeProject.name, modules);
-        return;
-      }
-      exportProjectText(activeProject.name, modules);
-    },
-    [registry, activeProject, client, store],
-  );
-
-  const reportExportError = useCallback(
-    (message: string) => {
-      void store.setValidationErrors({ validationErrors: message });
-      setTimeout(() => void store.resetValidationErrors(), 3000);
-    },
-    [store],
-  );
-
-  const exportCodeArchive = useCallback(
-    (format: CodeArchiveFormat): void => {
-      if (registry == null || activeProject == null) return;
-      void runCodeArchiveExport(
-        format,
-        { projectName: activeProject.name, modules: client.getExportModules() },
-        reportExportError,
-      );
-    },
-    [registry, activeProject, client, reportExportError],
-  );
+  const exportProject = useCallback((): void => {
+    if (registry == null || activeProject == null) return;
+    const payload = buildProjectPayload(registry, getSnapshot(store) as unknown as Record<string, unknown>);
+    saveAs(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }), `${activeProject.name}.json`);
+  }, [registry, activeProject, store]);
 
   const activeEntry = registry == null ? null : activeModule(registry);
-  const codeExportAvailable =
-    registry != null &&
-    registry.modules.some((entry) => {
-      if (entry.archivedAt != null) return false;
-      if (entry.id === registry.activeModuleId) return store.hasGeneratedScaffold;
-      const files = Array.isArray(entry.snapshot.scaffoldFiles)
-        ? entry.snapshot.scaffoldFiles.length
-        : 0;
-      return hasGeneratedScaffoldIn(entry.snapshot.projectSetup, files);
-    });
-
   const contextValue: ProjectContextValue = {
     status,
     activeProject,
@@ -186,19 +116,15 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     outsideChange,
     openChangedProject: client.openChangedProject,
     keepShownProject: client.keepShownProject,
-    reviewerModel,
-    missingReviewerModelMessage,
     storage,
     persistence: client.persistence,
-    timeline: client.timeline,
     selectProject: client.selectProject,
     backToProjects: client.backToProjects,
     clearPersistenceError: client.clearPersistenceError,
     modules: moduleSummaries(registry),
     modulesEnabled: registry?.modulesEnabled ?? false,
     activeModuleId: registry?.activeModuleId ?? "",
-    activeModuleOpenStep: activeEntry?.openStep ?? WorkflowStage.ProductOverview,
-    codeExportAvailable,
+    activeModuleOpenStep: activeEntry?.openStep ?? FIRST_STAGE,
     enableModules: client.enableModules,
     addModule: client.addModule,
     switchModule: client.switchModule,
@@ -208,13 +134,11 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     recordOpenStep: client.recordOpenStep,
     importProjectFile: client.importProjectFile,
     exportProject,
-    exportCodeArchive,
   };
 
   return (
     <projectContext.Provider value={contextValue}>
       <storeContext.Provider value={store}>
-        <presentationStoreContext.Provider value={shown}>
           <AppRouterCacheProvider options={{}}>
             <ThemeProvider theme={theme}>
               <DefaultPropsProvider
@@ -240,7 +164,6 @@ export default function Providers({ children }: { children: React.ReactNode }) {
               </DefaultPropsProvider>
             </ThemeProvider>
           </AppRouterCacheProvider>
-        </presentationStoreContext.Provider>
       </storeContext.Provider>
     </projectContext.Provider>
   );

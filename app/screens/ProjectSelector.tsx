@@ -2,7 +2,6 @@ import {
   Add,
   Delete,
   FolderOpen,
-  Settings,
   Upload,
 } from "@mui/icons-material";
 import {
@@ -24,28 +23,23 @@ import Link from "next/link";
 import { ChangeEvent, useEffect, useRef, useState } from "react";
 
 import { PersistentAlert } from "components";
-import AiSettingsDialog from "components/AiSettingsDialog";
-import { PROJECT_HOST_LOCATION } from "deployment";
-import { useAiSettingsDialog } from "hooks/useAiSettingsDialog";
 import { parseJson } from "lib/json";
 import { parseProjectPayload, pickActiveModule } from "lib/moduleSchema";
 import { hasProjectName, ProjectMeta } from "lib/projectStorage";
 import { projectHref } from "lib/routes";
 import type { ProjectDeleteResult } from "persistence";
 import { useProject } from "projectContext";
-import { createModuleStore } from "store";
+import { createModuleStore, moduleDescription } from "store";
 
 interface ProjectSelectorProps {
-  onSelect: (id: string, name: string, options?: { overviewSeed?: string }) => void;
+  onSelect: (id: string, name: string) => void;
 }
 
 export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
   const { activeProject, persistence, storage } = useProject();
   const [projects, setProjects] = useState<ProjectMeta[] | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const aiSettings = useAiSettingsDialog();
   const [newName, setNewName] = useState("");
-  const [overviewSeed, setOverviewSeed] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [projectToDelete, setProjectToDelete] = useState<ProjectMeta | null>(
     null,
@@ -77,11 +71,9 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
     onSelect(onlyProject.id, onlyProject.name);
   }, [onlyProject, onSelect]);
 
-  const handleCreate = async (draftOverview: boolean) => {
+  const handleCreate = async () => {
     const name = newName.trim();
     if (!name || projects == null || hasProjectName(projectList, name)) return;
-    const seed = overviewSeed.trim();
-    if (draftOverview && seed.length === 0) return;
 
     const id = crypto.randomUUID();
     const meta: ProjectMeta = {
@@ -99,9 +91,8 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
       setProjects(updatedProjects);
       setDialogOpen(false);
       setNewName("");
-      setOverviewSeed("");
       setError(null);
-      onSelect(id, name, draftOverview ? { overviewSeed: seed } : undefined);
+      onSelect(id, name);
     } catch (storageError) {
       console.error("Could not create project.", storageError);
       setError(`The project could not be saved in ${persistence.traits.name}.`);
@@ -143,7 +134,7 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
       const data = parseJson(await file.text(), "Imported project");
       const payload = parseProjectPayload(data);
       const activeEntry = pickActiveModule(payload);
-      const activeStore = createModuleStore(activeEntry.snapshot);
+      createModuleStore(activeEntry.snapshot);
       // Every other module passes the same validation gate before its
       // bytes are stored; the payload itself is saved unchanged.
       for (const entry of payload.modules) {
@@ -162,7 +153,7 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
       const meta: ProjectMeta = {
         id,
         name,
-        description: activeStore.productOverview.purpose?.slice(0, 200) ?? "",
+        description: moduleDescription(activeEntry.snapshot),
         updatedAt: new Date().toISOString(),
       };
 
@@ -297,18 +288,7 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
           accept=".json,application/json"
           onChange={handleImport}
         />
-        {PROJECT_HOST_LOCATION === "page" && (
-          <Button
-            size="large"
-            startIcon={<Settings />}
-            onClick={aiSettings.show}
-          >
-            AI settings
-          </Button>
-        )}
       </Stack>
-
-      <AiSettingsDialog open={aiSettings.open} onClose={aiSettings.close} />
 
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>New Project</DialogTitle>
@@ -329,39 +309,19 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
               onKeyDown={(event) => {
                 if (event.key !== "Enter") return;
                 event.preventDefault();
-                if (overviewSeed.trim().length > 0) handleCreate(true);
-                else handleCreate(false);
+                void handleCreate();
               }}
-            />
-            <TextField
-              fullWidth
-              multiline
-              minRows={3}
-              label="Starting intent"
-              helperText="Optional. Drafts the product overview once, then is discarded."
-              value={overviewSeed}
-              onChange={(event) => setOverviewSeed(event.target.value)}
             />
           </Stack>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
           <Button
-            onClick={() => handleCreate(false)}
+            variant="contained"
+            onClick={() => void handleCreate()}
             disabled={!newName.trim() || hasProjectName(projectList, newName.trim())}
           >
-            Skip
-          </Button>
-          <Button
-            variant="contained"
-            onClick={() => handleCreate(true)}
-            disabled={
-              !newName.trim() ||
-              hasProjectName(projectList, newName.trim()) ||
-              overviewSeed.trim().length === 0
-            }
-          >
-            Draft product overview
+            Create
           </Button>
         </DialogActions>
       </Dialog>

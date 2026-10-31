@@ -13,13 +13,9 @@
     "rootDir": "."
   },
   "include": [
-    "app/ai-harness/**/*.ts",
     "app/lib/json.ts",
     "app/lib/projectStorage.ts",
-    "app/lib/scaffold.ts",
-    "app/store/constants.ts",
     "app/utilities.ts",
-    "app/utilities/testParser.ts",
     "types/**/*.d.ts",
     "tests/**/*.ts"
   ],

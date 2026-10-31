@@ -5,7 +5,6 @@ import { useState } from "react";
 import { getUserFacingErrorMessage } from "lib/errors";
 import type { OutsideChange } from "persistence";
 import { useProject } from "projectContext";
-import { useStore } from "store";
 
 /**
  * Shown while the stored project differs from the one shown here because
@@ -23,7 +22,6 @@ const OutsideChangeDialog = () => {
 
 const OutsideChangeChoice = observer(({ outsideChange }: { outsideChange: OutsideChange }) => {
   const { storage, openChangedProject, keepShownProject } = useProject();
-  const store = useStore();
   const [working, setWorking] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const run = async (choice: () => Promise<void>, fallback: string) => {
@@ -48,9 +46,7 @@ const OutsideChangeChoice = observer(({ outsideChange }: { outsideChange: Outsid
         {problem != null && <Alert severity="error" sx={{ mb: 2 }}>{problem}</Alert>}
         {openable && (
           <DialogContentText>
-            {store.isBusy
-              ? `The changed file can be opened once ${store.thinkingLabel ?? "the current work"} finishes.`
-              : "Opening the changed file keeps this version one undo away."}
+            Opening the changed file keeps this version one undo away.
           </DialogContentText>
         )}
         {failure != null && <Alert severity="error" sx={{ mt: 2 }}>{failure}</Alert>}
@@ -65,7 +61,7 @@ const OutsideChangeChoice = observer(({ outsideChange }: { outsideChange: Outsid
         </Button>
         {outsideChange.kind === "changed" && (
           <Button
-            disabled={working || !openable || store.isBusy}
+            disabled={working || !openable}
             variant="contained"
             onClick={() => void run(openChangedProject, "The changed file could not be opened.")}
           >

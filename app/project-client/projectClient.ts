@@ -23,7 +23,6 @@ import {
   type SentRegistry,
   type SessionView,
   type StoreUpdate,
-  type VolatileTextKey,
   type WireError,
   wireArguments,
 } from "connection";
@@ -36,14 +35,6 @@ import {
   SiblingModuleStores,
 } from "project-session";
 import { type ReplicatedVolatileState, Store } from "store";
-import type { WorkflowStage } from "store/constants";
-import type {
-  ChangeFocus,
-  ChangeSource,
-  TimelineMeta,
-  TurnPresentation,
-} from "store/timeline/controller";
-import type { PersistedTimeline } from "store/timeline/serialize";
 
 type Result<Name extends RequestName> = Awaited<ReturnType<HostApi[Name]>>;
 
@@ -59,13 +50,6 @@ interface QueuedRequest extends PendingRequest {
 /** The first wait before connecting again after a lost connection; it doubles up to the maximum. */
 const FIRST_RECONNECT_DELAY_MS = 500;
 const MAX_RECONNECT_DELAY_MS = 8000;
-
-const EMPTY_TIMELINE: TimelineMeta = {
-  entries: [],
-  canUndo: false,
-  canRedo: false,
-  isRewinding: false,
-};
 
 function errorFromWire(error: WireError): Error {
   if (error.name === "UserFacingError") return new UserFacingError(error.message);
@@ -103,20 +87,6 @@ function receivedRegistry(
   };
 }
 
-/** What the timeline offers a client: its history and the moves through it. */
-export interface TimelineClient {
-  subscribe(listener: () => void): () => void;
-  getMeta(): TimelineMeta;
-  undo(): Promise<void>;
-  redo(): Promise<void>;
-  /** False when the message is not bound to a timeline turn. */
-  beginRewind(messageIndex: number): Promise<boolean>;
-  cancelRewind(): Promise<void>;
-  jumpToNode(nodeId: string): Promise<void>;
-  activateBranch(leafId: string): Promise<void>;
-  exportSnapshot(): Promise<PersistedTimeline | null>;
-}
-
 function snapshotFrom(
   view: SessionView,
   registry: ModuleRegistry | null,
@@ -144,15 +114,13 @@ export class ConnectionLostError extends UserFacingError {
  * A replica of the project a host serves. It shows the host's session and
  * store and never changes them itself: root store actions called on the
  * replica are forwarded and return a promise that settles once the host has
- * applied them and the replica has caught up; session and timeline
- * operations are requests with the same guarantee. A request made while
+ * applied them and the replica has caught up; session operations are
+ * requests with the same guarantee. A request made while
  * disconnected waits for the connection, so callers never depend on when
  * the connection opens.
  */
 export class ProjectClient {
   readonly persistence: PersistenceAdapter;
-  readonly timeline: TimelineClient;
-  readonly changeSource: ChangeSource;
 
   private readonly connect: () => ClientConnection;
   private connection: { link: ClientConnection; stopListening: () => void } | null = null;
@@ -165,8 +133,6 @@ export class ProjectClient {
   /** Requests made before a connection opened; sent in order once one has. */
   private readonly queued: QueuedRequest[] = [];
   private readonly listeners = new Set<() => void>();
-  private readonly timelineListeners = new Set<() => void>();
-  private readonly focusListeners = new Set<(focus: ChangeFocus) => void>();
   private readonly siblingStores = new SiblingModuleStores();
 
   private nextRequestId = 0;
@@ -184,43 +150,15 @@ export class ProjectClient {
   private registry: ModuleRegistry | null = null;
   private replica: Store;
   private snapshot: ProjectSessionSnapshot;
-  private timelineMeta: TimelineMeta = EMPTY_TIMELINE;
-  /** The turn kind of the update being applied; null between updates. */
-  private applyingTurn: TurnPresentation | null = null;
   private applyingLocally = false;
 
   constructor(connect: () => ClientConnection) {
     this.connect = connect;
     // Until the host's first event arrives, actions on this blank replica
     // name a store the host never shows, so they are refused.
-    this.replica = this.createReplica("", { productOverview: {} }, null);
+    this.replica = this.createReplica("", {}, null);
     this.snapshot = snapshotFrom(this.view, this.registry, this.replica);
     this.persistence = this.remotePersistence();
-    this.timeline = {
-      subscribe: (listener) => {
-        this.timelineListeners.add(listener);
-        return () => {
-          this.timelineListeners.delete(listener);
-        };
-      },
-      getMeta: () => this.timelineMeta,
-      undo: () => this.request("undo"),
-      redo: () => this.request("redo"),
-      beginRewind: (messageIndex) => this.request("beginRewind", messageIndex),
-      cancelRewind: () => this.request("cancelRewind"),
-      jumpToNode: (nodeId) => this.request("jumpToNode", nodeId),
-      activateBranch: (leafId) => this.request("activateBranch", leafId),
-      exportSnapshot: () => this.request("exportTimeline"),
-    };
-    this.changeSource = {
-      onChangeFocus: (listener) => {
-        this.focusListeners.add(listener);
-        return () => {
-          this.focusListeners.delete(listener);
-        };
-      },
-      currentTurnPresentation: () => this.applyingTurn,
-    };
   }
 
   /**
@@ -362,7 +300,7 @@ export class ProjectClient {
   renameProject = (name: string): Promise<void> =>
     this.request("renameProject", name);
 
-  recordOpenStep = (step: WorkflowStage): Promise<void> =>
+  recordOpenStep = (step: string): Promise<void> =>
     this.request("recordOpenStep", step);
 
   importProjectFile = (data: unknown): Promise<void> =>
@@ -559,38 +497,14 @@ export class ProjectClient {
     for (const listener of this.listeners) listener();
   }
 
-  /**
-   * Apply one host update. The patches land and the change focus is handed
-   * to presenters inside one batch, so store observers run after both, while
-   * the update's turn kind is current: the same order a presenter sees next
-   * to the authority's own store.
-   */
+  /** Apply one host update whole, so store observers see it at once. */
   private applyUpdate(update: StoreUpdate): void {
     const replica = this.replica;
-    this.applyingTurn = update.turn;
-    try {
-      runInAction(() => {
-        this.local(() => {
-          if (update.patches.length > 0) applyPatch(replica, update.patches);
-          const volatile: Partial<ReplicatedVolatileState> = { ...update.volatile };
-          for (const [key, text] of Object.entries(update.appended) as [VolatileTextKey, string][]) {
-            volatile[key] = replica[key] + text;
-          }
-          if (Object.keys(volatile).length > 0) replica.mirrorVolatileState(volatile);
-        });
-        if (update.focus != null) {
-          for (const listener of this.focusListeners) listener(update.focus);
-        }
+    runInAction(() => {
+      this.local(() => {
+        if (update.patches.length > 0) applyPatch(replica, update.patches);
+        if (Object.keys(update.volatile).length > 0) replica.mirrorVolatileState(update.volatile);
       });
-    } finally {
-      this.applyingTurn = null;
-    }
-    if (update.timeline != null) {
-      this.timelineMeta = update.timeline;
-      for (const listener of this.timelineListeners) listener();
-    }
-    for (const event of update.events) {
-      replica.eventTarget.emit(event.name, event.step);
-    }
+    });
   }
 }

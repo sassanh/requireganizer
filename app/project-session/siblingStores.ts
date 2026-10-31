@@ -4,11 +4,8 @@ import {
   siblingModuleEntries,
   visibleModules,
 } from "lib/moduleSchema";
-import {
-  createModuleStore,
-  type SiblingModuleReference,
-  type Store,
-} from "store";
+import { createModuleStore, type Store } from "store";
+import type { LinkedModule } from "workflow";
 
 /** The store a module export reads from. */
 export interface ExportableModule {
@@ -27,13 +24,13 @@ interface CacheEntry {
 /**
  * Read-only stores for the open project's other modules, rebuilt only when a
  * module's stored snapshot changes. The authority's session and every replica
- * derive them from the registry they hold, so both resolve sibling
- * references the same way.
+ * derive them from the registry they hold, so both resolve dependencies on
+ * other modules' items the same way.
  */
 export class SiblingModuleStores {
   private readonly cache = new Map<string, CacheEntry>();
 
-  private storeFor(registry: ModuleRegistry, entry: ModuleEntry): Store | null {
+  private storeFor(entry: ModuleEntry): Store | null {
     const hit = this.cache.get(entry.id);
     if (hit?.snapshot === entry.snapshot) return hit.store;
     const text = JSON.stringify(entry.snapshot);
@@ -48,28 +45,36 @@ export class SiblingModuleStores {
       console.error(`Module “${entry.name}” could not be read.`, error);
       return null;
     }
-    created.setModuleContext({ moduleMode: registry.modulesEnabled });
     this.cache.set(entry.id, { snapshot: entry.snapshot, text, store: created });
     return created;
   }
 
-  private references(registry: ModuleRegistry): SiblingModuleReference[] {
+  /**
+   * Link the shown store and every sibling store to the other modules of the
+   * project, so a dependency on another module's item resolves, and judges
+   * it out of date, the same way from every module.
+   */
+  applyModuleContext(store: Store, registry: ModuleRegistry | null): void {
+    if (registry == null || !registry.modulesEnabled) {
+      store.setLinkedModules([]);
+      return;
+    }
     for (const id of [...this.cache.keys()]) {
       const entry = registry.modules.find((module) => module.id === id);
       if (entry == null || entry.archivedAt != null) this.cache.delete(id);
     }
-    const references: SiblingModuleReference[] = [];
+    const shownEntry = registry.modules.find((module) => module.id === registry.activeModuleId);
+    const all: { id: string; name: string; store: Store }[] = shownEntry == null ? [] : [{ id: shownEntry.id, name: shownEntry.name, store }];
     for (const entry of siblingModuleEntries(registry)) {
-      const sibling = this.storeFor(registry, entry);
-      if (sibling != null) references.push({ id: entry.id, store: sibling });
+      const sibling = this.storeFor(entry);
+      if (sibling != null) all.push({ id: entry.id, name: entry.name, store: sibling });
     }
-    return references;
-  }
-
-  /** Give the shown store its module mode and siblings; none without a registry. */
-  applyModuleContext(store: Store, registry: ModuleRegistry | null): void {
-    store.setModuleContext({ moduleMode: registry?.modulesEnabled ?? false });
-    store.setSiblingModules(registry == null ? [] : this.references(registry));
+    for (const entry of all) {
+      const linked: LinkedModule[] = all
+        .filter((other) => other !== entry)
+        .map((other) => ({ id: other.id, name: other.name, lookup: other.store.lookup }));
+      entry.store.setLinkedModules(linked);
+    }
   }
 
   /** Every visible module, backed by the shown store or a sibling store. */
@@ -81,7 +86,7 @@ export class SiblingModuleStores {
         modules.push({ id: entry.id, name, store: shown });
         continue;
       }
-      const sibling = this.storeFor(registry, entry);
+      const sibling = this.storeFor(entry);
       if (sibling != null) modules.push({ id: entry.id, name, store: sibling });
     }
     return modules;

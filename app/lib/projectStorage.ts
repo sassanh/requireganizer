@@ -1,10 +1,10 @@
-import { TIMELINE_VERSION } from "store/timeline/serialize";
-
 import { isRecord, parseJson } from "./json";
 import { LEGACY_MODULE_ID, parseProjectPayload, pickActiveModule } from "./moduleSchema";
-import { parseScaffoldFiles, ScaffoldFileData } from "./scaffold";
 
 const PROJECTS_INDEX_KEY = "requireganizer:projects";
+
+/** Version of a stored timeline; Requireganizer no longer writes timelines. */
+export const TIMELINE_VERSION = 4;
 
 export interface ProjectKeyValueStorage {
   getItem(key: string): string | null;
@@ -17,11 +17,6 @@ export interface ProjectMeta {
   name: string;
   description: string;
   updatedAt: string;
-}
-
-export interface StoredProjectView {
-  name: string;
-  scaffoldFiles: ScaffoldFileData[];
 }
 
 export class ProjectStorageError extends Error {
@@ -368,29 +363,5 @@ export function deleteProjectData(id: string): void {
       console.error("Could not roll back a failed project deletion.", rollbackError);
     }
     throw new ProjectStorageError(PROJECT_DELETE_ERROR_MESSAGE, error);
-  }
-}
-
-export function readStoredProjectView(
-  data: Record<string, unknown> | null,
-  name: string,
-): StoredProjectView | null {
-  if (data == null) return null;
-
-  let snapshot: Record<string, unknown>;
-  try {
-    snapshot = pickActiveModule(parseProjectPayload(data)).snapshot;
-  } catch {
-    // Stored bytes that are not a project at all expose nothing.
-    return null;
-  }
-
-  try {
-    return {
-      name,
-      scaffoldFiles: parseScaffoldFiles(snapshot.scaffoldFiles ?? []),
-    };
-  } catch {
-    return { name, scaffoldFiles: [] };
   }
 }

@@ -5,13 +5,6 @@ import type { ModuleEntry, ModuleRegistry } from "lib/moduleSchema";
 import type { PersistenceAdapter, StorageTraits } from "persistence";
 import type { ProjectSessionSnapshot } from "project-session";
 import type { ReplicatedVolatileState } from "store";
-import type { WorkflowStage } from "store/constants";
-import type {
-  ChangeFocus,
-  TurnPresentation,
-  TimelineMeta,
-} from "store/timeline/controller";
-import type { PersistedTimeline } from "store/timeline/serialize";
 
 /**
  * The messages between a project host (the authority) and its clients
@@ -106,21 +99,13 @@ export interface HostApi {
   archiveModule(id: string): void;
   renameModule(id: string, name: string): void;
   renameProject(name: string): Promise<void>;
-  recordOpenStep(step: WorkflowStage): void;
+  recordOpenStep(step: string): void;
   importProjectFile(data: unknown): Promise<void>;
   /** Open the project as storage now holds it, after it changed outside the host. */
   openChangedProject(): Promise<void>;
   /** Write the shown project over the stored one that changed outside the host. */
   keepShownProject(): void;
   runStoreAction(call: StoreActionCall): unknown;
-  undo(): void;
-  redo(): void;
-  /** False when the message is not bound to a timeline turn. */
-  beginRewind(messageIndex: number): boolean;
-  cancelRewind(): void;
-  jumpToNode(nodeId: string): void;
-  activateBranch(leafId: string): void;
-  exportTimeline(): PersistedTimeline | null;
   runPersistence(call: PersistenceCall): unknown;
   /** The tools an outside agent can call on the open project now. */
   listAgentTools(): Promise<AgentToolDescription[]>;
@@ -166,13 +151,6 @@ export interface StoreImage {
   volatile: ReplicatedVolatileState;
 }
 
-/** Replicated volatile values that hold text. */
-export type VolatileTextKey = {
-  [Key in keyof ReplicatedVolatileState]: ReplicatedVolatileState[Key] extends string
-    ? Key
-    : never;
-}[keyof ReplicatedVolatileState];
-
 /**
  * A module entry as sent. Its snapshot is left out when every client already
  * holds that exact snapshot from an earlier event.
@@ -184,8 +162,6 @@ export type SentModuleEntry = Omit<ModuleEntry, "snapshot"> & {
 export interface SentRegistry extends Omit<ModuleRegistry, "modules"> {
   modules: SentModuleEntry[];
 }
-
-export type StoreEvent = { name: "stepUpdate"; step: WorkflowStage };
 
 /** What clients know about the host itself rather than the project it shows. */
 export interface HostInfo {
@@ -208,14 +184,6 @@ export interface StoreUpdate {
   patches: IJsonPatch[];
   /** Replicated volatile values that changed, whole. */
   volatile: Partial<ReplicatedVolatileState>;
-  /** Text added to the end of a replicated volatile value, such as streamed thinking. */
-  appended: Partial<Record<VolatileTextKey, string>>;
-  turn: TurnPresentation | null;
-  focus: ChangeFocus | null;
-  /** The timeline's history when it changed; null when unchanged. */
-  timeline: TimelineMeta | null;
-  /** Store events emitted during the change; replayed after its patches. */
-  events: StoreEvent[];
 }
 
 export type HostEvent =

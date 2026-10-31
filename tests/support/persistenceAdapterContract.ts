@@ -4,12 +4,13 @@ import { describe, it } from "node:test";
 import { MODULE_SCHEMA_VERSION } from "../../app/lib/projectSchema";
 import {
   ProjectStorageError,
+  TIMELINE_VERSION,
   type ProjectMeta,
 } from "../../app/lib/projectStorage";
 import { ProviderCallStorageError } from "../../app/lib/providerCallStorage";
 import type { ProviderCallRecord } from "../../app/lib/types";
 import type { PersistenceAdapter } from "../../app/persistence";
-import { TIMELINE_VERSION } from "../../app/store/timeline/serialize";
+
 
 type AdapterFactory = () => PersistenceAdapter | Promise<PersistenceAdapter>;
 

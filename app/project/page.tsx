@@ -1,5 +1,5 @@
 "use client";
-import { ArrowBack, FolderOpen, Forum, History } from "@mui/icons-material";
+import { ArrowBack, History } from "@mui/icons-material";
 import {
   Alert,
   AlertTitle,
@@ -18,15 +18,11 @@ import { Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState
 
 import { switchModuleShortcut } from "actions/actions";
 import {
-  ConversationSidebar,
   ModuleSwitcherDialog,
   ProjectActionsMenu,
   OutsideChangeDialog,
-  ProviderActivity,
   PersistentAlert,
   RevisionHistoryDialog,
-  ThinkingOverlayDialog,
-  ValidationErrorAlert,
 } from "components";
 import {
   isEditableTarget,
@@ -34,14 +30,12 @@ import {
   useShortcut,
   type ShortcutBinding,
 } from "hooks/shortcuts";
-import { projectCodeHref } from "lib/routes";
 import { usePersistence, useProject } from "projectContext";
 import { Factory } from "screens";
 import { Store, useStore } from "store";
 
 function Home() {
   const store = useStore();
-  const conversationOpen = store.conversationSidebarOpen;
   const {
     status,
     activeProject,
@@ -195,20 +189,6 @@ function Home() {
           {persistenceError}
         </PersistentAlert>
       )}
-      {store.validationErrors ? (
-        <ValidationErrorAlert
-          message={store.validationErrors}
-          details={store.validationErrorDetails}
-          onClose={() => void store.resetValidationErrors()}
-          onRetry={
-            store.canRetryFailedOperation()
-              ? () => {
-                  void store.retryFailedOperation();
-                }
-              : undefined
-          }
-        />
-      ) : null}
       <AppBar
         position="fixed"
         elevation={0}
@@ -223,7 +203,6 @@ function Home() {
               variant="text"
               startIcon={<ArrowBack />}
               onClick={backToProjects}
-              disabled={store.isBusy}
             >
               Projects
             </Button>
@@ -241,31 +220,6 @@ function Home() {
             </Button>
           ) : null}
         </Stack>
-        <Tooltip title={store.hasGeneratedScaffold ? "Project files" : "Generate the project setup to enable source code"}>
-          <Button
-          component={Link}
-          href={projectCodeHref(activeProject.id)}
-          target="_blank"
-          rel="noopener noreferrer"
-          variant="outlined"
-          aria-label="Project files"
-          disabled={!store.hasGeneratedScaffold}
-          sx={{ minWidth: 0, px: 1.25 }}
-        >
-          <FolderOpen />
-        </Button>
-        </Tooltip>
-        <Tooltip title="Agent">
-          <Button
-            variant={conversationOpen ? "contained" : "outlined"}
-            color={conversationOpen ? "primary" : "inherit"}
-            aria-label="Agent"
-            onClick={() => void store.setConversationSidebar(!conversationOpen)}
-            sx={{ minWidth: 0, px: 1.25 }}
-          >
-            <Forum />
-          </Button>
-        </Tooltip>
         <Tooltip title="Revisions">
           <Button
             variant="outlined"
@@ -276,12 +230,6 @@ function Home() {
             <History />
           </Button>
         </Tooltip>
-        <ProviderActivity
-          calls={store.providerCalls}
-          projectName={activeProject.name}
-          onDelete={(id) => void store.deleteProviderCall(id)}
-          onClear={() => void store.clearProviderCalls()}
-        />
         </Toolbar>
       </AppBar>
       {/* Official fixed-AppBar spacer: reserves exactly the toolbar height. */}
@@ -305,28 +253,16 @@ function Home() {
             display: "flex",
             flexDirection: "column",
             overflow: "hidden",
-            ...(store.isBusy && { pointerEvents: "none", userSelect: "none" }),
           }}
         >
-          {store.systemMessage && (
-            <Alert
-              severity="success"
-              sx={{ flexShrink: 0, zIndex: 2 }}
-            >
-              <AlertTitle>Needs Action!</AlertTitle>
-              <div>{store.systemMessage}</div>
-            </Alert>
-          )}
           <Box sx={{ flexGrow: 1, minHeight: 0, minWidth: 0, display: "flex" }}>
             <Suspense fallback={null}>
-              <Factory activeProject={activeProject} />
+              <Factory />
             </Suspense>
           </Box>
         </Box>
-        {conversationOpen && <ConversationSidebar />}
       </Stack>
       <OutsideChangeDialog />
-      <ThinkingOverlayDialog />
       <RevisionHistoryDialog
         projectId={activeProject.id}
         moduleId={activeModuleId}

@@ -5,6 +5,7 @@ import {
   assertModuleNameAvailable,
   buildProjectPayload,
   createEmptyRegistry,
+  FIRST_STAGE,
   LEGACY_MODULE_ID,
   type ModuleEntry,
   type ModuleRegistry,
@@ -16,20 +17,8 @@ import {
 } from "lib/moduleSchema";
 import { hasProjectName } from "lib/projectStorage";
 import type { OutsideChange, OutsideChanges, PersistenceAdapter } from "persistence";
-import {
-  createModuleStore,
-  type StageReopening,
-  Store,
-} from "store";
-import { WorkflowStage } from "store/constants";
-import {
-  attachTimeline,
-  clearTimelineSaveTimer,
-  detachTimeline,
-  flushTimeline,
-} from "store/timeline/controller";
+import { createModuleStore, moduleDescription, Store } from "store";
 
-import { persistProviderCalls, type ProviderCallSaving } from "./providerCalls";
 import { type ExportableModule, SiblingModuleStores } from "./siblingStores";
 
 /** Streaming mutates the store every ~80ms; coalesce writes behind this delay. */
@@ -49,8 +38,7 @@ export type ProjectSessionStatus = "idle" | "loading" | "failed" | "ready";
  * together: an idle session has no project, a loading session has a named
  * project but no registry yet, a failed session names the project it could
  * not load and why, and a ready session has both a registry and a store to
- * render. A module switch stays ready while its timeline loads. A ready
- * project whose stored version changed outside the session names that
+ * render. A ready project whose stored version changed outside the session names that
  * change until the person chooses which version to keep.
  */
 export type ProjectSessionSnapshot =
@@ -89,7 +77,7 @@ export type ProjectSessionSnapshot =
 
 /** The store of work not started yet. */
 function blankStore(): Store {
-  return Store.create({ productOverview: {} });
+  return Store.create({});
 }
 
 interface ProjectIdentity {
@@ -107,13 +95,6 @@ interface OpenedProject {
   nextRegistry: ModuleRegistry;
   moduleId: string;
 }
-
-/**
- * Where the shown module's timeline is. While it loads, or after its load
- * failed, the controller is detached: nothing is recorded or saved for the
- * module, so its stored history is never overwritten.
- */
-type ModuleTimelineStatus = "loading" | "attached" | "unavailable";
 
 /** What failed: a project write, a recovery snapshot, or saving AI provider activity. */
 type PersistenceNoticeSource = "write" | "snapshot" | "activity";
@@ -155,7 +136,6 @@ type OpenSessionFields = {
   project: ProjectIdentity;
   registry: ModuleRegistry;
   store: Store;
-  timeline: ModuleTimelineStatus;
   persistenceNotices: PersistenceNotices;
 };
 
@@ -259,7 +239,6 @@ export class ProjectSession {
   private projectWriteSequence = 0;
 
   private unsubscribeStore: (() => void) | null = null;
-  private providerCallSaving: ProviderCallSaving | null = null;
   private flushPendingSave: (() => void) | null = null;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -274,7 +253,7 @@ export class ProjectSession {
   constructor(persistence: PersistenceAdapter, options: { outsideChanges?: OutsideChanges } = {}) {
     this.persistence = persistence;
     this.outsideChanges = options.outsideChanges ?? null;
-    const store = Store.create({ productOverview: {} });
+    const store = Store.create({});
     this.state = { status: "idle", store };
     this.snapshot = snapshotOf(this.state, this.outsideChange);
   }
@@ -361,13 +340,9 @@ export class ProjectSession {
     const sequence = ++this.projectWriteSequence;
     const isLatest = (): boolean => sequence === this.projectWriteSequence;
 
-    const overview = snapshot.productOverview as
-      | Record<string, unknown>
-      | undefined;
-    const purpose = overview?.purpose;
     void this.persistence.projects
       .save(project.id, buildProjectPayload(currentRegistry, snapshot), {
-        description: typeof purpose === "string" ? purpose.slice(0, 200) : "",
+        description: moduleDescription(snapshot),
         updatedAt: new Date().toISOString(),
       })
       .then(
@@ -405,9 +380,6 @@ export class ProjectSession {
   private attachStoreSubscription(state: OpenSessionState): void {
     this.unsubscribeStore?.();
     this.unsubscribeStore = null;
-    this.providerCallSaving?.stop();
-    this.providerCallSaving = null;
-
     const { project, store } = state;
     let pendingWrite: (() => void) | null = null;
     const flushPendingWrite = () => {
@@ -419,27 +391,6 @@ export class ProjectSession {
       pendingWrite = null;
     };
     this.flushPendingSave = flushPendingWrite;
-    this.providerCallSaving = persistProviderCalls(
-      this.persistence,
-      project.id,
-      state.registry.activeModuleId,
-      store,
-      (message) => this.setPersistenceNotice("activity", message),
-    );
-    const moduleId = state.registry.activeModuleId;
-    const keepRecoverySnapshot = ({ label, before }: StageReopening) => {
-      this.persistence.revisions.save(project.id, moduleId, before, `Before reopening ${label}`).then(
-        () => this.setPersistenceNotice("snapshot", null),
-        (error: unknown) => {
-          console.error("Could not save a recovery snapshot.", error);
-          this.setPersistenceNotice(
-            "snapshot",
-            `The recovery snapshot from before ${label} reopened could not be saved in ${this.persistence.traits.name}.`,
-          );
-        },
-      );
-    };
-    store.eventTarget.on("reopen", keepRecoverySnapshot);
 
     const stopSnapshots = onSnapshot(store, (snapshot) => {
       pendingWrite = () => {
@@ -460,58 +411,26 @@ export class ProjectSession {
     });
     this.unsubscribeStore = () => {
       stopSnapshots();
-      store.eventTarget.off("reopen", keepRecoverySnapshot);
     };
   }
 
   private detachStoreSubscription(): void {
     this.unsubscribeStore?.();
     this.unsubscribeStore = null;
-    this.providerCallSaving?.stop();
-    this.providerCallSaving = null;
     // Never drop unsaved changes when the store or project switches.
     this.flushPendingSave?.();
     this.flushPendingSave = null;
   }
 
-  /** Issue every pending project and timeline write, synchronously. */
+  /** Issue every pending project write, synchronously. */
   private flushPendingWrites(): void {
     this.flushPendingSave?.();
-    this.providerCallSaving?.flush();
-    void flushTimeline();
-  }
-
-  /** Attach the shown store's timeline with the data the session loaded. */
-  private attachLoadedTimeline(
-    state: OpenSessionState,
-    loaded: Record<string, unknown> | null,
-  ): void {
-    const projectId = state.project.id;
-    const moduleId = state.registry.activeModuleId;
-    attachTimeline(state.store, {
-      persistence: {
-        save: (data: unknown) =>
-          this.persistence.timelines.save(projectId, moduleId, data),
-      },
-      loaded,
-    });
-  }
-
-  /** Re-issue a module timeline load that a newer generation cancelled. */
-  private resumeTimelineLoad(): void {
-    const state = this.state;
-    if (state.status !== "ready" || state.timeline !== "loading") return;
-    void this.loadModuleTimeline(
-      state.project,
-      state.registry.activeModuleId,
-      this.beginOperation(),
-    );
   }
 
   /**
    * Restart whatever `dispose` cancelled: a project load, an import whose
    * outcome is unknown (the stored project is reopened, so it shows whatever
-   * the write left), or a module timeline load.
+   * the write left).
    */
   start = (): void => {
     if (this.outsideChanges != null && this.stopWatchingOutsideChanges == null) {
@@ -532,13 +451,11 @@ export class ProjectSession {
         return;
       case "ready":
         if (this.unsubscribeStore == null) this.attachStoreSubscription(state);
-        this.resumeTimelineLoad();
     }
   };
 
   /**
-   * Stop autosave and release the timeline timer after issuing every pending
-   * write. Safe to call repeatedly. A later `start` resumes what this
+   * Stop autosave after issuing every pending write. Safe to call repeatedly. A later `start` resumes what this
    * cancelled.
    */
   dispose = (): void => {
@@ -551,8 +468,6 @@ export class ProjectSession {
     this.stopWatchingOutsideChanges = null;
     this.beginOperation();
     this.detachStoreSubscription();
-    void flushTimeline();
-    clearTimelineSaveTimer();
   };
 
   private syncModuleContext(): void {
@@ -563,36 +478,24 @@ export class ProjectSession {
     );
   }
 
-  /**
-   * Show a store and registry and persist them. With `loaded` the timeline
-   * is attached at once; without it the timeline stays detached until
-   * `loadModuleTimeline` brings the module's stored history.
-   */
+  /** Show a store and registry and persist them. */
   private showStore(
     project: ProjectIdentity,
     store: Store,
     registry: ModuleRegistry,
-    timeline:
-      | { status: "attached"; loaded: Record<string, unknown> | null }
-      | { status: "loading" },
   ): void {
     this.detachStoreSubscription();
-    if (timeline.status === "loading") detachTimeline();
     const state: ReadySessionState = {
       status: "ready",
       project,
       registry,
       store,
-      timeline: timeline.status,
       persistenceNotices: {},
     };
     this.state = state;
     this.attachStoreSubscription(state);
     this.persistCurrent();
     this.syncModuleContext();
-    if (timeline.status === "attached") {
-      this.attachLoadedTimeline(state, timeline.loaded);
-    }
     this.publish();
   }
 
@@ -654,7 +557,6 @@ export class ProjectSession {
     this.writeHeldBack = false;
     const generation = this.beginOperation();
     this.detachStoreSubscription();
-    detachTimeline();
     this.state = { status: "loading-project", project, store: this.state.store };
     this.publish();
     this.projectLoad = this.loadProject(project, generation);
@@ -662,7 +564,7 @@ export class ProjectSession {
   }
 
   /**
-   * Load a project payload and its active module timeline, then show the
+   * Load a project payload, then show the
    * store. A superseded load is dropped after each await; a failed load ends
    * failed, naming the project, instead of leaving the session loading.
    */
@@ -677,23 +579,15 @@ export class ProjectSession {
       if (!this.isOperationCurrent(generation)) return;
 
       const opened = this.readOpenedProject(data, project.name);
-      const timeline = await this.persistence.timelines.load(
-        project.id,
-        opened.moduleId,
-      );
-      if (!this.isOperationCurrent(generation)) return;
-
       this.showStore(
         project,
         opened.created,
         { ...opened.nextRegistry, activeModuleId: opened.moduleId },
-        { status: "attached", loaded: timeline },
       );
     } catch (error) {
       if (!this.isOperationCurrent(generation)) return;
       console.error("Could not load the project.", error);
       this.detachStoreSubscription();
-      detachTimeline();
       this.state = {
         status: "load-failed",
         project,
@@ -705,55 +599,16 @@ export class ProjectSession {
     }
   }
 
-  /**
-   * Load the shown module's stored timeline and attach it. On failure the
-   * module stays shown with its timeline unavailable: the store and registry
-   * are already persisted, so rolling back would lose the edits made since.
-   */
-  private async loadModuleTimeline(
-    project: ProjectIdentity,
-    moduleId: string,
-    generation: number,
-  ): Promise<void> {
-    try {
-      const timeline = await this.persistence.timelines.load(
-        project.id,
-        moduleId,
-      );
-      if (!this.isOperationCurrent(generation)) return;
-      const state: ReadySessionState = {
-        ...this.expectOpenState(),
-        status: "ready",
-        timeline: "attached",
-      };
-      this.state = state;
-      this.attachLoadedTimeline(state, timeline);
-    } catch (error) {
-      if (!this.isOperationCurrent(generation)) return;
-      console.error("Could not load the module timeline.", error);
-      this.state = {
-        ...this.expectOpenState(),
-        status: "ready",
-        timeline: "unavailable",
-      };
-    }
-  }
-
-  /** Show a module whose stored timeline still has to be loaded. */
+  /** Show another module of the open project. */
   private showModule(
     state: ReadySessionState,
     store: Store,
     registry: ModuleRegistry,
   ): void {
-    const generation = this.beginOperation();
+    this.beginOperation();
     // Issue the outgoing module's writes before its store is released.
     this.flushPendingWrites();
-    this.showStore(state.project, store, registry, { status: "loading" });
-    void this.loadModuleTimeline(
-      state.project,
-      registry.activeModuleId,
-      generation,
-    );
+    this.showStore(state.project, store, registry);
   }
 
   /** Flush everything the tab would otherwise lose, e.g. on unload. */
@@ -836,19 +691,13 @@ export class ProjectSession {
 
   /**
    * Open the project as it now is in storage, after it changed outside the
-   * session. The shown version stays one undo away: the timeline records the
-   * opened project as a step after it.
+   * session.
    */
   openChangedProject = (): Promise<void> => {
     const state = this.choosableState();
     const change = this.outsideChange;
     if (change?.kind !== "changed") return Promise.resolve();
     if (change.problem != null) return Promise.reject(new UserFacingError(change.problem));
-    if (state.store.isBusy) {
-      return Promise.reject(
-        new UserFacingError("Open the changed file once Requireganizer finishes its current work."),
-      );
-    }
     return this.openProject(state.project);
   };
 
@@ -884,7 +733,6 @@ export class ProjectSession {
     this.beginOperation();
     this.pendingOverviewSeed = null;
     this.detachStoreSubscription();
-    detachTimeline();
     this.state = { status: "idle", store: this.state.store };
     this.syncModuleContext();
     this.publish();
@@ -944,11 +792,10 @@ export class ProjectSession {
       id: crypto.randomUUID(),
       name: trimmed,
       archivedAt: null,
-      openStep: WorkflowStage.ProductOverview,
+      openStep: FIRST_STAGE,
       snapshot: getSnapshot(created) as unknown as Record<string, unknown>,
     };
     const stashed = this.stashActiveModule(state);
-    // A fresh module has no stored timeline, so there is nothing to load.
     this.showStore(
       state.project,
       created,
@@ -957,7 +804,6 @@ export class ProjectSession {
         activeModuleId: entry.id,
         modules: [...stashed.modules, entry],
       },
-      { status: "attached", loaded: null },
     );
   };
 
@@ -1010,7 +856,7 @@ export class ProjectSession {
     });
   };
 
-  recordOpenStep = (step: WorkflowStage): void => {
+  recordOpenStep = (step: string): void => {
     const current = this.readyState()?.registry;
     // Open steps are module-mode state: while modules are off the hidden
     // legacy entry keeps opening at the first stage, so enabling later
@@ -1078,7 +924,6 @@ export class ProjectSession {
         // Edits made while autosave was paused are written now.
         this.persistCurrent();
         this.publish();
-        this.resumeTimelineLoad();
       }
       throw error;
     }

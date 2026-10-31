@@ -7,7 +7,7 @@ import { onSnapshot } from "mobx-state-tree";
 
 import type { AgentToolDescription } from "ai-agent/agent-access";
 import { ConnectionLostError, ProjectClient } from "project-client";
-import { threadTurn } from "store/threads";
+import { threadTurn } from "workflow";
 
 import { projectLink } from "./projectLink";
 import type { ProjectServerOptions } from "./projectServer";
@@ -68,7 +68,7 @@ function reachHost(client: ProjectClient, waitMs: number): Promise<void> {
 
 function instructionsFor(url: string | null): string {
   const where = url == null ? "in Requireganizer" : `at ${url}`;
-  return `Requireganizer holds the spec the person approves for this project, from the product overview to test cases, each item traced to what it serves. Read it before building: get_workflow_state shows which stage can change now; get_items reads a stage's items by code, and get_stage_artifacts reads everything a stage holds. Submit a stage's work with its submit tool; the person reviews and approves it ${where}, and no tool approves. A channel event with a thread_id means a change request of the person's waits for you: read it with get_thread and answer it with reply_to_thread or with its stage's submission.`;
+  return `Requireganizer holds the spec the spec owner signs for this project, stage by stage, each item traced to what it builds on. Read it before building: get_workflow_state shows which stages are open; get_stage_rules gives a stage's published rules, and get_items reads its items by code. Write, change and remove items with write_items; the spec owner signs them ${where}, and no tool signs. A channel event with a thread_id means a change request of the spec owner's waits for you: read it with get_thread and answer it with reply_to_thread, or with write_items and its answers.`;
 }
 
 export interface McpService {
@@ -153,8 +153,7 @@ export async function serveMcp(
     }
   });
 
-  // The tools follow the project: a stage's submit tool appears once its
-  // earlier stages are approved, and its schema names the current items.
+  // The tools follow the project: create_module appears once it has modules.
   let checkTimer: ReturnType<typeof setTimeout> | null = null;
   const checkToolList = () => {
     if (checkTimer != null || listed == null) return;
@@ -169,15 +168,15 @@ export async function serveMcp(
       );
     }, TOOL_LIST_CHECK_DELAY_MS);
   };
-  // Each change request that waits for the agent is announced once, and
-  // again only after the person writes in it again.
+  // Each change request that waits for the agent is announced once its stage
+  // is open, and again only after the spec owner writes in it again.
   let initialized = false;
   let announced = new Set<string>();
   const announceWaitingThreads = () => {
     if (!initialized) return;
     const waiting = new Set<string>();
     const store = client.getSnapshot().store;
-    for (const thread of store.openThreadsWaitingFor("coding-agent")) {
+    for (const thread of store.threadsWaitingForAnswerer) {
       const turn = threadTurn(thread);
       waiting.add(turn);
       if (announced.has(turn)) continue;

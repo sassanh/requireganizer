@@ -1,1 +1,1 @@
-export { ConnectionLostError, ProjectClient, type TimelineClient } from "./projectClient";
+export { ConnectionLostError, ProjectClient } from "./projectClient";

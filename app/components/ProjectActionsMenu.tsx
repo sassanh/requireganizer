@@ -1,16 +1,8 @@
 "use client";
 
 import {
-  BugReport,
   DataObject,
-  FileDownload,
-  FileUpload,
-  FolderZip,
-  Forum,
   Menu as MenuIcon,
-  MenuBook,
-  PictureAsPdf,
-  Settings,
   SystemUpdateAlt,
   ViewModule,
 } from "@mui/icons-material";
@@ -23,74 +15,27 @@ import {
   Menu,
   MenuItem,
 } from "@mui/material";
-import { saveAs } from "file-saver";
-import { useRef, useState, useSyncExternalStore, ChangeEvent } from "react";
+import { useRef, useState, ChangeEvent } from "react";
 
 import { ShortcutLabel } from "actions/ActionHint";
 import { switchModuleShortcut } from "actions/actions";
-import { PROJECT_HOST_LOCATION } from "deployment";
-import { useAiSettingsDialog } from "hooks/useAiSettingsDialog";
 import { parseJson } from "lib/json";
 import { useProject } from "projectContext";
-import { useStore } from "store";
-import { answererLabel } from "store/threads";
 
-import AiSettingsDialog from "./AiSettingsDialog";
 import PersistentAlert from "./PersistentAlert";
 
-/**
- * The project-actions menu anchored in the top bar: modules, import, and
- * the export flows that used to live in the toolbar row.
- */
+/** The project-actions menu anchored in the top bar: modules, import and export. */
 export default function ProjectActionsMenu({
   onShowModules,
 }: {
   onShowModules: () => void;
 }) {
-  const store = useStore();
-  const {
-    modulesEnabled,
-    codeExportAvailable,
-    importProjectFile,
-    exportProject,
-    exportCodeArchive,
-    timeline,
-  } = useProject();
-  const timelineMeta = useSyncExternalStore(
-    timeline.subscribe,
-    timeline.getMeta,
-    timeline.getMeta,
-  );
+  const { modulesEnabled, importProjectFile, exportProject } = useProject();
   const inputRef = useRef<HTMLInputElement>(null);
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
-  const [debugAnchor, setDebugAnchor] = useState<HTMLElement | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
-  const aiSettings = useAiSettingsDialog();
 
-  const close = () => {
-    setAnchor(null);
-    setDebugAnchor(null);
-  };
-
-  const exportConversation = () => {
-    saveAs(
-      new Blob([JSON.stringify(store.conversation ?? [], null, 2)], {
-        type: "application/json;charset=utf-8",
-      }),
-      `requireganizer-conversation-${Date.now()}.json`,
-    );
-  };
-
-  const exportTimeline = async () => {
-    const snapshot = await timeline.exportSnapshot();
-    if (snapshot == null) return;
-    saveAs(
-      new Blob([JSON.stringify(snapshot, null, 2)], {
-        type: "application/json;charset=utf-8",
-      }),
-      `requireganizer-timeline-${Date.now()}.json`,
-    );
-  };
+  const close = () => setAnchor(null);
 
   const handleImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -127,88 +72,22 @@ export default function ProjectActionsMenu({
             close();
             inputRef.current?.click();
           }}
-          disabled={store.isBusy}
         >
           <ListItemIcon>
             <SystemUpdateAlt fontSize="small" />
           </ListItemIcon>
           <ListItemText>Import JSON</ListItemText>
         </MenuItem>
-        <Divider />
-        <MenuItem disabled>Export project…</MenuItem>
         <MenuItem
           onClick={() => {
             close();
-            void exportProject("pdf");
+            exportProject();
           }}
-          disabled={store.isBusy}
-        >
-          <ListItemIcon>
-            <PictureAsPdf fontSize="small" />
-          </ListItemIcon>
-          <ListItemText>Export as PDF</ListItemText>
-        </MenuItem>
-        <MenuItem
-          onClick={() => {
-            close();
-            void exportProject("txt");
-          }}
-          disabled={store.isBusy}
-        >
-          <ListItemIcon>
-            <MenuBook fontSize="small" />
-          </ListItemIcon>
-          <ListItemText>Export as TXT</ListItemText>
-        </MenuItem>
-        <MenuItem
-          onClick={() => {
-            close();
-            void exportProject("json");
-          }}
-          disabled={store.isBusy}
         >
           <ListItemIcon>
             <DataObject fontSize="small" />
           </ListItemIcon>
           <ListItemText>Export as JSON</ListItemText>
-        </MenuItem>
-        <Divider />
-        <MenuItem disabled>Export source code…</MenuItem>
-        <MenuItem
-          onClick={() => {
-            close();
-            exportCodeArchive("zip");
-          }}
-          disabled={store.isBusy || !codeExportAvailable}
-        >
-          <ListItemIcon>
-            <FolderZip fontSize="small" />
-          </ListItemIcon>
-          <ListItemText>.zip</ListItemText>
-        </MenuItem>
-        <MenuItem
-          onClick={() => {
-            close();
-            exportCodeArchive("tar.gz");
-          }}
-          disabled={store.isBusy || !codeExportAvailable}
-        >
-          <ListItemIcon>
-            <FolderZip fontSize="small" />
-          </ListItemIcon>
-          <ListItemText>.tar.gz</ListItemText>
-        </MenuItem>
-        <MenuItem
-          onClick={() => {
-            close();
-            exportCodeArchive("tar.bz2");
-          }}
-          disabled={store.isBusy || !codeExportAvailable}
-        >
-          <ListItemIcon>
-            <FolderZip fontSize="small" />
-          </ListItemIcon>
-          <ListItemText>.tar.bz2</ListItemText>
         </MenuItem>
         <Divider />
         <MenuItem
@@ -234,77 +113,6 @@ export default function ProjectActionsMenu({
             }
           />
         </MenuItem>
-        <MenuItem
-          disabled={store.isBusy}
-          onClick={() => {
-            close();
-            void store.setThreadAnswerer(
-              store.threadAnswerer === "requireganizer" ? "coding-agent" : "requireganizer",
-            );
-          }}
-        >
-          <ListItemIcon>
-            <Forum fontSize="small" />
-          </ListItemIcon>
-          <ListItemText
-            primary="Change requests go to"
-            secondary={`${answererLabel(store.threadAnswerer)} (click to switch)`}
-          />
-        </MenuItem>
-        <Divider />
-        {PROJECT_HOST_LOCATION === "page" && (
-          <MenuItem
-            onClick={() => {
-              close();
-              aiSettings.show();
-            }}
-          >
-            <ListItemIcon>
-              <Settings fontSize="small" />
-            </ListItemIcon>
-            <ListItemText>AI settings</ListItemText>
-          </MenuItem>
-        )}
-        <MenuItem
-          onClick={(event) => setDebugAnchor(event.currentTarget)}
-        >
-          <ListItemIcon>
-            <BugReport fontSize="small" />
-          </ListItemIcon>
-          <ListItemText>Debug</ListItemText>
-        </MenuItem>
-      </Menu>
-      <Menu
-        anchorEl={debugAnchor}
-        open={debugAnchor !== null}
-        onClose={() => setDebugAnchor(null)}
-        anchorOrigin={{ vertical: "top", horizontal: "right" }}
-        transformOrigin={{ vertical: "top", horizontal: "left" }}
-      >
-        <MenuItem
-          onClick={() => {
-            close();
-            exportConversation();
-          }}
-          disabled={(store.conversation?.length ?? 0) === 0}
-        >
-          <ListItemIcon>
-            <DataObject fontSize="small" />
-          </ListItemIcon>
-          <ListItemText>Export conversation JSON</ListItemText>
-        </MenuItem>
-        <MenuItem
-          onClick={() => {
-            close();
-            void exportTimeline();
-          }}
-          disabled={timelineMeta.entries.length === 0}
-        >
-          <ListItemIcon>
-            <FileDownload fontSize="small" />
-          </ListItemIcon>
-          <ListItemText>Export timeline &amp; steps JSON</ListItemText>
-        </MenuItem>
       </Menu>
 
       <input
@@ -315,14 +123,11 @@ export default function ProjectActionsMenu({
         onChange={handleImportFile}
       />
 
-      <AiSettingsDialog open={aiSettings.open} onClose={aiSettings.close} />
-
       {importError && (
         <PersistentAlert severity="error" onClose={() => setImportError(null)}>
           {importError}
         </PersistentAlert>
       )}
-
     </>
   );
 }

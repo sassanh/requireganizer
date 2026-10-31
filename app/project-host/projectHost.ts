@@ -7,7 +7,6 @@ import {
   onSnapshot,
 } from "mobx-state-tree";
 
-import { setAgentSessionId } from "ai-agent/agent";
 import { agentToolDescriptions, callAgentTool, type OpenModule, readToolDescriptions } from "ai-agent/agent-access";
 import { aiSettings } from "ai-agent/settings";
 import {
@@ -25,9 +24,7 @@ import {
   type ResponseMessage,
   type SentRegistry,
   type StoreActionCall,
-  type StoreEvent,
   type StoreImage,
-  type VolatileTextKey,
   type WireError,
 } from "connection";
 import { UserFacingError } from "lib/errors";
@@ -39,21 +36,6 @@ import {
   type ReplicatedVolatileState,
   type Store,
 } from "store";
-import type { WorkflowStage } from "store/constants";
-import {
-  activateBranch,
-  beginRewind,
-  cancelRewind,
-  type ChangeFocus,
-  getCurrentTurnPresentation,
-  getTimelineMeta,
-  getTimelineSnapshot,
-  jumpToNode,
-  onChangeFocus,
-  onTimelineChange,
-  redo,
-  undo,
-} from "store/timeline/controller";
 import { uuid } from "utilities";
 
 function wireError(error: unknown): WireError {
@@ -85,8 +67,8 @@ function sessionView(snapshot: ProjectSessionSnapshot) {
 }
 
 /**
- * The project authority: it owns the session, the only writable store, its
- * timeline, and the AI flows that run on it. Clients see the session and the
+ * The project authority: it owns the session, the only writable store,
+ * and the agent tools that act on it. Clients see the session and the
  * shown store through the events it sends and change them only through
  * requests; every connected client receives the same events in the same
  * order.
@@ -105,10 +87,7 @@ export class ProjectHost implements HostEndpoint {
   private sentSnapshots = new Map<string, Record<string, unknown>>();
   private sentVolatile: ReplicatedVolatileState | null = null;
   private pendingPatches: IJsonPatch[] = [];
-  private pendingEvents: StoreEvent[] = [];
-  private timelineChanged = false;
   private flushScheduled = false;
-  private agentProjectId: string | null = null;
 
   constructor(session: ProjectSession) {
     this.session = session;
@@ -129,21 +108,12 @@ export class ProjectHost implements HostEndpoint {
       openChangedProject: () => session.openChangedProject(),
       keepShownProject: () => session.keepShownProject(),
       runStoreAction: (call) => this.runStoreAction(call),
-      undo,
-      redo,
-      beginRewind,
-      cancelRewind,
-      jumpToNode,
-      activateBranch,
-      exportTimeline: getTimelineSnapshot,
       runPersistence: (call) => this.runPersistence(call),
       listAgentTools: async () => {
         // Without an open project the read tools are still listed: calling
         // one tells the agent what stands in the way.
         const store = await this.openStore().catch(() => null);
-        return store == null
-          ? readToolDescriptions(session.getSnapshot().store)
-          : agentToolDescriptions(store, this.openModule());
+        return store == null ? readToolDescriptions() : agentToolDescriptions(this.openModule());
       },
       callAgentTool: async (name, args, caller) => {
         const store = await this.openStore();
@@ -193,7 +163,7 @@ export class ProjectHost implements HostEndpoint {
   }
 
   /**
-   * Observe the session, the shown store, and the timeline. Only while a
+   * Observe the session and the shown store. Only while a
    * client is connected: a host nobody connected to holds no subscriptions.
    */
   private startObserving(): void {
@@ -205,15 +175,7 @@ export class ProjectHost implements HostEndpoint {
     this.disposers.push(
       aiSettings().subscribe(() => this.hostInfoChanged()),
       this.session.subscribe(() => this.sessionChanged()),
-      onTimelineChange(() => {
-        // Sent with the change that moved the timeline, or on its own.
-        this.timelineChanged = true;
-        this.scheduleFlush();
-      }),
-      onChangeFocus((focus) => this.flushUpdate(focus)),
     );
-    this.followAgentSession(initial.activeProject?.id ?? null);
-    if (initial.status === "ready") queueMicrotask(() => this.draftPendingOverview());
   }
 
   private stopObserving(): void {
@@ -249,11 +211,6 @@ export class ProjectHost implements HostEndpoint {
         update: {
           patches: [],
           volatile: {},
-          appended: {},
-          turn: null,
-          focus: null,
-          timeline: getTimelineMeta(),
-          events: [],
         },
       },
     });
@@ -368,10 +325,6 @@ export class ProjectHost implements HostEndpoint {
       event.store = this.storeImage();
     }
     this.broadcast(event);
-    this.followAgentSession(snapshot.activeProject?.id ?? null);
-    if (snapshot.status === "ready") {
-      queueMicrotask(() => this.draftPendingOverview());
-    }
   }
 
   /** The registry with every snapshot left out that all clients already hold. */
@@ -389,44 +342,21 @@ export class ProjectHost implements HostEndpoint {
     };
   }
 
-  // A stable per-project session id gives the provider's prompt cache a
-  // consistent affinity key for every LLM request of this project.
-  private followAgentSession(projectId: string | null): void {
-    if (projectId === this.agentProjectId) return;
-    this.agentProjectId = projectId;
-    setAgentSessionId(projectId);
-  }
-
-  /** A project created with a starting intent drafts its overview once it opens. */
-  private draftPendingOverview(): void {
-    const snapshot = this.session.getSnapshot();
-    if (snapshot.status !== "ready") return;
-    const seed = this.session.consumeOverviewSeed(snapshot.activeProject.id);
-    if (seed != null) void snapshot.store.generateProductOverview(seed);
-  }
-
   /** Observe another store; what the previous one still had pending goes with it. */
   private showStore(store: Store): void {
     this.shown?.stopObserving();
     this.pendingPatches = [];
-    this.pendingEvents = [];
     this.sentVolatile = replicatedVolatileState(store);
 
     const stopPatches = onPatch(store, (patch) => {
       this.pendingPatches.push(patch);
     });
-    // Flushed when the change finishes, while the timeline still reports the
-    // turn it belongs to.
+    // Flushed when the change finishes.
     const stopSnapshots = onSnapshot(store, () => this.flushUpdate());
     const stopVolatile = reaction(
       () => replicatedVolatileState(store),
       () => this.flushUpdate(),
     );
-    const onStepUpdate = (step: WorkflowStage) => {
-      this.pendingEvents.push({ name: "stepUpdate", step });
-      this.scheduleFlush();
-    };
-    store.eventTarget.on("stepUpdate", onStepUpdate);
 
     this.shown = {
       id: uuid(),
@@ -435,7 +365,6 @@ export class ProjectHost implements HostEndpoint {
         stopPatches();
         stopSnapshots();
         stopVolatile();
-        store.eventTarget.off("stepUpdate", onStepUpdate);
       },
     };
   }
@@ -460,54 +389,35 @@ export class ProjectHost implements HostEndpoint {
   }
 
   /**
-   * Send what the shown store and the timeline went through since the last
-   * update, together with the change focus being emitted, if any.
+   * Send what the shown store went through since the last
+   * update.
    */
-  private flushUpdate(focus: ChangeFocus | null = null): void {
+  private flushUpdate(): void {
     const shown = this.shown;
     if (shown == null) return;
     const current = replicatedVolatileState(shown.store);
     const volatile: Partial<Record<keyof ReplicatedVolatileState, unknown>> = {};
-    const appended: Partial<Record<VolatileTextKey, string>> = {};
     let volatileChanged = false;
     for (const key of Object.keys(current) as (keyof ReplicatedVolatileState)[]) {
       const value = current[key];
-      const sent = this.sentVolatile?.[key];
-      if (value === sent) continue;
+      if (value === this.sentVolatile?.[key]) continue;
       volatileChanged = true;
-      // Streamed text grows at its end; only the new part is sent.
-      if (typeof value === "string" && typeof sent === "string" && sent.length > 0 && value.startsWith(sent)) {
-        appended[key as VolatileTextKey] = value.slice(sent.length);
-      } else {
-        volatile[key] = value;
-      }
+      volatile[key] = value;
     }
     if (
       this.pendingPatches.length === 0 &&
-      this.pendingEvents.length === 0 &&
-      !volatileChanged &&
-      !this.timelineChanged &&
-      focus == null
+      !volatileChanged
     ) {
       return;
     }
     this.sentVolatile = current;
     const patches = this.pendingPatches;
-    const events = this.pendingEvents;
-    const timeline = this.timelineChanged ? getTimelineMeta() : null;
     this.pendingPatches = [];
-    this.pendingEvents = [];
-    this.timelineChanged = false;
     this.broadcast({
       type: "store-update",
       update: {
         patches,
         volatile: volatile as Partial<ReplicatedVolatileState>,
-        appended,
-        turn: getCurrentTurnPresentation(),
-        focus,
-        timeline,
-        events,
       },
     });
   }
