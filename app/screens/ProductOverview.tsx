@@ -35,7 +35,7 @@ const PurposeField = observer(function PurposeField() {
           multiline
           label="Purpose"
           placeholder="Summarize the key features and objectives of the software in a comprehensive overview..."
-          slotProps={{ input: { readOnly: true } }}
+          slotProps={{ input: { readOnly: true, sx: { pb: 6 } } }}
         />
         <Stack sx={{ position: "absolute", right: 8, bottom: 8 }}>
           <ApprovalMark id={OVERVIEW_PURPOSE_QUALITY_ID} />
