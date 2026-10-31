@@ -17,7 +17,7 @@ import {
   Typography,
 } from "@mui/material";
 import { observer } from "mobx-react-lite";
-import { type KeyboardEvent, useCallback, useRef, useState } from "react";
+import { type KeyboardEvent, type UIEvent, useCallback, useRef, useState } from "react";
 
 import type { CoverageState, ImpactState, ItemState } from "../module";
 import { revisionOf, textValue, type ItemVersion } from "../records";
@@ -350,7 +350,15 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
   const [composing, setComposing] = useState<string | null>(null);
   const [adding, setAdding] = useState<string | null>(null);
   const [rulesOpen, setRulesOpen] = useState(false);
+  const [compact, setCompact] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // The gap between the two thresholds keeps the header from flickering as its own height changes.
+  const onScroll = (event: UIEvent<HTMLDivElement>) => {
+    const scrolled = event.currentTarget.scrollTop;
+    if (!compact && scrolled > 64) setCompact(true);
+    else if (compact && scrolled < 8) setCompact(false);
+  };
 
   const cards = useCallback(
     () => Array.from(containerRef.current?.querySelectorAll<HTMLElement>("[data-unit-card]") ?? []),
@@ -419,34 +427,41 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
   const coverages = units.filter((unit): unit is CoverageState => unit.kind === "coverage");
   const impacts = units.filter((unit): unit is ImpactState => unit.kind === "impact");
   const items = units.filter((unit): unit is ItemState => unit.kind === "item");
+  const progressBar = (
+    <Stack direction="row" sx={{ alignItems: "center", gap: 1, flexGrow: 1 }}>
+      <LinearProgress
+        variant="determinate"
+        value={summary.total === 0 ? 0 : (summary.approved / summary.total) * 100}
+        color={summary.progress === "complete" ? "success" : "primary"}
+        sx={{ flexGrow: 1, height: compact ? 6 : 10, borderRadius: 5 }}
+      />
+      <Typography variant="subtitle2" sx={{ whiteSpace: "nowrap" }}>
+        {summary.approved} of {summary.total} approved
+      </Typography>
+    </Stack>
+  );
 
   return (
-    <Box ref={containerRef} onKeyDown={onKeyDown} sx={{ flexGrow: 1, minWidth: 0, overflowY: "auto", p: 2 }}>
-      <Stack spacing={1} sx={{ mb: 2 }}>
+    <Box ref={containerRef} onKeyDown={onKeyDown} onScroll={onScroll} sx={{ flexGrow: 1, minWidth: 0, overflowY: "auto", p: 2, pt: 0 }}>
+      <Stack
+        spacing={compact ? 0.5 : 1}
+        sx={{ position: "sticky", top: 0, zIndex: 2, bgcolor: "background.default", mx: -2, px: 2, pt: compact ? 1 : 2, pb: compact ? 1 : 0, mb: 2 }}
+      >
         <Stack direction="row" sx={{ alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-          <Typography variant="h5" sx={{ flexGrow: 1 }}>{definition.label}</Typography>
-          <Chip label={summary.open ? "Open" : "Closed"} color={summary.open ? "primary" : "default"} variant="outlined" />
-          <Chip label={STAGE_PROGRESS_LABELS[summary.progress]} color={summary.progress === "complete" ? "success" : summary.progress === "empty" ? "default" : "warning"} />
-          <Button startIcon={<MenuBook />} onClick={() => setRulesOpen(true)}>
+          <Typography variant={compact ? "subtitle1" : "h5"} sx={{ flexGrow: compact ? 0 : 1 }}>{definition.label}</Typography>
+          {compact && progressBar}
+          <Chip size={compact ? "small" : "medium"} label={summary.open ? "Open" : "Closed"} color={summary.open ? "primary" : "default"} variant="outlined" />
+          <Chip size={compact ? "small" : "medium"} label={STAGE_PROGRESS_LABELS[summary.progress]} color={summary.progress === "complete" ? "success" : summary.progress === "empty" ? "default" : "warning"} />
+          <Button size={compact ? "small" : "medium"} startIcon={<MenuBook />} onClick={() => setRulesOpen(true)}>
             Rules
           </Button>
         </Stack>
-        <Stack direction="row" sx={{ alignItems: "center", gap: 1 }}>
-          <LinearProgress
-            variant="determinate"
-            value={summary.total === 0 ? 0 : (summary.approved / summary.total) * 100}
-            color={summary.progress === "complete" ? "success" : "primary"}
-            sx={{ flexGrow: 1, height: 10, borderRadius: 5 }}
-          />
-          <Typography variant="subtitle2">
-            {summary.approved} of {summary.total} approved
-          </Typography>
-        </Stack>
+        {!compact && progressBar}
         <Typography variant="body2" color="text.secondary">
           {waitingParts.length === 0 ? "Nothing waits for a signature." : `Waiting for a signature: ${waitingParts.join(", ")}.`}
           {summary.threadsWaitingForSpecOwner > 0 ? ` ${summary.threadsWaitingForSpecOwner} ${summary.threadsWaitingForSpecOwner === 1 ? "thread waits" : "threads wait"} for you.` : ""}
         </Typography>
-        {!summary.open && (
+        {!summary.open && !compact && (
           <Alert severity="info">
             Closed until {workflow.upstreamStages(stage).filter((upstream) => !module.stageComplete(upstream)).map((upstream) => workflow.stage(upstream).label).join(" and ")} {workflow.upstreamStages(stage).filter((upstream) => !module.stageComplete(upstream)).length === 1 ? "is" : "are"} complete. Its work stays readable.
           </Alert>

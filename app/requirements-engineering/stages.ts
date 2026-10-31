@@ -110,7 +110,11 @@ export const REQUIREMENTS_ENGINEERING_STAGES: readonly StageDefinition[] = [
           PRIORITY,
         ],
         mustReference: [PRIMARY_FEATURE],
-        display: (parts) => `As a ${parts.names("targetUsers").join(" or ")}, I want ${parts.text("outcome")}, so that ${parts.text("reason")}`,
+        display: (parts) => {
+          const names = parts.names("targetUsers");
+          const article = /^[aeiou]/i.test(names[0] ?? "") ? "an" : "a";
+          return `As ${article} ${names.join(" or ")}, I want ${parts.text("outcome")}, so that ${parts.text("reason")}`;
+        },
       },
     ],
     rules: rules([
