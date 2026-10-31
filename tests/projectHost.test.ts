@@ -719,6 +719,38 @@ describe("project host and client", () => {
     }
   });
 
+  it("lets an agent create a module, which then is the one the page shows", async () => {
+    const toolNames = async (client: ProjectClient) => (await client.listAgentTools()).map(({ name }) => name);
+    const modules = await openProject(twoModules());
+    try {
+      assert.ok((await toolNames(modules.client)).includes("create_module"));
+      await modules.client.callAgentTool("create_module", { name: "Gamma" }, { name: "Test agent" });
+      const registry = modules.client.getSnapshot().registry;
+      assert.equal(registry?.modules.find(({ id }) => id === registry.activeModuleId)?.name, "Gamma");
+      const state = JSON.parse(await modules.client.callAgentTool("get_workflow_state", {}, { name: "Test agent" })) as {
+        module?: string;
+      };
+      assert.equal(state.module, "Gamma");
+      await assert.rejects(
+        modules.client.callAgentTool("create_module", { name: "module-a" }, { name: "Test agent" }),
+        /already exists/,
+      );
+    } finally {
+      modules.dispose();
+    }
+    const single = await openProject(singleModule());
+    try {
+      assert.ok(!(await toolNames(single.client)).includes("create_module"));
+      await assert.rejects(
+        single.client.callAgentTool("create_module", { name: "Gamma" }, { name: "Test agent" }),
+        /No tool named create_module/,
+      );
+      assert.equal(single.client.getSnapshot().registry?.modules.length, 1);
+    } finally {
+      single.dispose();
+    }
+  });
+
   it("refuses an agent's tool call while an import is replacing the project", async (t) => {
     const opened = await openProject(singleModule());
     try {

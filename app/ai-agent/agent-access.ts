@@ -57,10 +57,11 @@ function resultText(result: Awaited<ReturnType<AgentTool["execute"]>>): string {
 
 /**
  * What an outside agent works on: the module the person has open, named
- * while the project has modules.
+ * while the project has modules, and then how to add one.
  */
 export interface OpenModule {
   moduleName?: string;
+  addModule?: (name: string) => void;
 }
 
 /** The outside agent calling: the name it gave when it connected. */
@@ -87,6 +88,23 @@ const REPLY_TOOL: AgentToolDescription = {
       text: { type: "string", minLength: 1, description: "The reply the person reads." },
     },
     required: ["threadId", "text"],
+    additionalProperties: false,
+  },
+};
+
+const CREATE_MODULE_TOOL_NAME = "create_module";
+
+/** Listed while the project has modules. */
+const CREATE_MODULE_TOOL: AgentToolDescription = {
+  name: CREATE_MODULE_TOOL_NAME,
+  description:
+    "Create a module the person asked for. It opens at once in Requireganizer, empty at its Module Overview, and every tool then works on it.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      name: { type: "string", minLength: 1, description: "The module's name, as the person gave it." },
+    },
+    required: ["name"],
     additionalProperties: false,
   },
 };
@@ -138,8 +156,9 @@ export function readToolDescriptions(store: Store, open: OpenModule = {}): Agent
 
 /**
  * The tools an outside agent works with on an open project: the read tools
- * and the submission tool of every stage that can take work now, and, while
- * it answers the person's change requests, the tools that answer them.
+ * and the submission tool of every stage that can take work now, while it
+ * answers the person's change requests the tools that answer them, and
+ * while the project has modules the one that adds a module.
  * Approving and resolving stay with the person, so no tool does either.
  */
 export function agentToolDescriptions(store: Store, open: OpenModule = {}): AgentToolDescription[] {
@@ -149,6 +168,7 @@ export function agentToolDescriptions(store: Store, open: OpenModule = {}): Agen
     ...readToolDescriptions(store, open),
     ...(answers ? submissions.map(withAnswers) : submissions),
     ...(answers ? [REPLY_TOOL] : []),
+    ...(open.addModule == null ? [] : [CREATE_MODULE_TOOL]),
   ];
 }
 
@@ -180,6 +200,11 @@ export async function callAgentTool(
       author,
     );
     return "Replied. The thread waits for the person.";
+  }
+
+  if (name === CREATE_MODULE_TOOL_NAME && open.addModule != null) {
+    open.addModule(stringArgument(args, "name"));
+    return "Created the module; it is now the one the person has open. Call get_workflow_state before working on it.";
   }
 
   const submission = buildStageSubmissionTools(store).find(({ tool }) => tool.name === name);

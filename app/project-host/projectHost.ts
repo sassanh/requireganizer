@@ -169,7 +169,7 @@ export class ProjectHost implements HostEndpoint {
     const { registry } = this.session.getSnapshot();
     if (registry == null || !registry.modulesEnabled) return {};
     const moduleName = activeModule(registry)?.name;
-    return moduleName == null ? {} : { moduleName };
+    return moduleName == null ? {} : { moduleName, addModule: (name) => this.session.addModule(name) };
   }
 
   /** The open project's shown store, opening the only project a single-project storage holds. */
