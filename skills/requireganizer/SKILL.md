@@ -61,6 +61,9 @@ The person approves every item in Requireganizer's page; no tool approves.
   item, submit its stage and name the thread in the submission's `answers`,
   with a reply saying what changed. To ask or to disagree, use
   `reply_to_thread`. Only the person resolves a thread.
+- Answer a thread in the thread only. Its reply is where you tell the person
+  what changed or what waits; do not repeat, summarize or announce it in your
+  conversation with them.
 - When it is `requireganizer`, Requireganizer's AI answers them; leave them.
 
 ## Where the person works
