@@ -17,7 +17,7 @@ import {
   Typography,
 } from "@mui/material";
 import { observer } from "mobx-react-lite";
-import { type KeyboardEvent, type UIEvent, useCallback, useRef, useState } from "react";
+import { type UIEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import type { CoverageState, ImpactState, ItemState } from "../module";
 import { revisionOf, textValue, type ItemVersion } from "../records";
@@ -337,8 +337,11 @@ function isEditable(target: EventTarget | null): boolean {
 /**
  * One stage: its state, progress and what waits for a signature, its
  * published rules, its items, coverages and impacts, and the threads whose
- * unit is gone. J and K move between units, S signs the focused one and C
- * opens a change request on it.
+ * unit is gone. j and k move between units, Shift+J and Shift+K between
+ * units that wait for a signature, g and Shift+G to the first and last
+ * unit, s signs the focused one (Shift+S then moves to the next unit
+ * that waits for a signature) and c opens a
+ * change request on it.
  */
 const StageView = observer(function StageView({ stage }: { stage: string }) {
   const { module, workflow } = useWorkflowView();
@@ -352,6 +355,20 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
   const [rulesOpen, setRulesOpen] = useState(false);
   const [compact, setCompact] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLDivElement>(null);
+
+  /** Focus a unit's card and scroll it into view clear of the sticky header, with a margin on either side. */
+  const reveal = (card: HTMLElement | undefined) => {
+    const container = containerRef.current;
+    if (card == null || container == null) return;
+    card.focus({ preventScroll: true });
+    const margin = 16;
+    const top = (headerRef.current ?? container).getBoundingClientRect().bottom + margin;
+    const bottom = container.getBoundingClientRect().bottom - margin;
+    const { top: cardTop, bottom: cardBottom } = card.getBoundingClientRect();
+    if (cardTop < top) container.scrollBy({ top: cardTop - top });
+    else if (cardBottom > bottom) container.scrollBy({ top: Math.min(cardBottom - bottom, cardTop - top) });
+  };
 
   // The gap between the two thresholds keeps the header from flickering as its own height changes.
   const onScroll = (event: UIEvent<HTMLDivElement>) => {
@@ -370,14 +387,17 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
     return active?.dataset.unitCard ?? null;
   };
 
-  const sign = async (unitId: string) => {
+  /** Sign a unit, then move to the next unit that is not approved, or with `toWaiting` the next that waits for a signature. */
+  const sign = async (unitId: string, toWaiting = false) => {
     if (!(await perform(() => module.sign(unitId), "The signature could not be given."))) return;
     const all = cards();
     const index = all.findIndex((card) => card.dataset.unitCard === unitId);
     const ordered = [...all.slice(index + 1), ...all.slice(0, Math.max(index, 0))];
-    const next = ordered.find((card) => module.unitState(card.dataset.unitCard!)?.approved === false);
-    next?.focus();
-    next?.scrollIntoView({ block: "nearest" });
+    const next = ordered.find((card) => {
+      const state = module.unitState(card.dataset.unitCard!);
+      return state != null && (toWaiting ? module.waitsForSignature(state) : !state.approved);
+    });
+    reveal(next);
   };
 
   const move = (direction: 1 | -1) => {
@@ -385,14 +405,44 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
     if (all.length === 0) return;
     const index = all.findIndex((card) => card.dataset.unitCard === focusedUnit());
     const next = all[index === -1 ? (direction === 1 ? 0 : all.length - 1) : Math.min(all.length - 1, Math.max(0, index + direction))];
-    next?.focus();
-    next?.scrollIntoView({ block: "nearest" });
+    reveal(next);
   };
 
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (isEditable(event.target) || event.metaKey || event.ctrlKey || event.altKey) return;
+  /** Move to the next or previous unit that waits for a signature, wrapping around the stage. */
+  const moveToWaiting = (direction: 1 | -1) => {
+    const all = cards();
+    const index = all.findIndex((card) => card.dataset.unitCard === focusedUnit());
+    const ordered = direction === 1 ? [...all.slice(index + 1), ...all.slice(0, index + 1)] : [...all.slice(0, Math.max(index, 0)).reverse(), ...all.slice(Math.max(index, 0)).reverse()];
+    const next = ordered.find((card) => {
+      const state = module.unitState(card.dataset.unitCard!);
+      return state != null && module.waitsForSignature(state);
+    });
+    reveal(next);
+  };
+
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (event.defaultPrevented || isEditable(event.target) || event.metaKey || event.ctrlKey || event.altKey) return;
+    // Keys act while nothing has focus or focus is in the stage, never in a dialog or menu elsewhere on the page.
+    const inStage = event.target instanceof Node && containerRef.current?.contains(event.target) === true;
+    if (event.target !== document.body && !inStage) return;
     const unit = focusedUnit();
     switch (event.key) {
+      case "g":
+      case "G": {
+        event.preventDefault();
+        const all = cards();
+        const target = event.key === "g" ? all[0] : all.at(-1);
+        reveal(target);
+        return;
+      }
+      case "J":
+        event.preventDefault();
+        moveToWaiting(1);
+        return;
+      case "K":
+        event.preventDefault();
+        moveToWaiting(-1);
+        return;
       case "j":
       case "ArrowDown":
         event.preventDefault();
@@ -404,9 +454,10 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
         move(-1);
         return;
       case "s":
+      case "S":
         if (unit != null && module.isSignable(unit)) {
           event.preventDefault();
-          void sign(unit);
+          void sign(unit, event.key === "S");
         }
         return;
       case "c":
@@ -417,6 +468,14 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
         return;
     }
   };
+
+  const onKeyDownRef = useRef(onKeyDown);
+  onKeyDownRef.current = onKeyDown;
+  useEffect(() => {
+    const listener = (event: KeyboardEvent) => onKeyDownRef.current(event);
+    window.addEventListener("keydown", listener);
+    return () => window.removeEventListener("keydown", listener);
+  }, []);
 
   const controls: CardControls = { composing, setComposing, sign: (unitId) => void sign(unitId), stageOpen: summary.open };
   const waitingParts = (Object.entries(WAITING_CATEGORY_LABELS) as [keyof typeof WAITING_CATEGORY_LABELS, string][])
@@ -442,8 +501,9 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
   );
 
   return (
-    <Box ref={containerRef} onKeyDown={onKeyDown} onScroll={onScroll} sx={{ flexGrow: 1, minWidth: 0, overflowY: "auto", p: 2, pt: 0 }}>
+    <Box ref={containerRef} onScroll={onScroll} sx={{ flexGrow: 1, minWidth: 0, overflowY: "auto", p: 2, pt: 0 }}>
       <Stack
+        ref={headerRef}
         spacing={compact ? 0.5 : 1}
         sx={{ position: "sticky", top: 0, zIndex: 2, bgcolor: "background.default", mx: -2, px: 2, pt: compact ? 1 : 2, pb: compact ? 1 : 0, mb: 2 }}
       >
@@ -499,7 +559,7 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
         ))}
       </Stack>
       <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 3 }}>
-        Keyboard: J or ↓ next, K or ↑ previous, S sign, C request a change.
+        Keyboard: j or ↓ next, k or ↑ previous, Shift+J or Shift+K next or previous waiting for a signature, g first, Shift+G last, s sign, Shift+S sign and go to the next waiting for a signature, c request a change.
       </Typography>
       <RulesDialog stage={stage} open={rulesOpen} onClose={() => setRulesOpen(false)} />
     </Box>

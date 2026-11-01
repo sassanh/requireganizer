@@ -670,6 +670,9 @@ export function workflowModuleModel(workflow: Workflow) {
       };
     })
     .views((self) => {
+      const waitsForSignature = (unit: UnitState): boolean =>
+        unit.kind === "item" ? unit.waiting != null : !unit.signatureCounts;
+
       const progress = (stage: string): StageProgress => {
         const counted = self.stageUnits(stage).filter(({ kind }) => kind === "item");
         if (counted.length === 0) return "empty";
@@ -732,15 +735,15 @@ export function workflowModuleModel(workflow: Workflow) {
             .coveringStages(located.item.kind)
             .filter((stage) => self.coverageStates(stage).find(({ itemId }) => itemId === id)?.referencing.length === 0);
         },
+        /** Whether the unit still waits for a signature, as each stage counts it. */
+        waitsForSignature,
         stageSummary(stage: string): StageSummary {
           const units = self.stageUnits(stage);
           const waiting = { new: 0, changed: 0, "out-of-date": 0, "proposed-removal": 0, coverages: 0, impacts: 0 };
           for (const unit of units) {
-            if (unit.kind === "item") {
-              if (unit.waiting != null) waiting[unit.waiting] += 1;
-            } else if (!unit.signatureCounts) {
-              waiting[unit.kind === "coverage" ? "coverages" : "impacts"] += 1;
-            }
+            if (!waitsForSignature(unit)) continue;
+            if (unit.kind === "item") waiting[unit.waiting!] += 1;
+            else waiting[unit.kind === "coverage" ? "coverages" : "impacts"] += 1;
           }
           return {
             stage,
