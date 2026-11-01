@@ -75,6 +75,16 @@ function stageNamed(store: Store, name: unknown): string {
   return name;
 }
 
+/** Refuse a write whose codes come from a read before the codes moved. */
+function requireCodesVersion(store: Store, args: Arguments): void {
+  const given = stringArgument(args, "codesVersion");
+  if (given !== store.codesVersion) {
+    throw new UserFacingError(
+      `The codes moved since codesVersion ${given}; it is ${store.codesVersion} now. Read get_items again and name the items by the new codes.`,
+    );
+  }
+}
+
 /** How a dependency is named to the agent: by code in this module, or as "Module name/CODE" in another. */
 function linkName(store: Store, id: string): string {
   const own = store.codeOf(id);
@@ -483,11 +493,7 @@ const writeTool: AgentTool = {
     },
   },
   run: (store, args, _open, caller) => {
-    if (stringArgument(args, "codesVersion") !== store.codesVersion) {
-      throw new UserFacingError(
-        `The codes moved since codesVersion ${String(args.codesVersion)}; it is ${store.codesVersion} now. Read get_items again and name the items by the new codes.`,
-      );
-    }
+    requireCodesVersion(store, args);
     const answers = parseAnswers(args.answers);
     const answerProblem = store.answerProblem(answers);
     if (answerProblem != null) throw new UserFacingError(answerProblem);
@@ -504,6 +510,46 @@ const writeTool: AgentTool = {
     ];
     if (store.codesVersion !== codesBefore) lines.push(`Codes may have moved (codesVersion ${store.codesVersion}): read get_items again before naming items.`);
     return lines.join("\n");
+  },
+};
+
+const reorderTool: AgentTool = {
+  description: {
+    name: "reorder_items",
+    description:
+      "Put the items of one open stage in the order the page shows them, all or none. Name every item the stage holds, by code, once each, in the order you want, including one proposed for removal or waiting for impacts; get_items lists them. Reordering changes no item's fields, references, dependencies, version or signature, and needs no signature. Codes are positions, so a moved item may get another code: the reply names each item whose code changed. A reorder changes codesVersion; read get_items again before naming items or relying on their order.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        codesVersion: { type: "string", description: "The codesVersion of the get_items or get_workflow_state read the codes come from." },
+        stage: STAGE_PROPERTY,
+        order: {
+          type: "array",
+          items: { type: "string" },
+          description: "Every code of the stage's items, once each, in the order the page should show them.",
+        },
+      },
+      required: ["codesVersion", "stage", "order"],
+      additionalProperties: false,
+    },
+  },
+  run: (store, args) => {
+    requireCodesVersion(store, args);
+    const stage = stageNamed(store, args.stage);
+    const codes = optionalStrings(args, "order", "reorder_items");
+    if (codes == null) throw new UserFacingError("order must be a list of codes.");
+    const itemIds = codes.map((code) => {
+      const id = store.itemNamed(code);
+      if (id == null) throw new UserFacingError(`${store.stageLabel(stage)} has no item ${code}.`);
+      return id;
+    });
+    const outcome = store.reorderItems(stage, itemIds);
+    const label = store.stageLabel(stage);
+    if (!outcome.reordered) return `${label} is already in that order.`;
+    const moved = outcome.recoded.length === 0
+      ? "No codes moved."
+      : `Codes moved: ${outcome.recoded.map(({ before, after }) => `${before} → ${after}`).join(", ")}.`;
+    return `Reordered ${label}. ${moved} codesVersion is now ${store.codesVersion}; read get_items again before naming items or relying on their order.`;
   },
 };
 
@@ -549,7 +595,7 @@ const createModuleTool: AgentTool = {
 const READ_TOOLS: readonly AgentTool[] = [workflowStateTool, stageRulesTool, itemsTool, threadTool, threadsTool];
 
 function toolsFor(open: OpenModule): AgentTool[] {
-  return [...READ_TOOLS, writeTool, replyTool, ...(open.addModule == null ? [] : [createModuleTool])];
+  return [...READ_TOOLS, writeTool, reorderTool, replyTool, ...(open.addModule == null ? [] : [createModuleTool])];
 }
 
 /** The read tools, which an outside agent can call in every state of the project. */

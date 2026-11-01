@@ -193,6 +193,12 @@ export interface ChangeOutcome {
   unchanged: string[];
 }
 
+/** What reordering a stage did: whether the order changed, and each code that moved. */
+export interface ReorderOutcome {
+  reordered: boolean;
+  recoded: { id: string; before: string; after: string }[];
+}
+
 /** The revision a basis records for an item that no longer exists. */
 const MISSING_REVISION = "missing";
 
@@ -1233,6 +1239,50 @@ export function workflowModuleModel(workflow: Workflow) {
         /** Apply changes as far as they go, returning their problems: for a trial copy only. */
         writeItemsUnchecked(changes: ItemChange[]) {
           return applyAll(changes);
+        },
+        /**
+         * Put a stage's items in the given order, all or none. The order names
+         * every item of the stage once, by id, and changes no item's content.
+         * Only codes, which are positions, move.
+         */
+        reorderItems(stage: string, itemIds: readonly string[]): ReorderOutcome {
+          if (!workflow.isStage(stage)) throw new UserFacingError(`There is no stage ${stage}.`);
+          const definition = workflow.stage(stage);
+          requireOpen(stage, "reordering");
+          const items = self.itemsOf(stage);
+          const byId = new Map(items.map((item) => [item.id, item]));
+          const seen = new Set<string>();
+          const ordered: Item[] = [];
+          const problems: string[] = [];
+          for (const id of itemIds) {
+            const item = byId.get(id);
+            if (item == null) {
+              problems.push(`${self.codeOf(id) ?? id} is not an item of ${definition.label}.`);
+              continue;
+            }
+            if (seen.has(id)) {
+              problems.push(`${self.codeOf(id)} appears more than once in the order.`);
+              continue;
+            }
+            seen.add(id);
+            ordered.push(item);
+          }
+          const missing = items.filter((item) => !seen.has(item.id));
+          if (missing.length > 0) {
+            problems.push(
+              `Name every item of ${definition.label} once; the order leaves out ${missing.map((item) => self.codeOf(item.id)).join(", ")}.`,
+            );
+          }
+          if (problems.length > 0) throw new UserFacingError(problems.join("\n"));
+          const before = new Map(items.map((item) => [item.id, self.codeOf(item.id)!]));
+          if (items.every((item, index) => item.id === ordered[index]!.id)) return { reordered: false, recoded: [] };
+          stageNode(stage).items.replace(ordered);
+          return {
+            reordered: true,
+            recoded: ordered
+              .map((item) => ({ id: item.id, before: before.get(item.id)!, after: self.codeOf(item.id)! }))
+              .filter(({ before: was, after }) => was !== after),
+          };
         },
         /** Sign a unit, as only an explicit act of signing does. */
         sign(unitId: string, signer: Signer = SPEC_OWNER) {

@@ -59,6 +59,8 @@ tool signs.
 - Write, change and remove items with `write_items`. Check what it reports it
   added, changed and proposed for removal against what you meant to do,
   before telling the person.
+- To change the order the page shows items in, use `reorder_items` with every
+  item of the stage once. It moves codes, not content, and needs no signature.
 - Fix exactly what a refused write names and write again. Never weaken the
   items to get past a check.
 - If the stage you need is closed, the person has signatures to give first.
