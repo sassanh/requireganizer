@@ -23,8 +23,9 @@ tool signs.
 - Call `get_workflow_state` first, and again after anything changes.
 - Read a stage's rules with `get_stage_rules` before writing it, and follow
   them: the person signs against the same rules.
-- To work on a module other than the one the person has open, ask the person
-  to open it.
+- To work on a module other than the one the person has open, call
+  `switch_module` with a name `get_workflow_state` lists. The person's page
+  opens that module too; call `get_workflow_state` again before working on it.
 - Read items with `get_items` again before changing or citing them, rather
   than relying on an earlier read: codes are positions and move.
 

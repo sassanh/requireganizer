@@ -99,6 +99,17 @@ export function visibleModules(
   return registry.modules.filter((module) => module.archivedAt == null);
 }
 
+/** The visible module a name names, compared as names are compared for uniqueness. */
+export function visibleModuleNamed(
+  registry: Pick<ModuleRegistry, "modules">,
+  name: string,
+): ModuleEntry | null {
+  const wanted = moduleNameKey(name);
+  return visibleModules(registry).find(
+    (module) => moduleNameKey(module.name) === wanted,
+  ) ?? null;
+}
+
 /**
  * The modules a display reference may resolve into: every visible module
  * except the active one. Archived modules are removed into nowhere, so no

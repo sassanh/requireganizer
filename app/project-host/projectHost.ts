@@ -28,7 +28,7 @@ import {
   type WireError,
 } from "connection";
 import { UserFacingError } from "lib/errors";
-import { activeModule, type ModuleRegistry } from "lib/moduleSchema";
+import { activeModule, type ModuleRegistry, visibleModuleNamed, visibleModules } from "lib/moduleSchema";
 import type { StorageTraits } from "persistence";
 import type { ProjectSession, ProjectSessionSnapshot } from "project-session";
 import {
@@ -139,7 +139,27 @@ export class ProjectHost implements HostEndpoint {
     const { registry } = this.session.getSnapshot();
     if (registry == null || !registry.modulesEnabled) return {};
     const moduleName = activeModule(registry)?.name;
-    return moduleName == null ? {} : { moduleName, addModule: (name) => this.session.addModule(name) };
+    if (moduleName == null) return {};
+    const modules = visibleModules(registry);
+    return {
+      moduleName,
+      ...(modules.length > 1
+        ? {
+            switchModule: (name: string) => {
+              const target = visibleModuleNamed(registry, name);
+              if (target == null) {
+                const names = modules.map((entry) => `“${entry.name}”`).join(", ");
+                throw new UserFacingError(`There is no module named “${name}”. The modules are ${names}.`);
+              }
+              if (!this.session.switchModule(target.id)) {
+                throw new UserFacingError(`“${target.name}” could not be opened.`);
+              }
+              return target.name;
+            },
+          }
+        : {}),
+      addModule: (name) => this.session.addModule(name),
+    };
   }
 
   /** The open project's shown store, opening the only project a single-project storage holds. */

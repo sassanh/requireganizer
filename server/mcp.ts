@@ -153,7 +153,7 @@ export async function serveMcp(
     }
   });
 
-  // The tools follow the project: create_module appears once it has modules.
+  // The tools follow the project: the module tools appear once it has modules.
   let checkTimer: ReturnType<typeof setTimeout> | null = null;
   const checkToolList = () => {
     if (checkTimer != null || listed == null) return;

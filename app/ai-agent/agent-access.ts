@@ -32,10 +32,12 @@ export interface AgentToolDescription {
 
 /**
  * What an outside agent works on: the module the person has open, named
- * while the project has modules, and then how to add one.
+ * while the project has modules, and then how to switch to another or add
+ * one.
  */
 export interface OpenModule {
   moduleName?: string;
+  switchModule?: (name: string) => string;
   addModule?: (name: string) => void;
 }
 
@@ -553,6 +555,28 @@ const reorderTool: AgentTool = {
   },
 };
 
+const switchModuleTool: AgentTool = {
+  description: {
+    name: "switch_module",
+    description:
+      "Open another module of the project, so the spec owner's page and every tool work on it. Name it as get_workflow_state lists it under module or otherModules. The page switches at once. Call get_workflow_state after switching: each module has its own stages, items and codesVersion.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", minLength: 1, description: "The module to open, as get_workflow_state lists it." },
+      },
+      required: ["name"],
+      additionalProperties: false,
+    },
+  },
+  run: (_store, args, open) => {
+    const requested = stringArgument(args, "name");
+    const opened = open.switchModule!(requested);
+    if (opened === open.moduleName) return `“${opened}” is already open.`;
+    return `Opened “${opened}”. Every tool now works on it; call get_workflow_state before working on it.`;
+  },
+};
+
 const replyTool: AgentTool = {
   description: {
     name: "reply_to_thread",
@@ -595,7 +619,14 @@ const createModuleTool: AgentTool = {
 const READ_TOOLS: readonly AgentTool[] = [workflowStateTool, stageRulesTool, itemsTool, threadTool, threadsTool];
 
 function toolsFor(open: OpenModule): AgentTool[] {
-  return [...READ_TOOLS, writeTool, reorderTool, replyTool, ...(open.addModule == null ? [] : [createModuleTool])];
+  return [
+    ...READ_TOOLS,
+    writeTool,
+    reorderTool,
+    replyTool,
+    ...(open.switchModule == null ? [] : [switchModuleTool]),
+    ...(open.addModule == null ? [] : [createModuleTool]),
+  ];
 }
 
 /** The read tools, which an outside agent can call in every state of the project. */
