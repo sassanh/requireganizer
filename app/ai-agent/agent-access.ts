@@ -353,7 +353,7 @@ const stageRulesTool: AgentTool = {
   description: {
     name: "get_stage_rules",
     description:
-      "Read one stage's published rules, the same the spec owner reads and signs against: what it builds on and which kinds of items it covers there, the kinds of item it holds with their codes, fields, the kinds each must reference at least one of, the single items each counts as depending on, an example of its fields where the shape is not plain, and the rules every item of it follows. Each field has a type: text; choice, one of its options; flag, true or false; texts, a list of texts; items, a list of codes of the kind it chooses, or one code, never a list, when single, which count as the item's references when that kind is in a stage this stage builds on, or as its dependencies when it is in this stage, and are never listed again in references or dependencies; record, an object of its own fields, or null for none; records, a list of such objects, one per entry. A field with shownAfter holds only what follows those words. A refused write names the field by its place, such as \"AT-01, Then step 2: Comparison\". Read them before writing a stage.",
+      "Read one stage's published rules, the same the spec owner reads and signs against: what it builds on and which kinds of items it covers there, the kinds of item it holds with their codes, fields, the kinds each must reference at least one of, the single items each counts as referencing or depending on without listing them, an example of its fields where the shape is not plain, the rules every item of it follows, as a list, and, for some stages, examples of what follows them and what does not. Each field has a type: text; choice, one of its options; flag, true or false; texts, a list of texts; items, a list of codes of the kind it chooses, or one code, never a list, when single, which count as the item's references when that kind is in a stage this stage builds on, or as its dependencies when it is in this stage, and are never listed again in references or dependencies; record, an object of its own fields, or null for none; records, a list of such objects, one per entry. A field with shownAfter holds only what follows those words. A refused write names the field by its place, such as \"AT-01, Then step 2: Comparison\". Read them before writing a stage.",
     inputSchema: { type: "object", properties: { stage: STAGE_PROPERTY }, required: ["stage"], additionalProperties: false },
   },
   run: (store, args) => {
@@ -369,10 +369,12 @@ const stageRulesTool: AgentTool = {
         ...(kind.single ? { single: true } : {}),
         fields: kind.fields.map(fieldView),
         ...(kind.mustReference == null ? {} : { mustReferenceAtLeastOne: kind.mustReference }),
+        ...(kind.referencesSingle == null ? {} : { countsAsReferencing: kind.referencesSingle }),
         ...(kind.dependsOnSingle == null ? {} : { countsAsDependingOn: kind.dependsOnSingle }),
         ...(kind.example == null ? {} : { exampleFields: kind.example }),
       })),
-      rules: stage.rules,
+      rules: store.workflow.rulesOf(stage.id),
+      ...(stage.examples == null ? {} : { examples: stage.examples }),
     });
   },
 };

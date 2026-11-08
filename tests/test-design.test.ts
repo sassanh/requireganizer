@@ -22,10 +22,17 @@ async function specified(): Promise<Store> {
   const store = Store.create({});
   await write(store, [
     { action: "add", stage: "module-overview", kind: "purpose", fields: { text: "Shoppers get their orders." } },
-    { action: "add", stage: "module-overview", kind: "primary-feature", fields: { text: "Ordering." } },
-    { action: "add", stage: "module-overview", kind: "target-user", fields: { name: "shopper", description: "Buys." } },
   ]);
   signAll(store, "module-overview");
+  await write(store, [
+    { action: "add", stage: "capabilities", kind: "capability", fields: { name: "Ordering", description: "Shoppers order what the shop holds." } },
+  ]);
+  signAll(store, "capabilities");
+  await write(store, [
+    { action: "add", stage: "features-and-target-users", kind: "feature", fields: { name: "Shoe orders", description: "Orders shoes.", capability: "CAP-01" } },
+    { action: "add", stage: "features-and-target-users", kind: "target-user", fields: { name: "shopper", description: "Buys." } },
+  ]);
+  signAll(store, "features-and-target-users");
   await write(store, [{ action: "add", stage: "user-stories", fields: { targetUsers: ["USR-01"], outcome: "order", reason: "get shoes" }, references: ["FEA-01"] }]);
   signAll(store, "user-stories");
   await write(store, [{ action: "add", stage: "requirements", fields: { obligation: "refuse an order beyond stock" }, references: ["US-01"] }]);

@@ -1,6 +1,6 @@
 ---
 name: requireganizer
-description: The person's signed spec for this repository, kept in Requireganizer as module overview, user stories, requirements, acceptance criteria, the boundary tests use and abstract tests, each traced to what it builds on. Read it before implementing to build what was decided instead of guessing, and name the items your code covers. Write stage items through its MCP tools for the person to sign. Use when the repository has a requireganizer.json, the requireganizer MCP tools are available, or the user mentions Requireganizer.
+description: The person's signed spec for this repository, kept in Requireganizer as module overview, capabilities, features, target users, user stories, requirements, acceptance criteria, the boundary tests use and abstract tests, each traced to what it builds on. Read it before implementing to build what was decided instead of guessing, and name the items your code covers. Write stage items through its MCP tools for the person to sign. Use when the repository has a requireganizer.json, the requireganizer MCP tools are available, or the user mentions Requireganizer.
 ---
 
 # Requireganizer
@@ -9,11 +9,13 @@ Requireganizer keeps a project's specification as stages. Each stage builds
 on the stages before it and opens once they are complete:
 
 1. Module Overview
-2. User Stories, building on Module Overview
-3. Requirements, building on User Stories
-4. Acceptance Criteria, building on Requirements
-5. Boundary, building on Acceptance Criteria
-6. Abstract tests, building on Acceptance Criteria and Boundary
+2. Capabilities, building on Module Overview
+3. Features and Target Users, building on Capabilities
+4. User Stories, building on Features and Target Users
+5. Requirements, building on User Stories
+6. Acceptance Criteria, building on Requirements
+7. Boundary, building on Acceptance Criteria
+8. Abstract tests, building on Acceptance Criteria and Boundary
 
 The person signs every item, coverage and impact in Requireganizer's page; no
 tool signs.
@@ -38,11 +40,12 @@ tool signs.
 
 ## When writing a stage
 
-- Write each item in the fields `get_stage_rules` lists. A target user is a
-  name and a one-sentence description. A user story is its target users, as
-  codes, an outcome and a reason. A requirement holds only what follows "The
-  system must". An acceptance criterion is a Given, a When, left empty for a
-  state that holds with no event, and a Then.
+- Write each item in the fields `get_stage_rules` lists. A capability and a
+  target user are each a name and a one-sentence description; a feature adds
+  the code of the one capability it belongs to. A user story is its target
+  users, as codes, an outcome and a reason. A requirement holds only what
+  follows "The system must". An acceptance criterion is a Given, a When, left
+  empty for a state that holds with no event, and a Then.
 - The Boundary holds one boundary statement, entity types, sets of words and
   operations. Write entity types and sets of words before the operations
   that name them: items added in one write cannot name each other by code.

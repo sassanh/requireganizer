@@ -19,6 +19,7 @@ import {
 import { observer } from "mobx-react-lite";
 import { type UIEvent, useCallback, useEffect, useRef, useState } from "react";
 
+import type { FieldDefinition } from "../definition";
 import type { CoverageState, ImpactState, ItemState } from "../module";
 import { revisionOf, textValue, type ItemVersion } from "../records";
 import { LINK_REASON_LABELS, STAGE_PROGRESS_LABELS, WAITING_CATEGORY_LABELS } from "../units";
@@ -54,10 +55,16 @@ function Fields({ kind, version }: { kind: string; version: ItemVersion }) {
   const { module, workflow } = useWorkflowView();
   const choices = workflow.kind(kind).fields.flatMap((field) => (field.type === "choice" && textValue(version.content[field.name]) !== "" ? [field] : []));
   const marks = module.marksOf(kind, version.content);
+  const prefix = workflow.prefixOf(kind);
   return (
     <Stack spacing={0.5}>
       <Typography variant="body1" sx={{ whiteSpace: "pre-wrap" }}>
-        {module.shownText(kind, version.content)}
+        {prefix == null ? null : (
+          <Box component="span" sx={{ color: "text.secondary", fontWeight: 600 }}>
+            {`${prefix} `}
+          </Box>
+        )}
+        {module.displayOf(kind, version.content)}
       </Typography>
       {choices.map((field) => (
         <Chip key={field.name} size="small" label={textValue(version.content[field.name])} sx={{ alignSelf: "flex-start" }} />
@@ -305,6 +312,21 @@ const ImpactCard = observer(function ImpactCard({ state, controls }: { state: Im
   );
 });
 
+function RuleFields({ fields, depth = 0 }: { fields: readonly FieldDefinition[]; depth?: number }) {
+  return (
+    <Stack spacing={0.5} sx={{ pl: depth === 0 ? 2 : 1 }}>
+      {fields.map((field) => (
+        <Box key={field.name}>
+          <Typography variant="body2">
+            <Box component="span" sx={{ fontWeight: 600 }}>{field.label}</Box> ({field.required ? "required" : "optional"}): {field.description}
+          </Typography>
+          {(field.type === "record" || field.type === "records") && <RuleFields fields={field.fields} depth={depth + 1} />}
+        </Box>
+      ))}
+    </Stack>
+  );
+}
+
 function RulesDialog({ stage, open, onClose }: { stage: string; open: boolean; onClose: () => void }) {
   const { workflow } = useWorkflowView();
   const definition = workflow.stage(stage);
@@ -319,9 +341,42 @@ function RulesDialog({ stage, open, onClose }: { stage: string; open: boolean; o
                 .map(({ stage: basis, covers }) => `${workflow.stage(basis).label}${covers.length === 0 ? "" : `, covering its ${covers.map((kind) => workflow.kind(kind).plural.toLowerCase()).join(" and ")}`}`)
                 .join("; ")}.`}
         </Typography>
-        <Typography variant="body2" component="div" sx={{ whiteSpace: "pre-wrap" }}>
-          {definition.rules}
-        </Typography>
+        <Typography variant="subtitle1" sx={{ mt: 2 }}>Kinds</Typography>
+        <Stack spacing={1.5}>
+          {definition.kinds.map((kind) => (
+            <Box key={kind.kind}>
+              <Typography variant="subtitle2">
+                {kind.label} ({kind.code}){kind.single ? ", single" : ""}
+              </Typography>
+              <RuleFields fields={kind.fields} />
+            </Box>
+          ))}
+        </Stack>
+        <Typography variant="subtitle1" sx={{ mt: 2 }}>Rules</Typography>
+        <Box component="ul" sx={{ pl: 3, my: 0 }}>
+          {workflow.rulesOf(stage).map((rule, index) => (
+            <Typography key={index} component="li" variant="body2" sx={{ mb: 1 }}>
+              {rule}
+            </Typography>
+          ))}
+        </Box>
+        {definition.examples == null ? null : (
+          <>
+            <Typography variant="subtitle1" sx={{ mt: 2 }}>Examples</Typography>
+            <Stack spacing={1.5}>
+              {definition.examples.map((example, index) => (
+                <Box key={index}>
+                  <Typography variant="subtitle2" color={example.good ? "success.main" : "error.main"}>
+                    {example.label}:
+                  </Typography>
+                  <Typography variant="body2" sx={{ pl: 2, fontStyle: "italic" }}>
+                    {`"${example.text}"`}
+                  </Typography>
+                </Box>
+              ))}
+            </Stack>
+          </>
+        )}
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Close</Button>

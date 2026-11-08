@@ -14,13 +14,6 @@ const text = (name: string, label: string, description: string, required = true)
   required,
 });
 
-const SHARED_RULES = [
-  "A reference links an item to an item of a stage this stage builds on; a dependency links it to an item of its own stage or of another module that it relies on.",
-  "An item is signed as it is shown. Write each item so that it can be judged on its own.",
-];
-
-const rules = (lines: readonly string[]) => [...lines, ...SHARED_RULES].map((line) => `- ${line}`).join("\n");
-
 /** The stages of Test design, as the workflow engine takes them. */
 export const TEST_DESIGN_STAGES: readonly StageDefinition[] = [
   {
@@ -124,7 +117,7 @@ export const TEST_DESIGN_STAGES: readonly StageDefinition[] = [
         },
       },
     ],
-    rules: rules([
+    rules: [
       "The boundary statement says what the module's tests act on and observe, what they leave out, and the starting state every abstract test of the module starts from. What they act on and observe and the starting state are required.",
       "The starting state holds no entity: each test builds in its Given every entity its steps use.",
       "An entity type names something a test gets as one step's result and refers to by name in later steps, such as an order; it has a name and what it is. A set of words has a name and the words a value of it can be, at least one.",
@@ -140,7 +133,24 @@ export const TEST_DESIGN_STAGES: readonly StageDefinition[] = [
       "Every entity type and every set of words the boundary holds is named by some operation.",
       "Operations are written for the acceptance criteria as best understood; an operation found missing while writing abstract tests is added then.",
       "The Boundary builds on Acceptance Criteria without asking for their coverage; Abstract tests covers the acceptance criteria and the operations.",
-    ]),
+    ],
+    examples: [
+      {
+        good: true,
+        label: "Good, an entity type",
+        text: "Order: A request to buy one or more products.",
+      },
+      {
+        good: false,
+        label: "Not an operation, an observation that computes",
+        text: 'Observation "search orders": search the orders for {text}',
+      },
+      {
+        good: false,
+        label: "Not an entity type, a choice of technology",
+        text: "Order: The orders table in PostgreSQL.",
+      },
+    ],
   },
   {
     id: ABSTRACT_TESTS,
@@ -204,7 +214,7 @@ export const TEST_DESIGN_STAGES: readonly StageDefinition[] = [
         },
       },
     ],
-    rules: rules([
+    rules: [
       "An abstract test verifies exactly one acceptance criterion of its module, chosen in its criterion field, with concrete values, and names nothing of the product's technology.",
       "An abstract test holds Given steps, When steps and Then steps, at least one Then step. It counts as referencing each operation its steps use, without listing them.",
       "Each test starts from the boundary statement's starting state and builds in its Given everything its steps use.",
@@ -222,6 +232,23 @@ export const TEST_DESIGN_STAGES: readonly StageDefinition[] = [
       "An acceptance criterion is covered when its tests include one for each case it distinguishes, refusals included, and, at each edge of a range of input values it allows, one at the edge value and one at the nearest value beyond it, at the precision the criterion states.",
       "An acceptance criterion needing anything the boundary statement leaves out gets no abstract test, and its coverage is signed as untested.",
       "An operation is covered when some test uses it and, for each refusal it declares, some test expects that refusal.",
-    ]),
+    ],
+    examples: [
+      {
+        good: true,
+        label: "Good, an abstract test",
+        text: "Verifies AC-02: Given the shop holds one shoe, When an order is placed for two shoes, Then the order is refused as out of stock.",
+      },
+      {
+        good: false,
+        label: "Not an abstract test, a test that names technology",
+        text: "Verifies AC-02: Given a row in the orders table, When a row is inserted, Then the row is stored.",
+      },
+      {
+        good: false,
+        label: "Not an abstract test, no Then step",
+        text: "Verifies AC-02: Given the shop holds one shoe, When an order is placed for two shoes.",
+      },
+    ],
   },
 ];

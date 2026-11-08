@@ -327,14 +327,29 @@ export function workflowModuleModel(workflow: Workflow) {
         return threadsOfUnit().get(unitId)?.find(({ resolvedAt }) => resolvedAt == null) ?? null;
       }
 
+      /** The items of single kinds that the given stages hold. */
+      function singleItemsOf(kinds: readonly string[], stages: readonly string[]): string[] {
+        return stages.flatMap((stage) => itemsOf(stage).filter((candidate) => kinds.includes(candidate.kind)).map(({ id }) => id));
+      }
+
+      /** The items of a basis stage an item counts as referencing without listing them: those its fields choose, and the items of single kinds it references. */
+      function derivedReferencesOf(kind: string, content: ItemContent): string[] {
+        const single = singleItemsOf(workflow.kind(kind).referencesSingle ?? [], workflow.basisStages(workflow.stageOfKind(kind)));
+        return [...new Set([...workflow.chosenReferences(kind, content), ...single])];
+      }
+
+      /** Every item a version of an item references: those it counts as referencing, then those it lists, each once. */
+      function referencesOfVersion(kind: string, version: { content: ItemContent; references: readonly string[] }): string[] {
+        return [...new Set([...derivedReferencesOf(kind, version.content), ...version.references])];
+      }
+
       function referencesOf(item: Item): string[] {
-        return workflow.referencesOf(item.kind, item);
+        return referencesOfVersion(item.kind, item);
       }
 
       /** The items of its own stage an item counts as depending on without listing them: those its fields choose, and the items of single kinds it depends on. */
       function derivedDependenciesOf(kind: string, content: ItemContent, stage: string, itemId: string | null): string[] {
-        const singles = workflow.kind(kind).dependsOnSingle ?? [];
-        const single = itemsOf(stage).filter((candidate) => singles.includes(candidate.kind)).map(({ id }) => id);
+        const single = singleItemsOf(workflow.kind(kind).dependsOnSingle ?? [], [stage]);
         return [...new Set([...workflow.chosenDependencies(kind, content), ...single])].filter((id) => id !== itemId);
       }
 
@@ -620,9 +635,16 @@ export function workflowModuleModel(workflow: Workflow) {
         };
       }
 
-      /** An item's content as every view of it shows it, each chosen item named by its shown field. */
-      function shownText(kind: string, content: ItemContent): string {
+      /** An item's content as its kind displays it, without the kind's prefix. */
+      function displayOf(kind: string, content: ItemContent): string {
         return workflow.kind(kind).display(shownParts(kind, content));
+      }
+
+      /** An item's content as every view of it shows it: its kind's prefix, if any, then its display. */
+      function shownText(kind: string, content: ItemContent): string {
+        const prefix = workflow.prefixOf(kind);
+        const display = displayOf(kind, content);
+        return prefix == null ? display : `${prefix} ${display}`;
       }
 
       /** The marks an item's content shows beside it. */
@@ -635,6 +657,7 @@ export function workflowModuleModel(workflow: Workflow) {
         locate,
         findLinked,
         referencesOf,
+        referencesOfVersion,
         dependenciesOf,
         derivedDependenciesOf,
         /** The module as a kind's rules and displays read it. */
@@ -642,6 +665,7 @@ export function workflowModuleModel(workflow: Workflow) {
           return reader;
         },
         shownText,
+        displayOf,
         marksOf,
         /** An item's text as it is now. */
         textOf(id: string): string {
@@ -1070,6 +1094,8 @@ export function workflowModuleModel(workflow: Workflow) {
           } else if (expectedKind == null && chosenKinds.includes(located.item.kind)) {
             const field = itemsFields(definition.fields).find((candidate) => candidate.of === located.item.kind)!;
             problems.push(`${name} lists ${code} in its references; a ${definition.label.toLowerCase()} names its ${workflow.kind(located.item.kind).plural.toLowerCase()} in ${field.label} instead, and counts as referencing them.`);
+          } else if (expectedKind == null && (definition.referencesSingle ?? []).includes(located.item.kind)) {
+            problems.push(`${name} lists ${code} in its references; it counts as referencing it already, so leave it out.`);
           }
           if (before.has(reference)) return;
           const allowed = expectedKind != null && workflow.stageOfKind(expectedKind) === stage ? [stage] : basis;
@@ -1098,7 +1124,7 @@ export function workflowModuleModel(workflow: Workflow) {
             problems.push(`${name} lists ${self.codeOf(dependency)} in its dependencies; it counts as depending on it already, so leave it out.`);
           }
         }
-        const all = workflow.referencesOf(kind, { content, references });
+        const all = self.referencesOfVersion(kind, { content, references });
         for (const required of definition.mustReference ?? []) {
           const referenced = all.some((id) => {
             const located = self.locate(id);

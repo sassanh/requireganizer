@@ -184,7 +184,21 @@ const FieldsEditor = observer(function FieldsEditor({
                 autoFocus={autoFocus && index === 0}
                 value={textValue(value)}
                 onChange={(event) => set(field.name, event.target.value)}
-                slotProps={field.prefix == null ? undefined : { input: { startAdornment: <InputAdornment position="start">{field.prefix}</InputAdornment> } }}
+                slotProps={
+                  field.prefix == null
+                    ? undefined
+                    : {
+                        input: {
+                          startAdornment: (
+                            <InputAdornment position="start">
+                              <Box component="span" sx={{ color: "text.secondary", fontWeight: 600 }}>
+                                {field.prefix}
+                              </Box>
+                            </InputAdornment>
+                          ),
+                        },
+                      }
+                }
               />
             );
           case "choice": {
@@ -291,9 +305,10 @@ const ItemEditor = observer(function ItemEditor({
 
   const option = (id: string, label: string): Option => ({ id, label });
   const chosenKinds = workflow.chosenKinds(kind);
+  const countedReferences = [...chosenKinds, ...(definition.referencesSingle ?? [])];
   const referenceOptions: Option[] = workflow.basisStages(stage).flatMap((basis) =>
     module.itemsOf(basis)
-      .filter(({ kind: candidate, removal }) => removal == null && !chosenKinds.includes(candidate))
+      .filter(({ kind: candidate, removal }) => removal == null && !countedReferences.includes(candidate))
       .map((item) => option(item.id, `${module.codeOf(item.id)} ${itemExcerpt(module.textOf(item.id))}`)),
   );
   const counted = [...chosenKinds, ...(definition.dependsOnSingle ?? [])];

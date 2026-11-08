@@ -50,7 +50,11 @@ interface FieldBase {
 /** Free text. */
 export interface TextFieldDefinition extends FieldBase {
   type: "text";
-  /** Words the form shows in front of the value, which the value does not repeat. */
+  /**
+   * Words shown in front of the value, which the value does not repeat. The
+   * first of a kind's fields with a prefix also puts it in front of the
+   * item's display.
+   */
   prefix?: string;
   /** The only texts it may hold where it sits, when they depend on the rest of the item. */
   offered?: (place: FieldPlace) => Offer;
@@ -202,6 +206,8 @@ export interface ItemKindDefinition {
   fields: readonly FieldDefinition[];
   /** Kinds of a basis stage of which an item must reference at least one item, through its references or an items field. */
   mustReference?: readonly string[];
+  /** Single kinds of a basis stage whose item every item of this kind counts as referencing, without listing it. */
+  referencesSingle?: readonly string[];
   /** Single kinds of its own stage whose item every item of this kind counts as depending on, without listing it. */
   dependsOnSingle?: readonly string[];
   /**
@@ -209,7 +215,7 @@ export interface ItemKindDefinition {
    * own, each a sentence the writer can act on. Every save checks them.
    */
   check?(content: ItemContent, module: ModuleReader, itemId: string): string[];
-  /** The item as one text, as every view of it shows it; choice fields show beside it. */
+  /** The item as one text, after its kind's prefix if it has one, as every view of it shows it; choice fields show beside it. */
   display(parts: ShownParts): string;
   /** Short marks shown beside the item, such as that a test starts from a direct setup. */
   marks?(parts: ShownParts): string[];
@@ -223,14 +229,32 @@ export interface BasisDefinition {
   covers: readonly string[];
 }
 
+/** One example of an item that follows a stage's rules, or one that does not. */
+export interface StageRuleExample {
+  /** What the example shows, such as "Good, a tool-like module". */
+  label: string;
+  /** The example itself. */
+  text: string;
+  /** Whether it is an example to follow, rather than one not to. */
+  good: boolean;
+}
+
 export interface StageDefinition {
   id: string;
   label: string;
   buildsOn: readonly BasisDefinition[];
   kinds: readonly ItemKindDefinition[];
-  /** The stage's published rules, which every writer and signer of the stage works to. */
-  rules: string;
+  /** The stage's own published rules, each a sentence or short paragraph; every stage also publishes the shared rules. */
+  rules: readonly string[];
+  /** Examples of items that follow the rules, and ones that do not, published with them. */
+  examples?: readonly StageRuleExample[];
 }
+
+/** The published rules every stage holds after its own. */
+const SHARED_RULES = [
+  "A reference links an item to an item of a stage this stage builds on; a dependency links it to an item of its own stage or of another module that it relies on.",
+  "An item is signed as it is shown. Write each item so that it can be judged on its own.",
+];
 
 /** The stages of a module, each after the stages it builds on. */
 export interface WorkflowDefinition {
@@ -271,6 +295,9 @@ export function defineWorkflow(definition: WorkflowDefinition): WorkflowDefiniti
       for (const required of kind.mustReference ?? []) {
         if (!basisKinds.has(required)) throw new Error(`${kind.kind} must reference ${required}, which no stage ${stage.id} builds on holds.`);
       }
+      for (const single of kind.referencesSingle ?? []) {
+        if (basisKinds.get(single)?.single !== true) throw new Error(`${kind.kind} references ${single}, which is not a single kind of a stage ${stage.id} builds on.`);
+      }
       for (const single of kind.dependsOnSingle ?? []) {
         if (ownKinds.get(single)?.single !== true) throw new Error(`${kind.kind} depends on ${single}, which is not a single kind of stage ${stage.id}.`);
       }
@@ -306,6 +333,11 @@ export class Workflow {
     return this.definition.stages[0]!.id;
   }
 
+  /** A stage's published rules: its own, then those every stage shares. */
+  rulesOf(id: string): string[] {
+    return [...this.stage(id).rules, ...SHARED_RULES];
+  }
+
   isStage(id: unknown): id is string {
     return typeof id === "string" && this.stagesById.has(id);
   }
@@ -320,6 +352,14 @@ export class Workflow {
     const entry = this.kindsByName.get(name);
     if (entry == null) throw new Error(`No item kind ${name}.`);
     return entry.kind;
+  }
+
+  /** The words shown in front of a kind's display: the prefix of the first of its fields that has one. */
+  prefixOf(name: string): string | null {
+    for (const field of this.kind(name).fields) {
+      if (field.type === "text" && field.prefix != null) return field.prefix;
+    }
+    return null;
   }
 
   isKind(name: unknown): name is string {
@@ -380,10 +420,9 @@ export class Workflow {
     );
   }
 
-  /** Every item an item references: those its items fields choose of a basis stage's kinds, then its references, each once. */
-  referencesOf(kind: string, version: { content: ItemContent; references: readonly string[] }): string[] {
-    const chosen = this.chosenIn(kind, version.content, this.basisStages(this.stageOfKind(kind)));
-    return [...new Set([...chosen, ...version.references])];
+  /** The items of a basis stage an item's items fields choose, which it counts as referencing. */
+  chosenReferences(kind: string, content: ItemContent): string[] {
+    return [...new Set(this.chosenIn(kind, content, this.basisStages(this.stageOfKind(kind))))];
   }
 
   /** The items of its own stage an item's items fields choose, which it counts as depending on. */

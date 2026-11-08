@@ -17,6 +17,7 @@ const config = [
       "**/coverage/**",
       "**/docs/.vitepress/cache/**",
       "**/docs/.vitepress/dist/**",
+      "local/**",
     ],
   },
   {
