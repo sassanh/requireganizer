@@ -48,17 +48,18 @@ const StageNavigation = observer(function StageNavigation({
       <List disablePadding>
         {summaries.map((summary) => {
           const ProgressIcon = PROGRESS_ICONS[summary.progress];
-          const attention = summary.open && summary.progress !== "complete";
+          const isSelected = summary.stage === selected;
           const percent = summary.total === 0 ? 0 : (summary.approved / summary.total) * 100;
           return (
             <ListItemButton
               key={summary.stage}
-              selected={summary.stage === selected}
+              selected={isSelected}
+              aria-current={isSelected ? "page" : undefined}
               onClick={() => onSelect(summary.stage)}
-              sx={{ borderRadius: 1, mb: 0.5, alignItems: "stretch", flexDirection: "column", gap: 0.5, borderLeft: 3, borderColor: attention ? "warning.main" : "transparent" }}
+              sx={{ borderRadius: 1, mb: 0.5, alignItems: "stretch", flexDirection: "column", gap: 0.5, borderLeft: 3, borderColor: isSelected ? "primary.light" : "transparent" }}
             >
               <Stack direction="row" sx={{ alignItems: "center", gap: 1 }}>
-                <Typography variant="subtitle2" sx={{ flexGrow: 1, fontWeight: attention ? 700 : 500 }}>
+                <Typography variant="subtitle2" sx={{ flexGrow: 1, fontWeight: isSelected ? 700 : 500 }}>
                   {workflow.stage(summary.stage).label}
                 </Typography>
                 {summary.threadsWaitingForSpecOwner > 0 && (
