@@ -26,10 +26,23 @@ export function projectPlaceHref(projectId: string, place: string): string {
   return `/project?${query.toString()}${url.hash}`;
 }
 
-/** The page at `pathname` showing `step`, keeping the project, module and all else `search` names. */
+/** The page at `pathname` showing `step`, keeping the project, module and all else `search` names but the unit it focuses. */
 export function stepHref(pathname: string, search: string, step: string): string {
   const query = new URLSearchParams(search);
   query.set("step", step);
+  query.delete("unit");
+  return `${pathname}?${query.toString()}`;
+}
+
+/**
+ * The page at `pathname` showing `step` with `unit` focused, in `module`
+ * when one is given, keeping the project, module and all else `search` names.
+ */
+export function unitHref(pathname: string, search: string, place: { module?: string; step: string; unit: string }): string {
+  const query = new URLSearchParams(search);
+  if (place.module != null) query.set("module", place.module);
+  query.set("step", place.step);
+  query.set("unit", place.unit);
   return `${pathname}?${query.toString()}`;
 }
 

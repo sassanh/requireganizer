@@ -79,9 +79,11 @@ export type Stage = Instance<typeof StageModel>;
 
 /** Another module of the project, as this one resolves dependencies on its items. */
 export interface ModuleLookup {
-  locateItem(id: string): { version: ItemVersion; stage: string; phase: ItemPhase } | null;
+  locateItem(id: string): { version: ItemVersion; kind: string; stage: string; phase: ItemPhase } | null;
   itemStanding(id: string): { approved: boolean; outOfDate: boolean } | null;
   codeOf(id: string): string | null;
+  /** An item's text as it is now, after its kind's prefix, or nothing for an item it does not hold. */
+  textOf(id: string): string;
   /** The item a code or id names in that module. */
   itemNamed(name: string): string | null;
   /** Every item of that module not yet removed, with its code and stage. */
@@ -96,6 +98,30 @@ export interface LinkedModule {
   id: string;
   name: string;
   lookup: ModuleLookup;
+}
+
+/** An item that an item, coverage or impact names, of this module or another, as the page names and previews it. */
+export interface NamedItem {
+  id: string;
+  /** The other module, for an item of another module. */
+  module: { id: string; name: string } | null;
+  code: string;
+  /** Its code, or "Module/CODE" for an item of another module. */
+  name: string;
+  kind: string;
+  /** Its text as it is now, after its kind's prefix. */
+  text: string;
+  stage: string;
+  phase: ItemPhase;
+  approved: boolean;
+}
+
+/** The items a version of an item links to: those it lists, and those it counts as linking to without listing them. */
+export interface ItemLinks {
+  references: string[];
+  countedReferences: string[];
+  dependencies: string[];
+  countedDependencies: string[];
 }
 
 /** An item an out-of-date item references or depends on, and why it makes it out of date. */
@@ -307,9 +333,9 @@ export function workflowModuleModel(workflow: Workflow) {
       });
 
       /** An item this module's items may link to: its own, or another module's for a dependency. */
-      function findLinked(id: string): { version: ItemVersion; stage: string; phase: ItemPhase; module: LinkedModule | null } | null {
+      function findLinked(id: string): { version: ItemVersion; kind: string; stage: string; phase: ItemPhase; module: LinkedModule | null } | null {
         const own = locate(id);
-        if (own != null) return { version: versionOf(own.item), stage: own.stage, phase: phaseOf(own.item.removal), module: null };
+        if (own != null) return { version: versionOf(own.item), kind: own.item.kind, stage: own.stage, phase: phaseOf(own.item.removal), module: null };
         for (const linked of self.linkedModules) {
           const found = linked.lookup.locateItem(id);
           if (found != null) return { ...found, module: linked };
@@ -358,6 +384,18 @@ export function workflowModuleModel(workflow: Workflow) {
         const stage = index().get(item.id)?.stage;
         const derived = stage == null ? [] : derivedDependenciesOf(item.kind, item.content, stage, item.id);
         return [...new Set([...derived, ...item.dependencies])];
+      }
+
+      /** The items a version of an item links to, those it lists apart from those it counts as linking to; `itemId` is the item's own id, if it has one. */
+      function linksOfVersion(kind: string, version: ItemVersion, itemId: string | null): ItemLinks {
+        const references = [...version.references];
+        const dependencies = [...version.dependencies];
+        return {
+          references,
+          countedReferences: derivedReferencesOf(kind, version.content).filter((id) => !references.includes(id)),
+          dependencies,
+          countedDependencies: derivedDependenciesOf(kind, version.content, workflow.stageOfKind(kind), itemId).filter((id) => !dependencies.includes(id)),
+        };
       }
 
       function linksOf(item: Item): string[] {
@@ -672,6 +710,7 @@ export function workflowModuleModel(workflow: Workflow) {
         referencesOfVersion,
         dependenciesOf,
         derivedDependenciesOf,
+        linksOfVersion,
         /** The module as a kind's rules and displays read it. */
         get reader(): ModuleReader {
           return reader;
@@ -752,6 +791,29 @@ export function workflowModuleModel(workflow: Workflow) {
         })?.id ?? null;
       }
 
+      /** This module as another module resolves dependencies on it. */
+      const lookup: ModuleLookup = {
+        locateItem: (id) => {
+          const located = self.locate(id);
+          return located == null
+            ? null
+            : { version: self.versionOf(id)!, kind: located.item.kind, stage: located.stage, phase: phaseOf(located.item.removal) };
+        },
+        itemStanding: (id) => self.itemStanding(id),
+        codeOf: (id) => self.codeOf(id),
+        textOf: (id) => self.textOf(id),
+        itemNamed,
+        dependenciesOf: (id) => {
+          const located = self.locate(id);
+          return located == null ? [] : self.dependenciesOf(located.item);
+        },
+        listItems: () =>
+          self.allItems
+            .filter(({ removal }) => phaseOf(removal) !== "removed")
+            .map(({ id }) => ({ id, code: self.codeOf(id)!, stage: self.locate(id)!.stage })),
+        outOfDateBecauseOf: (id) => outOfDateBecauseOf(id),
+      };
+
       return {
         stageProgress: progress,
         outOfDateBecauseOf,
@@ -823,25 +885,24 @@ export function workflowModuleModel(workflow: Workflow) {
         },
         /** This module as another module resolves dependencies on it. */
         get lookup(): ModuleLookup {
+          return lookup;
+        },
+        /** An item that an item, coverage or impact of this module names, of this module or another; null once it no longer exists. */
+        namedItem(id: string): NamedItem | null {
+          const linked = self.findLinked(id);
+          if (linked == null) return null;
+          const source = linked.module?.lookup ?? lookup;
+          const code = source.codeOf(id)!;
           return {
-            locateItem: (id) => {
-              const located = self.locate(id);
-              return located == null
-                ? null
-                : { version: self.versionOf(id)!, stage: located.stage, phase: phaseOf(located.item.removal) };
-            },
-            itemStanding: (id) => self.itemStanding(id),
-            codeOf: (id) => self.codeOf(id),
-            itemNamed,
-            dependenciesOf: (id) => {
-              const located = self.locate(id);
-              return located == null ? [] : self.dependenciesOf(located.item);
-            },
-            listItems: () =>
-              self.allItems
-                .filter(({ removal }) => phaseOf(removal) !== "removed")
-                .map(({ id }) => ({ id, code: self.codeOf(id)!, stage: self.locate(id)!.stage })),
-            outOfDateBecauseOf: (id) => outOfDateBecauseOf(id),
+            id,
+            module: linked.module == null ? null : { id: linked.module.id, name: linked.module.name },
+            code,
+            name: linked.module == null ? code : `${linked.module.name}/${code}`,
+            kind: linked.kind,
+            text: source.textOf(id),
+            stage: linked.stage,
+            phase: linked.phase,
+            approved: source.itemStanding(id)?.approved === true,
           };
         },
       };

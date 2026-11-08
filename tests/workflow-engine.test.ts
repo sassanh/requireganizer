@@ -46,6 +46,48 @@ function specified(store: Store): void {
 }
 
 describe("workflow engine", () => {
+  it("names an item of this module or another, and tells listed links from counted ones", () => {
+    const store = Store.create({});
+    const other = Store.create({});
+    store.setLinkedModules([{ id: "other", name: "Other", lookup: other.lookup }]);
+    specified(store);
+    overview(other);
+    const purpose = itemOf(store, "module-overview", "PUR");
+    const capability = itemOf(store, "capabilities", "CAP-01");
+    const elsewhere = itemOf(other, "module-overview", "PUR");
+
+    assert.deepEqual(store.namedItem(capability), {
+      id: capability,
+      module: null,
+      code: "CAP-01",
+      name: "CAP-01",
+      kind: "capability",
+      text: "Staging: Staged workflow.",
+      stage: "capabilities",
+      phase: "active",
+      approved: true,
+    });
+    assert.deepEqual(store.namedItem(elsewhere), {
+      id: elsewhere,
+      module: { id: "other", name: "Other" },
+      code: "PUR",
+      name: "Other/PUR",
+      kind: "purpose",
+      text: "Owners get a trusted spec.",
+      stage: "module-overview",
+      phase: "active",
+      approved: false,
+    });
+    assert.equal(store.namedItem("gone"), null);
+
+    assert.deepEqual(store.linksOfVersion("capability", store.versionOf(capability)!, capability), {
+      references: [],
+      countedReferences: [purpose],
+      dependencies: [],
+      countedDependencies: [],
+    });
+  });
+
   it("opens each stage once the stages it builds on are complete", () => {
     const store = Store.create({});
     assert.equal(store.stageOpen("capabilities"), false);

@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, Comment } from "@mui/icons-material";
-import { Box, Button, Chip, Paper, Stack, Typography } from "@mui/material";
+import { Box, Button, Chip, Paper, Stack, Tooltip, Typography } from "@mui/material";
 import { observer } from "mobx-react-lite";
 import type { ReactNode } from "react";
 
@@ -28,12 +28,14 @@ export function SignatureLine({ signature, counts, what = "Signed" }: { signatur
  * The frame every unit of a stage shows in: its approval and every reason
  * it is not approved, its signature, its threads, and the sign and change
  * request actions, reachable from the keyboard while the frame has focus.
+ * A reason with a note shows it on hover and on keyboard focus.
  */
 const UnitFrame = observer(function UnitFrame({
   unitId,
   title,
   approved,
   reasons,
+  reasonNotes = {},
   signable,
   signLabel = "Sign",
   stageOpen,
@@ -47,6 +49,7 @@ const UnitFrame = observer(function UnitFrame({
   title: ReactNode;
   approved: boolean;
   reasons: readonly NotApprovedReason[];
+  reasonNotes?: Partial<Record<NotApprovedReason, ReactNode>>;
   signable: boolean;
   signLabel?: string;
   stageOpen: boolean;
@@ -79,11 +82,14 @@ const UnitFrame = observer(function UnitFrame({
         {approved ? (
           <Chip size="small" color="success" icon={<Check />} label="Approved" />
         ) : (
-          reasons.map((reason) => <Chip key={reason} size="small" variant="outlined" color="warning" label={NOT_APPROVED_REASON_LABELS[reason]} />)
+          reasons.map((reason) => {
+            const chip = <Chip key={reason} size="small" variant="outlined" color="warning" label={NOT_APPROVED_REASON_LABELS[reason]} tabIndex={reasonNotes[reason] == null ? undefined : 0} />;
+            return reasonNotes[reason] == null ? chip : <Tooltip key={reason} title={reasonNotes[reason]} describeChild>{chip}</Tooltip>;
+          })
         )}
       </Stack>
       <Box sx={{ mt: 1 }}>{children}</Box>
-      <Stack direction="row" sx={{ alignItems: "center", gap: 1, mt: 1, flexWrap: "wrap" }}>
+      <Stack data-unit-actions direction="row" sx={{ alignItems: "center", gap: 1, mt: 1, flexWrap: "wrap" }}>
         {signable && (
           <Button size="small" variant="contained" startIcon={<Check />} onClick={onSign} title="Sign (S)">
             {signLabel}

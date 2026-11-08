@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { currentHrefOf, projectCodeHref, projectHref, projectPlaceHref, stepHref } from "../app/lib/routes";
+import { currentHrefOf, projectCodeHref, projectHref, projectPlaceHref, stepHref, unitHref } from "../app/lib/routes";
 
 describe("project routes", () => {
   it("names the project in the query, so one static page serves every project", () => {
@@ -13,6 +13,15 @@ describe("project routes", () => {
   it("keeps the project and module when a link changes the stage shown", () => {
     assert.equal(stepHref("/project", "id=p&module=m&step=product-overview", "user-stories"), "/project?id=p&module=m&step=user-stories");
     assert.equal(stepHref("/project", "id=p", "requirements"), "/project?id=p&step=requirements");
+    assert.equal(stepHref("/project", "id=p&module=m&step=requirements&unit=u", "user-stories"), "/project?id=p&module=m&step=user-stories");
+  });
+
+  it("names the unit a link focuses, and its module when it is another", () => {
+    assert.equal(unitHref("/project", "id=p&module=m&step=requirements", { step: "user-stories", unit: "u" }), "/project?id=p&module=m&step=user-stories&unit=u");
+    assert.equal(
+      unitHref("/project", "id=p&module=m&step=requirements&unit=u", { module: "n", step: "requirements", unit: "coverage:requirements:v" }),
+      "/project?id=p&module=n&step=requirements&unit=coverage%3Arequirements%3Av",
+    );
   });
 
   it("keeps the project when a link names a place in it", () => {

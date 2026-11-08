@@ -7,6 +7,7 @@ import { wordDiff } from "components/wordDiff";
 import type { FieldDefinition } from "../definition";
 import { chosenItems, type FieldValue, type ItemVersion, recordsValue, recordValue, textsValue, textValue } from "../records";
 import { useWorkflowView } from "./context";
+import ItemChip, { useItemName } from "./ItemChip";
 
 function TextDiff({ before, after }: { before: string; after: string }) {
   return (
@@ -30,17 +31,20 @@ function TextDiff({ before, after }: { before: string; after: string }) {
   );
 }
 
-function LinkDiff({ label, before, after, name }: { label: string; before: readonly string[]; after: readonly string[]; name: (id: string) => string }) {
+function LinkDiff({ label, before, after }: { label: string; before: readonly string[]; after: readonly string[] }) {
   const added = after.filter((id) => !before.includes(id));
   const removed = before.filter((id) => !after.includes(id));
   if (added.length === 0 && removed.length === 0) {
     return before.join() === after.join() ? null : <Typography variant="body2">{label}: reordered</Typography>;
   }
   return (
-    <Typography variant="body2">
-      {label}:{added.length > 0 && <Box component="span" sx={{ color: "success.main" }}> added {added.map(name).join(", ")}</Box>}
-      {removed.length > 0 && <Box component="span" sx={{ color: "error.main" }}> removed {removed.map(name).join(", ")}</Box>}
-    </Typography>
+    <Stack direction="row" sx={{ alignItems: "center", gap: 0.5, flexWrap: "wrap" }}>
+      <Typography variant="body2">{label}:</Typography>
+      {added.length > 0 && <Typography variant="body2" sx={{ color: "success.main" }}>added</Typography>}
+      {added.map((id) => <ItemChip key={id} itemId={id} />)}
+      {removed.length > 0 && <Typography variant="body2" sx={{ color: "error.main" }}>removed</Typography>}
+      {removed.map((id) => <ItemChip key={id} itemId={id} />)}
+    </Stack>
   );
 }
 
@@ -75,18 +79,9 @@ function fieldText(field: FieldDefinition, value: FieldValue, name: (id: string)
 }
 
 /** How a version differs from the one its last signature covers, field by field and link by link. */
-export default function VersionDiff({
-  kind,
-  signed,
-  current,
-  name,
-}: {
-  kind: string;
-  signed: ItemVersion;
-  current: ItemVersion;
-  name: (id: string) => string;
-}) {
+export default function VersionDiff({ kind, signed, current }: { kind: string; signed: ItemVersion; current: ItemVersion }) {
   const { workflow } = useWorkflowView();
+  const name = useItemName();
   const changed = workflow
     .kind(kind)
     .fields.filter((field) => JSON.stringify(signed.content[field.name] ?? null) !== JSON.stringify(current.content[field.name] ?? null));
@@ -97,7 +92,7 @@ export default function VersionDiff({
       </Typography>
       {changed.map((field) =>
         field.type === "items" ? (
-          <LinkDiff key={field.name} label={field.label} before={chosenItems(signed.content[field.name])} after={chosenItems(current.content[field.name])} name={name} />
+          <LinkDiff key={field.name} label={field.label} before={chosenItems(signed.content[field.name])} after={chosenItems(current.content[field.name])} />
         ) : (
           <Stack key={field.name} spacing={0.25}>
             <Typography variant="caption">{field.label}</Typography>
@@ -105,8 +100,8 @@ export default function VersionDiff({
           </Stack>
         ),
       )}
-      <LinkDiff label="References" before={signed.references} after={current.references} name={name} />
-      <LinkDiff label="Dependencies" before={signed.dependencies} after={current.dependencies} name={name} />
+      <LinkDiff label="References" before={signed.references} after={current.references} />
+      <LinkDiff label="Dependencies" before={signed.dependencies} after={current.dependencies} />
     </Stack>
   );
 }

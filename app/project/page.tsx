@@ -132,8 +132,11 @@ function Home() {
     }
     const next = new URLSearchParams(searchParams.toString());
     next.set("module", activeModuleId);
-    // Arriving from another module lands on that module's remembered stage.
-    if (inUrl != null) next.set("step", activeModuleOpenStep);
+    // Arriving from another module lands on that module's remembered stage, with no unit of the other module focused.
+    if (inUrl != null) {
+      next.set("step", activeModuleOpenStep);
+      next.delete("unit");
+    }
     router.replace(`${pathname}?${next.toString()}`);
   }, [activeProject, projectId, modulesEnabled, searchParams, activeModuleId, activeModuleOpenStep, router, pathname, refusedUrlModules]);
 

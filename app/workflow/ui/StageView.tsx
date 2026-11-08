@@ -20,28 +20,15 @@ import { observer } from "mobx-react-lite";
 import { Fragment, type UIEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import type { FieldDefinition } from "../definition";
-import type { CoverageState, ImpactState, ItemState } from "../module";
+import type { CoverageState, ImpactState, ItemState, OutOfDateCause } from "../module";
 import { revisionOf, textValue, type ItemVersion } from "../records";
-import { LINK_REASON_LABELS, STAGE_PROGRESS_LABELS, WAITING_CATEGORY_LABELS } from "../units";
-import { perform, useWorkflowView } from "./context";
+import { STAGE_PROGRESS_LABELS, WAITING_CATEGORY_LABELS } from "../units";
+import { perform, useWorkflowNavigation, useWorkflowView } from "./context";
+import ItemChip, { useItemLabel } from "./ItemChip";
 import ItemEditor, { itemExcerpt } from "./ItemEditor";
 import ThreadPanel from "./ThreadPanel";
 import UnitFrame, { SignatureLine } from "./UnitFrame";
 import VersionDiff from "./VersionDiff";
-
-/** How the page names an item this module links to: its code here, or "Module/CODE" in another module. */
-function useLinkName(): (id: string) => string {
-  const { module } = useWorkflowView();
-  return (id: string) => {
-    const own = module.codeOf(id);
-    if (own != null) return own;
-    for (const linked of module.linkedModules) {
-      const code = linked.lookup.codeOf(id);
-      if (code != null) return `${linked.name}/${code}`;
-    }
-    return "a removed item";
-  };
-}
 
 interface CardControls {
   composing: string | null;
@@ -76,30 +63,55 @@ function Fields({ kind, version }: { kind: string; version: ItemVersion }) {
   );
 }
 
-function Links({ kind, version }: { kind: string | null; version: ItemVersion }) {
+/**
+ * Every item a version of an item links to, each as a chip: those its
+ * items fields choose, under each field's label, then those it lists and
+ * those it counts as linking to without listing them. With `causes`, each
+ * chip of an item that makes it out of date says why.
+ */
+function Links({ kind, itemId, version, causes = [] }: { kind: string | null; itemId: string | null; version: ItemVersion; causes?: readonly OutOfDateCause[] }) {
   const { module } = useWorkflowView();
-  const name = useLinkName();
   const chosen = kind == null ? [] : module.chosenOf(kind, version.content);
-  if (chosen.length === 0 && version.references.length === 0 && version.dependencies.length === 0) return null;
+  const shown = new Set(chosen.flatMap(({ items }) => items.map(({ id }) => id)));
+  const links = kind == null
+    ? { references: version.references, countedReferences: [], dependencies: version.dependencies, countedDependencies: [] }
+    : module.linksOfVersion(kind, version, itemId);
+  const groups: { label: string; items: { id: string; detail?: string }[] }[] = [
+    ...chosen.map(({ label, items }) => ({ label, items: items.map(({ id, name }) => ({ id, detail: name })) })),
+    { label: "References", items: links.references.map((id) => ({ id })) },
+    { label: "Counts as referencing", items: links.countedReferences.filter((id) => !shown.has(id)).map((id) => ({ id })) },
+    { label: "Depends on", items: links.dependencies.map((id) => ({ id })) },
+    { label: "Counts as depending on", items: links.countedDependencies.filter((id) => !shown.has(id)).map((id) => ({ id })) },
+  ].filter(({ items }) => items.length > 0);
+  if (groups.length === 0) return null;
   return (
     <Stack direction="row" sx={{ gap: 0.5, flexWrap: "wrap", mt: 1, alignItems: "center" }}>
-      {chosen.map(({ label, items }, index) => (
+      {groups.map(({ label, items }, index) => (
         <Fragment key={label}>
           <Typography variant="caption" color="text.secondary" sx={{ ml: index === 0 ? 0 : 1 }}>{label}</Typography>
-          {items.map((item) => <Chip key={item.id} size="small" variant="outlined" label={item.code == null ? item.name : `${item.code} ${item.name}`} />)}
+          {items.map((item) => (
+            <ItemChip key={item.id} itemId={item.id} detail={item.detail} reasons={causes.find((cause) => cause.id === item.id)?.reasons} />
+          ))}
         </Fragment>
       ))}
-      {version.references.length > 0 && <Typography variant="caption" color="text.secondary" sx={{ ml: chosen.length === 0 ? 0 : 1 }}>References</Typography>}
-      {version.references.map((id) => <Chip key={id} size="small" variant="outlined" label={name(id)} />)}
-      {version.dependencies.length > 0 && <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>Depends on</Typography>}
-      {version.dependencies.map((id) => <Chip key={id} size="small" variant="outlined" label={name(id)} />)}
+    </Stack>
+  );
+}
+
+/** Each item that makes an out-of-date item out of date, and why, one per line. */
+function CauseLines({ causes }: { causes: readonly OutOfDateCause[] }) {
+  const label = useItemLabel();
+  return (
+    <Stack spacing={0.25}>
+      {causes.map((cause) => (
+        <Typography key={cause.id} variant="caption">{label(cause.id, { reasons: cause.reasons })}</Typography>
+      ))}
     </Stack>
   );
 }
 
 const ItemCard = observer(function ItemCard({ state, controls }: { state: ItemState; controls: CardControls }) {
   const { module, workflow } = useWorkflowView();
-  const name = useLinkName();
   const [editing, setEditing] = useState(false);
   const definition = workflow.kind(state.itemKind);
   const dependents = module.dependentsOutOfDate(state.itemId);
@@ -121,6 +133,7 @@ const ItemCard = observer(function ItemCard({ state, controls }: { state: ItemSt
       }
       approved={state.approved}
       reasons={removed ? [] : state.reasons}
+      reasonNotes={state.outOfDateCauses.length === 0 ? {} : { "out-of-date": <CauseLines causes={state.outOfDateCauses} /> }}
       signable={module.isSignable(state.unitId)}
       signLabel={state.phase === "proposed-removal" ? "Sign removal" : state.outOfDate && state.signatureCounts ? "Sign as it is" : "Sign"}
       stageOpen={controls.stageOpen}
@@ -161,18 +174,14 @@ const ItemCard = observer(function ItemCard({ state, controls }: { state: ItemSt
       ) : (
         <>
           <Fields kind={state.itemKind} version={state.version} />
-          <Links kind={state.itemKind} version={state.version} />
+          <Links kind={state.itemKind} itemId={state.itemId} version={state.version} causes={state.outOfDateCauses} />
         </>
       )}
-      {state.outOfDateCauses.length > 0 && (
-        <Alert severity="warning" sx={{ mt: 1 }}>
-          Out of date because {state.outOfDateCauses.map((cause) => `${name(cause.id)} is ${cause.reasons.map((reason) => LINK_REASON_LABELS[reason]).join(" and ")}`).join("; ")}.
-        </Alert>
-      )}
       {dependents.length > 0 && (
-        <Typography variant="body2" color="warning.main" sx={{ mt: 1 }}>
-          Makes out of date: {dependents.map(({ module: moduleName, code }) => (moduleName == null ? code : `${moduleName}/${code}`)).join(", ")}
-        </Typography>
+        <Stack direction="row" sx={{ gap: 0.5, flexWrap: "wrap", mt: 1, alignItems: "center" }}>
+          <Typography variant="body2" color="warning.main">Makes out of date</Typography>
+          {dependents.map(({ id }) => <ItemChip key={id} itemId={id} />)}
+        </Stack>
       )}
       {unreferenced.length > 0 && (
         <Typography variant="body2" color="warning.main" sx={{ mt: 1 }}>
@@ -186,7 +195,7 @@ const ItemCard = observer(function ItemCard({ state, controls }: { state: ItemSt
           <>
             <SignatureLine signature={state.signature} counts={state.signatureCounts} />
             {state.phase === "active" && changedSinceSigned && (
-              <VersionDiff kind={state.itemKind} signed={signed} current={state.version} name={name} />
+              <VersionDiff kind={state.itemKind} signed={signed} current={state.version} />
             )}
           </>
         )}
@@ -202,7 +211,12 @@ const CoverageCard = observer(function CoverageCard({ state, controls }: { state
   return (
     <UnitFrame
       unitId={state.unitId}
-      title={<Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Coverage of {module.codeOf(state.itemId)}</Typography>}
+      title={
+        <Stack direction="row" sx={{ alignItems: "center", gap: 1 }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Coverage of</Typography>
+          <ItemChip itemId={state.itemId} />
+        </Stack>
+      }
       approved={state.approved}
       reasons={state.reasons}
       signable={module.isSignable(state.unitId)}
@@ -221,9 +235,10 @@ const CoverageCard = observer(function CoverageCard({ state, controls }: { state
       ) : (
         <Stack spacing={0.25} sx={{ mt: 0.5 }}>
           {state.referencing.map((id) => (
-            <Typography key={id} variant="body2">
-              <b>{module.codeOf(id)}</b> {itemExcerpt(module.textOf(id))}
-            </Typography>
+            <Stack key={id} direction="row" sx={{ alignItems: "center", gap: 1 }}>
+              <ItemChip itemId={id} />
+              <Typography variant="body2">{itemExcerpt(module.textOf(id))}</Typography>
+            </Stack>
           ))}
         </Stack>
       )}
@@ -236,7 +251,6 @@ const CoverageCard = observer(function CoverageCard({ state, controls }: { state
 
 const ImpactCard = observer(function ImpactCard({ state, controls }: { state: ImpactState; controls: CardControls }) {
   const { module, workflow } = useWorkflowView();
-  const name = useLinkName();
   const kind = module.locate(state.itemId)?.item.kind ?? null;
   const [requesting, setRequesting] = useState(false);
   const [target, setTarget] = useState<string | null>(null);
@@ -256,7 +270,12 @@ const ImpactCard = observer(function ImpactCard({ state, controls }: { state: Im
   return (
     <UnitFrame
       unitId={state.unitId}
-      title={<Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Impact of {state.after == null ? `the removal of ${label}` : `the change to ${label}`}</Typography>}
+      title={
+        <Stack direction="row" sx={{ alignItems: "center", gap: 1 }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Impact of {state.after == null ? "the removal of" : "the change to"}{kind == null ? ` ${label}` : ""}</Typography>
+          {kind != null && <ItemChip itemId={state.itemId} />}
+        </Stack>
+      }
       approved={state.approved}
       reasons={state.reasons}
       signable={module.isSignable(state.unitId)}
@@ -284,19 +303,19 @@ const ImpactCard = observer(function ImpactCard({ state, controls }: { state: Im
           ) : (
             <Fields kind={kind} version={state.before} />
           )}
-          <Links kind={kind} version={state.before} />
+          <Links kind={kind} itemId={state.itemId} version={state.before} />
         </Box>
         <Box sx={{ flex: 1 }}>
           <Typography variant="caption" color="text.secondary">{state.after == null ? "Removed" : "As it is now"}</Typography>
           {state.after != null && kind != null && (
             <>
               <Fields kind={kind} version={state.after} />
-              <Links kind={kind} version={state.after} />
+              <Links kind={kind} itemId={state.itemId} version={state.after} />
             </>
           )}
         </Box>
       </Stack>
-      {state.after != null && kind != null && <Box sx={{ mt: 1 }}><VersionDiff kind={kind} signed={state.before} current={state.after} name={name} /></Box>}
+      {state.after != null && kind != null && <Box sx={{ mt: 1 }}><VersionDiff kind={kind} signed={state.before} current={state.after} /></Box>}
       {requesting && (
         <Stack direction="row" sx={{ gap: 1, mt: 1, alignItems: "center" }}>
           <Autocomplete
@@ -420,8 +439,12 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
 
-  /** Focus a unit's card and scroll it into view clear of the sticky header, with a margin on either side. */
-  const reveal = (card: HTMLElement | undefined) => {
+  /**
+   * Focus a unit's card and scroll it into view clear of the sticky header, with a margin on either side.
+   * With `actionsAt`, the card's actions are put at that height instead, so they land where the
+   * pointer already is, unless that would hide the top of the card under the header.
+   */
+  const reveal = (card: HTMLElement | undefined, actionsAt?: number) => {
     const container = containerRef.current;
     if (card == null || container == null) return;
     card.focus({ preventScroll: true });
@@ -429,9 +452,19 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
     const top = (headerRef.current ?? container).getBoundingClientRect().bottom + margin;
     const bottom = container.getBoundingClientRect().bottom - margin;
     const { top: cardTop, bottom: cardBottom } = card.getBoundingClientRect();
-    if (cardTop < top) container.scrollBy({ top: cardTop - top });
+    const actions = card.querySelector("[data-unit-actions]");
+    if (actionsAt != null && actions != null) {
+      container.scrollBy({ top: Math.min(actions.getBoundingClientRect().top - actionsAt, cardTop - top) });
+    } else if (cardTop < top) container.scrollBy({ top: cardTop - top });
     else if (cardBottom > bottom) container.scrollBy({ top: Math.min(cardBottom - bottom, cardTop - top) });
   };
+
+  /** Where a unit's actions are on screen now, if its card is shown. */
+  const actionsTopOf = (unitId: string): number | undefined =>
+    cards()
+      .find((card) => card.dataset.unitCard === unitId)
+      ?.querySelector("[data-unit-actions]")
+      ?.getBoundingClientRect().top;
 
   // The gap between the two thresholds keeps the header from flickering as its own height changes.
   const onScroll = (event: UIEvent<HTMLDivElement>) => {
@@ -452,15 +485,19 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
 
   /** Sign a unit, then move to the next unit that is not approved, or with `toWaiting` the next that waits for a signature. */
   const sign = async (unitId: string, toWaiting = false) => {
+    const actionsAt = actionsTopOf(unitId);
     if (!(await perform(() => module.sign(unitId), "The signature could not be given."))) return;
-    const all = cards();
-    const index = all.findIndex((card) => card.dataset.unitCard === unitId);
-    const ordered = [...all.slice(index + 1), ...all.slice(0, Math.max(index, 0))];
-    const next = ordered.find((card) => {
-      const state = module.unitState(card.dataset.unitCard!);
-      return state != null && (toWaiting ? module.waitsForSignature(state) : !state.approved);
+    // Find and measure the next card once the page has redrawn after the signature, so it is a card still on the page.
+    requestAnimationFrame(() => {
+      const all = cards();
+      const index = all.findIndex((card) => card.dataset.unitCard === unitId);
+      const ordered = [...all.slice(index + 1), ...all.slice(0, Math.max(index, 0))];
+      const next = ordered.find((card) => {
+        const state = module.unitState(card.dataset.unitCard!);
+        return state != null && (toWaiting ? module.waitsForSignature(state) : !state.approved);
+      });
+      reveal(next, actionsAt);
     });
-    reveal(next);
   };
 
   const move = (direction: 1 | -1) => {
@@ -531,6 +568,16 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
         return;
     }
   };
+
+  // An item opened where it is named, or a unit returned to by the browser's history, is revealed once its card shows.
+  const { revealRequest, revealed } = useWorkflowNavigation();
+  useEffect(() => {
+    if (revealRequest == null) return;
+    const card = cards().find((candidate) => candidate.dataset.unitCard === revealRequest.unitId);
+    if (card == null) return;
+    revealed(revealRequest);
+    reveal(card);
+  });
 
   const onKeyDownRef = useRef(onKeyDown);
   onKeyDownRef.current = onKeyDown;

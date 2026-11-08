@@ -87,15 +87,9 @@ function requireCodesVersion(store: Store, args: Arguments): void {
   }
 }
 
-/** How a dependency is named to the agent: by code in this module, or as "Module name/CODE" in another. */
+/** How a linked item is named to the agent: by code in this module, or as "Module name/CODE" in another. */
 function linkName(store: Store, id: string): string {
-  const own = store.codeOf(id);
-  if (own != null) return own;
-  for (const linked of store.linkedModules) {
-    const code = linked.lookup.codeOf(id);
-    if (code != null) return `${linked.name}/${code}`;
-  }
-  return `a removed item (${id})`;
+  return store.namedItem(id)?.name ?? `a removed item (${id})`;
 }
 
 /** A version as an agent reads it: its text and marks as the page shows them, its fields with chosen items by code, and its links by code. */

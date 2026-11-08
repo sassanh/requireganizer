@@ -3,12 +3,18 @@
 import { Divider, Stack } from "@mui/material";
 import { observer } from "mobx-react-lite";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import { stepHref } from "lib/routes";
+import { stepHref, unitHref } from "lib/routes";
 import { useProject } from "projectContext";
 import { useStore } from "store";
-import { StageNavigation, StageView, workflowViewContext } from "workflow/ui";
+import { type RevealRequest, StageNavigation, StageView, type WorkflowNavigation, workflowNavigationContext, workflowViewContext } from "workflow/ui";
+
+/** The unit an address focuses, to reveal once its card shows. */
+function revealRequestOf(search: URLSearchParams): RevealRequest | null {
+  const unitId = search.get("unit");
+  return unitId == null ? null : { unitId };
+}
 
 /** The open module: its stages beside the one the page shows. */
 const Factory = observer(function Factory() {
@@ -36,17 +42,46 @@ const Factory = observer(function Factory() {
     void recordOpenStep(stage);
   }, [stage, activeModuleOpenStep, modulesEnabled, moduleParam, activeModuleId, recordOpenStep]);
 
+  // The address focuses a unit when the page opens on it, when an item is
+  // opened where it is named, and when the browser goes back or forward.
+  const [revealRequest, setRevealRequest] = useState(() => revealRequestOf(searchParams));
+  useEffect(() => {
+    const onPopState = () => setRevealRequest(revealRequestOf(new URL(window.location.href).searchParams));
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  const navigation = useMemo<WorkflowNavigation>(
+    () => ({
+      openUnit: (place, from) => {
+        const search = searchParams.toString();
+        if (from != null) window.history.replaceState(null, "", unitHref(pathname, search, { step: stage, unit: from }));
+        // The page reveals the unit itself; Next's own scroll and focus would take the focus from it.
+        router.push(unitHref(pathname, search, { ...(place.module == null ? {} : { module: place.module }), step: place.stage, unit: place.unitId }), { scroll: false });
+        setRevealRequest({ unitId: place.unitId });
+      },
+      revealRequest,
+      revealed: (request) => setRevealRequest((current) => (current === request ? null : current)),
+    }),
+    [searchParams, pathname, stage, router, revealRequest],
+  );
+
   const view = useMemo(() => ({ module: store, workflow }), [store, workflow]);
   return (
     <workflowViewContext.Provider value={view}>
-      <Stack direction="row" sx={{ minHeight: 0, height: "100%", width: "100%", flexGrow: 1 }}>
-        <StageNavigation
-          selected={stage}
-          onSelect={(next) => router.push(stepHref(pathname, searchParams.toString(), next))}
-        />
-        <Divider orientation="vertical" flexItem />
-        <StageView key={stage} stage={stage} />
-      </Stack>
+      <workflowNavigationContext.Provider value={navigation}>
+        <Stack direction="row" sx={{ minHeight: 0, height: "100%", width: "100%", flexGrow: 1 }}>
+          <StageNavigation
+            selected={stage}
+            onSelect={(next) => {
+              setRevealRequest(null);
+              router.push(stepHref(pathname, searchParams.toString(), next));
+            }}
+          />
+          <Divider orientation="vertical" flexItem />
+          <StageView key={stage} stage={stage} />
+        </Stack>
+      </workflowNavigationContext.Provider>
     </workflowViewContext.Provider>
   );
 });
