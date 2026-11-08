@@ -17,7 +17,7 @@ import {
   Typography,
 } from "@mui/material";
 import { observer } from "mobx-react-lite";
-import { type UIEvent, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, type UIEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import type { FieldDefinition } from "../definition";
 import type { CoverageState, ImpactState, ItemState } from "../module";
@@ -76,12 +76,20 @@ function Fields({ kind, version }: { kind: string; version: ItemVersion }) {
   );
 }
 
-function Links({ version }: { version: ItemVersion }) {
+function Links({ kind, version }: { kind: string | null; version: ItemVersion }) {
+  const { module } = useWorkflowView();
   const name = useLinkName();
-  if (version.references.length === 0 && version.dependencies.length === 0) return null;
+  const chosen = kind == null ? [] : module.chosenOf(kind, version.content);
+  if (chosen.length === 0 && version.references.length === 0 && version.dependencies.length === 0) return null;
   return (
     <Stack direction="row" sx={{ gap: 0.5, flexWrap: "wrap", mt: 1, alignItems: "center" }}>
-      {version.references.length > 0 && <Typography variant="caption" color="text.secondary">References</Typography>}
+      {chosen.map(({ label, items }, index) => (
+        <Fragment key={label}>
+          <Typography variant="caption" color="text.secondary" sx={{ ml: index === 0 ? 0 : 1 }}>{label}</Typography>
+          {items.map((item) => <Chip key={item.id} size="small" variant="outlined" label={item.code == null ? item.name : `${item.code} ${item.name}`} />)}
+        </Fragment>
+      ))}
+      {version.references.length > 0 && <Typography variant="caption" color="text.secondary" sx={{ ml: chosen.length === 0 ? 0 : 1 }}>References</Typography>}
       {version.references.map((id) => <Chip key={id} size="small" variant="outlined" label={name(id)} />)}
       {version.dependencies.length > 0 && <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>Depends on</Typography>}
       {version.dependencies.map((id) => <Chip key={id} size="small" variant="outlined" label={name(id)} />)}
@@ -153,7 +161,7 @@ const ItemCard = observer(function ItemCard({ state, controls }: { state: ItemSt
       ) : (
         <>
           <Fields kind={state.itemKind} version={state.version} />
-          <Links version={state.version} />
+          <Links kind={state.itemKind} version={state.version} />
         </>
       )}
       {state.outOfDateCauses.length > 0 && (
@@ -276,14 +284,14 @@ const ImpactCard = observer(function ImpactCard({ state, controls }: { state: Im
           ) : (
             <Fields kind={kind} version={state.before} />
           )}
-          <Links version={state.before} />
+          <Links kind={kind} version={state.before} />
         </Box>
         <Box sx={{ flex: 1 }}>
           <Typography variant="caption" color="text.secondary">{state.after == null ? "Removed" : "As it is now"}</Typography>
           {state.after != null && kind != null && (
             <>
               <Fields kind={kind} version={state.after} />
-              <Links version={state.after} />
+              <Links kind={kind} version={state.after} />
             </>
           )}
         </Box>

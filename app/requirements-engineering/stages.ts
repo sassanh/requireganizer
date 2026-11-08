@@ -145,7 +145,7 @@ export const REQUIREMENTS_ENGINEERING_STAGES: readonly StageDefinition[] = [
             required: true,
           },
         ],
-        display: (parts) => `${parts.text("name")}: ${parts.text("description")}\nCapability: ${parts.names("capability").join(", ")}`,
+        display: (parts) => `${parts.text("name")}: ${parts.text("description")}`,
       },
       {
         kind: TARGET_USER,

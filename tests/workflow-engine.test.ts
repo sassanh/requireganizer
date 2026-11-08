@@ -221,7 +221,11 @@ describe("workflow engine", () => {
     assert.throws(feature({ name: "Show", description: "Shows the stages.", capability: [user] }), /but it is a target user/);
     feature({ name: "Show", description: "Shows the stages.", capability: [capability] })();
     const added = itemOf(store, "features-and-target-users", "FEA-02");
-    assert.equal(store.textOf(added), "Show: Shows the stages.\nCapability: Staging");
+    assert.equal(store.textOf(added), "Show: Shows the stages.");
+    const location = store.locate(added)!.item;
+    assert.deepEqual(store.chosenOf(location.kind, location.content), [
+      { label: "Capability", items: [{ id: capability, code: store.codeOf(capability), name: "Staging" }] },
+    ]);
     assert.deepEqual(store.referencesOf(store.locate(added)!.item), [capability]);
     assert.deepEqual(store.dependenciesOf(store.locate(added)!.item), []);
   });

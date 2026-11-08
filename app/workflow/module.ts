@@ -616,6 +616,14 @@ export function workflowModuleModel(workflow: Workflow) {
         };
       }
 
+      /** A chosen item by the field its items field shows, or by its code when that is empty. */
+      function chosenName(field: FieldDefinition | undefined, id: string): string {
+        const located = locate(id);
+        if (located == null) return "a removed item";
+        const shown = field?.type === "items" ? textValue(located.item.content[field.shows]) : "";
+        return shown === "" ? codeById(id)! : shown;
+      }
+
       function shownParts(kind: string, content: ItemContent): ShownParts {
         const definition = workflow.kind(kind);
         const field = (name: string) => definition.fields.find((candidate) => candidate.name === name);
@@ -623,16 +631,20 @@ export function workflowModuleModel(workflow: Workflow) {
           content,
           module: reader,
           text: (name) => textValue(content[name]),
-          names: (name) => {
-            const chosen = field(name);
-            return chosenItems(content[name]).map((id) => {
-              const located = locate(id);
-              if (located == null) return "a removed item";
-              const shown = chosen?.type === "items" ? textValue(located.item.content[chosen.shows]) : "";
-              return shown === "" ? codeById(id)! : shown;
-            });
-          },
+          names: (name) => chosenItems(content[name]).map((id) => chosenName(field(name), id)),
         };
+      }
+
+      /** The items each of a kind's top-level items fields chooses, each by its code and its shown name. */
+      function chosenOf(kind: string, content: ItemContent): { label: string; items: { id: string; code: string | null; name: string }[] }[] {
+        return workflow
+          .kind(kind)
+          .fields.flatMap((field) => (field.type === "items" ? [field] : []))
+          .map((field) => ({
+            label: field.label,
+            items: chosenItems(content[field.name]).map((id) => ({ id, code: codeById(id), name: chosenName(field, id) })),
+          }))
+          .filter(({ items }) => items.length > 0);
       }
 
       /** An item's content as its kind displays it, without the kind's prefix. */
@@ -666,6 +678,7 @@ export function workflowModuleModel(workflow: Workflow) {
         },
         shownText,
         displayOf,
+        chosenOf,
         marksOf,
         /** An item's text as it is now. */
         textOf(id: string): string {
