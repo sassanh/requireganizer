@@ -1324,9 +1324,12 @@ export function workflowModuleModel(workflow: Workflow) {
          * Write, change and remove items, all or none. Items are named by
          * id; an item written gets the current versions of what it links to
          * as its basis, and an item written exactly as it was is left as it
-         * was. Throws every problem at once.
+         * was. Throws every problem at once. The threads it answers are
+         * checked against the module as the write leaves it.
          */
-        writeItems(changes: ItemChange[]): ChangeOutcome {
+        writeItems(changes: ItemChange[], answering: readonly ThreadAnswer[] = []): ChangeOutcome {
+          const answerProblem = self.answerProblem(answering);
+          if (answerProblem != null) throw new UserFacingError(answerProblem);
           // A write never builds on what it changes itself: a stage and a stage building on it change in separate writes.
           const touched = [
             ...new Set(changes.flatMap((change) => {
@@ -1345,10 +1348,19 @@ export function workflowModuleModel(workflow: Workflow) {
           const trial = getType(self).create(getSnapshot(self)) as unknown as {
             setLinkedModules(modules: LinkedModule[]): void;
             writeItemsUnchecked(changes: ItemChange[]): { outcome: ChangeOutcome; problems: string[] };
+            answerProblem(answers: readonly ThreadAnswer[]): string | null;
           };
           trial.setLinkedModules(self.linkedModules);
           const { problems } = trial.writeItemsUnchecked(changes);
           if (problems.length > 0) throw new UserFacingError(problems.join("\n"));
+          // Each answer passed above, so one that fails now is in a stage this write closes.
+          const closed = answering.find((answer) => trial.answerProblem([answer]) != null);
+          if (closed != null) {
+            const label = workflow.stage(self.threads.find(({ id }) => id === closed.threadId)!.stage).label;
+            throw new UserFacingError(
+              `This write closes ${label}, where thread ${closed.threadId} is. Write without answering it, and answer it once ${label} is open again.`,
+            );
+          }
           return applyAll(changes).outcome;
         },
         /** Apply changes as far as they go, returning their problems: for a trial copy only. */

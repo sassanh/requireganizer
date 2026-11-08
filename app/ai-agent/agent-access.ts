@@ -446,7 +446,7 @@ const threadsTool: AgentTool = {
 const ANSWERS_PROPERTY = {
   type: "array",
   description:
-    "The open threads these changes answer, each with a reply telling the spec owner what changed. get_workflow_state lists them.",
+    "The open threads these changes answer, each with a reply telling the spec owner what changed. get_workflow_state lists them. A thread in a stage these changes close is answered once that stage is open again.",
   items: {
     type: "object",
     properties: { threadId: { type: "string" }, reply: { type: "string", minLength: 1 } },
@@ -493,11 +493,9 @@ const writeTool: AgentTool = {
   run: (store, args, _open, caller) => {
     requireCodesVersion(store, args);
     const answers = parseAnswers(args.answers);
-    const answerProblem = store.answerProblem(answers);
-    if (answerProblem != null) throw new UserFacingError(answerProblem);
     const changes = parseChanges(store, args.changes);
     const codesBefore = store.codesVersion;
-    const outcome = store.writeItems(changes);
+    const outcome = store.writeItems(changes, answers);
     if (answers.length > 0) store.answerThreads(answers, { kind: "agent", name: caller.name }, changes.length > 0);
     const lines = [
       ...outcomeLines(store, outcome),

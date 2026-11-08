@@ -85,6 +85,9 @@ tool signs.
   items, use `write_items` and name the thread in its `answers`, with a reply
   saying what changed. To ask or to disagree, use `reply_to_thread`. Only the
   person resolves a thread.
+- A thread in a stage that your change to an earlier stage closes waits:
+  change the earlier stage without answering it, and answer it once its
+  stage is open again.
 - Answer a thread in the thread only. Its reply is where you tell the person
   what changed or what waits; do not repeat, summarize or announce it in your
   conversation with them.

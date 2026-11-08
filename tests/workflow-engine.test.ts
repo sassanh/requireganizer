@@ -206,6 +206,19 @@ describe("workflow engine", () => {
     assert.equal(store.itemState(feature)!.approved, true);
   });
 
+  it("refuses, unchanged, a write that answers a thread in a stage the write closes", () => {
+    const store = Store.create({});
+    specified(store);
+    const capability = itemOf(store, "capabilities", "CAP-01");
+    const thread = store.requestChange(itemOf(store, "features-and-target-users", "FEA-01"), "Name the stages.");
+    assert.throws(
+      () => store.writeItems([{ type: "change", item: capability, content: { description: "Stages in a row." } }], [{ threadId: thread, text: "Renamed the capability." }]),
+      /This write closes Features and Target Users/,
+    );
+    assert.equal(store.textOf(capability), "Staging: Staged workflow.");
+    assert.equal(store.threadsWaitingForAnswerer.length, 1);
+  });
+
   it("holds Requirements engineering items in their parts and refuses them without what they need", async () => {
     const store = Store.create({});
     specified(store);
