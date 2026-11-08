@@ -295,7 +295,7 @@ const workflowStateTool: AgentTool = {
   description: {
     name: "get_workflow_state",
     description:
-      "Get the module the spec owner has open and its workflow state: whether every stage is complete, and for each stage whether it is open (every stage it builds on is complete, so it can be written, signed and discussed) or closed, its progress (empty, in progress, complete), how many of its items, coverages and impacts are approved out of how many, what in it waits for a signature, and its open threads. threadsWaitingForYou lists the change requests that wait for your answer. Items are named by the codes of codesVersion.",
+      "Get the module the spec owner has open and its workflow state: whether every stage is complete, and for each stage whether it is open (every stage it builds on is complete, so it can be written, signed and discussed) or closed, its progress (empty, in progress, complete), how many of its items, coverages and impacts are approved out of how many, what in it waits for a signature, and its open threads. threadsWaitingForYou lists the change requests that wait for your answer; stagesWaitingForYou lists the stages the spec owner asks you to write next. Items are named by the codes of codesVersion.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   run: (store, _args, open) => {
@@ -324,6 +324,7 @@ const workflowStateTool: AgentTool = {
         unit: store.unitLabel(thread.unitId),
         stage: thread.stage,
       })),
+      stagesWaitingForYou: store.writingAskedOfAnswerer.map(({ stage }) => ({ stage, label: store.workflow.stage(stage).label })),
     });
   },
 };

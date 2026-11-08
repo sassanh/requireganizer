@@ -100,6 +100,12 @@ export interface LinkedModule {
   lookup: ModuleLookup;
 }
 
+/** The spec owner's request that the coding agent write a stage, and when it was made. */
+export interface WritingAsk {
+  stage: string;
+  at: string;
+}
+
 /** An item that an item, coverage or impact names, of this module or another, as the page names and previews it. */
 export interface NamedItem {
   id: string;
@@ -298,6 +304,8 @@ export function workflowModuleModel(workflow: Workflow) {
     .model("WorkflowModule", {
       stages: types.optional(types.map(StageModel), {}),
       threads: types.optional(types.frozen<Thread[]>(), []),
+      /** The stages the spec owner asked the coding agent to write, until a write reaches them. */
+      writingAsked: types.optional(types.frozen<WritingAsk[]>(), []),
     })
     .volatile(() => ({
       /** The project's other modules, which dependencies may name. */
@@ -872,6 +880,17 @@ export function workflowModuleModel(workflow: Workflow) {
         threadsOfStage(stage: string): Thread[] {
           return self.threads.filter((thread) => thread.stage === stage);
         },
+        /** The stages that build directly on a complete stage and can be written now, not yet complete. */
+        stagesToWriteAfter(stage: string): string[] {
+          if (!self.stageComplete(stage)) return [];
+          return workflow.stageIds.filter((later) =>
+            workflow.stage(later).buildsOn.some((basis) => basis.stage === stage) && self.stageOpen(later) && !self.stageComplete(later),
+          );
+        },
+        /** The stages the spec owner asked the coding agent to write that are still open and not complete. */
+        get writingAskedOfAnswerer(): WritingAsk[] {
+          return self.writingAsked.filter(({ stage }) => self.stageOpen(stage) && !self.stageComplete(stage));
+        },
         /** The open threads that wait for the coding agent in stages open now. */
         get threadsWaitingForAnswerer(): Thread[] {
           return self.threads.filter((thread) => waitsForAnswerer(thread) && self.stageOpen(thread.stage));
@@ -1361,7 +1380,9 @@ export function workflowModuleModel(workflow: Workflow) {
               `This write closes ${label}, where thread ${closed.threadId} is. Write without answering it, and answer it once ${label} is open again.`,
             );
           }
-          return applyAll(changes).outcome;
+          const { outcome } = applyAll(changes);
+          self.writingAsked = self.writingAsked.filter(({ stage }) => !touched.includes(stage));
+          return outcome;
         },
         /** Apply changes as far as they go, returning their problems: for a trial copy only. */
         writeItemsUnchecked(changes: ItemChange[]) {
@@ -1479,6 +1500,12 @@ export function workflowModuleModel(workflow: Workflow) {
           const thread: Thread = { id: uuid(), unitId, stage: state.stage, removedUnit: null, messages: [message], resolvedAt: null };
           self.threads = [...self.threads, thread];
           return thread.id;
+        },
+        /** The spec owner asks the coding agent to write a stage that can be written now. */
+        askToWrite(stage: string) {
+          requireOpen(stage, "writing");
+          if (self.stageComplete(stage)) throw new UserFacingError(`${workflow.stage(stage).label} is complete.`);
+          self.writingAsked = [...self.writingAsked.filter((ask) => ask.stage !== stage), { stage, at: new Date().toISOString() }];
         },
         /** The spec owner replies in an open thread, including one whose unit is gone. */
         replyAsSpecOwner(threadId: string, text: string) {

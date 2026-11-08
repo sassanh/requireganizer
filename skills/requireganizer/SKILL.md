@@ -22,7 +22,8 @@ tool signs.
 
 ## Read before you act
 
-- Call `get_workflow_state` first, and again after anything changes.
+- Call `get_workflow_state` first, and again after anything changes. A stage
+  in its `stagesWaitingForYou` is one the person asks you to write next.
 - Read a stage's rules with `get_stage_rules` before writing it, and follow
   them: the person signs against the same rules.
 - To work on a module other than the one the person has open, call

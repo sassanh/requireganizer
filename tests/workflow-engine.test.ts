@@ -219,6 +219,24 @@ describe("workflow engine", () => {
     assert.equal(store.threadsWaitingForAnswerer.length, 1);
   });
 
+  it("asks the coding agent to write the stage after a complete one until a write reaches it", async () => {
+    const store = Store.create({});
+    specified(store);
+    assert.deepEqual(store.stagesToWriteAfter("features-and-target-users"), ["user-stories"]);
+    store.askToWrite("user-stories");
+    const state = JSON.parse(await callAgentTool(store, "get_workflow_state", {})) as { stagesWaitingForYou: { stage: string }[] };
+    assert.deepEqual(state.stagesWaitingForYou.map(({ stage }) => stage), ["user-stories"]);
+    store.writeItems([{
+      type: "add",
+      stage: "user-stories",
+      kind: "user-story",
+      content: { targetUsers: [itemOf(store, "features-and-target-users", "USR-01")], outcome: "see the stages in order", reason: "I know what comes next", priority: "P1" },
+      references: [itemOf(store, "features-and-target-users", "FEA-01")],
+      dependencies: [],
+    }]);
+    assert.deepEqual(store.writingAskedOfAnswerer, []);
+  });
+
   it("holds Requirements engineering items in their parts and refuses them without what they need", async () => {
     const store = Store.create({});
     specified(store);

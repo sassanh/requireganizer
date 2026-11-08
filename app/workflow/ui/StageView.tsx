@@ -1,6 +1,6 @@
 "use client";
 
-import { Add, Delete, Edit, MenuBook, Restore } from "@mui/icons-material";
+import { Add, Delete, Edit, MenuBook, Restore, Send } from "@mui/icons-material";
 import {
   Alert,
   Autocomplete,
@@ -631,6 +631,17 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
           {waitingParts.length === 0 ? "Nothing waits for a signature." : `Waiting for a signature: ${waitingParts.join(", ")}.`}
           {summary.threadsWaitingForSpecOwner > 0 ? ` ${summary.threadsWaitingForSpecOwner} ${summary.threadsWaitingForSpecOwner === 1 ? "thread waits" : "threads wait"} for you.` : ""}
         </Typography>
+        {module.stagesToWriteAfter(stage).map((later) => {
+          const asked = module.writingAskedOfAnswerer.some((ask) => ask.stage === later);
+          const label = workflow.stage(later).label;
+          return (
+            <Box key={later}>
+              <Button size="small" variant="contained" startIcon={<Send />} disabled={asked} onClick={() => void perform(() => module.askToWrite(later), "The coding agent could not be asked.")}>
+                {asked ? `Asked the coding agent to write ${label}` : `Ask the coding agent to write ${label}`}
+              </Button>
+            </Box>
+          );
+        })}
         {!summary.open && !compact && (
           <Alert severity="info">
             Closed until {workflow.upstreamStages(stage).filter((upstream) => !module.stageComplete(upstream)).map((upstream) => workflow.stage(upstream).label).join(" and ")} {workflow.upstreamStages(stage).filter((upstream) => !module.stageComplete(upstream)).length === 1 ? "is" : "are"} complete. Its work stays readable.

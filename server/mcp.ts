@@ -169,7 +169,8 @@ export async function serveMcp(
     }, TOOL_LIST_CHECK_DELAY_MS);
   };
   // Each change request that waits for the agent is announced once its stage
-  // is open, and again only after the spec owner writes in it again.
+  // is open, and again only after the spec owner writes in it again. Each
+  // request to write a stage is announced once.
   let initialized = false;
   let announced = new Set<string>();
   const announceWaitingThreads = () => {
@@ -183,6 +184,15 @@ export async function serveMcp(
       server.notification({
         method: "notifications/claude/channel",
         params: { content: `A change request on ${store.unitLabel(thread.unitId)} waits for you.`, meta: { thread_id: thread.id } },
+      }).catch(() => {});
+    }
+    for (const ask of store.writingAskedOfAnswerer) {
+      const turn = `${ask.stage}@${ask.at}`;
+      waiting.add(turn);
+      if (announced.has(turn)) continue;
+      server.notification({
+        method: "notifications/claude/channel",
+        params: { content: `The spec owner asks you to write ${store.workflow.stage(ask.stage).label}.`, meta: { stage: ask.stage } },
       }).catch(() => {});
     }
     announced = waiting;
