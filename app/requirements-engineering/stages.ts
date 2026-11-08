@@ -101,13 +101,14 @@ export const REQUIREMENTS_ENGINEERING_STAGES: readonly StageDefinition[] = [
       "Capabilities do not overlap: two that cannot be told apart in one sentence are one.",
       "A guarantee every sound product gives, such as being correct or safe, is a requirement, not a capability.",
       "Capabilities name no technology, architecture or way of building the product.",
+      "A capability states what the module provides, without naming who uses it; user stories name the people and the outcomes they want.",
       "Each capability counts as referencing the purpose, without listing it. The purpose is covered when the capabilities referencing it give every broad ability it needs.",
     ],
     examples: [
       {
         good: true,
         label: "Good, a capability",
-        text: "Signing: The spec owner signs each item, coverage and change, so that only what they approved counts as decided.",
+        text: "Signing: Takes a signature on each item, coverage and change, so that only what was signed counts as settled.",
       },
       {
         good: false,
@@ -163,6 +164,7 @@ export const REQUIREMENTS_ENGINEERING_STAGES: readonly StageDefinition[] = [
       "A feature has a name, a description of one concrete ability through which a capability is delivered, and the one capability it belongs to.",
       "If the module lost a feature, its capability would no longer be fully delivered. Variations, options, checks, error cases and single rules belong to the feature they refine, as user stories or requirements, never as features beside it.",
       "Features name no technology, architecture or way of building the product.",
+      "A feature states what the module provides, without naming who uses it; user stories name the people and the outcomes they want.",
       'A target user has a name, the kind of person or role user stories name after "As a", and a description of it. It is a kind of person or role the module changes something for, not a named individual, a team or a system.',
       "Each description of a feature or a target user is one sentence.",
       "A capability is covered when the features belonging to it deliver all of it.",
@@ -176,7 +178,12 @@ export const REQUIREMENTS_ENGINEERING_STAGES: readonly StageDefinition[] = [
       {
         good: false,
         label: "Not a feature, a capability",
-        text: "Signing: The spec owner signs each item, coverage and change, so that only what they approved counts as decided.",
+        text: "Signing: Takes a signature on each item, coverage and change, so that only what was signed counts as settled.",
+      },
+      {
+        good: false,
+        label: "Not a feature, a user story",
+        text: "Rules dialog: The spec owner reads a stage's rules, so that they write items that follow them.",
       },
       {
         good: false,
