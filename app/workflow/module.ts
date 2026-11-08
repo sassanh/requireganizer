@@ -1327,6 +1327,21 @@ export function workflowModuleModel(workflow: Workflow) {
          * was. Throws every problem at once.
          */
         writeItems(changes: ItemChange[]): ChangeOutcome {
+          // A write never builds on what it changes itself: a stage and a stage building on it change in separate writes.
+          const touched = [
+            ...new Set(changes.flatMap((change) => {
+              const stage = change.type === "add" ? change.stage : self.locate(change.item)?.stage;
+              return stage != null && workflow.isStage(stage) ? [stage] : [];
+            })),
+          ];
+          for (const later of touched) {
+            const earlier = touched.find((stage) => workflow.buildsOn(later, stage));
+            if (earlier == null) continue;
+            const [earlierLabel, laterLabel] = [workflow.stage(earlier).label, workflow.stage(later).label];
+            throw new UserFacingError(
+              `This write changes ${earlierLabel} and ${laterLabel}, which builds on it. Change ${earlierLabel} first; change ${laterLabel} once ${earlierLabel} is complete again.`,
+            );
+          }
           const trial = getType(self).create(getSnapshot(self)) as unknown as {
             setLinkedModules(modules: LinkedModule[]): void;
             writeItemsUnchecked(changes: ItemChange[]): { outcome: ChangeOutcome; problems: string[] };

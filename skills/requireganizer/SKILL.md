@@ -72,7 +72,9 @@ tool signs.
 - Change only the items a change affects. An out-of-date item that still
   holds stays as it is: the person signs it as it is.
 - A write to an earlier stage applies at once and closes the stages that
-  build on it until it is complete again.
+  build on it until it is complete again. So one write never changes a stage
+  together with a stage that builds on it: change the earlier stage, wait for
+  the person to sign it, then change the later one.
 - When you lack the information a stage needs, ask the person. Do not invent
   scope.
 

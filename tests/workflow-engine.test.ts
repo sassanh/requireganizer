@@ -46,6 +46,20 @@ function specified(store: Store): void {
 }
 
 describe("workflow engine", () => {
+  it("refuses a write that changes a stage together with a stage that builds on it, in either order", () => {
+    const store = Store.create({});
+    specified(store);
+    const capability = itemOf(store, "capabilities", "CAP-01");
+    const feature = itemOf(store, "features-and-target-users", "FEA-01");
+    const capabilityChange = { type: "change", item: capability, content: { description: "Stages in a row." } } as const;
+    const featureChange = { type: "change", item: feature, content: { description: "Stages one by one." } } as const;
+    for (const changes of [[capabilityChange, featureChange], [featureChange, capabilityChange]]) {
+      assert.throws(() => store.writeItems([...changes]), /changes Capabilities and Features and Target Users, which builds on it/);
+    }
+    assert.equal(store.textOf(capability), "Staging: Staged workflow.");
+    assert.equal(store.textOf(feature), "Order: Stages in order.");
+  });
+
   it("names an item of this module or another, and tells listed links from counted ones", () => {
     const store = Store.create({});
     const other = Store.create({});
