@@ -57,7 +57,8 @@ tool signs.
 - An abstract test chooses one acceptance criterion and holds Given, When and
   Then steps, and optionally a table of values. A step calls an operation by
   code and gives each input one value: written out (text in double quotes),
-  a table column, or an earlier named step's result. A Then step expects an
+  `"empty": true` where its type is possibly empty, a table column, or an
+  earlier named step's result. A Then step expects an
   observation, a result, a duration or a refusal. `get_stage_rules` gives an
   example of an operation's fields and of an abstract test's.
 - Write, change and remove items with `write_items`. Check what it reports it

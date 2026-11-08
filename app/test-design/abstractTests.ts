@@ -1,6 +1,7 @@
 import {
   chosenItems,
   type FieldDefinition,
+  flagValue,
   type FieldPlace,
   type ItemContent,
   type ModuleReader,
@@ -9,7 +10,6 @@ import {
   recordsValue,
   recordValue,
   type ShownParts,
-  textsValue,
   textValue,
 } from "workflow";
 
@@ -19,13 +19,15 @@ import {
   COMPARISONS,
   comparisonsFor,
   comparisonWords,
+  describeFittingTypes,
   describeType,
   DURATION,
+  emptyProblem,
   expectedTypeOf,
+  fitsType,
   holdsEntities,
   literalProblem,
   parseType,
-  sameType,
   typeOf,
   type ValueType,
 } from "./valueTypes";
@@ -110,12 +112,12 @@ type ValueRole = "input" | "expected";
 
 function offerColumns(place: FieldPlace, role: ValueRole): Offer {
   const type = valueType(place, role);
-  const columns = columnsOf(place.content).filter((column) => type == null || (column.type != null && sameType(column.type, type)));
+  const columns = columnsOf(place.content).filter((column) => type == null || (column.type != null && fitsType(column.type, type)));
   return {
     values: columns.map(({ name }) => name),
     rule: type == null
       ? "a value takes a column of the test's table."
-      : `a value of type ${describeType(type, place.module)} takes a column of the test's table of that type${columns.length === 0 ? "; the table has none" : `: ${columns.map(({ name }) => name).join(", ")}`}.`,
+      : `a value of type ${describeType(type, place.module)} takes a column of the test's table of type ${describeFittingTypes(type, place.module)}${columns.length === 0 ? "; the table has none" : `: ${columns.map(({ name }) => name).join(", ")}`}.`,
   };
 }
 
@@ -126,28 +128,39 @@ function offerSteps(place: FieldPlace, role: ValueRole): Offer {
     return { values: [], rule: "an expected value takes the result of a named step only when it compares an entity or a list of entities." };
   }
   const steps = earlierNamedSteps(place.content, place.module, step.field, step.index).filter(
-    (candidate) => candidate.operation?.result != null && (type == null || sameType(candidate.operation.result, type)),
+    (candidate) => candidate.operation?.result != null && (type == null || fitsType(candidate.operation.result, type)),
   );
   return {
     values: steps.map(({ name }) => name),
-    rule: `a value takes the result of an earlier named step of the same test${type == null ? "" : ` whose result is ${describeType(type, place.module)}`}${steps.length === 0 ? "; there is none" : `: ${steps.map(({ name }) => name).join(", ")}`}.`,
+    rule: `a value takes the result of an earlier named step of the same test${type == null ? "" : ` whose result is ${describeFittingTypes(type, place.module)}`}${steps.length === 0 ? "; there is none" : `: ${steps.map(({ name }) => name).join(", ")}`}.`,
   };
 }
 
-/** The fields of a value: written out, a column of the table, or an earlier named step's result. */
+const LITERAL_FIELD: FieldDefinition = {
+  name: "literal",
+  label: "Value",
+  description: 'The value written out: a text in double quotes such as "red shoes", a whole number such as 3, a number with decimals such as 2.5, yes or no, a duration such as 200 ms, a word of its set as written, or a list such as [1, 2]; "" is the empty text and [] the empty list. An entity is never written out.',
+  type: "text",
+  required: false,
+};
+
+const EMPTY_FIELD: FieldDefinition = {
+  name: "empty",
+  label: "Empty",
+  description: "Or the empty value, chosen, only where its type is possibly empty.",
+  type: "flag",
+  required: false,
+};
+
+/** The fields of a value: written out, chosen empty, a column of the table, or an earlier named step's result. */
 function valueFields(role: ValueRole): FieldDefinition[] {
   return [
-    {
-      name: "literal",
-      label: "Value",
-      description: 'The value written out: a text in double quotes such as "red shoes", a number such as 3 or 2.5, yes or no, a duration such as 200 ms, a word of its set, a list such as [1, 2], or "", [] or none where its type is possibly empty.',
-      type: "text",
-      required: false,
-    },
+    LITERAL_FIELD,
+    EMPTY_FIELD,
     {
       name: "column",
       label: "Column",
-      description: "Or the name of a column of the test's table, of the same type.",
+      description: "Or the name of a column of the test's table of the same type, or of that type never empty where this one is possibly empty.",
       type: "text",
       required: false,
       offered: (place) => offerColumns(place, role),
@@ -157,14 +170,21 @@ function valueFields(role: ValueRole): FieldDefinition[] {
       label: "Result of step",
       description:
         role === "input"
-          ? "Or the name of an earlier Given or When step of the test whose result has the same type."
-          : "Or the name of a Given or When step whose result has the same type, only when the step compares an entity or a list of entities.",
+          ? "Or the name of an earlier Given or When step of the test whose result has the same type, or that type never empty where this one is possibly empty."
+          : "Or the name of a Given or When step whose result has the same type, or that type never empty where this one is possibly empty, only when the step compares an entity or a list of entities.",
       type: "text",
       required: false,
       offered: (place) => offerSteps(place, role),
     },
   ];
 }
+
+/** The fields of a table row's cell: its column's value written out, or chosen empty. */
+const CELL_FIELDS: readonly FieldDefinition[] = [LITERAL_FIELD, EMPTY_FIELD];
+
+export const ROW_FIELDS: readonly FieldDefinition[] = [
+  { name: "cells", label: "Cells", entry: "cell", description: "One cell per column, in the columns' order.", type: "records", fields: CELL_FIELDS, required: true },
+];
 
 const INPUT_FIELDS: FieldDefinition[] = [
   {
@@ -293,13 +313,26 @@ export const THEN_FIELDS: readonly FieldDefinition[] = [
   },
 ];
 
-/** The sources a value is written with: exactly one of written out, a column, or a step's result. */
-function sourceProblems(value: RecordContent, label: string, type: ValueType | null, module: ModuleReader): string[] {
-  const sources = (["literal", "column", "step"] as const).filter((source) => textValue(value[source]) !== "");
-  if (sources.length === 0) return [`${label} has no value: write it out, or name a column or a step.`];
-  if (sources.length > 1) return [`${label} takes exactly one of a value written out, a column or a step's result.`];
-  if (sources[0] !== "literal" || type == null) return [];
-  const problem = literalProblem(type, textValue(value.literal), module);
+/** The ways a value is given, each with how a refusal names it. */
+const SOURCES = { literal: "a value written out", empty: "empty chosen", column: "a column", step: "a step's result" } as const;
+
+type Source = keyof typeof SOURCES;
+
+/** The ways a step's input or a Then step's expected value is given. */
+const VALUE_SOURCES: readonly Source[] = ["literal", "empty", "column", "step"];
+
+/** The ways a table row's cell is given. */
+const CELL_SOURCES: readonly Source[] = ["literal", "empty"];
+
+/** The problems of a value: exactly one of the ways its place allows, a literal of the type, empty chosen only where the type is possibly empty. */
+function valueProblems(value: RecordContent, label: string, type: ValueType | null, sources: readonly Source[], module: ModuleReader): string[] {
+  const given = sources.filter((source) => (source === "empty" ? flagValue(value.empty) : textValue(value[source]) !== ""));
+  const ways = sources.map((source) => SOURCES[source]);
+  const listed = `${ways.slice(0, -1).join(", ")} or ${ways.at(-1)}`;
+  if (given.length === 0) return [`${label} has no value: give one of ${listed}.`];
+  if (given.length > 1) return [`${label} takes exactly one of ${listed}.`];
+  if (type == null) return [];
+  const problem = given[0] === "literal" ? literalProblem(type, textValue(value.literal), module) : given[0] === "empty" ? emptyProblem(type, module) : null;
   return problem == null ? [] : [`${label}: ${problem}`];
 }
 
@@ -315,7 +348,7 @@ function inputProblems(record: RecordContent, label: string, operation: Operatio
   }
   for (const value of values) {
     const input = operation.inputs.find(({ name }) => name === textValue(value.input));
-    if (input != null) problems.push(...sourceProblems(value, `${label}'s input ${input.name}`, input.type, module));
+    if (input != null) problems.push(...valueProblems(value, `${label}'s input ${input.name}`, input.type, VALUE_SOURCES, module));
   }
   return problems;
 }
@@ -355,7 +388,7 @@ export function checkAbstractTest(content: ItemContent, module: ModuleReader): s
     const expected = recordValue(then.expected);
     if (expected != null && expects !== "refusal") {
       const compared = comparedType(then, content, module);
-      problems.push(...sourceProblems(expected, `${label}'s expected value`, compared == null ? null : expectedTypeOf(textValue(then.comparison), compared), module));
+      problems.push(...valueProblems(expected, `${label}'s expected value`, compared == null ? null : expectedTypeOf(textValue(then.comparison), compared), VALUE_SOURCES, module));
     }
     if (expects === "result" && refused.has(textValue(then.step))) {
       problems.push(`${label} compares the result of ${textValue(then.step)}, which a Then step expects to be refused.`);
@@ -387,24 +420,24 @@ export function checkAbstractTest(content: ItemContent, module: ModuleReader): s
   if (columns.length > 0 && rows.length === 0) problems.push("its table has columns but no row; give at least one row.");
   if (columns.length === 0 && rows.length > 0) problems.push("its table has rows but no column.");
   rows.forEach((row, index) => {
-    const written = textsValue(row.values);
-    if (written.length !== columns.length) {
-      problems.push(`row ${index + 1} gives ${written.length} values for ${columns.length} columns; give each column one value, in the columns' order.`);
+    const cells = recordsValue(row.cells);
+    if (cells.length !== columns.length) {
+      problems.push(`row ${index + 1} gives ${cells.length} cells for ${columns.length} columns; give each column one cell, in the columns' order.`);
       return;
     }
     columns.forEach((column, position) => {
-      if (column.type == null || holdsEntities(column.type)) return;
-      const problem = literalProblem(column.type, written[position]!, module);
-      if (problem != null) problems.push(`row ${index + 1}, column ${column.name}: ${problem}`);
+      const type = column.type == null || holdsEntities(column.type) ? null : column.type;
+      problems.push(...valueProblems(cells[position]!, `row ${index + 1}, column ${column.name}`, type, CELL_SOURCES, module));
     });
   });
   return problems;
 }
 
-/** A value as a sentence shows it: written out, a column's name in angle brackets, or a step's name. */
+/** A value as a sentence or the table shows it: written out, empty, a column's name in angle brackets, or a step's name. */
 function valueText(value: RecordContent | null): string {
   if (value == null) return "…";
   if (textValue(value.literal) !== "") return textValue(value.literal);
+  if (flagValue(value.empty)) return "empty";
   if (textValue(value.column) !== "") return `<${textValue(value.column)}>`;
   return textValue(value.step) || "…";
 }
@@ -445,7 +478,7 @@ export function displayAbstractTest(parts: ShownParts): string {
   const criterion = module.item(chosenItems(content.criterion)[0] ?? "");
   const stepText = (record: RecordContent) => `${callText(record, module)}${textValue(record.name) === "" ? "" : `, as ${textValue(record.name)}`}`;
   const columns = columnsOf(content).map(({ name }) => name);
-  const rows = recordsValue(content.rows).map((row) => textsValue(row.values));
+  const rows = recordsValue(content.rows).map((row) => recordsValue(row.cells).map(valueText));
   return [
     `Verifies ${criterion == null ? "no acceptance criterion" : `${criterion.code}: ${criterion.text.split("\n").join(" ")}`}`,
     "",

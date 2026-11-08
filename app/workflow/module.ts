@@ -248,7 +248,7 @@ function signatureRecord(signer: Signer, covers: string): SignatureRecord {
 
 /** Whether a value says nothing: no text, no, no entry, or a record whose every field says nothing. */
 function isEmptyValue(value: FieldValue | undefined): boolean {
-  if (value == null || value === false) return true;
+  if (value == null || typeof value === "boolean") return value !== true;
   if (typeof value === "string") return value.trim().length === 0;
   if (Array.isArray(value)) return value.length === 0;
   return Object.values(value as RecordContent).every(isEmptyValue);

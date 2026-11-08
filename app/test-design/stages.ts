@@ -1,7 +1,7 @@
 import { ACCEPTANCE_CRITERIA, ACCEPTANCE_CRITERION } from "requirements-engineering";
 import type { StageDefinition, TextFieldDefinition } from "workflow";
 
-import { checkAbstractTest, displayAbstractTest, marksOfAbstractTest, STEP_FIELDS, THEN_FIELDS } from "./abstractTests";
+import { checkAbstractTest, displayAbstractTest, marksOfAbstractTest, ROW_FIELDS, STEP_FIELDS, THEN_FIELDS } from "./abstractTests";
 import { checkEntityType, checkOperation, checkWordSet, displayBoundaryStatement, displayOperation } from "./boundary";
 import { ABSTRACT_TEST, ABSTRACT_TESTS, BOUNDARY, BOUNDARY_STATEMENT, ENTITY_TYPE, OPERATION, OPERATION_KINDS, WORD_SET } from "./identifiers";
 import { DURATION_UNITS, SIMPLE_TYPES, TYPE_FIELDS } from "./valueTypes";
@@ -195,9 +195,9 @@ export const TEST_DESIGN_STAGES: readonly StageDefinition[] = [
             name: "rows",
             label: "Table rows",
             entry: "row",
-            description: "One row per test, giving each column a value written out, in the columns' order.",
+            description: "One row per test, giving each column one value, written out or chosen empty, in the columns' order.",
             type: "records",
-            fields: [{ name: "values", label: "Values", description: "One value per column, in the columns' order.", type: "texts", required: true }],
+            fields: ROW_FIELDS,
             required: false,
           },
         ],
@@ -210,7 +210,7 @@ export const TEST_DESIGN_STAGES: readonly StageDefinition[] = [
           when: [{ name: "order", operation: "OP-02", inputs: [{ input: "quantity", column: "quantity" }, { input: "product", literal: '"shoe"' }] }],
           then: [{ expects: "refusal", step: "order", refusal: "out of stock" }],
           columns: [{ name: "quantity", type: { simple: "whole number" } }],
-          rows: [{ values: ["2"] }, { values: ["5"] }],
+          rows: [{ cells: [{ literal: "2" }] }, { cells: [{ literal: "5" }] }],
         },
       },
     ],
@@ -221,14 +221,15 @@ export const TEST_DESIGN_STAGES: readonly StageDefinition[] = [
       "A step calls an operation of the boundary that references the test's acceptance criterion: a Given step an action, a direct setup or an observation, a When step an action, and a Then step that compares an observation an observation.",
       "A test's When does what its criterion's When says, and is empty when the criterion has none.",
       "A Given or When step may have a name, unique in the test, by which later steps use its result.",
-      'A step gives each input of its operation one value of the input\'s type: written out, a column of the test\'s table with that type, or the result of an earlier named step of the test with that type. A value written out is a text in double quotes such as "red shoes", a whole number such as 3, a number with decimals such as 2.5, yes or no, a duration such as 200 ms, a word of its set, or a list such as [1, 2]; "" for text, [] for a list and none for any other type, only where the type is possibly empty. An entity is never written out.',
+      "A step gives each input of its operation one value of the input's type: a literal, a column of the test's table with that type, or the result of an earlier named step of the same test with that type. A value whose type is never empty also fits an input whose type is possibly empty, but not the reverse.",
+      'A literal is a text in double quotes such as "red shoes"; a whole number such as 3, or a number with decimals written with a point such as 2.5; yes or no; a duration as a number followed by ms, s or min, such as 200 ms; one of the words of its set, as written; or a list as its values in square brackets, separated by commas, such as [1, 2]. For a type that is possibly empty, the empty value is a literal too, chosen as empty and never written as a word; "" is also the empty text and [] the empty list. An entity is never written out.',
       "A step whose operation completes later completes when the operation does, and the next step starts only after it.",
       "A Then step compares an observation, or the result of a named Given or When step, with an expected value; compares how long a named When step took with a duration; or expects a named When step to be refused with a refusal its action declares. No step uses the result of a step a Then step expects to be refused.",
-      "The comparisons are: equals and differs from, for every type, two lists being equal only with the same values in the same order; has the same values as, in any order, for lists; at most and at least, for numbers and durations; contains and does not contain, for lists, whose expected value is one entry. An expected value is written out or a column; it is the result of a named step only when what it compares is an entity or a list of entities.",
+      "The comparisons are: equals and differs from, for every type, two lists being equal only with the same values in the same order; has the same values as, in any order, for lists; at most and at least, for numbers and durations; contains and does not contain, for lists, whose expected value is one entry. An expected value is a literal or a column of the test's table, fitting the type the comparison takes as an input's value fits the input's type; it is the result of a named step only when what it compares is an entity or a list of entities.",
       "How long a step took runs from when the product starts its operation until the product completes it, measured inside the product, so that no time spent reaching the product or reporting back is counted. A step still running when the time limit a Then step compares it with passes took longer than that limit.",
       "A test passes when every Then step holds. It fails when a Then step does not hold, or when a When step or a Then step's observation does not complete, ends with an error it does not declare, or is refused without a Then step expecting it. It is inconclusive when a Given step does not complete.",
       "A step refused as a Then step expects counts as completed, and the test goes on.",
-      "Tests of one criterion that differ only in their values are written as one test with a table: named columns, each with a type other than an entity type or a list of entities, and one or more rows giving each column a value written out. Every column is used by some step. Each row counts as one test, for its verdict and for its criterion's coverage.",
+      "Tests of one criterion that differ only in their values are written as one test with a table: named columns, each with a type other than an entity type or a list of entities, and one or more rows giving each column a literal of its type. Every column is used by some step. Each row counts as one test, for its verdict and for its criterion's coverage.",
       "An acceptance criterion is covered when its tests include one for each case it distinguishes, refusals included, and, at each edge of a range of input values it allows, one at the edge value and one at the nearest value beyond it, at the precision the criterion states.",
       "An acceptance criterion needing anything the boundary statement leaves out gets no abstract test, and its coverage is signed as untested.",
       "An operation is covered when some test uses it and, for each refusal it declares, some test expects that refusal.",

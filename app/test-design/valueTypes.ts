@@ -53,7 +53,7 @@ export const TYPE_FIELDS: readonly FieldDefinition[] = [
   {
     name: "possiblyEmpty",
     label: "Possibly empty",
-    description: 'Whether it may be empty: "" for text, [] for a list, none for any other type.',
+    description: 'Whether it may be empty: its empty value is chosen as empty, or written "" for a text and [] for a list. A value of the same type never empty also fits it.',
     type: "flag",
     required: false,
   },
@@ -77,8 +77,9 @@ export function typeOf(record: RecordContent | null): ValueType | null {
   return "type" in parsed ? parsed.type : null;
 }
 
-export function sameType(left: ValueType, right: ValueType): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
+/** Whether a value of type `value` fits a place of type `place`: their base and list agree, and either the place may be empty or the value never is. */
+export function fitsType(value: ValueType, place: ValueType): boolean {
+  return JSON.stringify(value.base) === JSON.stringify(place.base) && value.list === place.list && (place.possiblyEmpty || !value.possiblyEmpty);
 }
 
 /** The type of one value of a list. */
@@ -100,6 +101,12 @@ function nameOf(id: string, module: ModuleReader): string {
 export function describeType(type: ValueType, module: ModuleReader): string {
   const base = "simple" in type.base ? type.base.simple : nameOf("entity" in type.base ? type.base.entity : type.base.words, module);
   return `${type.possiblyEmpty ? "possibly empty " : ""}${type.list ? "list of " : ""}${base}`;
+}
+
+/** The types whose values fit a place of the type, as the spec owner reads them, such as "possibly empty whole number or whole number". */
+export function describeFittingTypes(place: ValueType, module: ModuleReader): string {
+  const described = describeType(place, module);
+  return place.possiblyEmpty ? `${described} or ${describeType({ ...place, possiblyEmpty: false }, module)}` : described;
 }
 
 /** A written type as the spec owner reads it, or "none". */
@@ -150,18 +157,22 @@ export function literalProblem(type: ValueType, written: string, module: ModuleR
     return null;
   }
   if ("entity" in type.base) {
-    if (written === "none" && type.possiblyEmpty) return null;
-    return `an entity is never written as a value; take ${described} from the result of an earlier named step.`;
+    return `an entity is never written as a value; take ${described} from the result of an earlier named step${type.possiblyEmpty ? ", or choose empty" : ""}.`;
   }
-  if (written === "none" && !("simple" in type.base && type.base.simple === "text")) {
-    return type.possiblyEmpty ? null : `none is empty, but ${described} is not possibly empty.`;
-  }
+  // Where the type may be empty, a refused value also says how to give none.
+  const withEmptyHint = (problem: string | null) =>
+    problem == null || !type.possiblyEmpty ? problem : `${problem.replace(/\.$/, "")}; to give no value, choose empty.`;
   if ("words" in type.base) {
     const words = module.item(type.base.words)?.content.words;
     const known = Array.isArray(words) ? (words as readonly string[]) : [];
-    return known.includes(written) ? null : `${written} is not a word of ${described}; it is one of ${known.join(", ")}.`;
+    return withEmptyHint(known.includes(written) ? null : `${written} is not a word of ${described}; it is one of ${known.join(", ")}.`);
   }
-  switch (type.base.simple) {
+  return withEmptyHint(simpleLiteralProblem(type.base.simple, type.possiblyEmpty, written, described));
+}
+
+/** Why a written literal is not a value of a simple type, or null when it is one. */
+function simpleLiteralProblem(simple: SimpleType, possiblyEmpty: boolean, written: string, described: string): string | null {
+  switch (simple) {
     case "text": {
       if (!/^".*"$/s.test(written)) return `${written} is not a text; write a text in double quotes, such as "red shoes".`;
       let text: string;
@@ -170,7 +181,7 @@ export function literalProblem(type: ValueType, written: string, module: ModuleR
       } catch {
         return `${written} is not a text; write a text in double quotes, with \\" for a quote inside it.`;
       }
-      return text === "" && !type.possiblyEmpty ? `"" is empty, but ${described} is not possibly empty.` : null;
+      return text === "" && !possiblyEmpty ? `"" is empty, but ${described} is not possibly empty.` : null;
     }
     case "whole number":
       return /^-?\d+$/.test(written) ? null : `${written} is not a whole number.`;
@@ -183,6 +194,11 @@ export function literalProblem(type: ValueType, written: string, module: ModuleR
         ? null
         : `${written} is not a duration; write a number and a unit of ${DURATION_UNITS.join(", ")}, such as 200 ms.`;
   }
+}
+
+/** Why the empty value, chosen, is not a value of the type, or null when it is one. */
+export function emptyProblem(type: ValueType, module: ModuleReader): string | null {
+  return type.possiblyEmpty ? null : `empty is chosen, but ${describeType(type, module)} is not possibly empty.`;
 }
 
 /** The comparisons a Then step offers, by their stored names. */
