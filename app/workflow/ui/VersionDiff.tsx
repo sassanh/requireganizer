@@ -9,9 +9,11 @@ import { chosenItems, type FieldValue, type ItemVersion, recordsValue, recordVal
 import { useWorkflowView } from "./context";
 import ItemChip, { useItemName } from "./ItemChip";
 
-function TextDiff({ before, after }: { before: string; after: string }) {
+/** Two versions of a text word by word, after the field's prefix, such as "The system must", as the item reads. */
+function TextDiff({ before, after, prefix }: { before: string; after: string; prefix?: string }) {
   return (
     <Typography variant="body2" component="div" sx={{ whiteSpace: "pre-wrap" }}>
+      {prefix != null && <Box component="span" sx={{ color: "text.secondary", fontWeight: 600 }}>{prefix} </Box>}
       {wordDiff(before, after).map((hunk, index) => (
         <Box
           key={index}
@@ -96,7 +98,11 @@ export default function VersionDiff({ kind, signed, current, caption = "Since th
         ) : (
           <Stack key={field.name} spacing={0.25}>
             <Typography variant="caption">{field.label}</Typography>
-            <TextDiff before={fieldText(field, signed.content[field.name] ?? null, name)} after={fieldText(field, current.content[field.name] ?? null, name)} />
+            <TextDiff
+              before={fieldText(field, signed.content[field.name] ?? null, name)}
+              after={fieldText(field, current.content[field.name] ?? null, name)}
+              prefix={field.type === "text" ? field.prefix : undefined}
+            />
           </Stack>
         ),
       )}
