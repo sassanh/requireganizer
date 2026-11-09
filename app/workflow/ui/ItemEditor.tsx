@@ -8,15 +8,35 @@ import { type ReactNode, useEffect, useState } from "react";
 import type { FieldDefinition, FieldPlace, ItemsFieldDefinition } from "../definition";
 import { chosenItems, type FieldValue, flagValue, type RecordContent, recordsValue, recordValue, textsValue, textValue } from "../records";
 import { perform, useWorkflowView } from "./context";
+import ItemChip, { ItemOption } from "./ItemChip";
 
 interface Option {
   id: string;
   label: string;
 }
 
-/** The start of an item's text, as a list of choices shows it after its code. */
-export function itemExcerpt(text: string): string {
-  return text.length > 70 ? `${text.slice(0, 70)}…` : text;
+/**
+ * A field's prefix, such as "The system must", set over the start of its
+ * first line: the text indents its first line by the prefix's width, so the
+ * two read as one sentence and the text wraps under the prefix.
+ */
+function prefixedSlots(prefix: string, width: number, onWidth: (width: number) => void) {
+  return {
+    input: {
+      startAdornment: (
+        <Box
+          component="span"
+          ref={(element: HTMLSpanElement | null) => {
+            if (element != null) onWidth(element.offsetWidth);
+          }}
+          sx={{ position: "absolute", top: "8.5px", left: "14px", lineHeight: "1.4375em", color: "text.secondary", fontWeight: 600, pointerEvents: "none" }}
+        >
+          {prefix}
+        </Box>
+      ),
+    },
+    htmlInput: { style: { textIndent: width === 0 ? undefined : `${width + 4}px` } },
+  };
 }
 
 /**
@@ -164,6 +184,7 @@ const FieldsEditor = observer(function FieldsEditor({
   const { module, workflow } = useWorkflowView();
   const place: FieldPlace = { content: placement.content, path: placement.path, record, module: module.reader };
   const set = (name: string, value: FieldValue) => onChange({ ...record, [name]: value });
+  const [prefixWidths, setPrefixWidths] = useState<Record<string, number>>({});
   return (
     <Stack spacing={1.5}>
       {fields.map((field, index) => {
@@ -184,21 +205,7 @@ const FieldsEditor = observer(function FieldsEditor({
                 autoFocus={autoFocus && index === 0}
                 value={textValue(value)}
                 onChange={(event) => set(field.name, event.target.value)}
-                slotProps={
-                  field.prefix == null
-                    ? undefined
-                    : {
-                        input: {
-                          startAdornment: (
-                            <InputAdornment position="start">
-                              <Box component="span" sx={{ color: "text.secondary", fontWeight: 600 }}>
-                                {field.prefix}
-                              </Box>
-                            </InputAdornment>
-                          ),
-                        },
-                      }
-                }
+                slotProps={field.prefix == null ? undefined : prefixedSlots(field.prefix, prefixWidths[field.name] ?? 0, (width) => setPrefixWidths((widths) => (widths[field.name] === width ? widths : { ...widths, [field.name]: width })))}
               />
             );
           case "choice": {
@@ -332,12 +339,12 @@ const ItemEditor = observer(function ItemEditor({
   const referenceOptions: Option[] = workflow.basisStages(stage).flatMap((basis) =>
     module.itemsOf(basis)
       .filter(({ kind: candidate, removal }) => removal == null && !countedReferences.includes(candidate))
-      .map((item) => option(item.id, `${module.codeOf(item.id)} ${itemExcerpt(module.textOf(item.id))}`)),
+      .map((item) => option(item.id, `${module.codeOf(item.id)} ${module.textOf(item.id)}`)),
   );
   const counted = [...chosenKinds, ...(definition.dependsOnSingle ?? [])];
   const ownOptions: Option[] = module.itemsOf(stage)
     .filter(({ id, kind: candidate, removal }) => id !== itemId && removal == null && !counted.includes(candidate))
-    .map((item) => option(item.id, `${module.codeOf(item.id)} ${itemExcerpt(module.textOf(item.id))}`));
+    .map((item) => option(item.id, `${module.codeOf(item.id)} ${module.textOf(item.id)}`));
   const otherOptions: Option[] = module.linkedModules.flatMap((linked) =>
     linked.lookup
       .listItems()
@@ -388,6 +395,11 @@ const ItemEditor = observer(function ItemEditor({
               value={references.map((id) => labelOf(referenceOptions, id))}
               isOptionEqualToValue={(left, right) => left.id === right.id}
               onChange={(_event, value) => setReferences(value.map(({ id }) => id))}
+              renderValue={(chosen, getItemProps) => chosen.map(({ id }, index) => {
+                const { key, onDelete } = getItemProps({ index });
+                return <ItemChip key={key} itemId={id} opens={false} onDelete={onDelete} />;
+              })}
+              renderOption={({ key, ...props }, { id }) => <li key={key} {...props}><ItemOption itemId={id} /></li>}
               renderInput={(params) => <TextField {...params} label="References" />}
             />
           )}
@@ -399,6 +411,11 @@ const ItemEditor = observer(function ItemEditor({
               value={dependencies.map((id) => labelOf(dependencyOptions, id))}
               isOptionEqualToValue={(left, right) => left.id === right.id}
               onChange={(_event, value) => setDependencies(value.map(({ id }) => id))}
+              renderValue={(chosen, getItemProps) => chosen.map(({ id }, index) => {
+                const { key, onDelete } = getItemProps({ index });
+                return <ItemChip key={key} itemId={id} opens={false} onDelete={onDelete} />;
+              })}
+              renderOption={({ key, ...props }, { id }) => <li key={key} {...props}><ItemOption itemId={id} /></li>}
               renderInput={(params) => <TextField {...params} label="Dependencies" />}
             />
           )}

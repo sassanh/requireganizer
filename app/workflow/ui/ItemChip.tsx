@@ -58,22 +58,49 @@ function ItemPreview({ item, change }: { item: NamedItem; change: OutOfDateCause
  * the item naming it out of date, and the chip says why in the warning
  * colour; with `change`, the preview shows how the item changed.
  */
-const ItemChip = observer(function ItemChip({ itemId, detail, reasons = [], change = null }: { itemId: string; detail?: string; reasons?: readonly LinkReason[]; change?: OutOfDateCause["change"] }) {
+const ItemChip = observer(function ItemChip({
+  itemId,
+  detail,
+  reasons = [],
+  change = null,
+  opens = true,
+  onDelete,
+}: {
+  itemId: string;
+  detail?: string;
+  reasons?: readonly LinkReason[];
+  change?: OutOfDateCause["change"];
+  /** False where opening the item would leave work behind, such as in an editor. */
+  opens?: boolean;
+  onDelete?: (event: unknown) => void;
+}) {
   const { module } = useWorkflowView();
   const { openUnit } = useWorkflowNavigation();
   const label = useItemLabel();
   const named = module.namedItem(itemId);
   const cause = reasons.length > 0;
   const look = { size: "small", variant: cause ? "filled" : "outlined", color: cause ? "warning" : "default" } as const;
-  if (named == null) return <Chip {...look} label={label(itemId)} />;
+  if (named == null) return <Chip {...look} label={label(itemId)} onDelete={onDelete} />;
   const open = (event: MouseEvent<HTMLElement>) => {
     const from = event.currentTarget.closest<HTMLElement>("[data-unit-card]")?.dataset.unitCard ?? null;
     openUnit({ module: named.module?.id ?? null, stage: named.stage, unitId: named.id }, from);
   };
   return (
     <Tooltip title={<ItemPreview item={named} change={change} />} describeChild disableInteractive slotProps={{ tooltip: { sx: { maxWidth: 440 } } }}>
-      <Chip {...look} label={label(itemId, { detail, reasons })} onClick={open} />
+      <Chip {...look} label={label(itemId, { detail, reasons })} onClick={opens ? open : undefined} onDelete={onDelete} />
     </Tooltip>
+  );
+});
+
+/** An item offered in a list to choose from: its chip, then its whole text, wrapped rather than cut. */
+export const ItemOption = observer(function ItemOption({ itemId }: { itemId: string }) {
+  const { module } = useWorkflowView();
+  const named = module.namedItem(itemId);
+  return (
+    <Stack direction="row" sx={{ gap: 1, alignItems: "baseline", minWidth: 0 }}>
+      <ItemChip itemId={itemId} opens={false} />
+      {named != null && <Typography variant="body2" sx={{ minWidth: 0, whiteSpace: "normal" }}>{named.text}</Typography>}
+    </Stack>
   );
 });
 

@@ -28,8 +28,8 @@ import type { CoverageState, ImpactState, ItemState, OutOfDateCause } from "../m
 import { revisionOf, textValue, type ItemVersion } from "../records";
 import { STAGE_PROGRESS_LABELS, WAITING_CATEGORY_LABELS } from "../units";
 import { perform, useWorkflowNavigation, useWorkflowView } from "./context";
-import ItemChip, { useItemLabel } from "./ItemChip";
-import ItemEditor, { type EditorTarget, itemExcerpt } from "./ItemEditor";
+import ItemChip, { ItemOption, useItemLabel } from "./ItemChip";
+import ItemEditor, { type EditorTarget } from "./ItemEditor";
 import ThreadPanel from "./ThreadPanel";
 import ThreadView, { useThreadForm } from "./ThreadView";
 import UnitFrame, { SignatureLine } from "./UnitFrame";
@@ -318,7 +318,9 @@ const ImpactCard = observer(function ImpactCard({ state, controls }: { state: Im
             size="small"
             sx={{ minWidth: 320 }}
             options={candidates.map(({ id }) => id)}
-            getOptionLabel={(id) => `${module.codeOf(id)} ${itemExcerpt(module.textOf(id))}`}
+            getOptionLabel={(id) => `${module.codeOf(id)} ${module.textOf(id)}`}
+            renderValue={(id) => <ItemChip itemId={id} opens={false} />}
+            renderOption={({ key, ...props }, id) => <li key={key} {...props}><ItemOption itemId={id} /></li>}
             value={target}
             onChange={(_event, value) => setTarget(value)}
             renderInput={(params) => <TextField {...params} label="Item missing the reference" />}
