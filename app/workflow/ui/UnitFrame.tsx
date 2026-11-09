@@ -9,7 +9,7 @@ import { signerLabel, type SignatureRecord } from "../records";
 import { waitsForSpecOwner } from "../threads";
 import { NOT_APPROVED_REASON_LABELS, type NotApprovedReason } from "../units";
 import { useWorkflowView } from "./context";
-import ThreadPanel from "./ThreadPanel";
+import { THREAD_BUTTON } from "./ThreadView";
 
 /** Who gave a signature and when, and whether it still counts. */
 export function SignatureLine({ signature, counts, what = "Signed" }: { signature: SignatureRecord | null; counts: boolean; what?: string }) {
@@ -26,35 +26,38 @@ export function SignatureLine({ signature, counts, what = "Signed" }: { signatur
 
 /**
  * The frame every unit of a stage shows in: its approval and every reason
- * it is not approved, its signature, its threads, and the sign and change
- * request actions, reachable from the keyboard while the frame has focus.
+ * it is not approved, its signature, and the sign and thread actions,
+ * reachable from the keyboard while the frame has focus. The thread opens
+ * outside the frame, so new messages never change the frame's height.
  * A reason with a note shows it on hover and on keyboard focus.
  */
 const UnitFrame = observer(function UnitFrame({
   unitId,
   title,
+  labels,
   approved,
   reasons,
   reasonNotes = {},
   signable,
   signLabel = "Sign",
   stageOpen,
-  composing,
-  onComposingChange,
+  onOpenThread,
   onSign,
   actions,
   children,
 }: {
   unitId: string;
   title: ReactNode;
+  /** Chips about the unit itself, such as its priority, shown before its approval. */
+  labels?: ReactNode;
   approved: boolean;
   reasons: readonly NotApprovedReason[];
   reasonNotes?: Partial<Record<NotApprovedReason, ReactNode>>;
   signable: boolean;
   signLabel?: string;
   stageOpen: boolean;
-  composing: boolean;
-  onComposingChange: (composing: boolean) => void;
+  /** Opens the unit's threads beside the given element. */
+  onOpenThread: (anchor: HTMLElement) => void;
   onSign: () => void;
   actions?: ReactNode;
   children: ReactNode;
@@ -63,6 +66,7 @@ const UnitFrame = observer(function UnitFrame({
   const threads = module.threadsOf(unitId);
   const open = threads.find(({ resolvedAt }) => resolvedAt == null);
   const waitsForYou = open != null && waitsForSpecOwner(open);
+  const threadTitle = open == null ? "" : waitsForYou ? "Waits for you" : "Waits for the coding agent";
   return (
     <Paper
       variant="outlined"
@@ -78,7 +82,7 @@ const UnitFrame = observer(function UnitFrame({
     >
       <Stack direction="row" sx={{ alignItems: "center", gap: 1, flexWrap: "wrap" }}>
         <Box sx={{ flexGrow: 1, minWidth: 0 }}>{title}</Box>
-        {waitsForYou && <Chip size="small" color="warning" label="Thread waits for you" />}
+        {labels}
         {approved ? (
           <Chip size="small" color="success" icon={<Check />} label="Approved" />
         ) : (
@@ -95,14 +99,20 @@ const UnitFrame = observer(function UnitFrame({
             {signLabel}
           </Button>
         )}
-        {stageOpen && open == null && (
-          <Button size="small" startIcon={<Comment />} onClick={() => onComposingChange(true)} title="Request a change (C)">
-            Request a change
+        {(stageOpen || threads.length > 0) && (
+          <Button
+            {...{ [THREAD_BUTTON]: true }}
+            size="small"
+            color={waitsForYou ? "warning" : "primary"}
+            startIcon={<Comment />}
+            onClick={(event) => onOpenThread(event.currentTarget.closest<HTMLElement>("[data-unit-actions]") ?? event.currentTarget)}
+            title={`${threadTitle}${threadTitle === "" ? "" : " "}(C)`}
+          >
+            {threads.length > 0 ? "Thread" : "Request a change"}
           </Button>
         )}
         {actions}
       </Stack>
-      <ThreadPanel unitId={unitId} threads={threads} stageOpen={stageOpen} composing={composing} onComposingChange={onComposingChange} />
     </Paper>
   );
 });

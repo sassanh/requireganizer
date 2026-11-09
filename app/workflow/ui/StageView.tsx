@@ -12,9 +12,11 @@ import {
   DialogContent,
   DialogTitle,
   LinearProgress,
+  Paper,
   Stack,
   TextField,
   Typography,
+  useMediaQuery,
 } from "@mui/material";
 import { observer } from "mobx-react-lite";
 import { Fragment, type UIEvent, useCallback, useEffect, useRef, useState } from "react";
@@ -27,20 +29,26 @@ import { perform, useWorkflowNavigation, useWorkflowView } from "./context";
 import ItemChip, { useItemLabel } from "./ItemChip";
 import ItemEditor, { itemExcerpt } from "./ItemEditor";
 import ThreadPanel from "./ThreadPanel";
+import ThreadView, { useThreadForm } from "./ThreadView";
 import UnitFrame, { SignatureLine } from "./UnitFrame";
 import VersionDiff from "./VersionDiff";
 
 interface CardControls {
-  composing: string | null;
-  setComposing: (unitId: string | null) => void;
+  openThread: (unitId: string, anchor: HTMLElement) => void;
   sign: (unitId: string) => void;
   stageOpen: boolean;
 }
 
-/** An item's version as it reads, with each choice field's value beside it. */
-function Fields({ kind, version }: { kind: string; version: ItemVersion }) {
-  const { module, workflow } = useWorkflowView();
+/** Each choice field's value of an item's version, such as its priority, as chips. */
+function ChoiceChips({ kind, version }: { kind: string; version: ItemVersion }) {
+  const { workflow } = useWorkflowView();
   const choices = workflow.kind(kind).fields.flatMap((field) => (field.type === "choice" && textValue(version.content[field.name]) !== "" ? [field] : []));
+  return choices.map((field) => <Chip key={field.name} size="small" label={textValue(version.content[field.name])} sx={{ alignSelf: "flex-start" }} />);
+}
+
+/** An item's version as it reads, with each choice field's value under it unless the card shows them in its header. */
+function Fields({ kind, version, choices = true }: { kind: string; version: ItemVersion; choices?: boolean }) {
+  const { module, workflow } = useWorkflowView();
   const marks = module.marksOf(kind, version.content);
   const prefix = workflow.prefixOf(kind);
   return (
@@ -53,9 +61,7 @@ function Fields({ kind, version }: { kind: string; version: ItemVersion }) {
         )}
         {module.displayOf(kind, version.content)}
       </Typography>
-      {choices.map((field) => (
-        <Chip key={field.name} size="small" label={textValue(version.content[field.name])} sx={{ alignSelf: "flex-start" }} />
-      ))}
+      {choices && <ChoiceChips kind={kind} version={version} />}
       {marks.map((mark) => (
         <Chip key={mark} size="small" color="warning" variant="outlined" label={mark} sx={{ alignSelf: "flex-start" }} />
       ))}
@@ -131,14 +137,14 @@ const ItemCard = observer(function ItemCard({ state, controls }: { state: ItemSt
           <Typography variant="caption" color="text.secondary">{definition.label}</Typography>
         </Stack>
       }
+      labels={<ChoiceChips kind={state.itemKind} version={state.version} />}
       approved={state.approved}
       reasons={removed ? [] : state.reasons}
       reasonNotes={state.outOfDateCauses.length === 0 ? {} : { "out-of-date": <CauseLines causes={state.outOfDateCauses} /> }}
       signable={module.isSignable(state.unitId)}
       signLabel={state.phase === "proposed-removal" ? "Sign removal" : state.outOfDate && state.signatureCounts ? "Sign as it is" : "Sign"}
       stageOpen={controls.stageOpen}
-      composing={controls.composing === state.unitId}
-      onComposingChange={(composing) => controls.setComposing(composing ? state.unitId : null)}
+      onOpenThread={(anchor) => controls.openThread(state.unitId, anchor)}
       onSign={() => controls.sign(state.unitId)}
       actions={
         controls.stageOpen && !removed && (
@@ -173,7 +179,7 @@ const ItemCard = observer(function ItemCard({ state, controls }: { state: ItemSt
         <ItemEditor stage={state.stage} kind={state.itemKind} itemId={state.itemId} onDone={() => setEditing(false)} />
       ) : (
         <>
-          <Fields kind={state.itemKind} version={state.version} />
+          <Fields kind={state.itemKind} version={state.version} choices={false} />
           <Links kind={state.itemKind} itemId={state.itemId} version={state.version} causes={state.outOfDateCauses} />
         </>
       )}
@@ -222,24 +228,18 @@ const CoverageCard = observer(function CoverageCard({ state, controls }: { state
       signable={module.isSignable(state.unitId)}
       signLabel="Sign: fully covered"
       stageOpen={controls.stageOpen}
-      composing={controls.composing === state.unitId}
-      onComposingChange={(composing) => controls.setComposing(composing ? state.unitId : null)}
+      onOpenThread={(anchor) => controls.openThread(state.unitId, anchor)}
       onSign={() => controls.sign(state.unitId)}
     >
       {covered != null && kind != null && <Fields kind={kind} version={covered} />}
       <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-        Signing confirms that the items of {workflow.stage(state.stage).label} referencing it cover it fully.
+        Signing confirms that these items of {workflow.stage(state.stage).label} referencing it cover it fully:
       </Typography>
       {state.referencing.length === 0 ? (
         <Typography variant="body2" color="warning.main" sx={{ mt: 0.5 }}>No item references it.</Typography>
       ) : (
-        <Stack spacing={0.25} sx={{ mt: 0.5 }}>
-          {state.referencing.map((id) => (
-            <Stack key={id} direction="row" sx={{ alignItems: "center", gap: 1 }}>
-              <ItemChip itemId={id} />
-              <Typography variant="body2">{itemExcerpt(module.textOf(id))}</Typography>
-            </Stack>
-          ))}
+        <Stack direction="row" sx={{ mt: 0.5, gap: 0.5, flexWrap: "wrap" }}>
+          {state.referencing.map((id) => <ItemChip key={id} itemId={id} />)}
         </Stack>
       )}
       <Box sx={{ mt: 1 }}>
@@ -281,8 +281,7 @@ const ImpactCard = observer(function ImpactCard({ state, controls }: { state: Im
       signable={module.isSignable(state.unitId)}
       signLabel="Sign: nothing relies on it unreferenced"
       stageOpen={controls.stageOpen}
-      composing={controls.composing === state.unitId}
-      onComposingChange={(composing) => controls.setComposing(composing ? state.unitId : null)}
+      onOpenThread={(anchor) => controls.openThread(state.unitId, anchor)}
       onSign={() => controls.sign(state.unitId)}
       actions={
         controls.stageOpen && (
@@ -422,8 +421,10 @@ function isEditable(target: EventTarget | null): boolean {
  * unit is gone. j and k move between units, Shift+J and Shift+K between
  * units that wait for a signature, g and Shift+G to the first and last
  * unit, s signs the focused one (Shift+S then moves to the next unit
- * that waits for a signature) and c opens a
- * change request on it.
+ * that waits for a signature) and c opens its threads, where a change
+ * request is written. An open thread shows beside its card, docked at the
+ * right, where it follows the focused card, or full screen on a narrow
+ * screen.
  */
 const StageView = observer(function StageView({ stage }: { stage: string }) {
   const { module, workflow } = useWorkflowView();
@@ -432,7 +433,11 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
   const units = module.stageUnits(stage);
   const removedItems = module.itemsOf(stage).filter((item) => module.itemState(item.id)?.phase === "removed");
   const orphanThreads = module.threadsOfStage(stage).filter(({ unitId }) => module.unitState(unitId) == null);
-  const [composing, setComposing] = useState<string | null>(null);
+  /** The unit whose threads are open, where the overlay shows, and whether its box takes the focus. */
+  const [thread, setThread] = useState<{ unitId: string; anchor: HTMLElement | null; autoFocus: boolean } | null>(null);
+  const [chosenForm, setChosenForm] = useThreadForm();
+  const narrow = useMediaQuery((theme) => theme.breakpoints.down("md"));
+  const threadForm = narrow ? "full" : chosenForm;
   const [adding, setAdding] = useState<string | null>(null);
   const [rulesOpen, setRulesOpen] = useState(false);
   const [compact, setCompact] = useState(false);
@@ -520,6 +525,22 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
     reveal(next);
   };
 
+  const openThread = (unitId: string, anchor: HTMLElement | null, autoFocus = true) => setThread({ unitId, anchor, autoFocus });
+
+  /** Close the open thread and give the focus back to its card. */
+  const closeThread = () => {
+    const unitId = thread?.unitId;
+    setThread(null);
+    cards().find((card) => card.dataset.unitCard === unitId)?.focus({ preventScroll: true });
+  };
+
+  /** A docked thread follows the card that takes the focus. */
+  const followFocus = (target: EventTarget) => {
+    if (thread == null || threadForm !== "docked" || !(target instanceof HTMLElement)) return;
+    const unitId = target.closest<HTMLElement>("[data-unit-card]")?.dataset.unitCard;
+    if (unitId != null && unitId !== thread.unitId) setThread({ unitId, anchor: null, autoFocus: false });
+  };
+
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.defaultPrevented || isEditable(event.target) || event.metaKey || event.ctrlKey || event.altKey) return;
     // Keys act while nothing has focus or focus is in the stage, never in a dialog or menu elsewhere on the page.
@@ -561,9 +582,10 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
         }
         return;
       case "c":
-        if (unit != null && summary.open && module.unitState(unit) != null) {
+        if (unit != null && module.unitState(unit) != null && (summary.open || module.threadsOf(unit).length > 0)) {
           event.preventDefault();
-          setComposing(unit);
+          const card = cards().find((candidate) => candidate.dataset.unitCard === unit);
+          openThread(unit, card?.querySelector<HTMLElement>("[data-unit-actions]") ?? card ?? null);
         }
         return;
     }
@@ -587,7 +609,7 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
     return () => window.removeEventListener("keydown", listener);
   }, []);
 
-  const controls: CardControls = { composing, setComposing, sign: (unitId) => void sign(unitId), stageOpen: summary.open };
+  const controls: CardControls = { openThread: (unitId, anchor) => openThread(unitId, anchor), sign: (unitId) => void sign(unitId), stageOpen: summary.open };
   const waitingParts = (Object.entries(WAITING_CATEGORY_LABELS) as [keyof typeof WAITING_CATEGORY_LABELS, string][])
     .filter(([category]) => summary.waiting[category] > 0)
     .map(([category, label]) => `${summary.waiting[category]} ${label}`);
@@ -611,79 +633,97 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
   );
 
   return (
-    <Box ref={containerRef} onScroll={onScroll} sx={{ flexGrow: 1, minWidth: 0, overflowY: "auto", p: 2, pt: 0 }}>
-      <Stack
-        ref={headerRef}
-        spacing={compact ? 0.5 : 1}
-        sx={{ position: "sticky", top: 0, zIndex: 2, bgcolor: "background.default", mx: -2, px: 2, pt: compact ? 1 : 2, pb: compact ? 1 : 0, mb: 2 }}
-      >
-        <Stack direction="row" sx={{ alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-          <Typography variant={compact ? "subtitle1" : "h5"} sx={{ flexGrow: compact ? 0 : 1 }}>{definition.label}</Typography>
-          {compact && progressBar}
-          <Chip size={compact ? "small" : "medium"} label={summary.open ? "Open" : "Closed"} color={summary.open ? "primary" : "default"} variant="outlined" />
-          <Chip size={compact ? "small" : "medium"} label={STAGE_PROGRESS_LABELS[summary.progress]} color={summary.progress === "complete" ? "success" : summary.progress === "empty" ? "default" : "warning"} />
-          <Button size={compact ? "small" : "medium"} startIcon={<MenuBook />} onClick={() => setRulesOpen(true)}>
-            Rules
-          </Button>
-        </Stack>
-        {!compact && progressBar}
-        <Typography variant="body2" color="text.secondary">
-          {waitingParts.length === 0 ? "Nothing waits for a signature." : `Waiting for a signature: ${waitingParts.join(", ")}.`}
-          {summary.threadsWaitingForSpecOwner > 0 ? ` ${summary.threadsWaitingForSpecOwner} ${summary.threadsWaitingForSpecOwner === 1 ? "thread waits" : "threads wait"} for you.` : ""}
-        </Typography>
-        {module.stagesToWriteAfter(stage).map((later) => {
-          const asked = module.writingAskedOfAnswerer.some((ask) => ask.stage === later);
-          const label = workflow.stage(later).label;
-          return (
-            <Box key={later}>
-              <Button size="small" variant="contained" startIcon={<Send />} disabled={asked} onClick={() => void perform(() => module.askToWrite(later), "The coding agent could not be asked.")}>
-                {asked ? `Asked the coding agent to write ${label}` : `Ask the coding agent to write ${label}`}
-              </Button>
-            </Box>
-          );
-        })}
-        {!summary.open && !compact && (
-          <Alert severity="info">
-            Closed until {workflow.upstreamStages(stage).filter((upstream) => !module.stageComplete(upstream)).map((upstream) => workflow.stage(upstream).label).join(" and ")} {workflow.upstreamStages(stage).filter((upstream) => !module.stageComplete(upstream)).length === 1 ? "is" : "are"} complete. Its work stays readable.
-          </Alert>
-        )}
-      </Stack>
-
-      <Stack spacing={1.5}>
-        {items.map((state) => <ItemCard key={state.unitId} state={state} controls={controls} />)}
-        {removedItems.map((item) => <ItemCard key={item.id} state={module.itemState(item.id)!} controls={controls} />)}
-        {summary.open && (
-          <Stack direction="row" sx={{ gap: 1, flexWrap: "wrap" }}>
-            {definition.kinds
-              .filter((kind) => !kind.single || !module.itemsOf(stage).some((item) => item.kind === kind.kind && item.removal == null))
-              .map((kind) => (
-                <Button key={kind.kind} startIcon={<Add />} variant={adding === kind.kind ? "contained" : "outlined"} onClick={() => setAdding(adding === kind.kind ? null : kind.kind)}>
-                  Add {kind.label.toLowerCase()}
-                </Button>
-              ))}
+    <Stack direction="row" sx={{ flexGrow: 1, minWidth: 0, minHeight: 0 }}>
+      <Box ref={containerRef} onScroll={onScroll} onFocus={(event) => followFocus(event.target)} sx={{ flexGrow: 1, minWidth: 0, overflowY: "auto", p: 2, pt: 0 }}>
+        <Stack
+          ref={headerRef}
+          spacing={compact ? 0.5 : 1}
+          sx={{ position: "sticky", top: 0, zIndex: 2, bgcolor: "background.default", mx: -2, px: 2, pt: compact ? 1 : 2, pb: compact ? 1 : 0, mb: 2, borderBottom: 1, borderColor: compact ? "divider" : "transparent" }}
+        >
+          <Stack direction="row" sx={{ alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+            <Typography variant={compact ? "subtitle1" : "h5"} sx={{ flexGrow: compact ? 0 : 1 }}>{definition.label}</Typography>
+            {compact && progressBar}
+            <Chip size={compact ? "small" : "medium"} label={summary.open ? "Open" : "Closed"} color={summary.open ? "primary" : "default"} variant="outlined" />
+            <Chip size={compact ? "small" : "medium"} label={STAGE_PROGRESS_LABELS[summary.progress]} color={summary.progress === "complete" ? "success" : summary.progress === "empty" ? "default" : "warning"} />
+            <Button size={compact ? "small" : "medium"} startIcon={<MenuBook />} onClick={() => setRulesOpen(true)}>
+              Rules
+            </Button>
           </Stack>
-        )}
-        {adding != null && summary.open && <ItemEditor stage={stage} kind={adding} itemId={null} onDone={() => setAdding(null)} />}
+          {!compact && progressBar}
+          <Typography variant="body2" color="text.secondary">
+            {waitingParts.length === 0 ? "Nothing waits for a signature." : `Waiting for a signature: ${waitingParts.join(", ")}.`}
+            {summary.threadsWaitingForSpecOwner > 0 ? ` ${summary.threadsWaitingForSpecOwner} ${summary.threadsWaitingForSpecOwner === 1 ? "thread waits" : "threads wait"} for you.` : ""}
+          </Typography>
+          {module.stagesToWriteAfter(stage).map((later) => {
+            const asked = module.writingAskedOfAnswerer.some((ask) => ask.stage === later);
+            const label = workflow.stage(later).label;
+            return (
+              <Box key={later}>
+                <Button size="small" variant="contained" startIcon={<Send />} disabled={asked} onClick={() => void perform(() => module.askToWrite(later), "The coding agent could not be asked.")}>
+                  {asked ? `Asked the coding agent to write ${label}` : `Ask the coding agent to write ${label}`}
+                </Button>
+              </Box>
+            );
+          })}
+          {!summary.open && !compact && (
+            <Alert severity="info">
+              Closed until {workflow.upstreamStages(stage).filter((upstream) => !module.stageComplete(upstream)).map((upstream) => workflow.stage(upstream).label).join(" and ")} {workflow.upstreamStages(stage).filter((upstream) => !module.stageComplete(upstream)).length === 1 ? "is" : "are"} complete. Its work stays readable.
+            </Alert>
+          )}
+        </Stack>
 
-        {coverages.length > 0 && <Typography variant="h6" sx={{ pt: 2 }}>Coverage</Typography>}
-        {coverages.map((state) => <CoverageCard key={state.unitId} state={state} controls={controls} />)}
+        <Stack spacing={1.5}>
+          {items.map((state) => <ItemCard key={state.unitId} state={state} controls={controls} />)}
+          {removedItems.map((item) => <ItemCard key={item.id} state={module.itemState(item.id)!} controls={controls} />)}
+          {summary.open && (
+            <Stack direction="row" sx={{ gap: 1, flexWrap: "wrap" }}>
+              {definition.kinds
+                .filter((kind) => !kind.single || !module.itemsOf(stage).some((item) => item.kind === kind.kind && item.removal == null))
+                .map((kind) => (
+                  <Button key={kind.kind} startIcon={<Add />} variant={adding === kind.kind ? "contained" : "outlined"} onClick={() => setAdding(adding === kind.kind ? null : kind.kind)}>
+                    Add {kind.label.toLowerCase()}
+                  </Button>
+                ))}
+            </Stack>
+          )}
+          {adding != null && summary.open && <ItemEditor stage={stage} kind={adding} itemId={null} onDone={() => setAdding(null)} />}
 
-        {impacts.length > 0 && <Typography variant="h6" sx={{ pt: 2 }}>Impacts</Typography>}
-        {impacts.map((state) => <ImpactCard key={state.unitId} state={state} controls={controls} />)}
+          {coverages.length > 0 && <Typography variant="h6" sx={{ pt: 2 }}>Coverage</Typography>}
+          {coverages.map((state) => <CoverageCard key={state.unitId} state={state} controls={controls} />)}
 
-        {orphanThreads.length > 0 && <Typography variant="h6" sx={{ pt: 2 }}>Threads on removed units</Typography>}
-        {orphanThreads.map((thread) => (
-          <Box key={thread.id}>
-            <Typography variant="subtitle2">{thread.removedUnit ?? module.unitLabel(thread.unitId)}</Typography>
-            <ThreadPanel unitId={null} threads={[thread]} stageOpen={summary.open} composing={false} onComposingChange={() => {}} />
-          </Box>
-        ))}
-      </Stack>
-      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 3 }}>
-        Keyboard: j or ↓ next, k or ↑ previous, Shift+J or Shift+K next or previous waiting for a signature, g first, Shift+G last, s sign, Shift+S sign and go to the next waiting for a signature, c request a change.
-      </Typography>
-      <RulesDialog stage={stage} open={rulesOpen} onClose={() => setRulesOpen(false)} />
-    </Box>
+          {impacts.length > 0 && <Typography variant="h6" sx={{ pt: 2 }}>Impacts</Typography>}
+          {impacts.map((state) => <ImpactCard key={state.unitId} state={state} controls={controls} />)}
+
+          {orphanThreads.length > 0 && <Typography variant="h6" sx={{ pt: 2 }}>Threads on removed units</Typography>}
+          {orphanThreads.map((orphan) => (
+            <Box key={orphan.id}>
+              <Typography variant="subtitle2">{orphan.removedUnit ?? module.unitLabel(orphan.unitId)}</Typography>
+              <Paper variant="outlined" sx={{ p: 1.5, mt: 1 }}>
+                <ThreadPanel unitId={null} threads={[orphan]} stageOpen={summary.open} />
+              </Paper>
+            </Box>
+          ))}
+        </Stack>
+        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 3 }}>
+          Keyboard: j or ↓ next, k or ↑ previous, Shift+J or Shift+K next or previous waiting for a signature, g first, Shift+G last, s sign, Shift+S sign and go to the next waiting for a signature, c open the thread or request a change, Esc close it.
+        </Typography>
+        <RulesDialog stage={stage} open={rulesOpen} onClose={() => setRulesOpen(false)} />
+      </Box>
+      {thread != null && module.unitState(thread.unitId) != null && (
+        <ThreadView
+          unitId={thread.unitId}
+          form={threadForm}
+          anchor={thread.anchor}
+          stageOpen={summary.open}
+          autoFocus={thread.autoFocus}
+          onDock={() => setChosenForm("docked")}
+          onClose={() => {
+            if (threadForm === "docked") setChosenForm("overlay");
+            closeThread();
+          }}
+        />
+      )}
+    </Stack>
   );
 });
 

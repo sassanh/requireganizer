@@ -50,7 +50,8 @@ function ItemPreview({ item }: { item: NamedItem }) {
 
 /**
  * Every place the page names an item shows it as this chip: hovering or
- * focusing it previews the item, and clicking it or pressing Enter on it
+ * focusing it previews the item, and the preview lets the pointer through to
+ * the chips beneath it, and clicking it or pressing Enter on it
  * opens the item in its stage and module. With `reasons`, the item makes
  * the item naming it out of date, and the chip says why in the warning
  * colour.
@@ -68,7 +69,7 @@ const ItemChip = observer(function ItemChip({ itemId, detail, reasons = [] }: { 
     openUnit({ module: named.module?.id ?? null, stage: named.stage, unitId: named.id }, from);
   };
   return (
-    <Tooltip title={<ItemPreview item={named} />} describeChild slotProps={{ tooltip: { sx: { maxWidth: 440 } } }}>
+    <Tooltip title={<ItemPreview item={named} />} describeChild disableInteractive slotProps={{ tooltip: { sx: { maxWidth: 440 } } }}>
       <Chip {...look} label={label(itemId, { detail, reasons })} onClick={open} />
     </Tooltip>
   );
