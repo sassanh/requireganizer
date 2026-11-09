@@ -237,6 +237,27 @@ describe("workflow engine", () => {
     assert.deepEqual(store.writingAskedOfAnswerer, []);
   });
 
+  it("reports each item written by the code the write named it by, with the code it moved to", async () => {
+    const store = Store.create({});
+    specified(store);
+    store.writeItems(["Linking", "Tracing", "Naming"].map((name) => (
+      { type: "add", stage: "capabilities", kind: "capability", content: { name, description: `${name} items.` }, references: [], dependencies: [] } as const
+    )));
+    const { codesVersion } = JSON.parse(await callAgentTool(store, "get_workflow_state", {})) as { codesVersion: string };
+    const report = await callAgentTool(store, "write_items", {
+      codesVersion,
+      changes: [
+        { action: "remove", item: "CAP-02" },
+        { action: "remove", item: "CAP-03" },
+        { action: "change", item: "CAP-04", fields: { description: "Names items." } },
+        { action: "add", stage: "capabilities", fields: { name: "Ordering", description: "Orders items." } },
+      ],
+    });
+    assert.match(report, /^Removed at once, never signed: CAP-02, CAP-03\.$/m);
+    assert.match(report, /^Changed: CAP-04 \(now CAP-02\)\.$/m);
+    assert.match(report, /^Added: CAP-03\.$/m);
+  });
+
   it("holds Requirements engineering items in their parts and refuses them without what they need", async () => {
     const store = Store.create({});
     specified(store);

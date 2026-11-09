@@ -223,7 +223,7 @@ export interface ChangeOutcome {
   changed: string[];
   proposedForRemoval: string[];
   removalWithdrawn: string[];
-  deleted: { id: string; label: string }[];
+  deleted: string[];
   unchanged: string[];
 }
 
@@ -1070,9 +1070,8 @@ export function workflowModuleModel(workflow: Workflow) {
       }
 
       /** Delete an item from its stage, keeping its threads readable from the stage. */
-      function deleteItem(id: string): string {
+      function deleteItem(id: string): void {
         const located = self.locate(id)!;
-        const label = self.codeOf(id)!;
         const unitIds = new Set([id]);
         for (const stage of workflow.stageIds) {
           unitIds.add(coverageUnitId(stage, id));
@@ -1088,15 +1087,14 @@ export function workflowModuleModel(workflow: Workflow) {
           }
         }
         stageNode(located.stage).items.remove(located.item);
-        return label;
       }
 
       /** An item whose removal is signed leaves its stage once no stage still asks for an impact on its removal. */
-      function deleteIfSettled(id: string): { id: string; label: string } | null {
+      function deleteIfSettled(id: string): void {
         const located = self.locate(id);
-        if (located == null || phaseOf(located.item.removal) !== "removed") return null;
-        if (workflow.stageIds.some((stage) => self.stages.get(stage)?.intake[id] != null)) return null;
-        return { id, label: deleteItem(id) };
+        if (located == null || phaseOf(located.item.removal) !== "removed") return;
+        if (workflow.stageIds.some((stage) => self.stages.get(stage)?.intake[id] != null)) return;
+        deleteItem(id);
       }
 
       /** A record's problems against its fields: unknown fields, values of the wrong shape, required fields left empty, a choice outside its options. */
@@ -1283,7 +1281,8 @@ export function workflowModuleModel(workflow: Workflow) {
           if (phase === "proposed-removal") return [`${name} is already proposed for removal.`];
           if (item.signature == null) {
             const id = item.id;
-            outcome.deleted.push({ id, label: deleteItem(id) });
+            deleteItem(id);
+            outcome.deleted.push(id);
             for (const node of self.stages.values()) {
               if (node.intake[id] == null) continue;
               const { [id]: _dropped, ...rest } = node.intake;

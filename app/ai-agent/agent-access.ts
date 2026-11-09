@@ -277,14 +277,36 @@ function parseAnswers(value: unknown): ThreadAnswer[] {
   return value.map(({ threadId, reply }: { threadId: string; reply: string }) => ({ threadId, text: reply }));
 }
 
-function outcomeLines(store: Store, outcome: ChangeOutcome): string[] {
-  const named = (ids: string[]) => ids.map((id) => store.codeOf(id) ?? id).join(", ");
+/** Every item's code, by id, as a write names them before it runs. */
+function codesNow(store: Store): Map<string, string> {
+  const codes = new Map<string, string>();
+  for (const stage of store.workflow.stageIds) {
+    for (const { id } of store.itemsOf(stage)) {
+      const code = store.codeOf(id);
+      if (code != null) codes.set(id, code);
+    }
+  }
+  return codes;
+}
+
+/**
+ * What a write did, each item named by the code the write named it by, with
+ * its code after the write where that moved; an added item by its new code.
+ */
+function outcomeLines(store: Store, outcome: ChangeOutcome, codesBefore: ReadonlyMap<string, string>): string[] {
+  const nameOf = (id: string) => {
+    const before = codesBefore.get(id);
+    const after = store.codeOf(id);
+    if (before == null) return after ?? id;
+    return after == null || after === before ? before : `${before} (now ${after})`;
+  };
+  const named = (ids: string[]) => ids.map(nameOf).join(", ");
   return [
     ...(outcome.added.length === 0 ? [] : [`Added: ${named(outcome.added)}.`]),
     ...(outcome.changed.length === 0 ? [] : [`Changed: ${named(outcome.changed)}.`]),
     ...(outcome.removalWithdrawn.length === 0 ? [] : [`Removal withdrawn: ${named(outcome.removalWithdrawn)}.`]),
     ...(outcome.proposedForRemoval.length === 0 ? [] : [`Proposed for removal, waiting for the spec owner's signature: ${named(outcome.proposedForRemoval)}.`]),
-    ...(outcome.deleted.length === 0 ? [] : [`Removed at once, never signed: ${outcome.deleted.map(({ label }) => label).join(", ")}.`]),
+    ...(outcome.deleted.length === 0 ? [] : [`Removed at once, never signed: ${named(outcome.deleted)}.`]),
     ...(outcome.unchanged.length === 0 ? [] : [`Left as they were, since nothing in them changed: ${named(outcome.unchanged)}.`]),
   ];
 }
@@ -460,7 +482,7 @@ const writeTool: AgentTool = {
   description: {
     name: "write_items",
     description:
-      "Write, change and remove items of any open stages, all or none, following each stage's published rules from get_stage_rules. Name items by the codes of the codesVersion you send. An item missing a required field, referencing none of a kind it must reference, or breaking a rule of its kind (such as a name another item already has, a value of the wrong type, or an operation a step does not offer), is refused with each problem; the rules are checked once all the changes are applied, so their order does not matter. One write never changes a stage together with a stage that builds on it: change the earlier stage, and the later one once the earlier is complete again. Items added in one write cannot name each other by code: write an item, then those that choose it. An added or changed item rests on the current versions of what it references and depends on; an item changed to exactly what it was stays as it was. Removing a signed item proposes its removal, which the spec owner signs; an item never signed is removed at once. A reference links to an item of a stage this stage builds on; a dependency links to an item of the same stage, or of another module as \"Module name/CODE\" in the same stage or one it builds on. Pass answers to reply to the threads these changes answer. Only the spec owner signs and resolves threads.",
+      "Write, change and remove items of any open stages, all or none, following each stage's published rules from get_stage_rules. Name items by the codes of the codesVersion you send. An item missing a required field, referencing none of a kind it must reference, or breaking a rule of its kind (such as a name another item already has, a value of the wrong type, or an operation a step does not offer), is refused with each problem; the rules are checked once all the changes are applied, so their order does not matter. One write never changes a stage together with a stage that builds on it: change the earlier stage, and the later one once the earlier is complete again. Items added in one write cannot name each other by code: write an item, then those that choose it. An added or changed item rests on the current versions of what it references and depends on; an item changed to exactly what it was stays as it was. Removing a signed item proposes its removal, which the spec owner signs; an item never signed is removed at once. A reference links to an item of a stage this stage builds on; a dependency links to an item of the same stage, or of another module as \"Module name/CODE\" in the same stage or one it builds on. The reply names each item by the code you named it by, with its new code where that moved, and an added item by its new code. Pass answers to reply to the threads these changes answer. Only the spec owner signs and resolves threads.",
     inputSchema: {
       type: "object",
       properties: {
@@ -495,17 +517,18 @@ const writeTool: AgentTool = {
     requireCodesVersion(store, args);
     const answers = parseAnswers(args.answers);
     const changes = parseChanges(store, args.changes);
-    const codesBefore = store.codesVersion;
+    const versionBefore = store.codesVersion;
+    const codesBefore = codesNow(store);
     const outcome = store.writeItems(changes, answers);
     if (answers.length > 0) store.answerThreads(answers, { kind: "agent", name: caller.name }, changes.length > 0);
     const lines = [
-      ...outcomeLines(store, outcome),
+      ...outcomeLines(store, outcome, codesBefore),
       ...(answers.length > 0
         ? [`Replied to ${answers.length === 1 ? "one thread" : `${answers.length} threads`}; the spec owner reads the replies and resolves the threads.`]
         : []),
       "The spec owner signs these in Requireganizer; get_workflow_state shows what waits for a signature.",
     ];
-    if (store.codesVersion !== codesBefore) lines.push(`Codes may have moved (codesVersion ${store.codesVersion}): read get_items again before naming items.`);
+    if (store.codesVersion !== versionBefore) lines.push(`Codes may have moved (codesVersion ${store.codesVersion}): read get_items again before naming items.`);
     return lines.join("\n");
   },
 };
