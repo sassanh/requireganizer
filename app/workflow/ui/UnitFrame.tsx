@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 import { signerLabel, type SignatureRecord } from "../records";
 import { waitsForSpecOwner } from "../threads";
 import { NOT_APPROVED_REASON_LABELS, type NotApprovedReason } from "../units";
+import { answeringSx } from "./answering";
 import { useWorkflowView } from "./context";
 import { THREAD_BUTTON } from "./ThreadView";
 
@@ -66,7 +67,8 @@ const UnitFrame = observer(function UnitFrame({
   const threads = module.threadsOf(unitId);
   const open = threads.find(({ resolvedAt }) => resolvedAt == null);
   const waitsForYou = open != null && waitsForSpecOwner(open);
-  const threadTitle = open == null ? "" : waitsForYou ? "Waits for you" : "Waits for the coding agent";
+  const answering = open != null && module.isBeingAnswered(open.id);
+  const threadTitle = open == null ? "" : waitsForYou ? "Waits for you" : answering ? "The coding agent is answering" : "Waits for the coding agent";
   return (
     <Paper
       variant="outlined"
@@ -105,6 +107,8 @@ const UnitFrame = observer(function UnitFrame({
             size="small"
             color={waitsForYou ? "warning" : "primary"}
             startIcon={<Comment />}
+            aria-busy={answering || undefined}
+            sx={answering ? answeringSx : undefined}
             onClick={(event) => onOpenThread(event.currentTarget.closest<HTMLElement>("[data-unit-actions]") ?? event.currentTarget)}
             title={`${threadTitle}${threadTitle === "" ? "" : " "}(C)`}
           >

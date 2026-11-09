@@ -5,7 +5,9 @@ import { observer } from "mobx-react-lite";
 import { useEffect, useRef, useState } from "react";
 
 import { authorLabel, type Thread, waitsForSpecOwner } from "../threads";
+import { answeringSx } from "./answering";
 import { perform, useWorkflowView } from "./context";
+import MessageText from "./MessageText";
 
 function Messages({ thread }: { thread: Thread }) {
   return (
@@ -16,7 +18,7 @@ function Messages({ thread }: { thread: Thread }) {
             {authorLabel(message.author)} · {new Date(message.at).toLocaleString()}
             {message.withChanges ? " · with changes" : ""}
           </Typography>
-          <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>{message.text}</Typography>
+          <MessageText text={message.text} />
         </Stack>
       ))}
     </Stack>
@@ -47,6 +49,7 @@ const ThreadPanel = observer(function ThreadPanel({
   const { module } = useWorkflowView();
   const open = threads.find(({ resolvedAt }) => resolvedAt == null) ?? null;
   const resolved = threads.filter(({ resolvedAt }) => resolvedAt != null);
+  const answering = open != null && module.isBeingAnswered(open.id);
   const draftKey = unitId ?? open?.id ?? "";
   const [text, setTextState] = useState(() => drafts.get(draftKey) ?? "");
   const setText = (value: string) => {
@@ -74,6 +77,16 @@ const ThreadPanel = observer(function ThreadPanel({
 
   return (
     <Stack spacing={1.5} sx={{ minHeight: 0, flexGrow: 1 }}>
+      {open != null && (
+        <Typography
+          variant="overline"
+          aria-busy={answering || undefined}
+          color={waitsForSpecOwner(open) ? "warning.main" : "text.secondary"}
+          sx={[{ alignSelf: "flex-start", flexShrink: 0, px: 1, borderRadius: 1 }, answering && answeringSx]}
+        >
+          {waitsForSpecOwner(open) ? "Open thread · waits for you" : answering ? "Open thread · the coding agent is answering" : "Open thread · waits for the coding agent"}
+        </Typography>
+      )}
       <Stack ref={history} spacing={1.5} sx={{ minHeight: 0, flexShrink: 1, overflowY: "auto" }}>
         {resolved.length > 0 && (
           <Button size="small" sx={{ alignSelf: "flex-start" }} onClick={() => setShowResolved(!showResolved)}>
@@ -81,14 +94,7 @@ const ThreadPanel = observer(function ThreadPanel({
           </Button>
         )}
         {showResolved && resolved.map((thread) => <Messages key={thread.id} thread={thread} />)}
-        {open != null && (
-          <>
-            <Typography variant="overline" color={waitsForSpecOwner(open) ? "warning.main" : "text.secondary"}>
-              {waitsForSpecOwner(open) ? "Open thread · waits for you" : module.isBeingAnswered(open.id) ? "Open thread · the coding agent is answering" : "Open thread · waits for the coding agent"}
-            </Typography>
-            <Messages thread={open} />
-          </>
-        )}
+        {open != null && <Messages thread={open} />}
       </Stack>
       {stageOpen && (unitId != null || open != null) && (
         <Stack spacing={1} sx={{ flexShrink: 0, pt: 1 }}>
