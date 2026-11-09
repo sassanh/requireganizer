@@ -1,6 +1,6 @@
 "use client";
 
-import { Add, Delete, Edit, MenuBook, Restore, Send } from "@mui/icons-material";
+import { Add, Delete, Edit, KeyboardArrowDown, KeyboardArrowUp, MenuBook, Restore, Send } from "@mui/icons-material";
 import {
   Alert,
   Autocomplete,
@@ -11,10 +11,12 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  IconButton,
   LinearProgress,
   Paper,
   Stack,
   TextField,
+  Tooltip,
   Typography,
   useMediaQuery,
 } from "@mui/material";
@@ -554,9 +556,9 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
 
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.defaultPrevented || isEditable(event.target) || event.metaKey || event.ctrlKey || event.altKey) return;
-    // Keys act while nothing has focus or focus is in the stage, never in a dialog or menu elsewhere on the page.
+    // Keys act wherever the focus is on the page, except in a dialog or menu outside the stage, which has keys of its own.
     const inStage = event.target instanceof Node && containerRef.current?.contains(event.target) === true;
-    if (event.target !== document.body && !inStage) return;
+    if (!inStage && event.target instanceof Element && event.target.closest('[role="dialog"], [role="menu"], [role="listbox"]') != null) return;
     const unit = focusedUnit();
     switch (event.key) {
       case "g":
@@ -645,6 +647,12 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
       <Typography variant="subtitle2" sx={{ whiteSpace: "nowrap" }}>
         {summary.approved} of {summary.total} approved
       </Typography>
+      <Tooltip title="Previous unit waiting for a signature (Shift+K)">
+        <span><IconButton size="small" aria-label="Previous unit waiting for a signature" disabled={waitingParts.length === 0} onClick={() => moveToWaiting(-1)}><KeyboardArrowUp fontSize="small" /></IconButton></span>
+      </Tooltip>
+      <Tooltip title="Next unit waiting for a signature (Shift+J)">
+        <span><IconButton size="small" aria-label="Next unit waiting for a signature" disabled={waitingParts.length === 0} onClick={() => moveToWaiting(1)}><KeyboardArrowDown fontSize="small" /></IconButton></span>
+      </Tooltip>
     </Stack>
   );
 
