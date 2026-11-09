@@ -506,13 +506,15 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
   /** Sign a unit, then move to the next unit that is not approved, or with `toWaiting` the next that waits for a signature. */
   const sign = async (unitId: string, toWaiting = false) => {
     const actionsAt = actionsTopOf(unitId);
+    // The order the person saw: a signature can move its own unit, such as a removed item to the end of the list.
+    const orderBefore = cards().map((card) => card.dataset.unitCard!);
     if (!(await perform(() => module.sign(unitId), "The signature could not be given."))) return;
     // Find and measure the next card once the page has redrawn after the signature, so it is a card still on the page.
     requestAnimationFrame(() => {
-      const all = cards();
-      const index = all.findIndex((card) => card.dataset.unitCard === unitId);
-      const ordered = [...all.slice(index + 1), ...all.slice(0, Math.max(index, 0))];
-      const next = ordered.find((card) => {
+      const shown = new Map(cards().map((card) => [card.dataset.unitCard!, card]));
+      const index = orderBefore.indexOf(unitId);
+      const ordered = [...orderBefore.slice(index + 1), ...orderBefore.slice(0, Math.max(index, 0))];
+      const next = ordered.flatMap((id) => shown.get(id) ?? []).find((card) => {
         const state = module.unitState(card.dataset.unitCard!);
         return state != null && (toWaiting ? module.waitsForSignature(state) : !state.approved);
       });
