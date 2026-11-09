@@ -1,9 +1,9 @@
 "use client";
 
 import { Add, Close } from "@mui/icons-material";
-import { Autocomplete, Box, Button, Checkbox, FormControlLabel, IconButton, InputAdornment, MenuItem, Stack, TextField, Typography } from "@mui/material";
+import { Alert, Autocomplete, Box, Button, Checkbox, Dialog, FormControlLabel, IconButton, InputAdornment, MenuItem, Paper, Stack, TextField, Tooltip, Typography } from "@mui/material";
 import { observer } from "mobx-react-lite";
-import { useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 
 import type { FieldDefinition, FieldPlace, ItemsFieldDefinition } from "../definition";
 import { chosenItems, type FieldValue, flagValue, type RecordContent, recordsValue, recordValue, textsValue, textValue } from "../records";
@@ -278,21 +278,41 @@ const FieldsEditor = observer(function FieldsEditor({
   );
 });
 
+/** What the editor writes: a new item of `kind` in `stage`, or a change to `itemId`. */
+export interface EditorTarget {
+  stage: string;
+  kind: string;
+  itemId: string | null;
+}
+
 /**
- * Write one item of a stage: a new one of `kind`, or a change to `itemId`.
+ * Write one item of a stage in a side panel, so the list keeps its layout
+ * and stays readable beside it, or over the whole screen on a narrow one:
+ * a new one of `kind`, or a change to `itemId`.
  * Its fields come from its kind, its references from the stages its stage
  * builds on, and its dependencies from its own stage and other modules.
  */
 const ItemEditor = observer(function ItemEditor({
-  stage,
-  kind,
-  itemId,
-  onDone,
+  target: { stage, kind, itemId },
+  full,
+  confirmingDiscard,
+  onSaved,
+  onCancel,
+  onDiscard,
+  onKeepEditing,
+  onDirtyChange,
 }: {
-  stage: string;
-  kind: string;
-  itemId: string | null;
-  onDone: () => void;
+  target: EditorTarget;
+  /** Over the whole screen, on a narrow one. */
+  full: boolean;
+  /** Leaving was asked with unsaved changes: the editor asks whether to discard them. */
+  confirmingDiscard: boolean;
+  onSaved: () => void;
+  /** Asks to leave: Cancel, Escape or the close button. */
+  onCancel: () => void;
+  onDiscard: () => void;
+  onKeepEditing: () => void;
+  onDirtyChange: (dirty: boolean) => void;
 }) {
   const { module, workflow } = useWorkflowView();
   const definition = workflow.kind(kind);
@@ -302,6 +322,9 @@ const ItemEditor = observer(function ItemEditor({
   );
   const [references, setReferences] = useState<string[]>(() => [...(current?.references ?? [])]);
   const [dependencies, setDependencies] = useState<string[]>(() => [...(current?.dependencies ?? [])]);
+  const [initial] = useState(() => JSON.stringify({ content, references, dependencies }));
+  const dirty = JSON.stringify({ content, references, dependencies }) !== initial;
+  useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange]);
 
   const option = (id: string, label: string): Option => ({ id, label });
   const chosenKinds = workflow.chosenKinds(kind);
@@ -334,43 +357,82 @@ const ItemEditor = observer(function ItemEditor({
         ]),
       "The item could not be saved.",
     );
-    if (saved) onDone();
+    if (saved) onSaved();
   };
 
-  return (
-    <Stack spacing={1.5} sx={{ mt: 1 }}>
-      <FieldsEditor fields={definition.fields} record={content} placement={{ content, path: [] }} onChange={(changed) => setContent({ ...changed })} autoFocus />
-      {referenceOptions.length > 0 && (
-        <Autocomplete
-          multiple
-          size="small"
-          options={referenceOptions}
-          value={references.map((id) => labelOf(referenceOptions, id))}
-          isOptionEqualToValue={(left, right) => left.id === right.id}
-          onChange={(_event, value) => setReferences(value.map(({ id }) => id))}
-          renderInput={(params) => <TextField {...params} label="References" />}
-        />
-      )}
-      {dependencyOptions.length > 0 && (
-        <Autocomplete
-          multiple
-          size="small"
-          options={dependencyOptions}
-          value={dependencies.map((id) => labelOf(dependencyOptions, id))}
-          isOptionEqualToValue={(left, right) => left.id === right.id}
-          onChange={(_event, value) => setDependencies(value.map(({ id }) => id))}
-          renderInput={(params) => <TextField {...params} label="Dependencies" />}
-        />
-      )}
-      <Stack direction="row" sx={{ gap: 1 }}>
-        <Button size="small" variant="contained" onClick={() => void save()}>
-          {itemId == null ? `Add ${definition.label.toLowerCase()}` : "Save"}
-        </Button>
-        <Button size="small" onClick={onDone}>
-          Cancel
-        </Button>
+  const panel: ReactNode = (
+    <Stack
+      sx={{ height: "100%", minHeight: 0 }}
+      onKeyDown={(event) => {
+        if (event.key !== "Escape") return;
+        event.stopPropagation();
+        onCancel();
+      }}
+    >
+      <Stack direction="row" sx={{ alignItems: "center", gap: 0.5, p: 1.5, pb: 0 }}>
+        <Typography variant="subtitle1" sx={{ fontWeight: 700, flexGrow: 1 }}>
+          {itemId == null ? `Add ${definition.label.toLowerCase()}` : `Edit ${module.codeOf(itemId)}`}
+        </Typography>
+        <Tooltip title="Close (Esc)">
+          <IconButton size="small" onClick={onCancel}><Close fontSize="small" /></IconButton>
+        </Tooltip>
+      </Stack>
+      <Box sx={{ flexGrow: 1, minHeight: 0, overflowY: "auto", px: 1.5 }}>
+        <Stack spacing={1.5} sx={{ mt: 1 }}>
+          <FieldsEditor fields={definition.fields} record={content} placement={{ content, path: [] }} onChange={(changed) => setContent({ ...changed })} autoFocus />
+          {referenceOptions.length > 0 && (
+            <Autocomplete
+              multiple
+              size="small"
+              options={referenceOptions}
+              value={references.map((id) => labelOf(referenceOptions, id))}
+              isOptionEqualToValue={(left, right) => left.id === right.id}
+              onChange={(_event, value) => setReferences(value.map(({ id }) => id))}
+              renderInput={(params) => <TextField {...params} label="References" />}
+            />
+          )}
+          {dependencyOptions.length > 0 && (
+            <Autocomplete
+              multiple
+              size="small"
+              options={dependencyOptions}
+              value={dependencies.map((id) => labelOf(dependencyOptions, id))}
+              isOptionEqualToValue={(left, right) => left.id === right.id}
+              onChange={(_event, value) => setDependencies(value.map(({ id }) => id))}
+              renderInput={(params) => <TextField {...params} label="Dependencies" />}
+            />
+          )}
+        </Stack>
+      </Box>
+      <Stack spacing={1} sx={{ p: 1.5 }}>
+        {confirmingDiscard ? (
+          <Alert
+            severity="warning"
+            action={
+              <Stack direction="row" sx={{ gap: 1 }}>
+                <Button color="inherit" size="small" onClick={onKeepEditing}>Keep editing</Button>
+                <Button color="inherit" size="small" onClick={onDiscard}>Discard</Button>
+              </Stack>
+            }
+          >
+            Discard your changes?
+          </Alert>
+        ) : (
+          <Stack direction="row" sx={{ gap: 1, justifyContent: "flex-end" }}>
+            <Button onClick={onCancel}>Cancel</Button>
+            <Button variant="contained" onClick={() => void save()}>
+              {itemId == null ? `Add ${definition.label.toLowerCase()}` : "Save"}
+            </Button>
+          </Stack>
+        )}
       </Stack>
     </Stack>
+  );
+  if (full) return <Dialog open fullScreen onClose={onCancel}>{panel}</Dialog>;
+  return (
+    <Paper square variant="outlined" sx={{ width: 480, flexShrink: 0, borderTop: 0, borderBottom: 0, borderRight: 0, minHeight: 0 }}>
+      {panel}
+    </Paper>
   );
 });
 

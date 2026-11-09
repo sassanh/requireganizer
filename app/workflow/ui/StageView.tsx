@@ -27,7 +27,7 @@ import { revisionOf, textValue, type ItemVersion } from "../records";
 import { STAGE_PROGRESS_LABELS, WAITING_CATEGORY_LABELS } from "../units";
 import { perform, useWorkflowNavigation, useWorkflowView } from "./context";
 import ItemChip, { useItemLabel } from "./ItemChip";
-import ItemEditor, { itemExcerpt } from "./ItemEditor";
+import ItemEditor, { type EditorTarget, itemExcerpt } from "./ItemEditor";
 import ThreadPanel from "./ThreadPanel";
 import ThreadView, { useThreadForm } from "./ThreadView";
 import UnitFrame, { SignatureLine } from "./UnitFrame";
@@ -35,6 +35,7 @@ import VersionDiff from "./VersionDiff";
 
 interface CardControls {
   openThread: (unitId: string, anchor: HTMLElement) => void;
+  edit: (itemId: string) => void;
   sign: (unitId: string) => void;
   stageOpen: boolean;
 }
@@ -119,7 +120,6 @@ function CauseLines({ causes }: { causes: readonly OutOfDateCause[] }) {
 
 const ItemCard = observer(function ItemCard({ state, controls }: { state: ItemState; controls: CardControls }) {
   const { module, workflow } = useWorkflowView();
-  const [editing, setEditing] = useState(false);
   const definition = workflow.kind(state.itemKind);
   const dependents = module.dependentsOutOfDate(state.itemId);
   const unreferenced = module.stagesNotReferencing(state.itemId);
@@ -151,7 +151,7 @@ const ItemCard = observer(function ItemCard({ state, controls }: { state: ItemSt
         controls.stageOpen && !removed && (
           <>
             {state.phase === "active" && (
-              <Button size="small" startIcon={<Edit />} onClick={() => setEditing(true)}>
+              <Button size="small" startIcon={<Edit />} onClick={() => controls.edit(state.itemId)}>
                 Edit
               </Button>
             )}
@@ -176,14 +176,8 @@ const ItemCard = observer(function ItemCard({ state, controls }: { state: ItemSt
           {waitingImpacts.length > 0 ? `, in ${waitingImpacts.map((stage) => workflow.stage(stage).label).join(" and ")}` : ""}.
         </Alert>
       )}
-      {editing ? (
-        <ItemEditor stage={state.stage} kind={state.itemKind} itemId={state.itemId} onDone={() => setEditing(false)} />
-      ) : (
-        <>
-          <Fields kind={state.itemKind} version={state.version} choices={false} />
-          <Links kind={state.itemKind} itemId={state.itemId} version={state.version} causes={state.outOfDateCauses} />
-        </>
-      )}
+      <Fields kind={state.itemKind} version={state.version} choices={false} />
+      <Links kind={state.itemKind} itemId={state.itemId} version={state.version} causes={state.outOfDateCauses} />
       {dependents.length > 0 && (
         <Stack direction="row" sx={{ gap: 0.5, flexWrap: "wrap", mt: 1, alignItems: "center" }}>
           <Typography variant="body2" color="warning.main">Makes out of date</Typography>
@@ -439,7 +433,23 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
   const [chosenForm, setChosenForm] = useThreadForm();
   const narrow = useMediaQuery((theme) => theme.breakpoints.down("md"));
   const threadForm = narrow ? "full" : chosenForm;
-  const [adding, setAdding] = useState<string | null>(null);
+  /** The item being written in the side panel, and the target asked for while it has unsaved changes. */
+  const [editor, setEditor] = useState<EditorTarget | null>(null);
+  const [pendingEditor, setPendingEditor] = useState<{ next: EditorTarget | null } | null>(null);
+  const editorDirty = useRef(false);
+  const onEditorDirtyChange = useCallback((dirty: boolean) => {
+    editorDirty.current = dirty;
+  }, []);
+  /** Opens, switches or closes the side panel, asking first when that would discard unsaved changes. */
+  const requestEditor = (next: EditorTarget | null) => {
+    if (editor != null && editorDirty.current) {
+      setPendingEditor({ next });
+      return;
+    }
+    editorDirty.current = false;
+    setPendingEditor(null);
+    setEditor(next);
+  };
   const [rulesOpen, setRulesOpen] = useState(false);
   const [compact, setCompact] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -610,7 +620,12 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
     return () => window.removeEventListener("keydown", listener);
   }, []);
 
-  const controls: CardControls = { openThread: (unitId, anchor) => openThread(unitId, anchor), sign: (unitId) => void sign(unitId), stageOpen: summary.open };
+  const controls: CardControls = {
+    openThread: (unitId, anchor) => openThread(unitId, anchor),
+    edit: (itemId) => requestEditor({ stage, kind: module.itemState(itemId)!.itemKind, itemId }),
+    sign: (unitId) => void sign(unitId),
+    stageOpen: summary.open,
+  };
   const waitingParts = (Object.entries(WAITING_CATEGORY_LABELS) as [keyof typeof WAITING_CATEGORY_LABELS, string][])
     .filter(([category]) => summary.waiting[category] > 0)
     .map(([category, label]) => `${summary.waiting[category]} ${label}`);
@@ -681,13 +696,12 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
               {definition.kinds
                 .filter((kind) => !kind.single || !module.itemsOf(stage).some((item) => item.kind === kind.kind && item.removal == null))
                 .map((kind) => (
-                  <Button key={kind.kind} startIcon={<Add />} variant={adding === kind.kind ? "contained" : "outlined"} onClick={() => setAdding(adding === kind.kind ? null : kind.kind)}>
+                  <Button key={kind.kind} startIcon={<Add />} variant={editor?.itemId == null && editor?.kind === kind.kind ? "contained" : "outlined"} onClick={() => requestEditor({ stage, kind: kind.kind, itemId: null })}>
                     Add {kind.label.toLowerCase()}
                   </Button>
                 ))}
             </Stack>
           )}
-          {adding != null && summary.open && <ItemEditor stage={stage} kind={adding} itemId={null} onDone={() => setAdding(null)} />}
 
           {coverages.length > 0 && <Typography variant="h6" sx={{ pt: 2 }}>Coverage</Typography>}
           {coverages.map((state) => <CoverageCard key={state.unitId} state={state} controls={controls} />)}
@@ -722,6 +736,27 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
             if (threadForm === "docked") setChosenForm("overlay");
             closeThread();
           }}
+        />
+      )}
+      {editor != null && (
+        <ItemEditor
+          key={`${editor.kind}:${editor.itemId ?? "new"}`}
+          target={editor}
+          full={narrow}
+          confirmingDiscard={pendingEditor != null}
+          onSaved={() => {
+            editorDirty.current = false;
+            setPendingEditor(null);
+            setEditor(null);
+          }}
+          onCancel={() => requestEditor(null)}
+          onDiscard={() => {
+            editorDirty.current = false;
+            setEditor(pendingEditor?.next ?? null);
+            setPendingEditor(null);
+          }}
+          onKeepEditing={() => setPendingEditor(null)}
+          onDirtyChange={onEditorDirtyChange}
         />
       )}
     </Stack>

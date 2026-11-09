@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle, Lock, LockOpen, RadioButtonUnchecked, Timelapse } from "@mui/icons-material";
+import { CheckCircle, Lock, RadioButtonUnchecked, Timelapse } from "@mui/icons-material";
 import { Box, LinearProgress, List, ListItemButton, Stack, Tooltip, Typography } from "@mui/material";
 import { observer } from "mobx-react-lite";
 
@@ -72,9 +72,11 @@ const StageNavigation = observer(function StageNavigation({
                     </Box>
                   </Tooltip>
                 )}
-                <Tooltip title={summary.open ? "Open" : "Closed until the stages it builds on are complete"}>
-                  {summary.open ? <LockOpen fontSize="small" color="action" /> : <Lock fontSize="small" color="disabled" />}
-                </Tooltip>
+                {!summary.open && (
+                  <Tooltip title="Closed until the stages it builds on are complete">
+                    <Lock fontSize="small" color="disabled" />
+                  </Tooltip>
+                )}
                 <Tooltip title={STAGE_PROGRESS_LABELS[summary.progress]}>
                   <ProgressIcon fontSize="small" color={PROGRESS_COLORS[summary.progress]} />
                 </Tooltip>

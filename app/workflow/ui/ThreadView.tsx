@@ -33,6 +33,10 @@ export function useThreadForm(): [Exclude<ThreadForm, "full">, (form: Exclude<Th
   return [form, choose];
 }
 
+/** Space kept between the overlay and the window's edge, and the least height worth opening below the card. */
+const OVERLAY_MARGIN = 16;
+const OVERLAY_MIN_HEIGHT = 360;
+
 /** A clicked thread button opens its own thread, so a click on one never counts as a click away. */
 export const THREAD_BUTTON = "data-thread-button";
 
@@ -62,7 +66,7 @@ const ThreadView = observer(function ThreadView({
 }) {
   const { module } = useWorkflowView();
   const body = (
-    <Stack spacing={1} sx={{ p: 1.5, minHeight: 0, height: form === "overlay" ? undefined : "100%" }}>
+    <Stack spacing={1} sx={{ p: 1.5, minHeight: 0, height: form === "overlay" ? undefined : "100%", maxHeight: "inherit" }}>
       <Stack direction="row" sx={{ alignItems: "center", gap: 0.5 }}>
         <Typography variant="subtitle1" sx={{ fontWeight: 700, flexGrow: 1 }}>Thread on {module.unitLabel(unitId)}</Typography>
         {form === "overlay" && (
@@ -74,14 +78,12 @@ const ThreadView = observer(function ThreadView({
           <IconButton size="small" onClick={onClose}><Close fontSize="small" /></IconButton>
         </Tooltip>
       </Stack>
-      <Stack sx={{ overflowY: "auto", minHeight: 0, maxHeight: form === "overlay" ? "60vh" : undefined }}>
-        <ThreadPanel key={unitId} unitId={unitId} threads={module.threadsOf(unitId)} stageOpen={stageOpen} autoFocus={autoFocus} onClose={onClose} />
-      </Stack>
+      <ThreadPanel key={unitId} unitId={unitId} threads={module.threadsOf(unitId)} stageOpen={stageOpen} autoFocus={autoFocus} onClose={onClose} />
     </Stack>
   );
   const closeOnEscape = (content: ReactNode) => (
     <Stack
-      sx={{ minHeight: 0, height: "100%" }}
+      sx={{ minHeight: 0, height: "100%", maxHeight: "inherit" }}
       onKeyDown={(event) => {
         if (event.key !== "Escape") return;
         event.stopPropagation();
@@ -102,15 +104,22 @@ const ThreadView = observer(function ThreadView({
       </Paper>
     );
   }
+  // The overlay opens below the card's actions, or above them when too little of the window is left below, and never runs past the window.
+  const anchorBox = anchor?.getBoundingClientRect() ?? null;
+  const below = anchorBox == null ? 0 : window.innerHeight - anchorBox.bottom - OVERLAY_MARGIN;
+  const above = anchorBox == null ? 0 : anchorBox.top - OVERLAY_MARGIN;
+  const opensAbove = below < OVERLAY_MIN_HEIGHT && above > below;
   return (
-    <Popper open={anchor != null} anchorEl={anchor} placement="bottom-start" sx={{ zIndex: (theme) => theme.zIndex.modal }}>
+    <Popper open={anchor != null} anchorEl={anchor} placement={opensAbove ? "top-start" : "bottom-start"} sx={{ zIndex: (theme) => theme.zIndex.modal }}>
       <ClickAwayListener
         onClickAway={(event) => {
           if (event.target instanceof Element && event.target.closest(`[${THREAD_BUTTON}]`) != null) return;
           onClose();
         }}
       >
-        <Paper elevation={8} sx={{ width: 480, maxWidth: "calc(100vw - 32px)" }}>{closeOnEscape(body)}</Paper>
+        <Paper elevation={8} sx={{ width: 480, maxWidth: "calc(100vw - 32px)", maxHeight: Math.min(window.innerHeight * 0.7, opensAbove ? above : below), display: "flex", flexDirection: "column" }}>
+          {closeOnEscape(body)}
+        </Paper>
       </ClickAwayListener>
     </Popper>
   );
