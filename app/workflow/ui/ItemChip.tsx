@@ -4,9 +4,10 @@ import { Chip, Stack, Tooltip, Typography } from "@mui/material";
 import { observer } from "mobx-react-lite";
 import type { MouseEvent } from "react";
 
-import type { NamedItem } from "../module";
+import type { NamedItem, OutOfDateCause } from "../module";
 import { LINK_REASON_LABELS, type LinkReason } from "../units";
 import { useWorkflowNavigation, useWorkflowView } from "./context";
+import VersionDiff from "./VersionDiff";
 
 const REMOVED_ITEM = "removed item";
 
@@ -31,8 +32,8 @@ export function useItemLabel(): (id: string, options?: { detail?: string; reason
   };
 }
 
-/** A named item at a glance: its code, kind, text, stage and whether it is approved. */
-function ItemPreview({ item }: { item: NamedItem }) {
+/** A named item at a glance: its code, kind, how it changed when that is known, its text, stage and whether it is approved. */
+function ItemPreview({ item, change }: { item: NamedItem; change: OutOfDateCause["change"] }) {
   const { workflow } = useWorkflowView();
   return (
     <Stack spacing={0.5} sx={{ py: 0.5 }}>
@@ -40,6 +41,7 @@ function ItemPreview({ item }: { item: NamedItem }) {
         <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{item.name}</Typography>
         <Typography variant="caption">{workflow.kind(item.kind).label}</Typography>
       </Stack>
+      {change != null && <VersionDiff kind={item.kind} signed={change.from} current={change.to} caption="Since the version referenced here" />}
       <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>{item.text}</Typography>
       <Typography variant="caption">
         {workflow.stage(item.stage).label} · {item.approved ? "Approved" : item.phase === "removed" ? "Removed" : "Not approved"}
@@ -54,9 +56,9 @@ function ItemPreview({ item }: { item: NamedItem }) {
  * the chips beneath it, and clicking it or pressing Enter on it
  * opens the item in its stage and module. With `reasons`, the item makes
  * the item naming it out of date, and the chip says why in the warning
- * colour.
+ * colour; with `change`, the preview shows how the item changed.
  */
-const ItemChip = observer(function ItemChip({ itemId, detail, reasons = [] }: { itemId: string; detail?: string; reasons?: readonly LinkReason[] }) {
+const ItemChip = observer(function ItemChip({ itemId, detail, reasons = [], change = null }: { itemId: string; detail?: string; reasons?: readonly LinkReason[]; change?: OutOfDateCause["change"] }) {
   const { module } = useWorkflowView();
   const { openUnit } = useWorkflowNavigation();
   const label = useItemLabel();
@@ -69,7 +71,7 @@ const ItemChip = observer(function ItemChip({ itemId, detail, reasons = [] }: { 
     openUnit({ module: named.module?.id ?? null, stage: named.stage, unitId: named.id }, from);
   };
   return (
-    <Tooltip title={<ItemPreview item={named} />} describeChild disableInteractive slotProps={{ tooltip: { sx: { maxWidth: 440 } } }}>
+    <Tooltip title={<ItemPreview item={named} change={change} />} describeChild disableInteractive slotProps={{ tooltip: { sx: { maxWidth: 440 } } }}>
       <Chip {...look} label={label(itemId, { detail, reasons })} onClick={open} />
     </Tooltip>
   );

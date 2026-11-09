@@ -136,6 +136,8 @@ export interface OutOfDateCause {
   /** The other module's name, for an item of another module. */
   module: string | null;
   reasons: LinkReason[];
+  /** For a changed item of this module, the version the out-of-date item rests on and the current one, when the former is still known. */
+  change: { from: ItemVersion; to: ItemVersion } | null;
 }
 
 interface UnitStateBase {
@@ -435,15 +437,21 @@ export function workflowModuleModel(workflow: Workflow) {
         for (const linkId of linksOf(item)) {
           const linked = findLinked(linkId);
           const reasons: LinkReason[] = [];
+          let change: OutOfDateCause["change"] = null;
           if (linked == null || linked.phase === "removed") {
             reasons.push("removed");
           } else {
-            if (item.basis[linkId] !== revisionOf(linked.version)) reasons.push("changed");
+            if (item.basis[linkId] !== revisionOf(linked.version)) {
+              reasons.push("changed");
+              // The version rested on is still known when it is the one last signed.
+              const signed = linked.module == null ? locate(linkId)?.item.signature?.version : undefined;
+              if (signed != null && revisionOf(signed) === item.basis[linkId]) change = { from: signed, to: linked.version };
+            }
             const standing = linked.module == null ? itemStanding(linkId) : linked.module.lookup.itemStanding(linkId);
             if (standing?.outOfDate === true) reasons.push("out-of-date");
             else if (standing?.approved !== true) reasons.push("not-approved");
           }
-          if (reasons.length > 0) outOfDateCauses.push({ id: linkId, module: linked?.module?.name ?? null, reasons });
+          if (reasons.length > 0) outOfDateCauses.push({ id: linkId, module: linked?.module?.name ?? null, reasons, change });
         }
         const outOfDate = outOfDateCauses.length > 0;
         const openThread = openThreadOf(id);

@@ -78,8 +78,8 @@ function fieldText(field: FieldDefinition, value: FieldValue, name: (id: string)
   }
 }
 
-/** How a version differs from the one its last signature covers, field by field and link by link. */
-export default function VersionDiff({ kind, signed, current }: { kind: string; signed: ItemVersion; current: ItemVersion }) {
+/** How a version differs from an earlier one, by default the one its last signature covers, field by field and link by link. */
+export default function VersionDiff({ kind, signed, current, caption = "Since the last signature" }: { kind: string; signed: ItemVersion; current: ItemVersion; caption?: string }) {
   const { workflow } = useWorkflowView();
   const name = useItemName();
   const changed = workflow
@@ -88,7 +88,7 @@ export default function VersionDiff({ kind, signed, current }: { kind: string; s
   return (
     <Stack spacing={0.5} sx={{ p: 1, borderRadius: 1, bgcolor: "action.hover" }}>
       <Typography variant="caption" color="text.secondary">
-        Since the last signature
+        {caption}
       </Typography>
       {changed.map((field) =>
         field.type === "items" ? (

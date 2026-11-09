@@ -95,9 +95,10 @@ function Links({ kind, itemId, version, causes = [] }: { kind: string | null; it
       {groups.map(({ label, items }, index) => (
         <Fragment key={label}>
           <Typography variant="caption" color="text.secondary" sx={{ ml: index === 0 ? 0 : 1 }}>{label}</Typography>
-          {items.map((item) => (
-            <ItemChip key={item.id} itemId={item.id} detail={item.detail} reasons={causes.find((cause) => cause.id === item.id)?.reasons} />
-          ))}
+          {items.map((item) => {
+            const cause = causes.find(({ id }) => id === item.id);
+            return <ItemChip key={item.id} itemId={item.id} detail={item.detail} reasons={cause?.reasons} change={cause?.change} />;
+          })}
         </Fragment>
       ))}
     </Stack>
