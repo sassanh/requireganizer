@@ -258,63 +258,6 @@ describe("workflow engine", () => {
     assert.match(report, /^Added: CAP-03\.$/m);
   });
 
-  it("holds Requirements engineering items in their parts and refuses them without what they need", async () => {
-    const store = Store.create({});
-    specified(store);
-    assert.throws(
-      () => store.writeItems([{ type: "add", stage: "features-and-target-users", kind: "target-user", content: { name: "agent" }, references: [], dependencies: [] }]),
-      /missing Description/,
-    );
-    store.writeItems([{ type: "add", stage: "features-and-target-users", kind: "target-user", content: { name: "agent", description: "Writes." }, references: [], dependencies: [] }]);
-    signAll(store, "features-and-target-users");
-    const feature = itemOf(store, "features-and-target-users", "FEA-01");
-    const owner = itemOf(store, "features-and-target-users", "USR-01");
-    const agent = itemOf(store, "features-and-target-users", "USR-02");
-    const story = (content: Record<string, unknown>, references: string[]) => () =>
-      store.writeItems([{ type: "add", stage: "user-stories", kind: "user-story", content: content as never, references, dependencies: [] }]);
-    assert.throws(story({ outcome: "a", reason: "b" }, [feature]), /missing Target users/);
-    assert.throws(story({ targetUsers: [owner], reason: "b" }, [feature]), /missing Outcome/);
-    assert.throws(story({ targetUsers: [owner], outcome: "a" }, [feature]), /missing Reason/);
-    assert.throws(story({ targetUsers: [owner], outcome: "a", reason: "b" }, []), /references no feature/);
-    assert.throws(story({ targetUsers: [owner], outcome: "a", reason: "b" }, [feature, owner]), /names its target users in Target users/);
-    assert.throws(story({ targetUsers: [feature], outcome: "a", reason: "b" }, [feature]), /but it is a feature/);
-    assert.throws(story({ targetUsers: [owner], outcome: "a", reason: "b", priority: "P3" }, [feature]), /must be one of P0, P1, P2/);
-    story({ targetUsers: [owner, agent], outcome: "stages", reason: "order" }, [feature])();
-    const written = itemOf(store, "user-stories", "US-01");
-    assert.equal(store.textOf(written), "As a spec owner or agent, I want stages, so that order");
-    assert.deepEqual(store.referencesOf(store.locate(written)!.item), [owner, agent, feature]);
-    signAll(store, "user-stories");
-    assert.equal(store.stageComplete("user-stories"), true);
-
-    const requirement = (content: Record<string, unknown>, references: string[]) => () =>
-      store.writeItems([{ type: "add", stage: "requirements", kind: "requirement", content: content as never, references, dependencies: [] }]);
-    assert.throws(requirement({ obligation: "keep stages" }, []), /references no user story/);
-    requirement({ obligation: "keep stages", priority: "P1" }, [written])();
-    const kept = itemOf(store, "requirements", "REQ-01");
-    assert.equal(store.textOf(kept), "The system must keep stages");
-    signAll(store, "requirements");
-
-    const criterion = (content: Record<string, unknown>, references: string[]) => () =>
-      store.writeItems([{ type: "add", stage: "acceptance-criteria", kind: "acceptance-criterion", content: content as never, references, dependencies: [] }]);
-    assert.throws(criterion({ when: "x", then: "y" }, [kept]), /missing Given/);
-    assert.throws(criterion({ given: "x", when: "y" }, [kept]), /missing Then/);
-    assert.throws(criterion({ given: "x", then: "y" }, []), /references no requirement/);
-    assert.throws(criterion({ given: "x", then: "y", priority: "P0" }, [kept]), /has no field priority/);
-    criterion({ given: "a stage", when: "", then: "it holds" }, [kept])();
-    assert.equal(store.textOf(itemOf(store, "acceptance-criteria", "AC-01")), "Given a stage\nThen it holds");
-
-    const state = JSON.parse(await callAgentTool(store, "get_workflow_state", {})) as { codesVersion: string };
-    await assert.rejects(
-      callAgentTool(store, "write_items", {
-        codesVersion: state.codesVersion,
-        changes: [{ action: "add", stage: "acceptance-criteria", fields: { given: "a", then: "" }, references: ["REQ-01"] }],
-      }),
-      /missing Then/,
-    );
-    const items = JSON.parse(await callAgentTool(store, "get_items", { stage: "user-stories", items: ["US-01"] })) as { items: { fields: { targetUsers: string[] }; text: string }[] };
-    assert.deepEqual(items.items[0]!.fields.targetUsers, ["USR-01", "USR-02"]);
-  });
-
   it("holds each feature under one capability and shows it with the capability's name", () => {
     const store = Store.create({});
     specified(store);

@@ -13,62 +13,50 @@ import {
 import { basename, dirname, extname, join } from "node:path";
 
 import { UserFacingError } from "lib/errors";
-import { isRecord, parseJsonObject } from "lib/json";
-import { moduleScopeId, parseProjectPayload } from "lib/moduleSchema";
+import { parseJsonObject } from "lib/json";
 import {
-  parseTimelineData,
   PROJECT_DELETE_ERROR_MESSAGE,
-  ProjectStorageError,
+  PROJECT_SAVE_ERROR_MESSAGE,
+  type ProjectIdentity,
   type ProjectMeta,
+  ProjectStorageError,
 } from "lib/projectStorage";
-import {
-  compareProviderCallsOldestFirst,
-  PROVIDER_CALL_LOAD_ERROR_MESSAGE,
-  PROVIDER_CALL_SAVE_ERROR_MESSAGE,
-  ProviderCallStorageError,
-  type StoredProviderCall,
-  toProviderCall,
-  toStoredProviderCall,
-} from "lib/providerCallStorage";
-import {
-  createRevisionSnapshot,
-  type ProjectRevisionSnapshot,
-  REVISION_SNAPSHOT_LOAD_ERROR_MESSAGE,
-  REVISION_SNAPSHOT_MISSING_MESSAGE,
-  snapshotIdsToPrune,
-  sortRevisionSnapshotsNewestFirst,
-} from "lib/revisionStorage";
 import type {
+  HistoryPersistence,
   OutsideChange,
   OutsideChanges,
   PersistenceAdapter,
   ProjectPersistence,
-  ProviderCallPersistence,
-  RevisionPersistence,
+  ProjectWrite,
   StorageTraits,
-  TimelinePersistence,
 } from "persistence";
-import { createModuleStore } from "store";
+import {
+  type Address,
+  parseHistory,
+  parseProject,
+  type ProjectHistory,
+  projectDocument,
+  serializeCanonical,
+} from "storage-and-recovery";
 
 /** The id of a project file that names none, such as an export placed by hand. */
 export const DEFAULT_FILE_PROJECT_ID = "project";
 
-/** The project's identity, stored ahead of its payload. Its update time is the file's own. */
-const META_KEYS = ["id", "name", "description"] as const;
+/** The project's identity, stored beside its document. Its update time is the file's own. */
+const IDENTITY_KEYS = ["id", "name"] as const;
 
 interface ProjectFile {
-  meta: ProjectMeta;
-  /** The registry and module snapshots; null until the project is first saved. */
-  payload: Record<string, unknown> | null;
+  identity: ProjectIdentity;
+  /** The project's document as stored, which `parseProject` read. */
+  document: Record<string, unknown>;
 }
 
 export interface FilePersistenceAdapterOptions {
   /** The project file, usually inside the repository it describes. */
   projectFile: string;
-  /** Where the project's history lives: timelines, revisions, provider calls. */
+  /** Where the project's history and pieces live. */
   stateDirectory: string;
   now?: () => Date;
-  createRevisionSnapshotId?: () => string;
 }
 
 /**
@@ -100,39 +88,35 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** An id as one file name: it never names a folder or steps out of one. */
-function pathSegment(value: string): string {
-  return encodeURIComponent(value).replace(/^\.{1,2}$/, (dots) => "%2E".repeat(dots.length));
-}
-
 /**
  * A `PersistenceAdapter` that keeps one project in a file a person can read,
- * diff, and commit: the project's id, name, and description followed by the
- * registry and module snapshots, in the same shape a JSON export has, so the
- * file can also be imported elsewhere. The project's history (module
- * timelines, revision snapshots, provider calls) lives in a separate state
- * directory, since it is local work rather than part of the project.
+ * diff, and commit: the project's id and name beside its document, written
+ * by the one canonical serializer, so a change touches only the lines that
+ * hold it. A file without an id or name, such as an export placed by hand,
+ * opens too. The project's history and its pieces live in a separate state
+ * directory, since they are local work rather than part of the project.
  *
  * Writes are issued synchronously and replace files atomically, so they are
- * never reordered. A project file that cannot be read is never overwritten:
- * loading it fails with what is wrong, and writes to it are refused. Neither
- * is a file changed since this adapter last adopted or wrote it, such as by a
- * checkout; `outsideChanges` reports such a change as it happens.
+ * never reordered: the pieces first, then the history naming the state being
+ * written, then the project file, then the history naming it as written. A
+ * project file that cannot be read is never overwritten: loading it fails
+ * with what is wrong, and writes to it are refused. Neither is a file changed
+ * since this adapter last adopted or wrote it, such as by a checkout;
+ * `outsideChanges` reports such a change as it happens.
  */
 export class FilePersistenceAdapter implements PersistenceAdapter {
   readonly traits: StorageTraits;
   private readonly projectFile: string;
   private readonly stateDirectory: string;
   private readonly now: () => Date;
-  private readonly createRevisionSnapshotId: () => string;
   /**
    * The project file's contents as this adapter last adopted or wrote them;
    * undefined until it has done either. A write over anything else would
    * replace a change made outside the server.
    */
   private knownContents: string | null | undefined = undefined;
-  /** The project those contents hold; kept when the file is removed, so writing it again keeps its name. */
-  private heldMeta: ProjectMeta | null = null;
+  /** The project those contents hold; kept when the file is removed, so writing it again keeps its identity. */
+  private heldIdentity: ProjectIdentity | null = null;
   private readonly outsideChangeListeners = new Set<(change: OutsideChange | null) => void>();
   private reportedOutsideChange: OutsideChange | null = null;
   private fileWatcher: FSWatcher | null = null;
@@ -142,14 +126,16 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
     this.projectFile = options.projectFile;
     this.stateDirectory = options.stateDirectory;
     this.now = options.now ?? (() => new Date());
-    this.createRevisionSnapshotId =
-      options.createRevisionSnapshotId ?? (() => crypto.randomUUID());
     this.traits = { singleProject: true, name: basename(this.projectFile) };
   }
 
   /** The project file as stored, or null when there is none; throws what makes it unreadable. */
   readProjectFile(): ProjectFile | null {
     return this.parseProjectFile(readIfPresent(this.projectFile));
+  }
+
+  private defaultName(): string {
+    return basename(this.traits.name, extname(this.traits.name));
   }
 
   private parseProjectFile(source: string | null): ProjectFile | null {
@@ -159,80 +145,46 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
     try {
       value = parseJsonObject(source, label);
     } catch (error) {
-      throw new UserFacingError(
-        `${label} could not be read: ${error instanceof Error ? error.message : String(error)} Fix the file, then try again.`,
-      );
+      throw new UserFacingError(`${label} could not be read: ${messageOf(error)} Fix the file, then try again.`);
     }
-    const payload: Record<string, unknown> = { ...value };
-    for (const key of META_KEYS) delete payload[key];
-    const hasPayload = Object.keys(payload).length > 0;
-    if (hasPayload) {
-      try {
-        const parsed = parseProjectPayload(payload);
-        // Every module passes the store's own validation here, so the
-        // session never falls back to a blank project over this file.
-        for (const entry of parsed.modules) createModuleStore(entry.snapshot);
-      } catch (error) {
-        throw new UserFacingError(
-          `${label} does not hold a valid project: ${error instanceof Error ? error.message : String(error)} Fix the file, then try again.`,
-        );
-      }
+    const document: Record<string, unknown> = { ...value };
+    for (const key of IDENTITY_KEYS) delete document[key];
+    try {
+      parseProject(document);
+    } catch (error) {
+      throw new UserFacingError(`${label} does not hold a valid project: ${messageOf(error)} Fix the file, then try again.`);
     }
     const text = (key: string): string | null =>
-      typeof value[key] === "string" && (value[key] as string).trim().length > 0
-        ? (value[key] as string)
-        : null;
+      typeof value[key] === "string" && (value[key] as string).trim().length > 0 ? (value[key] as string) : null;
     return {
-      meta: {
-        id: text("id") ?? DEFAULT_FILE_PROJECT_ID,
-        name: text("name") ?? basename(label, extname(label)),
-        description: text("description") ?? "",
-        updatedAt: this.modifiedAt().toISOString(),
-      },
-      payload: hasPayload ? payload : null,
+      identity: { id: text("id") ?? DEFAULT_FILE_PROJECT_ID, name: text("name") ?? this.defaultName() },
+      document,
     };
   }
 
-  private writeProjectFile(meta: ProjectMeta, payload: unknown, message: string): void {
-    if (payload != null && !isRecord(payload)) throw new ProjectStorageError(message);
-    let contents: string;
-    try {
-      contents = `${JSON.stringify(
-        {
-          id: meta.id,
-          name: meta.name,
-          description: meta.description,
-          ...(payload as Record<string, unknown> | null),
-        },
-        null,
-        2,
-      )}\n`;
-    } catch (error) {
-      throw new ProjectStorageError(message, error);
-    }
-    try {
-      writeAtomically(this.projectFile, contents);
-    } catch (error) {
-      throw new ProjectStorageError(message, error);
-    }
-    this.remember(contents, meta);
+  private metaOf(identity: ProjectIdentity): ProjectMeta {
+    return { ...identity, updatedAt: this.modifiedAt().toISOString() };
   }
 
   /** Record the project file's contents as this adapter adopted or wrote them. */
-  private remember(contents: string | null, meta: ProjectMeta | null): void {
+  private remember(contents: string | null, identity: ProjectIdentity | null): void {
     this.knownContents = contents;
-    if (meta != null) this.heldMeta = meta;
+    if (identity != null) this.heldIdentity = identity;
     if (this.outsideChangeListeners.size > 0 && this.fileWatcher == null) this.watchProjectFile();
     this.checkOutsideChange();
   }
 
-  /** The stored project, read for a write; a write never replaces a file it cannot read. */
-  private projectForWrite(message: string): ProjectFile | null {
+  /**
+   * The identity of the stored project, read for a write, or null when there
+   * is none; a write never replaces a file it cannot read or one changed
+   * outside this adapter.
+   */
+  private storedForWrite(): ProjectIdentity | null {
     let source: string | null;
     try {
       source = readIfPresent(this.projectFile);
     } catch (error) {
-      throw new ProjectStorageError(message, error);
+      throw new ProjectStorageError(PROJECT_SAVE_ERROR_MESSAGE, error);
     }
     if (this.knownContents !== undefined && source !== this.knownContents) {
       this.checkOutsideChange();
@@ -240,13 +192,41 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
         `${this.traits.name} changed outside Requireganizer, so it was not overwritten. Choose in Requireganizer which version to keep.`,
       );
     }
+    // What this adapter wrote or adopted holds the project it holds.
+    if (source != null && source === this.knownContents && this.heldIdentity != null) return this.heldIdentity;
     try {
-      return this.parseProjectFile(source);
+      return this.parseProjectFile(source)?.identity ?? null;
     } catch (error) {
-      throw new ProjectStorageError(
-        error instanceof Error ? error.message : message,
-        error,
-      );
+      throw new ProjectStorageError(messageOf(error), error);
+    }
+  }
+
+  private historyPath(): string {
+    return join(this.stateDirectory, "history.json");
+  }
+
+  private piecePath(address: Address): string {
+    return join(this.stateDirectory, "objects", address.slice(0, 2), address.slice(2));
+  }
+
+  private writeHistory(history: ProjectHistory): void {
+    writeAtomically(this.historyPath(), serializeCanonical(history));
+  }
+
+  /** Write a project, its pieces and its history, in the order that never leaves a record naming what is not stored. */
+  private store(write: ProjectWrite): void {
+    try {
+      for (const [address, bytes] of write.pieces) {
+        const path = this.piecePath(address);
+        if (!existsSync(path)) writeAtomically(path, bytes);
+      }
+      this.writeHistory(write.writing);
+      const contents = serializeCanonical({ ...projectDocument(write.state), ...write.project });
+      writeAtomically(this.projectFile, contents);
+      this.remember(contents, write.project);
+      this.writeHistory(write.written);
+    } catch (error) {
+      throw new ProjectStorageError(PROJECT_SAVE_ERROR_MESSAGE, error);
     }
   }
 
@@ -279,8 +259,8 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
         // A file that cannot be read is never overwritten.
         return false;
       }
-      if (stored != null && this.heldMeta != null && stored.meta.id !== this.heldMeta.id) return false;
-      this.remember(source, stored?.meta ?? null);
+      if (stored != null && this.heldIdentity != null && stored.identity.id !== this.heldIdentity.id) return false;
+      this.remember(source, stored?.identity ?? null);
       return true;
     },
   };
@@ -334,11 +314,11 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
     if (source == null) return { kind: "removed" };
     let changedId: string;
     try {
-      changedId = this.parseProjectFile(source)!.meta.id;
+      changedId = this.parseProjectFile(source)!.identity.id;
     } catch (error) {
       return { kind: "changed", problem: messageOf(error) };
     }
-    if (this.heldMeta != null && changedId !== this.heldMeta.id) {
+    if (this.heldIdentity != null && changedId !== this.heldIdentity.id) {
       return { kind: "changed", problem: `${this.traits.name} now holds another project.` };
     }
     return { kind: "changed", problem: null };
@@ -357,199 +337,53 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
     list: async () => {
       try {
         const stored = this.readProjectFile();
-        return stored == null ? [] : [stored.meta];
+        return stored == null ? [] : [this.metaOf(stored.identity)];
       } catch {
         // The project still opens, and loading it explains what is wrong.
-        return [
-          {
-            id: DEFAULT_FILE_PROJECT_ID,
-            name: basename(this.traits.name, extname(this.traits.name)),
-            description: "",
-            updatedAt: this.modifiedAt().toISOString(),
-          },
-        ];
+        return [this.metaOf({ id: DEFAULT_FILE_PROJECT_ID, name: this.defaultName() })];
       }
-    },
-    saveIndex: async (projects) => {
-      const message = "Could not save the project.";
-      const stored = this.projectForWrite(message);
-      if (projects.length === 0) {
-        if (stored != null) throw new ProjectStorageError(`Delete ${this.traits.name} yourself to remove the project.`);
-        return;
-      }
-      const [meta, ...others] = projects;
-      if (others.length > 0 || (stored != null && stored.meta.id !== meta!.id)) {
-        throw new ProjectStorageError(this.otherProjectMessage());
-      }
-      this.writeProjectFile(meta!, stored?.payload ?? null, message);
     },
     load: async (projectId) => {
-      const source = readIfPresent(this.projectFile);
-      const stored = this.parseProjectFile(source);
+      const stored = this.readProjectFile();
       // A load, such as a page reading the project, never changes what this
       // adapter holds: only `adoptStored` and writes do.
       if (stored == null) return null;
-      if (stored.meta.id !== projectId) throw new UserFacingError(this.otherProjectMessage());
-      return stored.payload;
+      if (stored.identity.id !== projectId) throw new UserFacingError(this.otherProjectMessage());
+      return stored.document;
     },
-    save: async (projectId, data, indexUpdate) => {
-      const message = "Could not save the project.";
-      const stored = this.projectForWrite(message);
-      if (stored != null && stored.meta.id !== projectId) {
-        throw new ProjectStorageError(this.otherProjectMessage());
+    create: async (write) => {
+      if (this.storedForWrite() != null) {
+        throw new ProjectStorageError(`${this.traits.name} already holds a project. Import into it from the open project instead.`);
       }
-      const meta: ProjectMeta = stored?.meta ?? this.heldMeta ?? {
-        id: projectId,
-        name: basename(this.traits.name, extname(this.traits.name)),
-        description: "",
-        updatedAt: this.now().toISOString(),
-      };
-      this.writeProjectFile({ ...meta, ...indexUpdate }, data, message);
+      this.store(write);
     },
-    saveBundle: async (projectId, data, projects) => {
-      const message = "Could not save the imported project.";
-      const stored = this.projectForWrite(message);
-      if (stored != null && (stored.meta.id !== projectId || stored.payload != null)) {
-        throw new ProjectStorageError(
-          `${this.traits.name} already holds a project. Import into it from the open project instead.`,
-        );
-      }
-      const meta = projects.find((project) => project.id === projectId);
-      if (meta == null) throw new ProjectStorageError(message);
-      this.writeProjectFile(meta, data, message);
+    write: async (write) => {
+      const stored = this.storedForWrite();
+      if (stored != null && stored.id !== write.project.id) throw new ProjectStorageError(this.otherProjectMessage());
+      this.store(write);
     },
     delete: async () => {
-      throw new ProjectStorageError(
-        `${PROJECT_DELETE_ERROR_MESSAGE} Delete ${this.traits.name} yourself to remove it.`,
+      throw new ProjectStorageError(`${PROJECT_DELETE_ERROR_MESSAGE} Delete ${this.traits.name} yourself to remove it.`);
+    },
+  };
+
+  readonly history: HistoryPersistence = {
+    load: async () => {
+      const source = readIfPresent(this.historyPath());
+      return source == null ? null : parseHistory(JSON.parse(source));
+    },
+    pieceAddresses: async () => {
+      const objects = join(this.stateDirectory, "objects");
+      if (!existsSync(objects)) return [];
+      return readdirSync(objects).flatMap((prefix) =>
+        readdirSync(join(objects, prefix))
+          .filter((rest) => !rest.endsWith(".tmp"))
+          .map((rest) => `${prefix}${rest}`),
       );
     },
-  };
-
-  private timelinePath(projectId: string, moduleId: string): string {
-    return join(this.stateDirectory, "timelines", pathSegment(projectId), `${pathSegment(moduleId)}.json`);
-  }
-
-  readonly timelines: TimelinePersistence = {
-    load: async (projectId, moduleId) =>
-      parseTimelineData(readIfPresent(this.timelinePath(projectId, moduleId))),
-    save: async (projectId, moduleId, data) => {
-      try {
-        const source = JSON.stringify(data);
-        writeAtomically(this.timelinePath(projectId, moduleId), source === undefined ? "undefined" : source);
-        return true;
-      } catch {
-        // The timeline trims its history and retries on a refused write.
-        return false;
-      }
-    },
-  };
-
-  private revisionDirectory(): string {
-    return join(this.stateDirectory, "revisions");
-  }
-
-  private revisionPath(snapshotId: string): string {
-    return join(this.revisionDirectory(), `${pathSegment(snapshotId)}.json`);
-  }
-
-  private readRevisions(): ProjectRevisionSnapshot[] {
-    if (!existsSync(this.revisionDirectory())) return [];
-    return readdirSync(this.revisionDirectory())
-      .filter((file) => file.endsWith(".json"))
-      .flatMap((file) => {
-        try {
-          return [JSON.parse(readFileSync(join(this.revisionDirectory(), file), "utf8")) as ProjectRevisionSnapshot];
-        } catch (error) {
-          // One damaged snapshot hides only itself.
-          console.error(`Revision snapshot ${file} could not be read.`, error);
-          return [];
-        }
-      });
-  }
-
-  private revisionsForScope(projectId: string, moduleId: string): ProjectRevisionSnapshot[] {
-    const scopeId = moduleScopeId(projectId, moduleId);
-    return sortRevisionSnapshotsNewestFirst(
-      this.readRevisions().filter((snapshot) => snapshot.scopeId === scopeId),
-    );
-  }
-
-  readonly revisions: RevisionPersistence = {
-    list: async (projectId, moduleId) => {
-      try {
-        return this.revisionsForScope(projectId, moduleId);
-      } catch (error) {
-        throw new Error(REVISION_SNAPSHOT_LOAD_ERROR_MESSAGE, { cause: error });
-      }
-    },
-    save: async (projectId, moduleId, data, label, pinned = false) => {
-      const snapshot = createRevisionSnapshot({
-        projectId,
-        moduleId,
-        data,
-        label,
-        pinned,
-        id: this.createRevisionSnapshotId(),
-        now: this.now(),
-      });
-      writeAtomically(this.revisionPath(snapshot.id), JSON.stringify(snapshot));
-      for (const id of snapshotIdsToPrune(this.revisionsForScope(projectId, moduleId))) {
-        rmSync(this.revisionPath(id), { force: true });
-      }
-      // The caller's copy is separate from the stored one.
-      return structuredClone(snapshot);
-    },
-    setPinned: async (snapshotId, pinned) => {
-      const source = readIfPresent(this.revisionPath(snapshotId));
-      if (source == null) throw new Error(REVISION_SNAPSHOT_MISSING_MESSAGE);
-      const snapshot = JSON.parse(source) as ProjectRevisionSnapshot;
-      writeAtomically(this.revisionPath(snapshotId), JSON.stringify({ ...snapshot, pinned }));
-    },
-    delete: async (snapshotId) => {
-      rmSync(this.revisionPath(snapshotId), { force: true });
-    },
-  };
-
-  private providerCallPath(projectId: string): string {
-    return join(this.stateDirectory, "provider-calls", `${pathSegment(projectId)}.json`);
-  }
-
-  private readProviderCallRows(projectId: string): StoredProviderCall[] {
-    const source = readIfPresent(this.providerCallPath(projectId));
-    return source == null ? [] : (JSON.parse(source) as StoredProviderCall[]);
-  }
-
-  readonly providerCalls: ProviderCallPersistence = {
-    load: async (projectId, moduleId) => {
-      let rows: StoredProviderCall[];
-      try {
-        rows = this.readProviderCallRows(projectId);
-      } catch (error) {
-        throw new ProviderCallStorageError(PROVIDER_CALL_LOAD_ERROR_MESSAGE, error);
-      }
-      const scopeId = moduleScopeId(projectId, moduleId);
-      return rows
-        .filter((row) => row.scopeId === scopeId)
-        .map(toProviderCall)
-        .sort(compareProviderCallsOldestFirst);
-    },
-    replace: async (projectId, moduleId, calls) => {
-      try {
-        const scopeId = moduleScopeId(projectId, moduleId);
-        const replacement = new Map<string, StoredProviderCall>();
-        for (const call of calls) {
-          replacement.set(call.id, toStoredProviderCall(call, projectId, scopeId));
-        }
-        const kept = this.readProviderCallRows(projectId).filter(
-          (row) => row.scopeId !== scopeId && !replacement.has(row.id),
-        );
-        writeAtomically(
-          this.providerCallPath(projectId),
-          JSON.stringify([...kept, ...replacement.values()]),
-        );
-      } catch (error) {
-        throw new ProviderCallStorageError(PROVIDER_CALL_SAVE_ERROR_MESSAGE, error);
-      }
+    readPiece: async (_projectId, address) => readIfPresent(this.piecePath(address)),
+    deletePieces: async (_projectId, addresses) => {
+      for (const address of addresses) rmSync(this.piecePath(address), { force: true });
     },
   };
 }

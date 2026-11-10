@@ -1,9 +1,10 @@
 import type { IJsonPatch } from "mobx-state-tree";
 
 import type { AgentCaller, AgentToolDescription } from "ai-agent/agent-access";
-import type { ModuleEntry, ModuleRegistry } from "lib/moduleSchema";
-import type { PersistenceAdapter, StorageTraits } from "persistence";
+import type { ProjectIdentity } from "lib/projectStorage";
+import type { ClientPersistence, StorageTraits } from "persistence";
 import type { ProjectSessionSnapshot } from "project-session";
+import type { ExportOptions, ModuleContent, ModuleRegistry, ModuleState } from "storage-and-recovery";
 import type { ReplicatedVolatileState } from "store";
 
 /**
@@ -17,7 +18,7 @@ import type { ReplicatedVolatileState } from "store";
  * different builds checks it before any message is exchanged; change it
  * whenever a message changes shape.
  */
-export const PROTOCOL_VERSION = 6;
+export const PROTOCOL_VERSION = 7;
 
 /**
  * WebSocket close codes a host server ends a connection with when connecting
@@ -52,8 +53,8 @@ export interface StoreActionCall {
   args: unknown[];
 }
 
-/** The adapter's groups of storage operations. */
-export type PersistenceGroup = Exclude<keyof PersistenceAdapter, "traits">;
+/** The groups of storage operations a client may call. */
+export type PersistenceGroup = Exclude<keyof ClientPersistence, "traits">;
 
 /** One call on the host's persistence adapter. */
 export interface PersistenceCall {
@@ -63,24 +64,15 @@ export interface PersistenceCall {
 }
 
 /**
- * Every adapter method a client may call, per group. Typed so that a method
- * added to the adapter must be listed here, and the host refuses anything
- * that is not.
+ * Every adapter method a client may call, per group. Typed so that it lists
+ * exactly what `ClientPersistence` offers, and the host refuses anything
+ * that is not listed. Nothing a client calls writes a project: the host
+ * does, through its session.
  */
 export const PERSISTENCE_METHODS: {
-  [Group in PersistenceGroup]: Record<keyof PersistenceAdapter[Group], true>;
+  [Group in PersistenceGroup]: Record<keyof ClientPersistence[Group], true>;
 } = {
-  projects: {
-    list: true,
-    saveIndex: true,
-    load: true,
-    save: true,
-    saveBundle: true,
-    delete: true,
-  },
-  timelines: { load: true, save: true },
-  revisions: { list: true, save: true, setPinned: true, delete: true },
-  providerCalls: { load: true, replace: true },
+  projects: { list: true, delete: true },
 };
 
 /** What a host serves. A request names one member and passes its arguments. */
@@ -99,8 +91,16 @@ export interface HostApi {
   archiveModule(id: string): void;
   renameModule(id: string, name: string): void;
   renameProject(name: string): Promise<void>;
-  recordOpenStep(step: string): void;
-  importProjectFile(data: unknown): Promise<void>;
+  /** Create an empty project; resolves to its identity. */
+  createProject(name: string): Promise<ProjectIdentity>;
+  /** Store an exported project as a new one, named after its file; resolves to its identity. */
+  importNewProject(data: unknown, fileName: string): Promise<ProjectIdentity>;
+  /** Open here the project another session holds, once it has written what it had. */
+  takeOverProject(): Promise<void>;
+  /** Replace the open project with an exported one. */
+  importProjectFile(data: unknown): void;
+  /** The open project's export, as the bytes of its file. */
+  exportProject(options: ExportOptions, restorePointId?: string): string;
   /** Open the project as storage now holds it, after it changed outside the host. */
   openChangedProject(): Promise<void>;
   /** Write the shown project over the stored one that changed outside the host. */
@@ -152,11 +152,11 @@ export interface StoreImage {
 }
 
 /**
- * A module entry as sent. Its snapshot is left out when every client already
- * holds that exact snapshot from an earlier event.
+ * A module as sent. Its content is left out when every client already holds
+ * that exact content from an earlier event.
  */
-export type SentModuleEntry = Omit<ModuleEntry, "snapshot"> & {
-  snapshot?: Record<string, unknown>;
+export type SentModuleEntry = Omit<ModuleState, "content"> & {
+  content?: ModuleContent;
 };
 
 export interface SentRegistry extends Omit<ModuleRegistry, "modules"> {

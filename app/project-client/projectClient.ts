@@ -27,13 +27,10 @@ import {
   wireArguments,
 } from "connection";
 import { UserFacingError } from "lib/errors";
-import type { ModuleEntry, ModuleRegistry } from "lib/moduleSchema";
-import type { PersistenceAdapter } from "persistence";
-import {
-  type ExportableModule,
-  type ProjectSessionSnapshot,
-  SiblingModuleStores,
-} from "project-session";
+import type { ProjectIdentity } from "lib/projectStorage";
+import type { ClientPersistence } from "persistence";
+import { type ProjectSessionSnapshot, SiblingModuleStores } from "project-session";
+import type { ExportOptions, ModuleRegistry, ModuleState } from "storage-and-recovery";
 import { type ReplicatedVolatileState, Store } from "store";
 
 type Result<Name extends RequestName> = Awaited<ReturnType<HostApi[Name]>>;
@@ -68,7 +65,7 @@ export type ConnectionStatus =
   | { state: "reconnecting"; message: string }
   | { state: "failed"; message: string };
 
-/** The registry a sent one describes, with left-out snapshots taken from the one held before. */
+/** The registry a sent one describes, with left-out contents taken from the one held before. */
 function receivedRegistry(
   sent: SentRegistry | null,
   held: ModuleRegistry | null,
@@ -76,13 +73,13 @@ function receivedRegistry(
   if (sent == null) return null;
   return {
     ...sent,
-    modules: sent.modules.map((entry): ModuleEntry => {
-      if (entry.snapshot != null) return { ...entry, snapshot: entry.snapshot };
-      const snapshot = held?.modules.find((module) => module.id === entry.id)?.snapshot;
-      if (snapshot == null) {
+    modules: sent.modules.map((entry): ModuleState => {
+      if (entry.content != null) return { ...entry, content: entry.content };
+      const content = held?.modules.find((module) => module.id === entry.id)?.content;
+      if (content == null) {
         throw new Error(`The project host left out module ${entry.id}, which this client never received.`);
       }
-      return { ...entry, snapshot };
+      return { ...entry, content };
     }),
   };
 }
@@ -120,7 +117,7 @@ export class ConnectionLostError extends UserFacingError {
  * the connection opens.
  */
 export class ProjectClient {
-  readonly persistence: PersistenceAdapter;
+  readonly persistence: ClientPersistence;
 
   private readonly connect: () => ClientConnection;
   private connection: { link: ClientConnection; stopListening: () => void } | null = null;
@@ -300,11 +297,18 @@ export class ProjectClient {
   renameProject = (name: string): Promise<void> =>
     this.request("renameProject", name);
 
-  recordOpenStep = (step: string): Promise<void> =>
-    this.request("recordOpenStep", step);
+  createProject = (name: string): Promise<ProjectIdentity> => this.request("createProject", name);
+
+  importNewProject = (data: unknown, fileName: string): Promise<ProjectIdentity> =>
+    this.request("importNewProject", data, fileName);
+
+  takeOverProject = (): Promise<void> => this.request("takeOverProject");
 
   importProjectFile = (data: unknown): Promise<void> =>
     this.request("importProjectFile", data);
+
+  exportProject = (options: ExportOptions, restorePointId?: string): Promise<string> =>
+    this.request("exportProject", options, restorePointId);
 
   openChangedProject = (): Promise<void> => this.request("openChangedProject");
 
@@ -316,12 +320,6 @@ export class ProjectClient {
   /** Run one of those tools for the named agent; resolves to its text result. */
   callAgentTool = (name: string, args: Record<string, unknown>, caller: AgentCaller): Promise<string> =>
     this.request("callAgentTool", name, args, caller);
-
-  /** Every visible module, backed by the replica or a sibling store. */
-  getExportModules = (): ExportableModule[] => {
-    if (this.snapshot.status !== "ready") return [];
-    return this.siblingStores.exportModules(this.snapshot.registry, this.replica);
-  };
 
   private request<Name extends RequestName>(
     name: Name,
@@ -386,7 +384,7 @@ export class ProjectClient {
     });
   }
 
-  private remotePersistence(): PersistenceAdapter {
+  private remotePersistence(): ClientPersistence {
     const adapter: Record<string, Record<string, (...args: unknown[]) => unknown>> = {};
     for (const [group, methods] of Object.entries(PERSISTENCE_METHODS)) {
       const calls: Record<string, (...args: unknown[]) => unknown> = {};
@@ -413,7 +411,7 @@ export class ProjectClient {
       enumerable: true,
       get: () => this.hostInfo.storage,
     });
-    return adapter as unknown as PersistenceAdapter;
+    return adapter as unknown as ClientPersistence;
   }
 
   /** Run replica-side bookkeeping that must not be forwarded to the host. */

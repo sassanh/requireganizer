@@ -11,11 +11,11 @@ import MessageText from "./MessageText";
 
 function Messages({ thread }: { thread: Thread }) {
   return (
-    <Stack spacing={1} divider={<Divider flexItem />} sx={{ opacity: thread.resolvedAt == null ? 1 : 0.6 }}>
+    <Stack spacing={1} divider={<Divider flexItem />} sx={{ opacity: thread.resolution == null ? 1 : 0.6 }}>
       {thread.messages.map((message, index) => (
         <Stack key={index} spacing={0.25}>
           <Typography variant="caption" color="text.secondary">
-            {authorLabel(message.author)} · {new Date(message.at).toLocaleString()}
+            {authorLabel(message.author)}{message.at == null ? "" : ` · ${new Date(message.at).toLocaleString()}`}
             {message.withChanges ? " · with changes" : ""}
           </Typography>
           <MessageText text={message.text} />
@@ -47,8 +47,8 @@ const ThreadPanel = observer(function ThreadPanel({
   onClose?: () => void;
 }) {
   const { module } = useWorkflowView();
-  const open = threads.find(({ resolvedAt }) => resolvedAt == null) ?? null;
-  const resolved = threads.filter(({ resolvedAt }) => resolvedAt != null);
+  const open = threads.find(({ resolution }) => resolution == null) ?? null;
+  const resolved = threads.filter(({ resolution }) => resolution != null);
   const answering = open != null && module.isBeingAnswered(open.id);
   const draftKey = unitId ?? open?.id ?? "";
   const [text, setTextState] = useState(() => drafts.get(draftKey) ?? "");

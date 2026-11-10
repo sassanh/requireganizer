@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { stepHref, unitHref } from "lib/routes";
+import { rememberedStage, rememberStage } from "lib/viewState";
 import { useProject } from "projectContext";
 import { useStore } from "store";
 import { type RevealRequest, StageNavigation, StageView, type WorkflowNavigation, workflowNavigationContext, workflowViewContext } from "workflow/ui";
@@ -19,28 +20,30 @@ function revealRequestOf(search: URLSearchParams): RevealRequest | null {
 /** The open module: its stages beside the one the page shows. */
 const Factory = observer(function Factory() {
   const store = useStore();
-  const { modulesEnabled, activeModuleId, activeModuleOpenStep, recordOpenStep } = useProject();
+  const { activeProject, modulesEnabled, activeModuleId } = useProject();
+  const projectId = activeProject?.id ?? "";
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
   const workflow = store.workflow;
 
   const requested = searchParams.get("step");
+  const remembered = modulesEnabled ? rememberedStage(projectId, activeModuleId) : null;
   const stage = workflow.isStage(requested)
     ? requested
-    : modulesEnabled && workflow.isStage(activeModuleOpenStep)
-      ? activeModuleOpenStep
+    : workflow.isStage(remembered)
+      ? remembered
       : workflow.firstStage;
 
-  // The active module remembers the stage it shows, so reopening or
-  // switching back lands there. Skipped while the URL still names another
-  // module: that render belongs to a switch in flight.
+  // This page remembers the stage each module shows, so reopening or
+  // switching back lands there. Only while modules are on: until then the
+  // project keeps opening at the first stage. Skipped while the URL still
+  // names another module: that render belongs to a switch in flight.
   const moduleParam = searchParams.get("module");
   useEffect(() => {
-    if (modulesEnabled && moduleParam !== activeModuleId) return;
-    if (stage === activeModuleOpenStep) return;
-    void recordOpenStep(stage);
-  }, [stage, activeModuleOpenStep, modulesEnabled, moduleParam, activeModuleId, recordOpenStep]);
+    if (!modulesEnabled || moduleParam !== activeModuleId) return;
+    rememberStage(projectId, activeModuleId, stage);
+  }, [stage, modulesEnabled, moduleParam, activeModuleId, projectId]);
 
   // The address focuses a unit when the page opens on it, when an item is
   // opened where it is named, and when the browser goes back or forward.

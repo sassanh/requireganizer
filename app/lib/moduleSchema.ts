@@ -1,11 +1,6 @@
-import { WORKFLOW } from "store";
+import type { ModuleRegistry, ModuleState } from "storage-and-recovery";
 
-import { InvalidJsonError, isRecord } from "./json";
-import {
-  assertModuleSnapshotSchema,
-  MODULE_SCHEMA_VERSION,
-  PROJECT_SCHEMA_VERSION,
-} from "./projectSchema";
+import { InvalidJsonError } from "./json";
 
 /**
  * The one module every project holds before modules are enabled: its id
@@ -13,37 +8,6 @@ import {
  * renames it to the first real module name.
  */
 export const LEGACY_MODULE_ID = "main";
-
-export interface ModuleEntry {
-  id: string;
-  name: string;
-  /** Set when archived: kept in storage for round trips, hidden from the interface. */
-  archivedAt: string | null;
-  /** The stage this module last showed; reopening restores it (module mode only). */
-  openStep: string;
-  snapshot: Record<string, unknown>;
-}
-
-/** The registry the provider holds while a project is open. */
-export interface ModuleRegistry {
-  modulesEnabled: boolean;
-  activeModuleId: string;
-  modules: ModuleEntry[];
-}
-
-/** A stored or exported project: the registry plus its schema marker. */
-export interface ProjectPayload extends ModuleRegistry {
-  schemaVersion: typeof PROJECT_SCHEMA_VERSION;
-}
-
-/**
- * The storage scope of one module's side data (timeline, revisions,
- * provider calls). Every scoped key or row carries it, so per-module
- * history never bleeds between modules.
- */
-export function moduleScopeId(projectId: string, moduleId: string): string {
-  return `${projectId}::${moduleId}`;
-}
 
 /** The stored spelling of a name: whitespace collapsed to single spaces. */
 function collapseWhitespace(name: string): string {
@@ -80,7 +44,7 @@ export function normalizeModuleName(value: unknown): string {
 /** Names are unique across every module, archived ones included. */
 export function assertModuleNameAvailable(
   name: string,
-  modules: readonly ModuleEntry[],
+  modules: readonly ModuleState[],
 ): void {
   const wanted = moduleNameKey(name);
   if (modules.some((module) => moduleNameKey(module.name) === wanted)) {
@@ -89,13 +53,13 @@ export function assertModuleNameAvailable(
 }
 
 /** The module the registry shows. */
-export function activeModule(registry: ModuleRegistry): ModuleEntry | null {
+export function activeModule(registry: ModuleRegistry): ModuleState | null {
   return registry.modules.find((module) => module.id === registry.activeModuleId) ?? null;
 }
 
 export function visibleModules(
   registry: Pick<ModuleRegistry, "modules">,
-): ModuleEntry[] {
+): ModuleState[] {
   return registry.modules.filter((module) => module.archivedAt == null);
 }
 
@@ -103,7 +67,7 @@ export function visibleModules(
 export function visibleModuleNamed(
   registry: Pick<ModuleRegistry, "modules">,
   name: string,
-): ModuleEntry | null {
+): ModuleState | null {
   const wanted = moduleNameKey(name);
   return visibleModules(registry).find(
     (module) => moduleNameKey(module.name) === wanted,
@@ -117,169 +81,8 @@ export function visibleModuleNamed(
  */
 export function siblingModuleEntries(
   registry: ModuleRegistry,
-): ModuleEntry[] {
+): ModuleState[] {
   return visibleModules(registry).filter(
     (module) => module.id !== registry.activeModuleId,
   );
-}
-
-/**
- * The module to open: the recorded active one while it is still visible,
- * else the first visible module.
- */
-export function pickActiveModule(registry: ModuleRegistry): ModuleEntry {
-  const active = registry.modules.find(
-    (module) => module.id === registry.activeModuleId && module.archivedAt == null,
-  );
-  if (active != null) return active;
-  const fallback = visibleModules(registry)[0] ?? registry.modules[0];
-  if (fallback == null) {
-    throw new InvalidJsonError("The project holds no modules.");
-  }
-  return fallback;
-}
-
-/** The stage a module shows when it opens and has shown none yet. */
-export const FIRST_STAGE = WORKFLOW.firstStage;
-
-/** A stage id as stored; the page falls back to the first stage for one the workflow does not define. */
-function parseOpenStep(value: unknown): string {
-  return typeof value === "string" ? value : FIRST_STAGE;
-}
-
-function parseModuleEntry(value: unknown, index: number): ModuleEntry {
-  const label = `Module ${index + 1}`;
-  if (!isRecord(value)) {
-    throw new InvalidJsonError(`${label} must be an object.`);
-  }
-  if (typeof value.id !== "string" || value.id.length === 0) {
-    throw new InvalidJsonError(`${label} has no id.`);
-  }
-  const name = normalizeModuleName(value.name);
-  if (value.archivedAt != null && typeof value.archivedAt !== "string") {
-    throw new InvalidJsonError(`Module “${name}” has an invalid archive marker.`);
-  }
-  if (!isRecord(value.snapshot)) {
-    throw new InvalidJsonError(`Module “${name}” has no snapshot.`);
-  }
-  assertModuleSnapshotSchema(value.snapshot);
-  return {
-    id: value.id,
-    name,
-    archivedAt: typeof value.archivedAt === "string" ? value.archivedAt : null,
-    openStep: parseOpenStep(value.openStep),
-    snapshot: value.snapshot,
-  };
-}
-
-function parseRegistry(value: Record<string, unknown>): ModuleRegistry {
-  if (typeof value.modulesEnabled !== "boolean") {
-    throw new InvalidJsonError("Project must declare whether modules are enabled.");
-  }
-  if (typeof value.activeModuleId !== "string" || value.activeModuleId.length === 0) {
-    throw new InvalidJsonError("Project must name its active module.");
-  }
-  if (!Array.isArray(value.modules) || value.modules.length === 0) {
-    throw new InvalidJsonError("Project must hold at least one module.");
-  }
-  const modules: ModuleEntry[] = [];
-  value.modules.forEach((entry, index) => {
-    const parsed = parseModuleEntry(entry, index);
-    // Reuses the one name-uniqueness rule, so imports and the interface
-    // reject exactly the same names.
-    assertModuleNameAvailable(parsed.name, modules);
-    const seen = modules.some((module) => module.id === parsed.id);
-    if (seen) {
-      throw new InvalidJsonError(`Duplicate module id ${parsed.id}.`);
-    }
-    modules.push(parsed);
-  });
-  const active = modules.find((module) => module.id === value.activeModuleId);
-  if (active == null) {
-    throw new InvalidJsonError(
-      `Active module ${value.activeModuleId} is not in the project.`,
-    );
-  }
-  if (active.archivedAt != null) {
-    throw new InvalidJsonError(`Active module “${active.name}” is archived.`);
-  }
-  return {
-    modulesEnabled: value.modulesEnabled,
-    activeModuleId: value.activeModuleId,
-    modules,
-  };
-}
-
-/**
- * The one reader of stored project bytes: a schema 4 payload is
- * validated as a module registry, a bare module snapshot wraps as the
- * single hidden legacy module, anything else fails with the accepted
- * versions named.
- */
-export function parseProjectPayload(value: unknown): ProjectPayload {
-  if (!isRecord(value)) {
-    throw new InvalidJsonError("Imported project must be a JSON object.");
-  }
-  if (value.schemaVersion === PROJECT_SCHEMA_VERSION) {
-    return { schemaVersion: PROJECT_SCHEMA_VERSION, ...parseRegistry(value) };
-  }
-  if (value.schemaVersion === MODULE_SCHEMA_VERSION) {
-    assertModuleSnapshotSchema(value);
-    return {
-      schemaVersion: PROJECT_SCHEMA_VERSION,
-      modulesEnabled: false,
-      activeModuleId: LEGACY_MODULE_ID,
-      modules: [
-        {
-          id: LEGACY_MODULE_ID,
-          name: LEGACY_MODULE_ID,
-          archivedAt: null,
-          openStep: FIRST_STAGE,
-          snapshot: value,
-        },
-      ],
-    };
-  }
-  throw new InvalidJsonError(
-    `This import uses project schema ${JSON.stringify(value.schemaVersion)}. Requireganizer accepts schema ${PROJECT_SCHEMA_VERSION} (modular), or ${MODULE_SCHEMA_VERSION} (single module).`,
-  );
-}
-
-/** The registry of a project with no stored data yet. */
-export function createEmptyRegistry(): ModuleRegistry {
-  return {
-    modulesEnabled: false,
-    activeModuleId: LEGACY_MODULE_ID,
-    modules: [
-      {
-        id: LEGACY_MODULE_ID,
-        name: LEGACY_MODULE_ID,
-        archivedAt: null,
-        openStep: FIRST_STAGE,
-        // Replaced from the live store at every save; a project with no
-        // stored data never reads this.
-        snapshot: {},
-      },
-    ],
-  };
-}
-
-/**
- * The bytes to store: the registry with the live store's snapshot
- * folded into the active module's entry.
- */
-export function buildProjectPayload(
-  registry: ModuleRegistry,
-  activeSnapshot: Record<string, unknown>,
-): ProjectPayload {
-  return {
-    schemaVersion: PROJECT_SCHEMA_VERSION,
-    modulesEnabled: registry.modulesEnabled,
-    activeModuleId: registry.activeModuleId,
-    modules: registry.modules.map((module) =>
-      module.id === registry.activeModuleId
-        ? { ...module, snapshot: activeSnapshot }
-        : module,
-    ),
-  };
 }

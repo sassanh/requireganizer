@@ -19,7 +19,7 @@ export function SignatureLine({ signature, counts, what = "Signed" }: { signatur
   }
   return (
     <Typography variant="caption" color={counts ? "text.secondary" : "warning.main"}>
-      {what} by {signerLabel(signature.signer)} on {new Date(signature.at).toLocaleString()}
+      {what} by {signerLabel(signature.signer)}{signature.at == null ? "" : ` on ${new Date(signature.at).toLocaleString()}`}
       {counts ? "" : " · no longer counts: what it covered has changed"}
     </Typography>
   );
@@ -65,7 +65,7 @@ const UnitFrame = observer(function UnitFrame({
 }) {
   const { module } = useWorkflowView();
   const threads = module.threadsOf(unitId);
-  const open = threads.find(({ resolvedAt }) => resolvedAt == null);
+  const open = threads.find(({ resolution }) => resolution == null);
   const waitsForYou = open != null && waitsForSpecOwner(open);
   const answering = open != null && module.isBeingAnswered(open.id);
   const threadTitle = open == null ? "" : waitsForYou ? "Waits for you" : answering ? "The coding agent is answering" : "Waits for the coding agent";

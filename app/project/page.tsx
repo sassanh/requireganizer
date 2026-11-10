@@ -1,5 +1,5 @@
 "use client";
-import { ArrowBack, History } from "@mui/icons-material";
+import { ArrowBack } from "@mui/icons-material";
 import {
   Alert,
   AlertTitle,
@@ -8,7 +8,6 @@ import {
   Button,
   Stack,
   Toolbar,
-  Tooltip,
   Typography,
 } from "@mui/material";
 import { observer } from "mobx-react-lite";
@@ -22,7 +21,6 @@ import {
   ProjectActionsMenu,
   OutsideChangeDialog,
   PersistentAlert,
-  RevisionHistoryDialog,
 } from "components";
 import {
   isEditableTarget,
@@ -30,6 +28,7 @@ import {
   useShortcut,
   type ShortcutBinding,
 } from "hooks/shortcuts";
+import { rememberedModule, rememberModule } from "lib/viewState";
 import { usePersistence, useProject } from "projectContext";
 import { Factory } from "screens";
 import { Store, useStore } from "store";
@@ -41,12 +40,12 @@ function Home() {
     activeProject,
     persistenceError,
     selectProject,
+    takeOverProject,
     backToProjects,
     clearPersistenceError,
     modulesEnabled,
     modules,
     activeModuleId,
-    activeModuleOpenStep,
     switchModule,
     storage,
   } = useProject();
@@ -55,7 +54,6 @@ function Home() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [historyOpen, setHistoryOpen] = useState(false);
   const [modulesOpen, setModulesOpen] = useState(false);
 
   const projectId = searchParams.get("id") ?? "";
@@ -103,8 +101,35 @@ function Home() {
     (count: number) => count + 1,
     0,
   );
+  // The module this page last showed comes back once when the project
+  // opens here without a module in the address. Until that switch lands,
+  // the pointer effects wait, so they never undo it.
+  const restoringRef = useRef<{ projectId: string; moduleId: string | null } | null>(null);
   useEffect(() => {
     if (activeProject?.id !== projectId || !modulesEnabled) return;
+    if (restoringRef.current?.projectId === projectId) return;
+    const remembered = rememberedModule(projectId);
+    const wanted =
+      searchParams.get("module") == null &&
+      remembered != null &&
+      remembered !== activeModuleId &&
+      modules.some(({ id }) => id === remembered)
+        ? remembered
+        : null;
+    restoringRef.current = { projectId, moduleId: wanted };
+    if (wanted == null) return;
+    void switchModule(wanted).finally(() => {
+      if (restoringRef.current?.moduleId === wanted) restoringRef.current = { projectId, moduleId: null };
+      noteRefusedUrlModule();
+    });
+  }, [activeProject, projectId, modulesEnabled, searchParams, activeModuleId, modules, switchModule]);
+  const restoring = () => restoringRef.current?.moduleId != null;
+  useEffect(() => {
+    if (activeProject?.id !== projectId || !modulesEnabled || restoring()) return;
+    rememberModule(projectId, activeModuleId);
+  }, [activeProject, projectId, modulesEnabled, activeModuleId, refusedUrlModules]);
+  useEffect(() => {
+    if (activeProject?.id !== projectId || !modulesEnabled || restoring()) return;
     const inUrl = searchParams.get("module");
     const seen = seenModuleParamRef.current;
     seenModuleParamRef.current = inUrl;
@@ -120,7 +145,7 @@ function Home() {
   }, [activeProject, projectId, modulesEnabled, searchParams, activeModuleId, switchModule]);
 
   useEffect(() => {
-    if (activeProject?.id !== projectId || !modulesEnabled) return;
+    if (activeProject?.id !== projectId || !modulesEnabled || restoring()) return;
     const inUrl = searchParams.get("module");
     if (inUrl === activeModuleId) {
       pendingUrlModuleRef.current = null;
@@ -132,13 +157,14 @@ function Home() {
     }
     const next = new URLSearchParams(searchParams.toString());
     next.set("module", activeModuleId);
-    // Arriving from another module lands on that module's remembered stage, with no unit of the other module focused.
+    // Arriving from another module lands on the stage this page remembers
+    // for it, with no unit of the other module focused.
     if (inUrl != null) {
-      next.set("step", activeModuleOpenStep);
+      next.delete("step");
       next.delete("unit");
     }
     router.replace(`${pathname}?${next.toString()}`);
-  }, [activeProject, projectId, modulesEnabled, searchParams, activeModuleId, activeModuleOpenStep, router, pathname, refusedUrlModules]);
+  }, [activeProject, projectId, modulesEnabled, searchParams, activeModuleId, router, pathname, refusedUrlModules]);
 
   // For easier debugging store is saved under window.store variable in development environment
   useEffect(() => {
@@ -146,6 +172,29 @@ function Home() {
       (window as unknown as { store: Store }).store = store;
     }
   }, [store]);
+
+  if (status === "elsewhere" && activeProject?.id === projectId) {
+    return (
+      <Stack sx={{ alignItems: "center", py: 6, px: 2 }}>
+        <Alert
+          severity="info"
+          sx={{ maxWidth: 700, width: "100%" }}
+          action={
+            <Stack direction="row" sx={{ gap: 1 }}>
+              <Button color="inherit" size="small" component={Link} href="/" onClick={() => void backToProjects()}>
+                Projects
+              </Button>
+              <Button color="inherit" size="small" onClick={() => void takeOverProject()}>
+                Use it here
+              </Button>
+            </Stack>
+          }
+        >
+          {activeProject.name} is open in another tab.
+        </Alert>
+      </Stack>
+    );
+  }
 
   if (status === "failed" && activeProject?.id === projectId) {
     return (
@@ -223,16 +272,6 @@ function Home() {
             </Button>
           ) : null}
         </Stack>
-        <Tooltip title="Revisions">
-          <Button
-            variant="outlined"
-            aria-label="Revisions"
-            onClick={() => setHistoryOpen(true)}
-            sx={{ minWidth: 0, px: 1.25 }}
-          >
-            <History />
-          </Button>
-        </Tooltip>
         </Toolbar>
       </AppBar>
       {/* Official fixed-AppBar spacer: reserves exactly the toolbar height. */}
@@ -266,12 +305,6 @@ function Home() {
         </Box>
       </Stack>
       <OutsideChangeDialog />
-      <RevisionHistoryDialog
-        projectId={activeProject.id}
-        moduleId={activeModuleId}
-        open={historyOpen}
-        onClose={() => setHistoryOpen(false)}
-      />
       <ModuleSwitcherDialog open={modulesOpen} onClose={closeModules} />
     </>
   );

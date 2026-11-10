@@ -1,51 +1,40 @@
-import {
-  type ModuleEntry,
-  type ModuleRegistry,
-  siblingModuleEntries,
-  visibleModules,
-} from "lib/moduleSchema";
+import { siblingModuleEntries } from "lib/moduleSchema";
+import type { ModuleContent, ModuleRegistry, ModuleState } from "storage-and-recovery";
 import { createModuleStore, type Store } from "store";
 import type { LinkedModule } from "workflow";
 
-/** The store a module export reads from. */
-export interface ExportableModule {
-  id: string;
-  name: string | null;
-  store: Store;
-}
-
 interface CacheEntry {
-  snapshot: Record<string, unknown>;
-  /** The snapshot's JSON: a registry that crossed a connection holds equal copies, not the same objects. */
+  content: ModuleContent;
+  /** The content's JSON: a registry that crossed a connection holds equal copies, not the same objects. */
   text: string;
   store: Store;
 }
 
 /**
  * Read-only stores for the open project's other modules, rebuilt only when a
- * module's stored snapshot changes. The authority's session and every replica
+ * module's content changes. The authority's session and every replica
  * derive them from the registry they hold, so both resolve dependencies on
  * other modules' items the same way.
  */
 export class SiblingModuleStores {
   private readonly cache = new Map<string, CacheEntry>();
 
-  private storeFor(entry: ModuleEntry): Store | null {
+  private storeFor(entry: ModuleState): Store | null {
     const hit = this.cache.get(entry.id);
-    if (hit?.snapshot === entry.snapshot) return hit.store;
-    const text = JSON.stringify(entry.snapshot);
+    if (hit?.content === entry.content) return hit.store;
+    const text = JSON.stringify(entry.content);
     if (hit?.text === text) {
-      hit.snapshot = entry.snapshot;
+      hit.content = entry.content;
       return hit.store;
     }
     let created: Store;
     try {
-      created = createModuleStore(entry.snapshot);
+      created = createModuleStore(entry.content);
     } catch (error) {
       console.error(`Module “${entry.name}” could not be read.`, error);
       return null;
     }
-    this.cache.set(entry.id, { snapshot: entry.snapshot, text, store: created });
+    this.cache.set(entry.id, { content: entry.content, text, store: created });
     return created;
   }
 
@@ -75,20 +64,5 @@ export class SiblingModuleStores {
         .map((other) => ({ id: other.id, name: other.name, lookup: other.store.lookup }));
       entry.store.setLinkedModules(linked);
     }
-  }
-
-  /** Every visible module, backed by the shown store or a sibling store. */
-  exportModules(registry: ModuleRegistry, shown: Store): ExportableModule[] {
-    const modules: ExportableModule[] = [];
-    for (const entry of visibleModules(registry)) {
-      const name = registry.modulesEnabled ? entry.name : null;
-      if (entry.id === registry.activeModuleId) {
-        modules.push({ id: entry.id, name, store: shown });
-        continue;
-      }
-      const sibling = this.storeFor(entry);
-      if (sibling != null) modules.push({ id: entry.id, name, store: sibling });
-    }
-    return modules;
   }
 }

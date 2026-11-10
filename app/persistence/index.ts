@@ -1,18 +1,12 @@
 export type {
+  ClientPersistence,
+  HistoryPersistence,
   OutsideChange,
   OutsideChanges,
   PersistenceAdapter,
-  ProjectDeleteAuxiliary,
-  ProjectDeleteResult,
   ProjectPersistence,
-  ProviderCallPersistence,
-  RevisionPersistence,
+  ProjectWrite,
   StorageTraits,
-  TimelinePersistence,
 } from "./adapter";
-export {
-  MemoryPersistenceAdapter,
-  type MemoryPersistenceAdapterOptions,
-  type MemoryPersistenceFailure,
-} from "./memoryAdapter";
+export { MemoryPersistenceAdapter } from "./memoryAdapter";
 export { WebPersistenceAdapter, webPersistence } from "./webAdapter";

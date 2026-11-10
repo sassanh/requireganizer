@@ -23,20 +23,18 @@ import Link from "next/link";
 import { ChangeEvent, useEffect, useRef, useState } from "react";
 
 import { PersistentAlert } from "components";
+import { getUserFacingErrorMessage } from "lib/errors";
 import { parseJson } from "lib/json";
-import { parseProjectPayload, pickActiveModule } from "lib/moduleSchema";
-import { hasProjectName, ProjectMeta } from "lib/projectStorage";
+import { hasProjectName, type ProjectMeta } from "lib/projectStorage";
 import { projectHref } from "lib/routes";
-import type { ProjectDeleteResult } from "persistence";
 import { useProject } from "projectContext";
-import { createModuleStore, moduleDescription } from "store";
 
 interface ProjectSelectorProps {
   onSelect: (id: string, name: string) => void;
 }
 
 export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
-  const { activeProject, persistence, storage } = useProject();
+  const { activeProject, persistence, storage, createProject, importNewProject } = useProject();
   const [projects, setProjects] = useState<ProjectMeta[] | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newName, setNewName] = useState("");
@@ -71,40 +69,34 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
     onSelect(onlyProject.id, onlyProject.name);
   }, [onlyProject, onSelect]);
 
-  const handleCreate = async () => {
-    const name = newName.trim();
-    if (!name || projects == null || hasProjectName(projectList, name)) return;
-
-    const id = crypto.randomUUID();
-    const meta: ProjectMeta = {
-      id,
-      name,
-      description: "",
-      updatedAt: new Date().toISOString(),
-    };
-    const updatedProjects = [...projectList, meta];
-
+  /** Run a creation, then open the project it made. */
+  const createThen = async (create: () => Promise<{ id: string; name: string }>, failure: string) => {
     if (savingRef.current) return;
     savingRef.current = true;
     try {
-      await persistence.projects.saveIndex(updatedProjects);
-      setProjects(updatedProjects);
+      const created = await create();
+      setProjects(await persistence.projects.list());
       setDialogOpen(false);
       setNewName("");
       setError(null);
-      onSelect(id, name);
-    } catch (storageError) {
-      console.error("Could not create project.", storageError);
-      setError(`The project could not be saved in ${persistence.traits.name}.`);
+      onSelect(created.id, created.name);
+    } catch (creationError) {
+      console.error(failure, creationError);
+      setError(creationError instanceof Error ? creationError.message : failure);
     } finally {
       savingRef.current = false;
     }
   };
 
+  const handleCreate = async () => {
+    const name = newName.trim();
+    if (!name || projects == null || hasProjectName(projectList, name)) return;
+    await createThen(() => createProject(name), `The project could not be saved in ${persistence.traits.name}.`);
+  };
+
   const handleDelete = async (id: string) => {
-    let result: ProjectDeleteResult;
     try {
-      result = await persistence.projects.delete(id);
+      await persistence.projects.delete(id);
       setProjects((current) =>
         (current ?? []).filter((project) => project.id !== id),
       );
@@ -112,66 +104,18 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
       setError(null);
     } catch (storageError) {
       console.error("Could not delete project.", storageError);
-      setError(`The project could not be deleted from ${persistence.traits.name}.`);
-      return;
-    }
-
-    // Revision cleanup failures are only logged by the adapter.
-    if (result.unremoved.includes("providerCalls")) {
-      setError(
-        `The project was deleted, but its AI provider activity could not be removed from ${persistence.traits.name}.`,
-      );
+      setError(getUserFacingErrorMessage(storageError, `The project could not be deleted from ${persistence.traits.name}.`));
     }
   };
 
   const handleImport = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
-    if (!file || savingRef.current) return;
-
-    savingRef.current = true;
-    try {
-      const data = parseJson(await file.text(), "Imported project");
-      const payload = parseProjectPayload(data);
-      const activeEntry = pickActiveModule(payload);
-      createModuleStore(activeEntry.snapshot);
-      // Every other module passes the same validation gate before its
-      // bytes are stored; the payload itself is saved unchanged.
-      for (const entry of payload.modules) {
-        if (entry.id !== activeEntry.id) createModuleStore(entry.snapshot);
-      }
-
-      const baseName = file.name.replace(/\.json$/i, "");
-      let name = baseName;
-      let suffix = 1;
-      while (hasProjectName(projectList, name)) {
-        name = `${baseName} (${suffix})`;
-        suffix += 1;
-      }
-
-      const id = crypto.randomUUID();
-      const meta: ProjectMeta = {
-        id,
-        name,
-        description: moduleDescription(activeEntry.snapshot),
-        updatedAt: new Date().toISOString(),
-      };
-
-      const updatedProjects = [...projectList, meta];
-      await persistence.projects.saveBundle(id, payload, updatedProjects);
-      setProjects(updatedProjects);
-      setError(null);
-      onSelect(id, name);
-    } catch (importError) {
-      console.error("Could not import project.", importError);
-      setError(
-        importError instanceof Error
-          ? importError.message
-          : "The selected file is not a valid Requireganizer project.",
-      );
-    } finally {
-      savingRef.current = false;
-    }
+    if (!file) return;
+    await createThen(
+      async () => importNewProject(parseJson(await file.text(), "The file"), file.name),
+      "The selected file is not a valid Requireganizer project.",
+    );
   };
 
   if (onlyProject != null) return null;
@@ -204,19 +148,6 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
           <Card key={project.id} variant="outlined">
             <CardContent>
               <Typography variant="h6">{project.name}</Typography>
-              {project.description && (
-                <Typography
-                  variant="body2"
-                  sx={{
-                    color: "text.secondary",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {project.description}
-                </Typography>
-              )}
               <Typography variant="caption" sx={{ color: "text.disabled" }}>
                 Last updated: {new Date(project.updatedAt).toLocaleString()}
               </Typography>

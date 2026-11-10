@@ -360,7 +360,7 @@ export function workflowModuleModel(workflow: Workflow) {
       });
 
       function openThreadOf(unitId: string): Thread | null {
-        return threadsOfUnit().get(unitId)?.find(({ resolvedAt }) => resolvedAt == null) ?? null;
+        return threadsOfUnit().get(unitId)?.find(({ resolution }) => resolution == null) ?? null;
       }
 
       /** The items of single kinds that the given stages hold. */
@@ -565,7 +565,7 @@ export function workflowModuleModel(workflow: Workflow) {
         }
         // A signed impact stays while a thread on it is open, so the thread keeps it from counting as approved.
         for (const thread of self.threads) {
-          if (thread.resolvedAt != null || thread.stage !== stage) continue;
+          if (thread.resolution != null || thread.stage !== stage) continue;
           const address = parseUnitId(thread.unitId);
           if (address.kind !== "impact" || asked.has(address.itemId)) continue;
           if (signatures[address.itemId] == null) continue;
@@ -940,7 +940,7 @@ export function workflowModuleModel(workflow: Workflow) {
         for (const { threadId, text } of answers) {
           const thread = self.threads.find(({ id }) => id === threadId);
           if (thread == null) return `There is no thread ${threadId}. Read the open threads with get_workflow_state.`;
-          if (thread.resolvedAt != null) return `The spec owner resolved thread ${threadId}.`;
+          if (thread.resolution != null) return `The spec owner resolved thread ${threadId}.`;
           if (!self.stageOpen(thread.stage)) {
             return `Thread ${threadId} is in ${workflow.stage(thread.stage).label}, which is closed until the stages it builds on are complete.`;
           }
@@ -1338,7 +1338,7 @@ export function workflowModuleModel(workflow: Workflow) {
       function openThread(threadId: string): Thread {
         const thread = self.threads.find(({ id }) => id === threadId);
         if (thread == null) throw new UserFacingError(`There is no thread ${threadId}.`);
-        if (thread.resolvedAt != null) throw new UserFacingError(`Thread ${threadId} is resolved.`);
+        if (thread.resolution != null) throw new UserFacingError(`Thread ${threadId} is resolved.`);
         return thread;
       }
 
@@ -1504,7 +1504,7 @@ export function workflowModuleModel(workflow: Workflow) {
             addMessage(open.id, message);
             return open.id;
           }
-          const thread: Thread = { id: uuid(), unitId, stage: state.stage, removedUnit: null, messages: [message], resolvedAt: null };
+          const thread: Thread = { id: uuid(), unitId, stage: state.stage, removedUnit: null, messages: [message], resolution: null };
           self.threads = [...self.threads, thread];
           return thread.id;
         },
@@ -1526,7 +1526,7 @@ export function workflowModuleModel(workflow: Workflow) {
           const thread = openThread(threadId);
           requireOpen(thread.stage, "resolving threads");
           self.threads = self.threads.map((candidate) =>
-            candidate.id === threadId ? { ...candidate, resolvedAt: new Date().toISOString() } : candidate,
+            candidate.id === threadId ? { ...candidate, resolution: { at: new Date().toISOString() } } : candidate,
           );
         },
         /** The answerer replies, alone or together with the changes it made. */

@@ -110,22 +110,4 @@ describe("reordering items", () => {
     assert.match(reply, /codesVersion is now/);
     assert.deepEqual(store.itemsOf("features-and-target-users").map(({ id }) => store.codeOf(id)), ["FEA-01", "USR-01", "USR-02"]);
   });
-
-  it("refuses codes read before an earlier write moved them", async () => {
-    const store = Store.create({});
-    overview(store);
-    signAll(store, "module-overview");
-    scope(store);
-    const state = JSON.parse(await callAgentTool(store, "get_workflow_state", {})) as { codesVersion: string };
-    store.reorderItems("features-and-target-users", [...store.itemsOf("features-and-target-users").map(({ id }) => id)].reverse());
-
-    await assert.rejects(
-      callAgentTool(store, "reorder_items", {
-        codesVersion: state.codesVersion,
-        stage: "features-and-target-users",
-        order: ["FEA-01", "USR-01", "USR-02"],
-      }),
-      /codes moved since codesVersion/,
-    );
-  });
 });

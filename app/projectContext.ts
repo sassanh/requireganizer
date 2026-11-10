@@ -1,7 +1,8 @@
 "use client";
 import { createContext, useContext } from "react";
 
-import type { OutsideChange, PersistenceAdapter, StorageTraits } from "persistence";
+import type { ProjectIdentity } from "lib/projectStorage";
+import type { ClientPersistence, OutsideChange, StorageTraits } from "persistence";
 import type { ModuleSummary, ProjectSessionStatus } from "project-session";
 
 /**
@@ -11,7 +12,7 @@ import type { ModuleSummary, ProjectSessionStatus } from "project-session";
  */
 export interface ProjectContextValue {
   status: ProjectSessionStatus;
-  activeProject: { id: string, name: string } | null;
+  activeProject: ProjectIdentity | null;
   persistenceError: string | null;
   /** How the stored project changed outside Requireganizer; null while it has not. */
   outsideChange: OutsideChange | null;
@@ -21,18 +22,18 @@ export interface ProjectContextValue {
   keepShownProject: () => Promise<void>;
   /** The storage behind the host: whether it holds one project, and its name. */
   storage: StorageTraits;
-  /** The host's storage, for the project list and other stored records. */
-  persistence: PersistenceAdapter;
+  /** The host's storage, for the project list. */
+  persistence: ClientPersistence;
   /** A starting intent drafts the overview once the project opens. */
   selectProject: (id: string, name: string, options?: { overviewSeed?: string }) => Promise<void>;
+  /** Open here the project another tab holds. */
+  takeOverProject: () => Promise<void>;
   backToProjects: () => Promise<void>;
   clearPersistenceError: () => Promise<void>;
   /** Visible modules of the open project, in creation order. */
   modules: ModuleSummary[];
   modulesEnabled: boolean;
   activeModuleId: string;
-  /** The stage the active module last showed; reopening restores it. */
-  activeModuleOpenStep: string;
   /** Rejects when the name is empty or taken. */
   enableModules: (name: string) => Promise<void>;
   /** Rejects when the name is empty or taken. */
@@ -44,10 +45,14 @@ export interface ProjectContextValue {
   renameModule: (id: string, name: string) => Promise<void>;
   /** Rejects when the name is empty or taken. */
   renameProject: (name: string) => Promise<void>;
-  recordOpenStep: (step: string) => Promise<void>;
+  /** Rejects when the name is empty or taken. */
+  createProject: (name: string) => Promise<ProjectIdentity>;
+  /** Rejects with what is wrong with the file. */
+  importNewProject: (data: unknown, fileName: string) => Promise<ProjectIdentity>;
+  /** Rejects with what is wrong with the file, changing nothing. */
   importProjectFile: (data: unknown) => Promise<void>;
   /** Save the project as a JSON file. */
-  exportProject: () => void;
+  exportProject: () => Promise<void>;
 }
 
 export const projectContext = createContext<ProjectContextValue | null>(null);
@@ -60,8 +65,8 @@ export const useProject = (): ProjectContextValue => {
   return value;
 };
 
-/** The host's storage adapter, reached through the project connection. */
-export const usePersistence = (): PersistenceAdapter =>
+/** The host's storage, reached through the project connection. */
+export const usePersistence = (): ClientPersistence =>
   useProject().persistence;
 
 /** The open project's id; null outside a project page, where links into it make no sense. */

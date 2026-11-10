@@ -3,23 +3,37 @@ import { getSnapshot, onSnapshot } from "mobx-state-tree";
 import { getUserFacingErrorMessage, UserFacingError } from "lib/errors";
 import {
   assertModuleNameAvailable,
-  buildProjectPayload,
-  createEmptyRegistry,
-  FIRST_STAGE,
   LEGACY_MODULE_ID,
-  type ModuleEntry,
-  type ModuleRegistry,
   normalizeModuleName,
-  parseProjectPayload,
-  pickActiveModule,
-  type ProjectPayload,
   visibleModules,
 } from "lib/moduleSchema";
-import { hasProjectName } from "lib/projectStorage";
+import { hasProjectName, type ProjectIdentity } from "lib/projectStorage";
 import type { OutsideChange, OutsideChanges, PersistenceAdapter } from "persistence";
-import { createModuleStore, moduleDescription, Store } from "store";
+import {
+  type Address,
+  type AuthorityClaim,
+  type ProjectAuthority,
+  buildExport,
+  type ChangeKind,
+  EMPTY_HISTORY,
+  type ExportOptions,
+  historyRoots,
+  type HistoryStep,
+  KEPT_STEPS,
+  moduleContentOf,
+  type ModuleRegistry,
+  type ModuleState,
+  parseProject,
+  type PieceLevel,
+  PieceStore,
+  type ProjectHistory,
+  projectState,
+  type ProjectState,
+} from "storage-and-recovery";
+import { createModuleStore, Store } from "store";
+import { uuid } from "utilities";
 
-import { type ExportableModule, SiblingModuleStores } from "./siblingStores";
+import { SiblingModuleStores } from "./siblingStores";
 
 /** Streaming mutates the store every ~80ms; coalesce writes behind this delay. */
 export const PROJECT_SAVE_DEBOUNCE_MS = 800;
@@ -31,15 +45,16 @@ export interface ModuleSummary {
   active: boolean;
 }
 
-export type ProjectSessionStatus = "idle" | "loading" | "failed" | "ready";
+export type ProjectSessionStatus = "idle" | "loading" | "failed" | "elsewhere" | "ready";
 
 /**
  * The session's observable state. The status and the fields it allows move
  * together: an idle session has no project, a loading session has a named
  * project but no registry yet, a failed session names the project it could
- * not load and why, and a ready session has both a registry and a store to
- * render. A ready project whose stored version changed outside the session names that
- * change until the person chooses which version to keep.
+ * not load and why, a session whose project another tab holds names it, and
+ * a ready session has both a registry and a store to render. A ready project
+ * whose stored version changed outside the session names that change until
+ * the person chooses which version to keep.
  */
 export type ProjectSessionSnapshot =
   | {
@@ -51,8 +66,8 @@ export type ProjectSessionSnapshot =
       store: Store;
     }
   | {
-      status: "loading";
-      activeProject: { id: string; name: string };
+      status: "loading" | "elsewhere";
+      activeProject: ProjectIdentity;
       persistenceError: null;
       outsideChange: null;
       registry: null;
@@ -60,7 +75,7 @@ export type ProjectSessionSnapshot =
     }
   | {
       status: "failed";
-      activeProject: { id: string; name: string };
+      activeProject: ProjectIdentity;
       persistenceError: string;
       outsideChange: null;
       registry: null;
@@ -68,7 +83,7 @@ export type ProjectSessionSnapshot =
     }
   | {
       status: "ready";
-      activeProject: { id: string; name: string };
+      activeProject: ProjectIdentity;
       persistenceError: string | null;
       outsideChange: OutsideChange | null;
       registry: ModuleRegistry;
@@ -80,9 +95,12 @@ function blankStore(): Store {
   return Store.create({});
 }
 
-interface ProjectIdentity {
-  id: string;
-  name: string;
+/** A project nobody has worked on yet: one hidden module, empty. */
+function blankProjectState(): ProjectState {
+  return {
+    modulesEnabled: false,
+    modules: [{ id: LEGACY_MODULE_ID, name: LEGACY_MODULE_ID, archivedAt: null, content: moduleContentOf(blankStore()) }],
+  };
 }
 
 interface PendingOverviewSeed {
@@ -90,14 +108,8 @@ interface PendingOverviewSeed {
   seed: string;
 }
 
-interface OpenedProject {
-  created: Store;
-  nextRegistry: ModuleRegistry;
-  moduleId: string;
-}
-
-/** What failed: a project write, a recovery snapshot, or saving AI provider activity. */
-type PersistenceNoticeSource = "write" | "snapshot" | "activity";
+/** What failed: a project write. */
+type PersistenceNoticeSource = "write";
 
 /**
  * Messages for the persistence banner, at most one per source. A success
@@ -106,7 +118,7 @@ type PersistenceNoticeSource = "write" | "snapshot" | "activity";
 type PersistenceNotices = Partial<Record<PersistenceNoticeSource, string>>;
 
 /** The order the banner shows its messages in: unsaved work first. */
-const NOTICE_ORDER: readonly PersistenceNoticeSource[] = ["write", "snapshot", "activity"];
+const NOTICE_ORDER: readonly PersistenceNoticeSource[] = ["write"];
 
 function shownNotice(notices: PersistenceNotices): string | null {
   const messages = NOTICE_ORDER.flatMap((source) => notices[source] ?? []);
@@ -132,29 +144,27 @@ type FailedProjectSessionState = {
   store: Store;
 };
 
-type OpenSessionFields = {
+/** Another session, such as another browser tab, is the project's authority; this one offers to take it over. */
+type HeldElsewhereSessionState = {
+  status: "held-elsewhere";
+  project: ProjectIdentity;
+  store: Store;
+};
+
+type ReadySessionState = {
+  status: "ready";
   project: ProjectIdentity;
   registry: ModuleRegistry;
   store: Store;
   persistenceNotices: PersistenceNotices;
 };
 
-type ReadySessionState = OpenSessionFields & { status: "ready" };
-
-/**
- * An import's write is in flight. The page keeps showing the current store,
- * whose autosave is paused, and every other change is refused until the
- * write settles.
- */
-type ImportingSessionState = OpenSessionFields & { status: "importing" };
-
-type OpenSessionState = ReadySessionState | ImportingSessionState;
-
 type SessionState =
   | IdleSessionState
   | LoadingProjectSessionState
   | FailedProjectSessionState
-  | OpenSessionState;
+  | HeldElsewhereSessionState
+  | ReadySessionState;
 
 function projectSaveErrorMessage(storage: string): string {
   return `Changes could not be saved in ${storage}. Export the project to avoid losing work.`;
@@ -173,8 +183,9 @@ function snapshotOf(state: SessionState, outsideChange: OutsideChange | null): P
         store: state.store,
       };
     case "loading-project":
+    case "held-elsewhere":
       return {
-        status: "loading",
+        status: state.status === "loading-project" ? "loading" : "elsewhere",
         activeProject: state.project,
         persistenceError: null,
         outsideChange: null,
@@ -191,7 +202,6 @@ function snapshotOf(state: SessionState, outsideChange: OutsideChange | null): P
         store: state.store,
       };
     case "ready":
-    case "importing":
       return {
         status: "ready",
         activeProject: state.project,
@@ -203,16 +213,20 @@ function snapshotOf(state: SessionState, outsideChange: OutsideChange | null): P
   }
 }
 
-function isOpen(state: SessionState): state is OpenSessionState {
-  return state.status === "ready" || state.status === "importing";
+/** What the last write issued held, so an unchanged project is not written again. */
+interface IssuedWrite {
+  address: Address;
+  lastStep: string | null;
+  name: string;
 }
 
 /**
  * A project's authority-side session: the live store, the module registry,
- * and the pending project write. Framework-free so a later phase can host
- * the same orchestration in a local Node process or a Durable Object.
- * Subscribers observe changes to the session (store, registry, project,
- * persistence error), not every store mutation.
+ * the history of changes and the pieces of its states, and the pending
+ * project write. Framework-free so a later phase can host the same
+ * orchestration in a local Node process or a Durable Object. Subscribers
+ * observe changes to the session (store, registry, project, persistence
+ * error), not every store mutation.
  */
 export class ProjectSession {
   readonly persistence: PersistenceAdapter;
@@ -228,8 +242,8 @@ export class ProjectSession {
   /**
    * Every operation that replaces what an async load or write would land on
    * starts a new generation: opening or leaving a project, switching, adding
-   * or reloading a module, importing, and dispose. Async work captures the
-   * generation it started under and drops its result once that moved on.
+   * or reloading a module, and dispose. Async work captures the generation
+   * it started under and drops its result once that moved on.
    */
   private operationGeneration = 0;
   /**
@@ -237,9 +251,23 @@ export class ProjectSession {
    * write that settles after a later one never sets or clears it.
    */
   private projectWriteSequence = 0;
+  /** The newest write issued, settled either way; giving the project up waits for it. */
+  private lastWrite: Promise<void> = Promise.resolve();
+  private issued: IssuedWrite | null = null;
+
+  /** The pieces of the open project's kept states. */
+  private pieces = new PieceStore();
+  /** The pieces storage holds for the open project, as far as this session knows. */
+  private storedPieces = new Set<Address>();
+  private history: ProjectHistory = EMPTY_HISTORY;
+  private nextSequence = 1;
+  /** Steps gave way since storage was last cleaned up. */
+  private cleanUpDue = false;
+  /** A change is running in the gate; writes it asks for wait until its step is recorded. */
+  private changing = false;
+  private writeAfterChange = false;
 
   private unsubscribeStore: (() => void) | null = null;
-  private flushPendingSave: (() => void) | null = null;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
 
   private readonly outsideChanges: OutsideChanges | null;
@@ -249,12 +277,25 @@ export class ProjectSession {
   /** A project write was held back while an outside change stood. */
   private writeHeldBack = false;
 
-  /** `outsideChanges` reports changes made to the stored project by anything else, for a storage that has them. */
-  constructor(persistence: PersistenceAdapter, options: { outsideChanges?: OutsideChanges } = {}) {
+  private readonly authority: ProjectAuthority | null;
+  private claim: { projectId: string; held: AuthorityClaim } | null = null;
+  /** The claim being made; the next one waits for it, so a session never stands in its own way. */
+  private claiming: Promise<void> = Promise.resolve();
+
+  /**
+   * `outsideChanges` reports changes made to the stored project by anything
+   * else, for a storage that has them. `authority` decides which of several
+   * sessions sharing a storage writes a project, for a storage that has
+   * several.
+   */
+  constructor(
+    persistence: PersistenceAdapter,
+    options: { outsideChanges?: OutsideChanges; authority?: ProjectAuthority } = {},
+  ) {
     this.persistence = persistence;
     this.outsideChanges = options.outsideChanges ?? null;
-    const store = Store.create({});
-    this.state = { status: "idle", store };
+    this.authority = options.authority ?? null;
+    this.state = { status: "idle", store: blankStore() };
     this.snapshot = snapshotOf(this.state, this.outsideChange);
   }
 
@@ -268,14 +309,6 @@ export class ProjectSession {
   };
 
   getSnapshot = (): ProjectSessionSnapshot => this.snapshot;
-
-  /**
-   * Whether an import's write is in flight. The snapshot shows the current
-   * store as ready meanwhile, but the import replaces it once the write lands.
-   */
-  get importing(): boolean {
-    return this.state.status === "importing";
-  }
 
   private beginOperation(): number {
     this.operationGeneration += 1;
@@ -296,23 +329,10 @@ export class ProjectSession {
     return this.state.status === "ready" ? this.state : null;
   }
 
-  /**
-   * The open state a current-generation continuation resumes. Every
-   * generation bump that leaves the open states also starts a new generation,
-   * so reaching here in another state is a programming error.
-   */
-  private expectOpenState(): OpenSessionState {
-    const state = this.state;
-    if (!isOpen(state)) {
-      throw new Error(`Expected an open project session, found ${state.status}.`);
-    }
-    return state;
-  }
-
   /** Set or, with null, clear one source's message. */
   private setPersistenceNotice(source: PersistenceNoticeSource, message: string | null): void {
-    const state = this.state;
-    if (!isOpen(state)) return;
+    const state = this.readyState();
+    if (state == null) return;
     if ((state.persistenceNotices[source] ?? null) === message) return;
     const notices = { ...state.persistenceNotices };
     if (message == null) delete notices[source];
@@ -321,36 +341,128 @@ export class ProjectSession {
     this.publish();
   }
 
+  /** The address of the open project's state now, its pieces held. */
+  private addressOf(state: ReadySessionState): Address {
+    return this.pieces.addressOf(projectState(state.registry, state.store));
+  }
+
   /**
-   * Write the registry and a snapshot. Every project write goes through here.
-   * The adapter refreshes this project's index entry itself, so the rest of
-   * the index is never replaced from a stale copy.
+   * Run one change to the open project, synchronously, and record it as one
+   * step when the project's state differs afterwards. Every request that
+   * changes the project comes through here. A change inside another is part
+   * of it. Refused while the project is not open here, and while an outside
+   * change waits for the spec owner's choice, since either version may be
+   * the one kept.
    */
-  private persistProject(
-    project: ProjectIdentity,
-    currentRegistry: ModuleRegistry,
-    snapshot: Record<string, unknown>,
-  ): void {
+  change = <Result>(kind: ChangeKind, run: () => Result): Result => {
+    if (this.changing) return run();
+    const state = this.readyState();
+    if (state == null) {
+      throw new UserFacingError(
+        this.state.status === "held-elsewhere"
+          ? "This project is open in another tab."
+          : "The project is not open yet. Try again in a moment.",
+      );
+    }
+    if (this.outsideChange != null) {
+      throw new UserFacingError(
+        `${this.persistence.traits.name} changed outside Requireganizer. Nothing changes until the spec owner chooses in Requireganizer which version to keep.`,
+      );
+    }
+    const project = state.project.id;
+    const before = this.addressOf(state);
+    this.changing = true;
+    let result: Result;
+    try {
+      result = run();
+    } finally {
+      this.changing = false;
+      const after = this.readyState();
+      if (after != null && after.project.id === project) {
+        const address = this.addressOf(after);
+        if (address !== before) this.recordStep(kind, before, address);
+      }
+      if (this.writeAfterChange) {
+        this.writeAfterChange = false;
+        this.persistProject();
+      }
+    }
+    return result;
+  };
+
+  private recordStep(kind: ChangeKind, before: Address, after: Address): void {
+    const step: HistoryStep = { id: uuid(), sequence: this.nextSequence, before, after, at: new Date().toISOString(), kind };
+    this.nextSequence += 1;
+    const steps = [...this.history.steps, step];
+    if (steps.length > KEPT_STEPS) {
+      steps.splice(0, steps.length - KEPT_STEPS);
+      this.cleanUpDue = true;
+    }
+    this.history = { ...this.history, steps };
+    this.scheduleWrite();
+  }
+
+  /**
+   * Write the open project, the pieces its history names and the history.
+   * This is the only code that writes the stored project; the adapter keeps
+   * the order that never leaves a record naming what is not stored.
+   */
+  private persistProject(): void {
+    const state = this.readyState();
+    if (state == null) return;
+    if (this.changing) {
+      this.writeAfterChange = true;
+      return;
+    }
     // Written once the person has chosen which version to keep. Storage
     // would refuse it, and the refusal could arrive after the choice.
     if (this.outsideChange != null) {
       this.writeHeldBack = true;
       return;
     }
+    const current = projectState(state.registry, state.store);
+    const address = this.pieces.addressOf(current);
+    const issued: IssuedWrite = { address, lastStep: this.history.steps.at(-1)?.id ?? null, name: state.project.name };
+    if (
+      this.issued != null &&
+      this.issued.address === issued.address &&
+      this.issued.lastStep === issued.lastStep &&
+      this.issued.name === issued.name
+    ) {
+      return;
+    }
+    this.issued = issued;
+    const history = this.history;
+    const pieces = [...this.pieces.reachable([address, ...historyRoots(history)])]
+      .filter((piece) => !this.storedPieces.has(piece))
+      .map((piece) => [piece, this.pieces.get(piece)!.bytes] as const);
+    for (const [piece] of pieces) this.storedPieces.add(piece);
+    this.history = { ...history, writing: address };
     const sequence = ++this.projectWriteSequence;
     const isLatest = (): boolean => sequence === this.projectWriteSequence;
+    const generation = this.operationGeneration;
+    const projectId = state.project.id;
 
-    void this.persistence.projects
-      .save(project.id, buildProjectPayload(currentRegistry, snapshot), {
-        description: moduleDescription(snapshot),
-        updatedAt: new Date().toISOString(),
+    this.lastWrite = this.persistence.projects
+      .write({
+        project: state.project,
+        state: current,
+        address,
+        pieces,
+        writing: { steps: history.steps, lastWritten: history.lastWritten, writing: address },
+        written: { steps: history.steps, lastWritten: address, writing: null },
       })
       .then(
         () => {
+          if (this.readyState()?.project.id !== projectId) return;
+          this.history = { ...this.history, lastWritten: address, writing: this.history.writing === address ? null : this.history.writing };
           if (!isLatest()) return;
           this.setPersistenceNotice("write", null);
+          if (this.cleanUpDue) void this.cleanUp(projectId, generation);
         },
         (error: unknown) => {
+          for (const [piece] of pieces) this.storedPieces.delete(piece);
+          if (isLatest()) this.issued = null;
           // Refused because the stored project changed meanwhile: the
           // person's choice of version settles it.
           if (this.outsideChange != null) {
@@ -367,70 +479,146 @@ export class ProjectSession {
       );
   }
 
-  private persistCurrent(): void {
-    const state = this.state;
-    if (!isOpen(state)) return;
-    this.persistProject(
-      state.project,
-      state.registry,
-      getSnapshot(state.store) as unknown as Record<string, unknown>,
-    );
+  private scheduleWrite(): void {
+    if (this.saveTimer != null) return;
+    this.saveTimer = setTimeout(() => {
+      this.saveTimer = null;
+      this.persistProject();
+    }, PROJECT_SAVE_DEBOUNCE_MS);
   }
 
-  private attachStoreSubscription(state: OpenSessionState): void {
-    this.unsubscribeStore?.();
-    this.unsubscribeStore = null;
-    const { project, store } = state;
-    let pendingWrite: (() => void) | null = null;
-    const flushPendingWrite = () => {
-      if (this.saveTimer != null) {
-        clearTimeout(this.saveTimer);
-        this.saveTimer = null;
-      }
-      pendingWrite?.();
-      pendingWrite = null;
-    };
-    this.flushPendingSave = flushPendingWrite;
-
-    const stopSnapshots = onSnapshot(store, (snapshot) => {
-      pendingWrite = () => {
-        const current = this.state;
-        if (!isOpen(current)) return;
-        this.persistProject(
-          project,
-          current.registry,
-          snapshot as unknown as Record<string, unknown>,
-        );
-      };
-      if (this.saveTimer == null) {
-        this.saveTimer = setTimeout(() => {
-          this.saveTimer = null;
-          flushPendingWrite();
-        }, PROJECT_SAVE_DEBOUNCE_MS);
-      }
-    });
-    this.unsubscribeStore = () => {
-      stopSnapshots();
-    };
-  }
-
-  private detachStoreSubscription(): void {
-    this.unsubscribeStore?.();
-    this.unsubscribeStore = null;
-    // Never drop unsaved changes when the store or project switches.
-    this.flushPendingSave?.();
-    this.flushPendingSave = null;
-  }
-
-  /** Issue every pending project write, synchronously. */
+  /** Write now what waits for the debounce. */
   private flushPendingWrites(): void {
-    this.flushPendingSave?.();
+    if (this.saveTimer == null) return;
+    clearTimeout(this.saveTimer);
+    this.saveTimer = null;
+    this.persistProject();
+  }
+
+  private attachStoreSubscription(state: ReadySessionState): void {
+    this.unsubscribeStore?.();
+    this.unsubscribeStore = onSnapshot(state.store, () => this.scheduleWrite());
+  }
+
+  /** Stop following the store. Unsaved changes are written first, unless the project is no longer this session's to write. */
+  private detachStoreSubscription(options: { write: boolean } = { write: true }): void {
+    this.unsubscribeStore?.();
+    this.unsubscribeStore = null;
+    if (options.write) {
+      this.flushPendingWrites();
+    } else if (this.saveTimer != null) {
+      clearTimeout(this.saveTimer);
+      this.saveTimer = null;
+    }
   }
 
   /**
-   * Restart whatever `dispose` cancelled: a project load, an import whose
-   * outcome is unknown (the stored project is reopened, so it shows whatever
-   * the write left).
+   * Hold every piece the history keeps, reading from storage those not held
+   * yet. Throws when storage cannot be read, so a clean-up never mistakes an
+   * unreadable piece for one nothing needs.
+   */
+  private async holdKeptPieces(projectId: string, generation: number): Promise<void> {
+    const visited = new Set<Address>();
+    let pending: (readonly [Address, PieceLevel])[] = historyRoots(this.history).map((root) => [root, "project"] as const);
+    while (pending.length > 0 && this.isOperationCurrent(generation)) {
+      const batch = pending.filter(([address]) => !visited.has(address));
+      pending = [];
+      for (const [address] of batch) visited.add(address);
+      await Promise.all(
+        batch.map(async ([address, level]) => {
+          if (!this.pieces.has(address)) {
+            const bytes = await this.persistence.history.readPiece(projectId, address);
+            if (bytes == null || !this.pieces.adopt(address, bytes, level)) {
+              console.error(`The piece ${address} of the project's history is missing or damaged.`);
+              return;
+            }
+          }
+          pending.push(...this.pieces.get(address)!.children);
+        }),
+      );
+    }
+  }
+
+  /**
+   * Mark and sweep: keep the pieces of every kept step, of the states last
+   * written and being written, and of the open project, and delete every
+   * other piece, in memory and in storage. One session is the project's
+   * authority, so nothing else adds pieces meanwhile.
+   */
+  private async cleanUp(projectId: string, generation: number): Promise<void> {
+    this.cleanUpDue = false;
+    try {
+      await this.holdKeptPieces(projectId, generation);
+      const state = this.readyState();
+      if (!this.isOperationCurrent(generation) || state == null || state.project.id !== projectId) return;
+      const kept = this.pieces.reachable([this.addressOf(state), ...historyRoots(this.history)]);
+      const unneeded = [...this.storedPieces].filter((address) => !kept.has(address));
+      this.pieces.retainOnly(kept);
+      for (const address of unneeded) this.storedPieces.delete(address);
+      if (unneeded.length > 0) await this.persistence.history.deletePieces(projectId, unneeded);
+    } catch (error) {
+      console.error("Could not clean up the project's history.", error);
+    }
+  }
+
+  /** Hold the project for this session, when sessions share its storage. False while another holds it. */
+  private async claimProject(projectId: string, takeOver: boolean): Promise<boolean> {
+    const authority = this.authority;
+    if (authority == null) return true;
+    const previous = this.claiming;
+    let settled!: () => void;
+    this.claiming = new Promise((resolve) => {
+      settled = resolve;
+    });
+    try {
+      await previous;
+      if (this.claim?.projectId === projectId) return true;
+      this.releaseClaim();
+      const held = await authority.claim(projectId, { takeOver });
+      if (held == null) return false;
+      this.claim = { projectId, held };
+      held.onEnd((asked) => this.claimEnded(projectId, asked));
+      return true;
+    } finally {
+      settled();
+    }
+  }
+
+  private releaseClaim(): void {
+    this.claim?.held.release();
+    this.claim = null;
+  }
+
+  /**
+   * Another session took the project. Asked first, this one writes what it
+   * has not written yet and waits for it; taken outright, it writes nothing
+   * more, since the project is no longer its to write.
+   */
+  private async claimEnded(projectId: string, asked: boolean): Promise<void> {
+    if (this.claim?.projectId !== projectId) return;
+    this.claim = null;
+    if (asked) {
+      this.flushPendingWrites();
+      await this.lastWrite;
+    }
+    const state = this.state;
+    if (!("project" in state) || state.project.id !== projectId) return;
+    this.beginOperation();
+    this.detachStoreSubscription({ write: false });
+    this.state = { status: "held-elsewhere", project: state.project, store: state.store };
+    this.syncModuleContext();
+    this.publish();
+  }
+
+  /** Link the shown store to the open project's other modules, so dependencies on their items resolve. */
+  private syncModuleContext(): void {
+    const state = this.state;
+    this.siblingStores.applyModuleContext(state.store, state.status === "ready" ? state.registry : null);
+  }
+
+  /**
+   * Restart whatever `dispose` cancelled: a project load, or following the
+   * store of the open project.
    */
   start = (): void => {
     if (this.outsideChanges != null && this.stopWatchingOutsideChanges == null) {
@@ -444,10 +632,10 @@ export class ProjectSession {
         void this.openOnlyProject();
         return;
       case "load-failed":
+      case "held-elsewhere":
         return;
       case "loading-project":
-      case "importing":
-        this.openProject(state.project);
+        void this.openProject(state.project);
         return;
       case "ready":
         if (this.unsubscribeStore == null) this.attachStoreSubscription(state);
@@ -461,7 +649,7 @@ export class ProjectSession {
   dispose = (): void => {
     if (this.writeHeldBack) {
       console.error(
-        `${this.persistence.traits.name} changed outside Requireganizer, so the changes made since were not saved. They stay in the project's history: undo after opening the project returns to them.`,
+        `${this.persistence.traits.name} changed outside Requireganizer, so the changes made since were not saved.`,
       );
     }
     this.stopWatchingOutsideChanges?.();
@@ -470,31 +658,20 @@ export class ProjectSession {
     this.detachStoreSubscription();
   };
 
-  private syncModuleContext(): void {
-    const state = this.state;
-    this.siblingStores.applyModuleContext(
-      state.store,
-      isOpen(state) ? state.registry : null,
-    );
-  }
-
   /** Show a store and registry and persist them. */
-  private showStore(
-    project: ProjectIdentity,
-    store: Store,
-    registry: ModuleRegistry,
-  ): void {
+  private showStore(project: ProjectIdentity, store: Store, registry: ModuleRegistry): void {
+    const previous = this.readyState();
     this.detachStoreSubscription();
     const state: ReadySessionState = {
       status: "ready",
       project,
       registry,
       store,
-      persistenceNotices: {},
+      persistenceNotices: previous?.project.id === project.id ? previous.persistenceNotices : {},
     };
     this.state = state;
     this.attachStoreSubscription(state);
-    this.persistCurrent();
+    this.persistProject();
     this.syncModuleContext();
     this.publish();
   }
@@ -504,86 +681,90 @@ export class ProjectSession {
     const state = this.readyState();
     if (state == null) return;
     this.state = { ...state, registry: nextRegistry };
-    this.persistCurrent();
+    this.persistProject();
     this.syncModuleContext();
     this.publish();
   }
 
-  /** The registry with the shown store's snapshot written into its entry. */
-  private stashActiveModule(state: OpenSessionState): ModuleRegistry {
-    const snapshot = getSnapshot(state.store) as unknown as Record<
-      string,
-      unknown
-    >;
-    return {
-      ...state.registry,
-      modules: state.registry.modules.map((entry) =>
-        entry.id === state.registry.activeModuleId
-          ? { ...entry, snapshot }
-          : entry,
-      ),
-    };
+  /** The registry with the shown store's content written into its entry. */
+  private stashActiveModule(state: ReadySessionState): ModuleRegistry {
+    return { ...projectState(state.registry, state.store), activeModuleId: state.registry.activeModuleId };
   }
 
-  /**
-   * What a stored payload opens to, or a blank project named `name` when
-   * nothing is stored yet. Invalid stored data is never replaced: it throws,
-   * so the load ends failed and the data stays as it is.
-   */
-  private readOpenedProject(
-    data: Record<string, unknown> | null,
-    name: string,
-  ): OpenedProject {
-    if (data == null) {
-      return { created: blankStore(), nextRegistry: createEmptyRegistry(), moduleId: LEGACY_MODULE_ID };
-    }
-    try {
-      const registry = parseProjectPayload(data);
-      const entry = pickActiveModule(registry);
-      return { created: createModuleStore(entry.snapshot), nextRegistry: registry, moduleId: entry.id };
-    } catch (error) {
-      throw new UserFacingError(
-        `${name} could not be opened because its stored data is invalid. It was left unchanged: delete it, or import a saved copy as a new project.`,
-        error,
-      );
-    }
+  /** Show a project's state, opening its first visible module. */
+  private showProjectState(project: ProjectIdentity, opened: ProjectState): void {
+    const first = visibleModules(opened)[0]!;
+    this.showStore(project, createModuleStore(first.content), { ...opened, activeModuleId: first.id });
   }
 
   /** Leave whatever is shown and load a project from storage. */
-  private openProject(project: ProjectIdentity): Promise<void> {
+  private openProject(project: ProjectIdentity, options: { takeOver: boolean } = { takeOver: false }): Promise<void> {
     // Finish the outgoing writes before anything is replaced.
     this.flushPendingWrites();
     // The project is read again, so a write held back has nothing to keep.
     this.writeHeldBack = false;
     const generation = this.beginOperation();
     this.detachStoreSubscription();
+    if (this.claim != null && this.claim.projectId !== project.id) this.releaseClaim();
     this.state = { status: "loading-project", project, store: this.state.store };
     this.publish();
-    this.projectLoad = this.loadProject(project, generation);
+    this.projectLoad = this.loadProject(project, generation, options.takeOver);
     return this.projectLoad;
   }
 
   /**
-   * Load a project payload, then show the
-   * store. A superseded load is dropped after each await; a failed load ends
-   * failed, naming the project, instead of leaving the session loading.
+   * Load a project and its history, then show the store. A superseded load
+   * is dropped after each await; a failed load ends failed, naming the
+   * project, instead of leaving the session loading. Stored data that
+   * cannot be read is never replaced.
    */
-  private async loadProject(
-    project: ProjectIdentity,
-    generation: number,
-  ): Promise<void> {
+  private async loadProject(project: ProjectIdentity, generation: number, takeOver: boolean): Promise<void> {
     try {
+      const claimed = await this.claimProject(project.id, takeOver);
+      if (!this.isOperationCurrent(generation)) {
+        // Left meanwhile, such as back to the projects: the claim goes too.
+        const current = this.state;
+        if ((!("project" in current) || current.project.id !== project.id) && this.claim?.projectId === project.id) {
+          this.releaseClaim();
+        }
+        return;
+      }
+      if (!claimed) {
+        this.state = { status: "held-elsewhere", project, store: this.state.store };
+        this.publish();
+        return;
+      }
       // The session holds the project it opens: writes may replace it.
       this.outsideChanges?.adoptStored();
-      const data = await this.persistence.projects.load(project.id);
+      const document = await this.persistence.projects.load(project.id);
       if (!this.isOperationCurrent(generation)) return;
-
-      const opened = this.readOpenedProject(data, project.name);
-      this.showStore(
-        project,
-        opened.created,
-        { ...opened.nextRegistry, activeModuleId: opened.moduleId },
-      );
+      if (document == null) throw new UserFacingError(`${project.name} is no longer stored.`);
+      let opened: ProjectState;
+      try {
+        opened = parseProject(document);
+      } catch (error) {
+        throw new UserFacingError(
+          `${project.name} could not be opened because its stored data is invalid: ${error instanceof Error ? error.message : String(error)} It was left unchanged.`,
+          error,
+        );
+      }
+      const history = await this.persistence.history.load(project.id).catch((error: unknown) => {
+        console.error("The project's history could not be read; it starts again.", error);
+        return null;
+      });
+      const stored = await this.persistence.history.pieceAddresses(project.id);
+      if (!this.isOperationCurrent(generation)) return;
+      this.pieces = new PieceStore();
+      this.storedPieces = new Set(stored);
+      this.history = history ?? EMPTY_HISTORY;
+      this.nextSequence = Math.max(0, ...this.history.steps.map(({ sequence }) => sequence)) + 1;
+      // A project stored as its history last wrote it is not written again on opening.
+      this.issued =
+        this.history.lastWritten == null || this.history.writing != null
+          ? null
+          : { address: this.history.lastWritten, lastStep: this.history.steps.at(-1)?.id ?? null, name: project.name };
+      this.showProjectState(project, opened);
+      void this.cleanUp(project.id, generation);
     } catch (error) {
       if (!this.isOperationCurrent(generation)) return;
       console.error("Could not load the project.", error);
@@ -600,14 +781,8 @@ export class ProjectSession {
   }
 
   /** Show another module of the open project. */
-  private showModule(
-    state: ReadySessionState,
-    store: Store,
-    registry: ModuleRegistry,
-  ): void {
+  private showModule(state: ReadySessionState, store: Store, registry: ModuleRegistry): void {
     this.beginOperation();
-    // Issue the outgoing module's writes before its store is released.
-    this.flushPendingWrites();
     this.showStore(state.project, store, registry);
   }
 
@@ -619,8 +794,6 @@ export class ProjectSession {
   /** Rebuild the store from its own snapshot, e.g. after a code reload. */
   reloadStore = (): void => {
     const state = this.state;
-    // The import's outcome decides the next store; a later `start` reopens it.
-    if (state.status === "importing") return;
     const created = Store.create(getSnapshot(state.store));
     if (state.status !== "ready") {
       this.state = { ...state, store: created };
@@ -653,10 +826,17 @@ export class ProjectSession {
     // Clients share the session: selecting the project already open or
     // opening keeps it, rather than reloading it under another client.
     const state = this.state;
-    if ((state.status === "loading-project" || isOpen(state)) && state.project.id === id) {
+    if ((state.status === "loading-project" || state.status === "ready") && state.project.id === id) {
       return this.projectLoad;
     }
     return this.openProject({ id, name });
+  };
+
+  /** Open the project another session holds here, once that one has written what it had. */
+  takeOverProject = (): Promise<void> => {
+    const state = this.state;
+    if (state.status !== "held-elsewhere") return Promise.resolve();
+    return this.openProject(state.project, { takeOver: true });
   };
 
   /**
@@ -684,7 +864,8 @@ export class ProjectSession {
     // a checkout back: what was held back is written now.
     if (change == null && this.writeHeldBack) {
       this.writeHeldBack = false;
-      this.persistCurrent();
+      this.issued = null;
+      this.persistProject();
     }
     this.publish();
   }
@@ -715,7 +896,8 @@ export class ProjectSession {
     }
     if (this.writeHeldBack) {
       this.writeHeldBack = false;
-      this.persistCurrent();
+      this.issued = null;
+      this.persistProject();
     }
   };
 
@@ -723,7 +905,7 @@ export class ProjectSession {
   private choosableState(): ReadySessionState {
     const state = this.readyState();
     if (state == null) {
-      throw new UserFacingError("Choose which version to keep once the project has finished opening or importing.");
+      throw new UserFacingError("Choose which version to keep once the project has finished opening.");
     }
     return state;
   }
@@ -733,14 +915,15 @@ export class ProjectSession {
     this.beginOperation();
     this.pendingOverviewSeed = null;
     this.detachStoreSubscription();
+    this.releaseClaim();
     this.state = { status: "idle", store: this.state.store };
     this.syncModuleContext();
     this.publish();
   };
 
   clearPersistenceError = (): void => {
-    const state = this.state;
-    if (!isOpen(state) || Object.keys(state.persistenceNotices).length === 0) return;
+    const state = this.readyState();
+    if (state == null || Object.keys(state.persistenceNotices).length === 0) return;
     this.state = { ...state, persistenceNotices: {} };
     this.publish();
   };
@@ -766,17 +949,7 @@ export class ProjectSession {
     if (id === current.activeModuleId) return true;
     const target = current.modules.find((entry) => entry.id === id);
     if (target == null || target.archivedAt != null) return false;
-    let created: Store;
-    try {
-      created = createModuleStore(target.snapshot);
-    } catch (error) {
-      console.error("The module could not be opened.", error);
-      return false;
-    }
-    this.showModule(state, created, {
-      ...this.stashActiveModule(state),
-      activeModuleId: id,
-    });
+    this.showModule(state, createModuleStore(target.content), { ...this.stashActiveModule(state), activeModuleId: id });
     return true;
   };
 
@@ -785,26 +958,15 @@ export class ProjectSession {
     if (state == null) return;
     const trimmed = normalizeModuleName(name);
     assertModuleNameAvailable(trimmed, state.registry.modules);
-    this.beginOperation();
-    this.flushPendingWrites();
     const created = blankStore();
-    const entry: ModuleEntry = {
+    const entry: ModuleState = {
       id: crypto.randomUUID(),
       name: trimmed,
       archivedAt: null,
-      openStep: FIRST_STAGE,
-      snapshot: getSnapshot(created) as unknown as Record<string, unknown>,
+      content: moduleContentOf(created),
     };
     const stashed = this.stashActiveModule(state);
-    this.showStore(
-      state.project,
-      created,
-      {
-        ...stashed,
-        activeModuleId: entry.id,
-        modules: [...stashed.modules, entry],
-      },
-    );
+    this.showModule(state, created, { ...stashed, activeModuleId: entry.id, modules: [...stashed.modules, entry] });
   };
 
   /** Throws when the name is empty, invalid, or another module has it. */
@@ -820,7 +982,11 @@ export class ProjectSession {
     });
   };
 
-  /** Rejects when the name is empty or another project has it. */
+  /**
+   * Rejects when the name is empty or another project has it. The name is
+   * the project's identity, not its state, so renaming is no change to it;
+   * the next write stores the name.
+   */
   renameProject = async (name: string): Promise<void> => {
     const state = this.readyState();
     if (state == null) return;
@@ -831,12 +997,10 @@ export class ProjectSession {
     if (hasProjectName(projects.filter(({ id }) => id !== projectId), trimmed)) {
       throw new UserFacingError(`A project named “${trimmed}” already exists.`);
     }
-    await this.persistence.projects.saveIndex(
-      projects.map((project) => (project.id === projectId ? { ...project, name: trimmed } : project)),
-    );
     const current = this.readyState();
     if (current == null || current.project.id !== projectId) return;
     this.state = { ...current, project: { ...current.project, name: trimmed } };
+    this.persistProject();
     this.publish();
   };
 
@@ -856,79 +1020,61 @@ export class ProjectSession {
     });
   };
 
-  recordOpenStep = (step: string): void => {
-    const current = this.readyState()?.registry;
-    // Open steps are module-mode state: while modules are off the hidden
-    // legacy entry keeps opening at the first stage, so enabling later
-    // starts there rather than wherever tabbing left off.
-    if (current == null || !current.modulesEnabled) return;
-    const active = current.modules.find(
-      (entry) => entry.id === current.activeModuleId,
-    );
-    if (active == null || active.openStep === step) return;
-    this.commitRegistry({
-      ...current,
-      modules: current.modules.map((entry) =>
-        entry.id === current.activeModuleId ? { ...entry, openStep: step } : entry,
-      ),
-    });
+  /** Replace the open project with an exported one, read by the one project parser. Throws what is wrong with it, changing nothing. */
+  importProjectFile = (data: unknown): void => {
+    const state = this.readyState();
+    if (state == null) throw new UserFacingError("Import once the project has finished opening.");
+    const imported = parseProject(data);
+    this.beginOperation();
+    this.showProjectState(state.project, imported);
   };
 
-  /** Every visible module, backed by its live or sibling store. */
-  getExportModules = (): ExportableModule[] => {
-    const state = this.state;
-    if (!isOpen(state)) return [];
-    return this.siblingStores.exportModules(state.registry, state.store);
+  /** The open project as an export holds it. */
+  exportProject = (options: ExportOptions, restorePointId?: string): string => {
+    const state = this.readyState();
+    if (state == null) throw new UserFacingError("Export once the project has finished opening.");
+    if (restorePointId != null) throw new Error("Restore points cannot be exported yet.");
+    return buildExport(projectState(state.registry, state.store), options);
+  };
+
+  /** Create an empty project. Rejects when the name is empty or another project has it. */
+  createProject = async (name: string): Promise<ProjectIdentity> => {
+    const trimmed = name.trim();
+    if (trimmed.length === 0) throw new UserFacingError("Name the project.");
+    const projects = await this.persistence.projects.list();
+    if (hasProjectName(projects, trimmed)) throw new UserFacingError(`A project named “${trimmed}” already exists.`);
+    const project = { id: crypto.randomUUID(), name: trimmed };
+    await this.storeNewProject(project, blankProjectState());
+    return project;
   };
 
   /**
-   * Import a project. Validation throws synchronously; the write's failure
-   * rejects the returned promise, with the current module still shown and
-   * its autosave resumed. While the write is in flight the page stays as it
-   * is, autosave is paused and other changes are refused.
+   * Store an exported project as a new one, named after its file, leaving
+   * every other project as it was. Rejects with what is wrong with the file.
    */
-  importProjectFile = (data: unknown): Promise<void> => {
-    const state = this.readyState();
-    if (state == null) return Promise.resolve();
-    // Issue the outgoing state's pending writes; the import replaces them.
-    this.flushPendingWrites();
-    const payload = parseProjectPayload(data);
-    // Every module passes through the validation gate before storage.
-    for (const entry of payload.modules) {
-      createModuleStore(entry.snapshot);
-    }
-
-    const generation = this.beginOperation();
-    this.detachStoreSubscription();
-    this.state = { ...state, status: "importing" };
-    this.publish();
-    return this.writeImportedProject(state.project, payload, generation);
+  importNewProject = async (data: unknown, fileName: string): Promise<ProjectIdentity> => {
+    const imported = parseProject(data);
+    const projects = await this.persistence.projects.list();
+    const baseName = fileName.replace(/\.json$/i, "").trim() || "Imported project";
+    let name = baseName;
+    for (let suffix = 1; hasProjectName(projects, name); suffix += 1) name = `${baseName} (${suffix})`;
+    const project = { id: crypto.randomUUID(), name };
+    await this.storeNewProject(project, imported);
+    return project;
   };
 
-  private async writeImportedProject(
-    project: ProjectIdentity,
-    payload: ProjectPayload,
-    generation: number,
-  ): Promise<void> {
-    try {
-      await this.persistence.projects.save(project.id, payload);
-    } catch (error) {
-      if (this.isOperationCurrent(generation)) {
-        console.error("Could not import project data.", error);
-        const state: ReadySessionState = {
-          ...this.expectOpenState(),
-          status: "ready",
-        };
-        this.state = state;
-        this.attachStoreSubscription(state);
-        // Edits made while autosave was paused are written now.
-        this.persistCurrent();
-        this.publish();
-      }
-      throw error;
-    }
-    if (!this.isOperationCurrent(generation)) return;
-    await this.loadProject(project, generation);
+  /** Store a project storage does not hold yet, with a history that names it as written. */
+  private storeNewProject(project: ProjectIdentity, state: ProjectState): Promise<void> {
+    const pieces = new PieceStore();
+    const address = pieces.addressOf(state);
+    return this.persistence.projects.create({
+      project,
+      state,
+      address,
+      pieces: [...pieces.reachable([address])].map((piece) => [piece, pieces.get(piece)!.bytes] as const),
+      writing: { ...EMPTY_HISTORY, writing: address },
+      written: { ...EMPTY_HISTORY, lastWritten: address },
+    });
   }
 }
 

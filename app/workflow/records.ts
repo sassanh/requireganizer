@@ -78,7 +78,8 @@ export const SPEC_OWNER: Signer = { kind: "person" };
 /** What every signature records: who gave it, when, and the hash of what it covers. */
 export interface SignatureRecord {
   signer: Signer;
-  at: string;
+  /** Null in an export made without signature times. */
+  at: string | null;
   covers: string;
 }
 

@@ -8,7 +8,8 @@ export type ThreadAuthor = Signer | { kind: "agent"; name: string };
 export interface ThreadMessage {
   author: ThreadAuthor;
   text: string;
-  at: string;
+  /** When it was written; null in an export made without thread times. */
+  at: string | null;
   /** The message answered with changes to items, not only words. */
   withChanges?: true;
 }
@@ -25,7 +26,8 @@ export interface Thread {
   /** The unit's name when it was removed; null while the unit exists. */
   removedUnit: string | null;
   messages: ThreadMessage[];
-  resolvedAt: string | null;
+  /** Set once the spec owner resolved it; its time is null in an export made without thread times. */
+  resolution: { at: string | null } | null;
 }
 
 /** A reply to a thread, as its answerer gives it. */
@@ -47,12 +49,12 @@ export function authorLabel(author: ThreadAuthor): string {
 
 /** An open thread waits for the spec owner while its last message is not theirs. */
 export function waitsForSpecOwner(thread: Thread): boolean {
-  return thread.resolvedAt == null && thread.messages.at(-1)?.author.kind !== "person";
+  return thread.resolution == null && thread.messages.at(-1)?.author.kind !== "person";
 }
 
 /** An open thread waits for its answerer while its last message is the spec owner's. */
 export function waitsForAnswerer(thread: Thread): boolean {
-  return thread.resolvedAt == null && thread.messages.at(-1)?.author.kind === "person";
+  return thread.resolution == null && thread.messages.at(-1)?.author.kind === "person";
 }
 
 /** One turn of a thread: it changes with every message, so whatever concerned a turn ends with it. */
@@ -94,8 +96,9 @@ export function parseThreads(value: unknown): Thread[] {
     if (!Array.isArray(entry.messages) || entry.messages.length === 0) {
       throw new InvalidJsonError(`${label} must have at least one message.`);
     }
-    if (entry.resolvedAt != null && typeof entry.resolvedAt !== "string") {
-      throw new InvalidJsonError(`${label} resolution time must be a string.`);
+    const resolution = entry.resolution ?? null;
+    if (resolution != null && (!isRecord(resolution) || (resolution.at !== null && typeof resolution.at !== "string"))) {
+      throw new InvalidJsonError(`${label} resolution must have a time or null.`);
     }
     if (entry.removedUnit != null && typeof entry.removedUnit !== "string") {
       throw new InvalidJsonError(`${label} removed unit must be a string.`);
@@ -105,16 +108,16 @@ export function parseThreads(value: unknown): Thread[] {
       unitId: entry.unitId,
       stage: entry.stage,
       removedUnit: entry.removedUnit ?? null,
-      resolvedAt: entry.resolvedAt ?? null,
+      resolution: resolution == null ? null : { at: resolution.at as string | null },
       messages: entry.messages.map((message, messageIndex) => {
         const messageLabel = `${label} message ${messageIndex + 1}`;
-        if (!isRecord(message) || typeof message.text !== "string" || typeof message.at !== "string") {
-          throw new InvalidJsonError(`${messageLabel} must have a text and a time.`);
+        if (!isRecord(message) || typeof message.text !== "string" || (message.at !== null && typeof message.at !== "string")) {
+          throw new InvalidJsonError(`${messageLabel} must have a text, and a time or null.`);
         }
         return {
           author: author(message.author, messageLabel),
           text: message.text,
-          at: message.at,
+          at: message.at as string | null,
           ...(message.withChanges === true ? { withChanges: true as const } : {}),
         };
       }),

@@ -28,9 +28,10 @@ import {
   type WireError,
 } from "connection";
 import { UserFacingError } from "lib/errors";
-import { activeModule, type ModuleRegistry, visibleModuleNamed, visibleModules } from "lib/moduleSchema";
+import { activeModule, visibleModuleNamed, visibleModules } from "lib/moduleSchema";
 import type { StorageTraits } from "persistence";
 import type { ProjectSession, ProjectSessionSnapshot } from "project-session";
+import type { ChangeKind, ModuleContent, ModuleRegistry } from "storage-and-recovery";
 import {
   replicatedVolatileState,
   type ReplicatedVolatileState,
@@ -57,9 +58,25 @@ function sameHostInfo(left: HostInfo, right: HostInfo): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function snapshotsOf(registry: ModuleRegistry | null): Map<string, Record<string, unknown>> {
-  return new Map((registry?.modules ?? []).map((entry) => [entry.id, entry.snapshot]));
+function contentsOf(registry: ModuleRegistry | null): Map<string, ModuleContent> {
+  return new Map((registry?.modules ?? []).map((entry) => [entry.id, entry.content]));
 }
+
+/** The store actions that are not edits, by the kind of change they make. */
+const STORE_ACTION_KINDS: Readonly<Record<string, ChangeKind>> = {
+  sign: "signature",
+  requestChange: "thread message",
+  replyAsSpecOwner: "thread message",
+  answerThreads: "thread message",
+  resolveThread: "thread resolution",
+};
+
+function storeActionKind(name: string): ChangeKind {
+  return Object.hasOwn(STORE_ACTION_KINDS, name) ? STORE_ACTION_KINDS[name]! : "edit";
+}
+
+/** The agent tools that change the project's modules rather than write its spec. */
+const MODULE_TOOLS: ReadonlySet<string> = new Set(["create_module", "switch_module"]);
 
 function sessionView(snapshot: ProjectSessionSnapshot) {
   const { store: _store, registry: _registry, ...view } = snapshot;
@@ -83,8 +100,8 @@ export class ProjectHost implements HostEndpoint {
     null;
   private sentHostInfo: HostInfo;
   private sentRegistry: ModuleRegistry | null = null;
-  /** The module snapshots every client holds, by module id. */
-  private sentSnapshots = new Map<string, Record<string, unknown>>();
+  /** The module contents every client holds, by module id. */
+  private sentContents = new Map<string, ModuleContent>();
   private sentVolatile: ReplicatedVolatileState | null = null;
   private pendingPatches: IJsonPatch[] = [];
   private flushScheduled = false;
@@ -92,22 +109,26 @@ export class ProjectHost implements HostEndpoint {
   constructor(session: ProjectSession) {
     this.session = session;
     this.sentHostInfo = hostInfo(session.persistence.traits);
+    const moduleChange = <Result>(run: () => Result): Result => session.change("module change", run);
     this.api = {
       selectProject: (id, name, options) =>
         session.selectProject(id, name, options),
       backToProjects: () => session.backToProjects(),
       clearPersistenceError: () => session.clearPersistenceError(),
-      enableModules: (name) => session.enableModules(name),
-      addModule: (name) => session.addModule(name),
-      switchModule: (id) => session.switchModule(id),
-      archiveModule: (id) => session.archiveModule(id),
-      renameModule: (id, name) => session.renameModule(id, name),
+      enableModules: (name) => moduleChange(() => session.enableModules(name)),
+      addModule: (name) => moduleChange(() => session.addModule(name)),
+      switchModule: (id) => moduleChange(() => session.switchModule(id)),
+      archiveModule: (id) => moduleChange(() => session.archiveModule(id)),
+      renameModule: (id, name) => moduleChange(() => session.renameModule(id, name)),
       renameProject: (name) => session.renameProject(name),
-      recordOpenStep: (step) => session.recordOpenStep(step),
-      importProjectFile: (data) => session.importProjectFile(data),
+      createProject: (name) => session.createProject(name),
+      importNewProject: (data, fileName) => session.importNewProject(data, fileName),
+      takeOverProject: () => session.takeOverProject(),
+      importProjectFile: (data) => session.change("import", () => session.importProjectFile(data)),
+      exportProject: (options, restorePointId) => session.exportProject(options, restorePointId),
       openChangedProject: () => session.openChangedProject(),
       keepShownProject: () => session.keepShownProject(),
-      runStoreAction: (call) => this.runStoreAction(call),
+      runStoreAction: (call) => session.change(storeActionKind(call.name), () => this.runStoreAction(call)),
       runPersistence: (call) => this.runPersistence(call),
       listAgentTools: async () => {
         // Without an open project the read tools are still listed: calling
@@ -117,19 +138,12 @@ export class ProjectHost implements HostEndpoint {
       },
       callAgentTool: async (name, args, caller) => {
         const store = await this.openStore();
-        // Whatever the call changed would be replaced with the imported project.
-        if (session.importing) {
-          throw new UserFacingError(
-            "A project import is replacing this project in Requireganizer. Call get_workflow_state once it finishes.",
-          );
-        }
-        // Either version may be the one kept, so neither is read or changed meanwhile.
-        if (session.getSnapshot().outsideChange != null) {
-          throw new UserFacingError(
-            `${session.persistence.traits.name} changed outside Requireganizer. Ask the person to choose in Requireganizer which version to keep, then call get_workflow_state.`,
-          );
-        }
-        return callAgentTool(store, name, args, this.openModule(), caller);
+        // One call is one change, though a write with answers takes two store
+        // actions. Reading goes through the gate too: while an outside change
+        // waits, either version may be the one kept, so neither is read.
+        return session.change(MODULE_TOOLS.has(name) ? "module change" : "coding agent write", () =>
+          callAgentTool(store, name, args, this.openModule(), caller),
+        );
       },
     };
   }
@@ -173,6 +187,8 @@ export class ProjectHost implements HostEndpoint {
         throw new UserFacingError(snapshot.persistenceError);
       case "loading":
         throw new UserFacingError("The project is still opening. Try again in a moment.");
+      case "elsewhere":
+        throw new UserFacingError("The project is open in another tab. Ask the person to take it over in Requireganizer.");
       case "idle":
         throw new UserFacingError(
           this.session.persistence.traits.singleProject
@@ -190,7 +206,7 @@ export class ProjectHost implements HostEndpoint {
     const initial = this.session.getSnapshot();
     this.sentHostInfo = hostInfo(this.session.persistence.traits);
     this.sentRegistry = initial.registry;
-    this.sentSnapshots = snapshotsOf(initial.registry);
+    this.sentContents = contentsOf(initial.registry);
     this.showStore(initial.store);
     this.disposers.push(
       aiSettings().subscribe(() => this.hostInfoChanged()),
@@ -219,7 +235,7 @@ export class ProjectHost implements HostEndpoint {
       event: {
         type: "session",
         session: sessionView(snapshot),
-        // A new client holds nothing yet, so it gets every snapshot.
+        // A new client holds nothing yet, so it gets every module's content.
         registry: snapshot.registry,
         store: this.storeImage(),
       },
@@ -347,16 +363,16 @@ export class ProjectHost implements HostEndpoint {
     this.broadcast(event);
   }
 
-  /** The registry with every snapshot left out that all clients already hold. */
+  /** The registry with every module's content left out that all clients already hold. */
   private registryToSend(registry: ModuleRegistry | null): SentRegistry | null {
-    const held = this.sentSnapshots;
-    this.sentSnapshots = snapshotsOf(registry);
+    const held = this.sentContents;
+    this.sentContents = contentsOf(registry);
     if (registry == null) return null;
     return {
       ...registry,
       modules: registry.modules.map((entry) => {
-        if (held.get(entry.id) !== entry.snapshot) return entry;
-        const { snapshot: _held, ...rest } = entry;
+        if (held.get(entry.id) !== entry.content) return entry;
+        const { content: _held, ...rest } = entry;
         return rest;
       }),
     };

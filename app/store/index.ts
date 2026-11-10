@@ -1,7 +1,5 @@
 export {
   createModuleStore,
-  moduleDescription,
-  parseModuleSnapshot,
   replicatedVolatileState,
   Store,
   storeContext,

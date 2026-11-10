@@ -19,6 +19,7 @@ import { useRef, useState, ChangeEvent } from "react";
 
 import { ShortcutLabel } from "actions/ActionHint";
 import { switchModuleShortcut } from "actions/actions";
+import { getUserFacingErrorMessage } from "lib/errors";
 import { parseJson } from "lib/json";
 import { useProject } from "projectContext";
 
@@ -33,7 +34,7 @@ export default function ProjectActionsMenu({
   const { modulesEnabled, importProjectFile, exportProject } = useProject();
   const inputRef = useRef<HTMLInputElement>(null);
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
-  const [importError, setImportError] = useState<string | null>(null);
+  const [failure, setFailure] = useState<string | null>(null);
 
   const close = () => setAnchor(null);
 
@@ -43,16 +44,26 @@ export default function ProjectActionsMenu({
     if (!file) return;
 
     try {
-      const data = parseJson(await file.text(), "Imported project");
+      const data = parseJson(await file.text(), "The file");
       await importProjectFile(data);
-      setImportError(null);
+      setFailure(null);
     } catch (error) {
       console.error("Could not import project data.", error);
-      setImportError(
+      setFailure(
         error instanceof Error
           ? error.message
           : "The selected file is not a valid Requireganizer project.",
       );
+    }
+  };
+
+  const handleExport = async () => {
+    try {
+      await exportProject();
+      setFailure(null);
+    } catch (error) {
+      console.error("Could not export the project.", error);
+      setFailure(getUserFacingErrorMessage(error, "The project could not be exported. Try again."));
     }
   };
 
@@ -81,7 +92,7 @@ export default function ProjectActionsMenu({
         <MenuItem
           onClick={() => {
             close();
-            exportProject();
+            void handleExport();
           }}
         >
           <ListItemIcon>
@@ -123,9 +134,9 @@ export default function ProjectActionsMenu({
         onChange={handleImportFile}
       />
 
-      {importError && (
-        <PersistentAlert severity="error" onClose={() => setImportError(null)}>
-          {importError}
+      {failure && (
+        <PersistentAlert severity="error" onClose={() => setFailure(null)}>
+          {failure}
         </PersistentAlert>
       )}
     </>

@@ -154,7 +154,7 @@ function threadView(store: Store, thread: Thread): Record<string, unknown> {
     threadId: thread.id,
     unit: store.unitLabel(thread.unitId),
     stage: thread.stage,
-    status: thread.resolvedAt != null ? "resolved" : waitsForAnswerer(thread) ? "waiting for you" : "waiting for the spec owner",
+    status: thread.resolution != null ? "resolved" : waitsForAnswerer(thread) ? "waiting for you" : "waiting for the spec owner",
     messages: thread.messages.map(({ author, text, withChanges }) => ({
       from: author.kind === "person" ? "spec owner" : authorLabel(author),
       text,
@@ -332,7 +332,7 @@ const workflowStateTool: AgentTool = {
         progress: STAGE_PROGRESS_LABELS[summary.progress],
         approved: `${summary.approved} of ${summary.total}`,
         waitingForSignature: summary.waiting,
-        openThreads: store.threadsOfStage(stage).filter(({ resolvedAt }) => resolvedAt == null).map((thread) => threadView(store, thread)),
+        openThreads: store.threadsOfStage(stage).filter(({ resolution }) => resolution == null).map((thread) => threadView(store, thread)),
       };
     });
     return JSON.stringify({
@@ -660,14 +660,18 @@ export function agentToolDescriptions(open: OpenModule = {}): AgentToolDescripti
   return toolsFor(open).map(({ description }) => description);
 }
 
-/** Run one tool for an outside agent. Throws a message the agent can act on when the call fails. */
-export async function callAgentTool(
+/**
+ * Run one tool for an outside agent, synchronously, so the host can take the
+ * call as one change. Throws a message the agent can act on when the call
+ * fails.
+ */
+export function callAgentTool(
   store: Store,
   name: string,
   args: Arguments,
   open: OpenModule = {},
   caller: AgentCaller = { name: "The coding agent" },
-): Promise<string> {
+): string {
   const tool = toolsFor(open).find(({ description }) => description.name === name);
   if (tool == null) throw new UserFacingError(`No tool named ${name} is available now.`);
   return tool.run(store, args, open, caller);
