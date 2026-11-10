@@ -24,7 +24,6 @@ import { ChangeEvent, useEffect, useRef, useState } from "react";
 
 import { PersistentAlert } from "components";
 import { getUserFacingErrorMessage } from "lib/errors";
-import { parseJson } from "lib/json";
 import { hasProjectName, type ProjectMeta } from "lib/projectStorage";
 import { projectHref } from "lib/routes";
 import { useProject } from "projectContext";
@@ -113,8 +112,8 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
     event.target.value = "";
     if (!file) return;
     await createThen(
-      async () => importNewProject(parseJson(await file.text(), "The file"), file.name),
-      "The selected file is not a valid Requireganizer project.",
+      async () => importNewProject(await file.text(), file.name),
+      `${file.name} was not imported, and nothing changed. Try again.`,
     );
   };
 

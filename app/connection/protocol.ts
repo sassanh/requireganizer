@@ -25,7 +25,7 @@ import type { ReplicatedVolatileState } from "store";
  * different builds checks it before any message is exchanged; change it
  * whenever a message changes shape.
  */
-export const PROTOCOL_VERSION = 10;
+export const PROTOCOL_VERSION = 11;
 
 /**
  * WebSocket close codes a host server ends a connection with when connecting
@@ -100,14 +100,14 @@ export interface HostApi {
   renameProject(name: string): Promise<void>;
   /** Create an empty project; resolves to its identity. */
   createProject(name: string): Promise<ProjectIdentity>;
-  /** Store an exported project as a new one, named after its file; resolves to its identity. */
-  importNewProject(data: unknown, fileName: string): Promise<ProjectIdentity>;
+  /** Store the project an exported file's text holds as a new one, named after the file; resolves to its identity. */
+  importNewProject(text: string, fileName: string): Promise<ProjectIdentity>;
   /** Open here the project another session holds, once it has written what it had. */
   takeOverProject(): Promise<void>;
-  /** Replace the open project with an exported one. */
-  importProjectFile(data: unknown): void;
-  /** The open project's export, as the bytes of its file. */
-  exportProject(options: ExportOptions, restorePointId?: string): string;
+  /** Replace the open project with the one an exported file's text holds, as a step of kind import. */
+  importProjectFile(text: string, fileName: string): void;
+  /** The export of the open project, or of one of its restore points, as the bytes of its file. */
+  exportProject(options: ExportOptions, restorePointId?: string): Promise<string>;
   /** Open the project as storage now holds it, after it changed outside the host. */
   openChangedProject(): Promise<void>;
   /** Write the shown project over the stored one that changed or was removed outside the host. */

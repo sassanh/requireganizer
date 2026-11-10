@@ -20,9 +20,9 @@ import { useRef, useState, ChangeEvent } from "react";
 import { ShortcutLabel } from "actions/ActionHint";
 import { switchModuleShortcut } from "actions/actions";
 import { getUserFacingErrorMessage } from "lib/errors";
-import { parseJson } from "lib/json";
 import { useProject } from "projectContext";
 
+import ExportDialog from "./ExportDialog";
 import PersistentAlert from "./PersistentAlert";
 
 /** The project-actions menu anchored in the top bar: modules, import and export. */
@@ -31,9 +31,10 @@ export default function ProjectActionsMenu({
 }: {
   onShowModules: () => void;
 }) {
-  const { modulesEnabled, importProjectFile, exportProject } = useProject();
+  const { modulesEnabled, importProjectFile } = useProject();
   const inputRef = useRef<HTMLInputElement>(null);
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const [exporting, setExporting] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
 
   const close = () => setAnchor(null);
@@ -44,26 +45,11 @@ export default function ProjectActionsMenu({
     if (!file) return;
 
     try {
-      const data = parseJson(await file.text(), "The file");
-      await importProjectFile(data);
+      await importProjectFile(await file.text(), file.name);
       setFailure(null);
     } catch (error) {
-      console.error("Could not import project data.", error);
-      setFailure(
-        error instanceof Error
-          ? error.message
-          : "The selected file is not a valid Requireganizer project.",
-      );
-    }
-  };
-
-  const handleExport = async () => {
-    try {
-      await exportProject();
-      setFailure(null);
-    } catch (error) {
-      console.error("Could not export the project.", error);
-      setFailure(getUserFacingErrorMessage(error, "The project could not be exported. Try again."));
+      console.error("Could not import the file.", error);
+      setFailure(getUserFacingErrorMessage(error, `${file.name} was not imported, and nothing changed. Try again.`));
     }
   };
 
@@ -87,18 +73,18 @@ export default function ProjectActionsMenu({
           <ListItemIcon>
             <SystemUpdateAlt fontSize="small" />
           </ListItemIcon>
-          <ListItemText>Import JSON</ListItemText>
+          <ListItemText>Import in place of this project</ListItemText>
         </MenuItem>
         <MenuItem
           onClick={() => {
             close();
-            void handleExport();
+            setExporting(true);
           }}
         >
           <ListItemIcon>
             <DataObject fontSize="small" />
           </ListItemIcon>
-          <ListItemText>Export as JSON</ListItemText>
+          <ListItemText>Export…</ListItemText>
         </MenuItem>
         <Divider />
         <MenuItem
@@ -133,6 +119,8 @@ export default function ProjectActionsMenu({
         accept=".json,application/json"
         onChange={handleImportFile}
       />
+
+      {exporting && <ExportDialog onClose={() => setExporting(false)} />}
 
       {failure && (
         <PersistentAlert severity="error" onClose={() => setFailure(null)}>

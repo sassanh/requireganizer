@@ -4,7 +4,13 @@ import { createContext, useContext } from "react";
 import type { ProjectIdentity } from "lib/projectStorage";
 import type { ClientPersistence, StorageTraits } from "persistence";
 import type { ModuleSummary, ProjectSessionStatus } from "project-session";
-import type { HistoryPosition, ListedRestorePoint, ListedStep, OutsideChange } from "storage-and-recovery";
+import type {
+  ExportOptions,
+  HistoryPosition,
+  ListedRestorePoint,
+  ListedStep,
+  OutsideChange,
+} from "storage-and-recovery";
 
 /**
  * The open project as the interface sees it. Every operation is a request to
@@ -69,12 +75,12 @@ export interface ProjectContextValue {
   renameProject: (name: string) => Promise<void>;
   /** Rejects when the name is empty or taken. */
   createProject: (name: string) => Promise<ProjectIdentity>;
-  /** Rejects with what is wrong with the file. */
-  importNewProject: (data: unknown, fileName: string) => Promise<ProjectIdentity>;
-  /** Rejects with what is wrong with the file, changing nothing. */
-  importProjectFile: (data: unknown) => Promise<void>;
-  /** Save the project as a JSON file. */
-  exportProject: () => Promise<void>;
+  /** Import a file's text as a new project; rejects with what is wrong with the file. */
+  importNewProject: (text: string, fileName: string) => Promise<ProjectIdentity>;
+  /** Import a file's text in place of the open project; rejects with what is wrong with the file, changing nothing. */
+  importProjectFile: (text: string, fileName: string) => Promise<void>;
+  /** Save an export of the project, or of one of its restore points, as a file. */
+  exportProject: (options: ExportOptions, restorePoint?: ListedRestorePoint) => Promise<void>;
 }
 
 export const projectContext = createContext<ProjectContextValue | null>(null);

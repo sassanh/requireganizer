@@ -121,7 +121,9 @@ function parse(source: string, label: string): unknown {
   try {
     return JSON.parse(source);
   } catch (error) {
-    throw new InvalidJsonError(`${label} is not valid JSON.`, error);
+    // The parser's own message says where, such as "at position 12 (line 3 column 1)".
+    const where = error instanceof Error ? `: ${error.message}.` : ".";
+    throw new InvalidJsonError(`${label} is not valid JSON${where}`, error);
   }
 }
 

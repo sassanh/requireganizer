@@ -1089,6 +1089,15 @@ export function workflowModuleModel(workflow: Workflow) {
         stageNode(located.stage).items.remove(located.item);
       }
 
+      /** Forget the version of an item that no longer exists, which stages building on it took in. */
+      function forgetIntake(id: string): void {
+        for (const node of self.stages.values()) {
+          if (node.intake[id] == null) continue;
+          const { [id]: _dropped, ...rest } = node.intake;
+          node.intake = rest;
+        }
+      }
+
       /** An item whose removal is signed leaves its stage once no stage still asks for an impact on its removal. */
       function deleteIfSettled(id: string): void {
         const located = self.locate(id);
@@ -1283,11 +1292,7 @@ export function workflowModuleModel(workflow: Workflow) {
             const id = item.id;
             deleteItem(id);
             outcome.deleted.push(id);
-            for (const node of self.stages.values()) {
-              if (node.intake[id] == null) continue;
-              const { [id]: _dropped, ...rest } = node.intake;
-              node.intake = rest;
-            }
+            forgetIntake(id);
             return [];
           }
           item.removal = { signature: null };
@@ -1345,6 +1350,20 @@ export function workflowModuleModel(workflow: Workflow) {
       return {
         setLinkedModules(modules: LinkedModule[]) {
           self.linkedModules = modules;
+        },
+        /**
+         * Delete every item whose removal is signed, as if every impact on
+         * its removal were settled. For a copy of the module that leaves out
+         * signatures, where a removal could not stand unsigned.
+         */
+        deleteRemovedItems() {
+          const removed = [...self.stages.values()].flatMap((node) =>
+            node.items.filter((item) => phaseOf(item.removal) === "removed").map(({ id }) => id),
+          );
+          for (const id of removed) {
+            forgetIntake(id);
+            deleteItem(id);
+          }
         },
         /**
          * Write, change and remove items, all or none. Items are named by

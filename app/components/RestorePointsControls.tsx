@@ -1,6 +1,13 @@
 "use client";
 
-import { BookmarksOutlined, Close, DeleteOutlined, PushPin, PushPinOutlined } from "@mui/icons-material";
+import {
+  BookmarksOutlined,
+  Close,
+  DeleteOutlined,
+  FileDownloadOutlined,
+  PushPin,
+  PushPinOutlined,
+} from "@mui/icons-material";
 import {
   Box,
   Button,
@@ -24,6 +31,7 @@ import { getUserFacingErrorMessage } from "lib/errors";
 import { useProject } from "projectContext";
 import type { ListedRestorePoint } from "storage-and-recovery";
 
+import ExportDialog from "./ExportDialog";
 import { notify } from "./notices";
 
 /** The Restore points button of the open project, opening its panel. */
@@ -43,7 +51,7 @@ export default function RestorePointsControls() {
   );
 }
 
-/** Make a restore point under a name, and restore, pin, unpin or delete the kept ones, newest first. */
+/** Make a restore point under a name, and restore, export, pin, unpin or delete the kept ones, newest first. */
 function RestorePointsPanel({ onClose }: { onClose: () => void }) {
   const {
     history,
@@ -57,6 +65,7 @@ function RestorePointsPanel({ onClose }: { onClose: () => void }) {
   const [points, setPoints] = useState<ListedRestorePoint[] | null>(null);
   const [name, setName] = useState("");
   const [pointToDelete, setPointToDelete] = useState<ListedRestorePoint | null>(null);
+  const [pointToExport, setPointToExport] = useState<ListedRestorePoint | null>(null);
   const currentStep = history?.currentStep ?? null;
 
   const refresh = useCallback(
@@ -135,6 +144,11 @@ function RestorePointsPanel({ onClose }: { onClose: () => void }) {
                 >
                   Restore
                 </Button>
+                <ActionTooltip name="Export">
+                  <IconButton size="small" aria-label="Export" onClick={() => setPointToExport(point)}>
+                    <FileDownloadOutlined fontSize="small" />
+                  </IconButton>
+                </ActionTooltip>
                 <ActionTooltip name={point.pinned ? "Unpin" : "Pin"}>
                   <IconButton
                     size="small"
@@ -156,7 +170,7 @@ function RestorePointsPanel({ onClose }: { onClose: () => void }) {
                 </ActionTooltip>
               </Stack>
             }
-            sx={{ pr: 20 }}
+            sx={{ pr: 24 }}
           >
             <ListItemText
               primary={
@@ -175,6 +189,7 @@ function RestorePointsPanel({ onClose }: { onClose: () => void }) {
           </ListItem>
         ))}
       </List>
+      {pointToExport != null && <ExportDialog restorePoint={pointToExport} onClose={() => setPointToExport(null)} />}
       <Dialog open={pointToDelete != null} onClose={() => setPointToDelete(null)}>
         <DialogTitle>Delete this restore point?</DialogTitle>
         <DialogActions>

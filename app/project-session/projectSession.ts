@@ -1,6 +1,7 @@
 import { getSnapshot, onSnapshot } from "mobx-state-tree";
 
 import { getUserFacingErrorMessage, UserFacingError } from "lib/errors";
+import { parseJson } from "lib/json";
 import {
   assertModuleNameAvailable,
   LEGACY_MODULE_ID,
@@ -203,6 +204,23 @@ function projectSaveErrorMessage(storage: string): string {
   return `Changes could not be saved in ${storage}. Export the project to avoid losing work.`;
 }
 const PROJECT_LOAD_ERROR_MESSAGE = "The project could not be loaded.";
+
+/**
+ * The project an exported file holds, read by the one project parser and
+ * nothing else. Throws what is wrong with the file and where, so that an
+ * import of it changes nothing.
+ */
+function importedProject(text: string, fileName: string): ProjectState {
+  try {
+    return parseProject(parseJson(text, "The file"));
+  } catch (error) {
+    const problem = error instanceof Error ? error.message : String(error);
+    throw new UserFacingError(
+      `${fileName} was not imported, and nothing changed. ${problem} Import a file this version of Requireganizer exported.`,
+      error,
+    );
+  }
+}
 
 function snapshotOf(
   state: SessionState,
@@ -1229,6 +1247,23 @@ export class ProjectSession {
     return point;
   }
 
+  /**
+   * The state of a kept restore point, with all its pieces held, read from
+   * storage where needed; null once the project is no longer open. `doing`
+   * names what cannot be done when storage lost one of them.
+   */
+  private async heldRestorePoint(projectId: string, id: string, doing: string): Promise<Address | null> {
+    const { state: address } = this.keptRestorePoint(id);
+    const wanted = (): boolean => this.readyState()?.project.id === projectId;
+    // A clean-up meanwhile may let go of pieces only restore points keep, so they are read until all are held at once.
+    while (!this.pieces.holdsWhole(address)) {
+      const { whole } = await this.walkPieces(projectId, [address], { hold: true, wanted });
+      if (!wanted()) return null;
+      if (!whole) throw new UserFacingError(`That restore point is no longer stored, so it cannot be ${doing}.`);
+    }
+    return address;
+  }
+
   /** Change the history beside the project, not the project itself, and write it. */
   private changeHistory(history: ProjectHistory): void {
     this.history = history;
@@ -1259,15 +1294,8 @@ export class ProjectSession {
    */
   restoreToRestorePoint = async (id: string): Promise<void> => {
     const state = this.changeableState();
-    const projectId = state.project.id;
-    const { state: address } = this.keptRestorePoint(id);
-    const wanted = (): boolean => this.readyState()?.project.id === projectId;
-    // A clean-up meanwhile may let go of pieces only restore points keep, so they are read until all are held at once.
-    while (!this.pieces.holdsWhole(address)) {
-      const { whole } = await this.walkPieces(projectId, [address], { hold: true, wanted });
-      if (!wanted()) return;
-      if (!whole) throw new UserFacingError("That restore point is no longer stored, so it cannot be restored.");
-    }
+    const address = await this.heldRestorePoint(state.project.id, id, "restored");
+    if (address == null) return;
     this.change("restore", () => {
       const current = this.changeableState();
       this.keptRestorePoint(id);
@@ -1442,19 +1470,24 @@ export class ProjectSession {
     });
   };
 
-  /** Replace the open project with an exported one, read by the one project parser. Throws what is wrong with it, changing nothing. */
-  importProjectFile = (data: unknown): void => {
-    const state = this.readyState();
-    if (state == null) throw new UserFacingError("Import once the project has finished opening.");
-    this.showState(state.project, parseProject(data));
+  /**
+   * Replace the open project with the one an exported file holds. Run
+   * inside the gate as an import, it is one step undo takes back. Throws
+   * what is wrong with the file, changing nothing.
+   */
+  importProjectFile = (text: string, fileName: string): void => {
+    const state = this.changeableState();
+    this.showState(state.project, importedProject(text, fileName));
   };
 
-  /** The open project as an export holds it. */
-  exportProject = (options: ExportOptions, restorePointId?: string): string => {
+  /** The bytes of an export of the open project, or of one of its restore points, with the options given. */
+  exportProject = async (options: ExportOptions, restorePointId?: string): Promise<string> => {
     const state = this.readyState();
     if (state == null) throw new UserFacingError("Export once the project has finished opening.");
-    if (restorePointId != null) throw new Error("Restore points cannot be exported yet.");
-    return buildExport(projectState(state.registry, state.store), options);
+    if (restorePointId == null) return buildExport(projectState(state.registry, state.store), options);
+    const address = await this.heldRestorePoint(state.project.id, restorePointId, "exported");
+    if (address == null) throw new UserFacingError("The project was closed before the restore point was exported. Open it and export again.");
+    return buildExport(this.keptState(address), options);
   };
 
   /** Create an empty project. Rejects when the name is empty or another project has it. */
@@ -1469,11 +1502,12 @@ export class ProjectSession {
   };
 
   /**
-   * Store an exported project as a new one, named after its file, leaving
-   * every other project as it was. Rejects with what is wrong with the file.
+   * Store the project an exported file holds as a new one, named after the
+   * file, leaving every other project as it was. Rejects with what is wrong
+   * with the file, storing nothing.
    */
-  importNewProject = async (data: unknown, fileName: string): Promise<ProjectIdentity> => {
-    const imported = parseProject(data);
+  importNewProject = async (text: string, fileName: string): Promise<ProjectIdentity> => {
+    const imported = importedProject(text, fileName);
     const projects = await this.persistence.projects.list();
     const baseName = fileName.replace(/\.json$/i, "").trim() || "Imported project";
     let name = baseName;

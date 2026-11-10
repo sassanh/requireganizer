@@ -17,7 +17,7 @@ import { webPersistence } from "persistence";
 import { ProjectClient } from "project-client";
 import { ProjectHost } from "project-host";
 import { moduleSummaries, ProjectSession } from "project-session";
-import { DEFAULT_EXPORT_OPTIONS, webProjectAuthority } from "storage-and-recovery";
+import { type ExportOptions, type ListedRestorePoint, webProjectAuthority } from "storage-and-recovery";
 import { storeContext } from "store";
 
 import { projectContext, type ProjectContextValue } from "./projectContext";
@@ -55,6 +55,16 @@ function connectProject(): ProjectConnection {
   const session = new ProjectSession(webPersistence, { authority: webProjectAuthority });
   const host = new ProjectHost(session);
   return { session, client: new ProjectClient(() => linkInProcess(host), { timeZone: pageTimeZone() }) };
+}
+
+/** The name of an export's file: the project's, and for a restore point its name or that it was automatic, and when it was made. */
+function exportFileName(projectName: string, restorePoint?: ListedRestorePoint): string {
+  if (restorePoint == null) return `${projectName}.json`;
+  const at = new Date(restorePoint.at);
+  const twoDigits = (value: number): string => String(value).padStart(2, "0");
+  const date = `${at.getFullYear()}-${twoDigits(at.getMonth() + 1)}-${twoDigits(at.getDate())}`;
+  const time = `${twoDigits(at.getHours())}.${twoDigits(at.getMinutes())}`;
+  return `${projectName}, ${restorePoint.name ?? "automatic restore point"} ${date} ${time}.json`;
 }
 
 let isStoreReloadNeeded = true;
@@ -111,11 +121,14 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     };
   }, [session]);
 
-  const exportProject = useCallback(async (): Promise<void> => {
-    if (projectName == null) return;
-    const contents = await client.exportProject(DEFAULT_EXPORT_OPTIONS);
-    saveAs(new Blob([contents], { type: "application/json" }), `${projectName}.json`);
-  }, [client, projectName]);
+  const exportProject = useCallback(
+    async (options: ExportOptions, restorePoint?: ListedRestorePoint): Promise<void> => {
+      if (projectName == null) return;
+      const contents = await client.exportProject(options, restorePoint?.id);
+      saveAs(new Blob([contents], { type: "application/json" }), exportFileName(projectName, restorePoint));
+    },
+    [client, projectName],
+  );
 
   const contextValue: ProjectContextValue = {
     status,

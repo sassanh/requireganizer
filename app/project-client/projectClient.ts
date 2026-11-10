@@ -308,13 +308,13 @@ export class ProjectClient {
 
   createProject = (name: string): Promise<ProjectIdentity> => this.request("createProject", name);
 
-  importNewProject = (data: unknown, fileName: string): Promise<ProjectIdentity> =>
-    this.request("importNewProject", data, fileName);
+  importNewProject = (text: string, fileName: string): Promise<ProjectIdentity> =>
+    this.request("importNewProject", text, fileName);
 
   takeOverProject = (): Promise<void> => this.request("takeOverProject");
 
-  importProjectFile = (data: unknown): Promise<void> =>
-    this.request("importProjectFile", data);
+  importProjectFile = (text: string, fileName: string): Promise<void> =>
+    this.request("importProjectFile", text, fileName);
 
   exportProject = (options: ExportOptions, restorePointId?: string): Promise<string> =>
     this.request("exportProject", options, restorePointId);
