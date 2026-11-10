@@ -90,15 +90,20 @@ export default function Providers({ children }: { children: React.ReactNode }) {
   }, [session]);
 
   // The host lives in this tab: never leave project changes unsaved when
-  // the tab goes away.
+  // the tab goes away. A hidden tab may be closed or discarded without
+  // another event, and `pagehide` is the last one a closing tab gets.
   useEffect(() => {
     if (session == null) return;
-    const handleBeforeUnload = () => {
-      session.flush();
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") session.flush();
     };
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () =>
-      window.removeEventListener("beforeunload", handleBeforeUnload);
+    const handlePageHide = () => session.flush();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("pagehide", handlePageHide);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("pagehide", handlePageHide);
+    };
   }, [session]);
 
   const exportProject = useCallback(async (): Promise<void> => {
@@ -114,8 +119,14 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     outsideChange,
     openChangedProject: client.openChangedProject,
     keepShownProject: client.keepShownProject,
+    history: sessionState.status === "ready" ? sessionState.history : null,
+    undo: client.undo,
+    redo: client.redo,
+    listSteps: client.listSteps,
+    bringBackStep: client.bringBackStep,
     storage,
     persistence: client.persistence,
+    deleteProject: client.deleteProject,
     selectProject: client.selectProject,
     takeOverProject: client.takeOverProject,
     backToProjects: client.backToProjects,

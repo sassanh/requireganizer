@@ -128,6 +128,11 @@ export class ProjectHost implements HostEndpoint {
       exportProject: (options, restorePointId) => session.exportProject(options, restorePointId),
       openChangedProject: () => session.openChangedProject(),
       keepShownProject: () => session.keepShownProject(),
+      undo: () => session.undo(),
+      redo: () => session.redo(),
+      listSteps: () => session.listSteps(),
+      bringBackStep: (stepId) => session.change("restore", () => session.bringBackStep(stepId)),
+      deleteProject: (projectId) => session.deleteProject(projectId),
       runStoreAction: (call) => session.change(storeActionKind(call.name), () => this.runStoreAction(call)),
       runPersistence: (call) => this.runPersistence(call),
       listAgentTools: async () => {

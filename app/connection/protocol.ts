@@ -4,7 +4,7 @@ import type { AgentCaller, AgentToolDescription } from "ai-agent/agent-access";
 import type { ProjectIdentity } from "lib/projectStorage";
 import type { ClientPersistence, StorageTraits } from "persistence";
 import type { ProjectSessionSnapshot } from "project-session";
-import type { ExportOptions, ModuleContent, ModuleRegistry, ModuleState } from "storage-and-recovery";
+import type { ExportOptions, ListedStep, ModuleContent, ModuleRegistry, ModuleState } from "storage-and-recovery";
 import type { ReplicatedVolatileState } from "store";
 
 /**
@@ -18,7 +18,7 @@ import type { ReplicatedVolatileState } from "store";
  * different builds checks it before any message is exchanged; change it
  * whenever a message changes shape.
  */
-export const PROTOCOL_VERSION = 7;
+export const PROTOCOL_VERSION = 8;
 
 /**
  * WebSocket close codes a host server ends a connection with when connecting
@@ -72,7 +72,7 @@ export interface PersistenceCall {
 export const PERSISTENCE_METHODS: {
   [Group in PersistenceGroup]: Record<keyof ClientPersistence[Group], true>;
 } = {
-  projects: { list: true, delete: true },
+  projects: { list: true },
 };
 
 /** What a host serves. A request names one member and passes its arguments. */
@@ -103,8 +103,18 @@ export interface HostApi {
   exportProject(options: ExportOptions, restorePointId?: string): string;
   /** Open the project as storage now holds it, after it changed outside the host. */
   openChangedProject(): Promise<void>;
-  /** Write the shown project over the stored one that changed outside the host. */
+  /** Write the shown project over the stored one that changed or was removed outside the host. */
   keepShownProject(): void;
+  /** Undo the current step; not itself a step. */
+  undo(): void;
+  /** Redo the step undo last left. */
+  redo(): void;
+  /** Every kept step, newest first. */
+  listSteps(): ListedStep[];
+  /** Bring the project back as it was after a kept step, as a step of kind restore. */
+  bringBackStep(stepId: string): void;
+  /** Remove a project that is not open; refused while another tab holds it. */
+  deleteProject(projectId: string): Promise<void>;
   runStoreAction(call: StoreActionCall): unknown;
   runPersistence(call: PersistenceCall): unknown;
   /** The tools an outside agent can call on the open project now. */

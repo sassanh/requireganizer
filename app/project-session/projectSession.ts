@@ -8,7 +8,7 @@ import {
   visibleModules,
 } from "lib/moduleSchema";
 import { hasProjectName, type ProjectIdentity } from "lib/projectStorage";
-import type { OutsideChange, OutsideChanges, PersistenceAdapter } from "persistence";
+import type { OutsideChanges, PersistenceAdapter } from "persistence";
 import {
   type Address,
   type AuthorityClaim,
@@ -17,18 +17,30 @@ import {
   type ChangeKind,
   EMPTY_HISTORY,
   type ExportOptions,
+  type HistoryMove,
+  type HistoryPosition,
+  historyPosition,
   historyRoots,
-  type HistoryStep,
-  KEPT_STEPS,
+  listedSteps,
+  type ListedStep,
   moduleContentOf,
   type ModuleRegistry,
   type ModuleState,
+  type Opening,
+  openingOf,
+  type OutsideChange,
   parseProject,
   type PieceLevel,
   PieceStore,
   type ProjectHistory,
   projectState,
   type ProjectState,
+  redoMove,
+  type StoredProject,
+  storedProjectChange,
+  stepToBringBack,
+  undoMove,
+  withStep,
 } from "storage-and-recovery";
 import { createModuleStore, Store } from "store";
 import { uuid } from "utilities";
@@ -52,9 +64,10 @@ export type ProjectSessionStatus = "idle" | "loading" | "failed" | "elsewhere" |
  * together: an idle session has no project, a loading session has a named
  * project but no registry yet, a failed session names the project it could
  * not load and why, a session whose project another tab holds names it, and
- * a ready session has both a registry and a store to render. A ready project
- * whose stored version changed outside the session names that change until
- * the person chooses which version to keep.
+ * a ready session has both a registry and a store to render, and where the
+ * project is in its history. A ready project whose stored project changed
+ * outside the session names that change until the spec owner chooses which
+ * of the two to keep.
  */
 export type ProjectSessionSnapshot =
   | {
@@ -86,9 +99,15 @@ export type ProjectSessionSnapshot =
       activeProject: ProjectIdentity;
       persistenceError: string | null;
       outsideChange: OutsideChange | null;
+      history: HistoryPosition;
       registry: ModuleRegistry;
       store: Store;
     };
+
+/** The stored project as the session reads it: a readable one comes with its state. */
+type ReadStoredProject =
+  | Exclude<StoredProject, { kind: "readable" }>
+  | { kind: "readable"; address: Address; state: ProjectState };
 
 /** The store of work not started yet. */
 function blankStore(): Store {
@@ -171,7 +190,11 @@ function projectSaveErrorMessage(storage: string): string {
 }
 const PROJECT_LOAD_ERROR_MESSAGE = "The project could not be loaded.";
 
-function snapshotOf(state: SessionState, outsideChange: OutsideChange | null): ProjectSessionSnapshot {
+function snapshotOf(
+  state: SessionState,
+  outsideChange: OutsideChange | null,
+  history: ProjectHistory,
+): ProjectSessionSnapshot {
   switch (state.status) {
     case "idle":
       return {
@@ -207,17 +230,37 @@ function snapshotOf(state: SessionState, outsideChange: OutsideChange | null): P
         activeProject: state.project,
         persistenceError: shownNotice(state.persistenceNotices),
         outsideChange,
+        history: historyPosition(history),
         registry: state.registry,
         store: state.store,
       };
   }
 }
 
-/** What the last write issued held, so an unchanged project is not written again. */
+/**
+ * What the last write issued held, so an unchanged project is not written
+ * again. Every change to the undo tree replaces its steps or moves its
+ * current step, so the two say whether the history changed.
+ */
 interface IssuedWrite {
   address: Address;
-  lastStep: string | null;
+  steps: ProjectHistory["steps"];
+  current: string | null;
   name: string;
+}
+
+function issuedWriteOf(address: Address, history: ProjectHistory, project: ProjectIdentity): IssuedWrite {
+  return { address, steps: history.steps, current: history.current, name: project.name };
+}
+
+function sameIssuedWrite(left: IssuedWrite | null, right: IssuedWrite): boolean {
+  return (
+    left != null &&
+    left.address === right.address &&
+    left.steps === right.steps &&
+    left.current === right.current &&
+    left.name === right.name
+  );
 }
 
 /**
@@ -296,7 +339,7 @@ export class ProjectSession {
     this.outsideChanges = options.outsideChanges ?? null;
     this.authority = options.authority ?? null;
     this.state = { status: "idle", store: blankStore() };
-    this.snapshot = snapshotOf(this.state, this.outsideChange);
+    this.snapshot = snapshotOf(this.state, this.outsideChange, this.history);
   }
 
   // Public operations are arrow properties: React context passes them to
@@ -320,7 +363,7 @@ export class ProjectSession {
   }
 
   private publish(): void {
-    this.snapshot = snapshotOf(this.state, this.outsideChange);
+    this.snapshot = snapshotOf(this.state, this.outsideChange, this.history);
     this.listeners.forEach((listener) => listener());
   }
 
@@ -347,15 +390,12 @@ export class ProjectSession {
   }
 
   /**
-   * Run one change to the open project, synchronously, and record it as one
-   * step when the project's state differs afterwards. Every request that
-   * changes the project comes through here. A change inside another is part
-   * of it. Refused while the project is not open here, and while an outside
-   * change waits for the spec owner's choice, since either version may be
-   * the one kept.
+   * The open project, while it may change: refused while the project is not
+   * open here, and while an outside change waits for the spec owner's
+   * choice, since either project may be the one kept. Changes, undo and redo
+   * are all refused by this one rule.
    */
-  change = <Result>(kind: ChangeKind, run: () => Result): Result => {
-    if (this.changing) return run();
+  private changeableState(): ReadySessionState {
     const state = this.readyState();
     if (state == null) {
       throw new UserFacingError(
@@ -366,9 +406,21 @@ export class ProjectSession {
     }
     if (this.outsideChange != null) {
       throw new UserFacingError(
-        `${this.persistence.traits.name} changed outside Requireganizer. Nothing changes until the spec owner chooses in Requireganizer which version to keep.`,
+        `${this.persistence.traits.name} changed outside Requireganizer. Nothing changes until the spec owner chooses in Requireganizer which project to keep.`,
       );
     }
+    return state;
+  }
+
+  /**
+   * Run one change to the open project, synchronously, and record it as one
+   * step when the project's state differs afterwards. Every request that
+   * changes the project comes through here. A change inside another is part
+   * of it.
+   */
+  change = <Result>(kind: ChangeKind, run: () => Result): Result => {
+    if (this.changing) return run();
+    const state = this.changeableState();
     const project = state.project.id;
     const before = this.addressOf(state);
     this.changing = true;
@@ -391,30 +443,37 @@ export class ProjectSession {
   };
 
   private recordStep(kind: ChangeKind, before: Address, after: Address): void {
-    const step: HistoryStep = { id: uuid(), sequence: this.nextSequence, before, after, at: new Date().toISOString(), kind };
+    const history = withStep(this.history, {
+      id: uuid(),
+      sequence: this.nextSequence,
+      before,
+      after,
+      at: new Date().toISOString(),
+      kind,
+    });
     this.nextSequence += 1;
-    const steps = [...this.history.steps, step];
-    if (steps.length > KEPT_STEPS) {
-      steps.splice(0, steps.length - KEPT_STEPS);
-      this.cleanUpDue = true;
-    }
-    this.history = { ...this.history, steps };
+    // Older steps gave way.
+    if (history.steps.length <= this.history.steps.length) this.cleanUpDue = true;
+    this.history = history;
     this.scheduleWrite();
+    this.publish();
   }
 
   /**
    * Write the open project, the pieces its history names and the history.
    * This is the only code that writes the stored project; the adapter keeps
-   * the order that never leaves a record naming what is not stored.
+   * the order that never leaves a record naming what is not stored. `over`
+   * is the outside change the spec owner chose to write over; should the
+   * write fail, it still stands.
    */
-  private persistProject(): void {
+  private persistProject(over: OutsideChange | null = null): void {
     const state = this.readyState();
     if (state == null) return;
     if (this.changing) {
       this.writeAfterChange = true;
       return;
     }
-    // Written once the person has chosen which version to keep. Storage
+    // Written once the spec owner has chosen which project to keep. Storage
     // would refuse it, and the refusal could arrive after the choice.
     if (this.outsideChange != null) {
       this.writeHeldBack = true;
@@ -422,17 +481,10 @@ export class ProjectSession {
     }
     const current = projectState(state.registry, state.store);
     const address = this.pieces.addressOf(current);
-    const issued: IssuedWrite = { address, lastStep: this.history.steps.at(-1)?.id ?? null, name: state.project.name };
-    if (
-      this.issued != null &&
-      this.issued.address === issued.address &&
-      this.issued.lastStep === issued.lastStep &&
-      this.issued.name === issued.name
-    ) {
-      return;
-    }
-    this.issued = issued;
     const history = this.history;
+    const issued = issuedWriteOf(address, history, state.project);
+    if (sameIssuedWrite(this.issued, issued)) return;
+    this.issued = issued;
     const pieces = [...this.pieces.reachable([address, ...historyRoots(history)])]
       .filter((piece) => !this.storedPieces.has(piece))
       .map((piece) => [piece, this.pieces.get(piece)!.bytes] as const);
@@ -449,8 +501,9 @@ export class ProjectSession {
         state: current,
         address,
         pieces,
-        writing: { steps: history.steps, lastWritten: history.lastWritten, writing: address },
-        written: { steps: history.steps, lastWritten: address, writing: null },
+        writing: { ...history, writing: address },
+        written: { ...history, lastWritten: address, writing: null },
+        overOutsideChange: over != null,
       })
       .then(
         () => {
@@ -463,9 +516,14 @@ export class ProjectSession {
         (error: unknown) => {
           for (const [piece] of pieces) this.storedPieces.delete(piece);
           if (isLatest()) this.issued = null;
-          // Refused because the stored project changed meanwhile: the
-          // person's choice of version settles it.
-          if (this.outsideChange != null) {
+          if (over != null && this.outsideChange == null && this.readyState()?.project.id === projectId) {
+            // The stored project is still the one changed outside, so the choice stands open again.
+            this.outsideChange = over;
+            this.writeHeldBack = true;
+            this.publish();
+          } else if (this.outsideChange != null) {
+            // Refused because the stored project changed meanwhile: the
+            // spec owner's choice settles it.
             this.writeHeldBack = true;
             return;
           }
@@ -691,10 +749,91 @@ export class ProjectSession {
     return { ...projectState(state.registry, state.store), activeModuleId: state.registry.activeModuleId };
   }
 
-  /** Show a project's state, opening its first visible module. */
-  private showProjectState(project: ProjectIdentity, opened: ProjectState): void {
-    const first = visibleModules(opened)[0]!;
-    this.showStore(project, createModuleStore(first.content), { ...opened, activeModuleId: first.id });
+  /**
+   * Show a state of a project and write it like any other change. The shown
+   * module stays shown while the state still has it visible; otherwise, and
+   * when the project was not shown yet, its first visible module shows.
+   * Opening, importing, undo, redo and bringing back a step all show a state
+   * this way.
+   */
+  private showState(project: ProjectIdentity, shown: ProjectState): void {
+    const previous = this.readyState();
+    const kept = previous?.project.id === project.id ? previous.registry.activeModuleId : null;
+    const visible = visibleModules(shown);
+    const opened = visible.find(({ id }) => id === kept) ?? visible[0]!;
+    this.beginOperation();
+    this.showStore(project, createModuleStore(opened.content), { ...shown, activeModuleId: opened.id });
+  }
+
+  /** A kept state, put together from its pieces; throws for the spec owner when storage lost one of them. */
+  private keptState(address: Address): ProjectState {
+    try {
+      return this.pieces.stateAt(address);
+    } catch (error) {
+      console.error(`The state ${address} of the project's history cannot be put together.`, error);
+      throw new UserFacingError("That state of the project is no longer stored, so it cannot be brought back.", error);
+    }
+  }
+
+  /**
+   * The stored project as the rule for outside changes reads it, with its
+   * state when it can be opened and its pieces held.
+   */
+  private async readStoredProject(project: ProjectIdentity): Promise<ReadStoredProject> {
+    let document: unknown;
+    try {
+      document = await this.persistence.projects.load(project.id);
+    } catch (error) {
+      return { kind: "unreadable", problem: error instanceof Error ? error.message : String(error) };
+    }
+    if (document == null) return { kind: "missing" };
+    let state: ProjectState;
+    try {
+      state = parseProject(document);
+    } catch (error) {
+      return {
+        kind: "unreadable",
+        problem: `${project.name} cannot be opened because its stored data is invalid: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+    return { kind: "readable", address: this.pieces.addressOf(state), state };
+  }
+
+  /**
+   * Show a project as opening it decides, from the stored project and its
+   * history: the stored state, the state the history is at, or that state
+   * with the outside change waiting for the spec owner's choice.
+   */
+  private openStored(project: ProjectIdentity, stored: ReadStoredProject, loaded: ProjectHistory | null): void {
+    let history = loaded;
+    let opening: Opening<Extract<ReadStoredProject, { kind: "readable" }>> = openingOf(stored, history);
+    if ("current" in opening && !this.pieces.holdsWhole(opening.current)) {
+      console.error("The project's history names a state that is no longer stored; it starts again.");
+      history = null;
+      opening = openingOf(stored, history);
+    }
+    let shown: ProjectState;
+    switch (opening.kind) {
+      case "cannot open":
+        throw new UserFacingError(opening.problem ?? `${project.name} is no longer stored.`);
+      case "start":
+      case "open stored":
+        shown = opening.stored.state;
+        break;
+      case "write current":
+      case "outside change":
+        shown = this.pieces.stateAt(opening.current);
+    }
+    // Starting, the stored project becomes the one last written, with no steps.
+    this.history = opening.kind === "start" || history == null ? EMPTY_HISTORY : history;
+    this.nextSequence = Math.max(0, ...this.history.steps.map(({ sequence }) => sequence)) + 1;
+    this.outsideChange = opening.kind === "outside change" ? opening.change : null;
+    // A project stored as its history last wrote it is not written again on opening.
+    this.issued =
+      opening.kind === "open stored" && this.history.writing == null && this.history.lastWritten != null
+        ? issuedWriteOf(this.history.lastWritten, this.history, project)
+        : null;
+    this.showState(project, shown);
   }
 
   /** Leave whatever is shown and load a project from storage. */
@@ -734,37 +873,24 @@ export class ProjectSession {
         this.publish();
         return;
       }
-      // The session holds the project it opens: writes may replace it.
-      this.outsideChanges?.adoptStored();
-      const document = await this.persistence.projects.load(project.id);
-      if (!this.isOperationCurrent(generation)) return;
-      if (document == null) throw new UserFacingError(`${project.name} is no longer stored.`);
-      let opened: ProjectState;
-      try {
-        opened = parseProject(document);
-      } catch (error) {
-        throw new UserFacingError(
-          `${project.name} could not be opened because its stored data is invalid: ${error instanceof Error ? error.message : String(error)} It was left unchanged.`,
-          error,
-        );
-      }
+      this.pieces = new PieceStore();
+      const stored = await this.readStoredProject(project);
       const history = await this.persistence.history.load(project.id).catch((error: unknown) => {
         console.error("The project's history could not be read; it starts again.", error);
         return null;
       });
-      const stored = await this.persistence.history.pieceAddresses(project.id);
+      const storedPieces = await this.persistence.history.pieceAddresses(project.id);
       if (!this.isOperationCurrent(generation)) return;
-      this.pieces = new PieceStore();
-      this.storedPieces = new Set(stored);
+      this.storedPieces = new Set(storedPieces);
+      // Undo, redo and bringing back a step are synchronous, so every kept state is held first.
       this.history = history ?? EMPTY_HISTORY;
-      this.nextSequence = Math.max(0, ...this.history.steps.map(({ sequence }) => sequence)) + 1;
-      // A project stored as its history last wrote it is not written again on opening.
-      this.issued =
-        this.history.lastWritten == null || this.history.writing != null
-          ? null
-          : { address: this.history.lastWritten, lastStep: this.history.steps.at(-1)?.id ?? null, name: project.name };
-      this.showProjectState(project, opened);
-      void this.cleanUp(project.id, generation);
+      await this.holdKeptPieces(project.id, generation).catch((error: unknown) => {
+        // A state missing a piece is not one the history can show.
+        console.error("Some pieces of the project's history could not be read.", error);
+      });
+      if (!this.isOperationCurrent(generation)) return;
+      this.openStored(project, stored, history);
+      void this.cleanUp(project.id, this.operationGeneration);
     } catch (error) {
       if (!this.isOperationCurrent(generation)) return;
       console.error("Could not load the project.", error);
@@ -871,44 +997,101 @@ export class ProjectSession {
   }
 
   /**
-   * Open the project as it now is in storage, after it changed outside the
-   * session.
+   * Open the stored project that changed outside the session in place of
+   * the one on screen, as one step undo takes back.
    */
-  openChangedProject = (): Promise<void> => {
+  openChangedProject = async (): Promise<void> => {
     const state = this.choosableState();
     const change = this.outsideChange;
-    if (change?.kind !== "changed") return Promise.resolve();
-    if (change.problem != null) return Promise.reject(new UserFacingError(change.problem));
-    return this.openProject(state.project);
+    if (change?.kind !== "changed") return;
+    if (change.problem != null) throw new UserFacingError(change.problem);
+    const generation = this.operationGeneration;
+    const stored = await this.readStoredProject(state.project);
+    const current = this.readyState();
+    if (!this.isOperationCurrent(generation) || current?.project.id !== state.project.id || this.outsideChange == null) {
+      return;
+    }
+    if (stored.kind !== "readable") {
+      // It changed again meanwhile, into one that cannot be opened.
+      this.outsideChange = storedProjectChange(stored, this.history);
+      this.publish();
+      throw new UserFacingError(stored.kind === "missing" ? `${this.persistence.traits.name} was removed.` : stored.problem);
+    }
+    this.outsideChange = null;
+    this.writeHeldBack = false;
+    this.change("opening a changed project", () => this.showState(current.project, stored.state));
   };
 
-  /** Write the shown project over the stored one that changed outside the session. */
+  /** Write the project on screen over the stored one that changed or was removed outside the session. */
   keepShownProject = (): void => {
     this.choosableState();
-    if (this.outsideChange == null) return;
-    // The shown version is written as soon as nothing stands in its way:
-    // once the stored one is adopted, or once the change is gone.
-    this.writeHeldBack = true;
-    if (this.outsideChanges?.adoptStored() === false) {
-      throw new UserFacingError(
-        `${this.persistence.traits.name} cannot be read or holds another project, so it is not replaced. Fix it, then choose again.`,
-      );
-    }
-    if (this.writeHeldBack) {
-      this.writeHeldBack = false;
-      this.issued = null;
-      this.persistProject();
-    }
+    const change = this.outsideChange;
+    if (change == null) return;
+    this.outsideChange = null;
+    this.writeHeldBack = false;
+    this.issued = null;
+    this.persistProject(change);
+    this.publish();
   };
 
-  /** The open project, while the choice between versions can be made. */
+  /** The open project, while the choice between the two projects can be made. */
   private choosableState(): ReadySessionState {
     const state = this.readyState();
     if (state == null) {
-      throw new UserFacingError("Choose which version to keep once the project has finished opening.");
+      throw new UserFacingError("Choose which project to keep once the project has finished opening.");
     }
     return state;
   }
+
+  /** Undo the current step, bringing back the project as it was before it. Undo is not itself a step. */
+  undo = (): void => {
+    this.move(undoMove(this.history));
+  };
+
+  /** Redo the step undo last left, bringing back the project as it was after it. */
+  redo = (): void => {
+    this.move(redoMove(this.history));
+  };
+
+  private move(move: HistoryMove | null): void {
+    const state = this.changeableState();
+    if (move == null) return;
+    const shown = this.keptState(move.state);
+    // What waits for the debounce was made before the move, so it is written as it was.
+    this.flushPendingWrites();
+    this.history = move.history;
+    this.showState(state.project, shown);
+  }
+
+  /** Every kept step, newest first, with where each stands. */
+  listSteps = (): ListedStep[] => (this.readyState() == null ? [] : listedSteps(this.history));
+
+  /**
+   * Bring the project back as it was after a kept step, on any branch. Run
+   * inside the gate as a restore, it is itself a step undo takes back.
+   */
+  bringBackStep = (stepId: string): void => {
+    const state = this.changeableState();
+    this.showState(state.project, this.keptState(stepToBringBack(this.history, stepId).after));
+  };
+
+  /**
+   * Remove a project that is not open, with its history and pieces. Refused
+   * while another session, such as another tab, holds it.
+   */
+  deleteProject = async (projectId: string): Promise<void> => {
+    const state = this.state;
+    if ("project" in state && state.project.id === projectId && state.status !== "held-elsewhere") {
+      throw new UserFacingError("Leave the project before deleting it.");
+    }
+    const claim = await this.authority?.claim(projectId, { takeOver: false });
+    if (claim === null) throw new UserFacingError("This project is open in another tab. Close it there, then delete it.");
+    try {
+      await this.persistence.projects.delete(projectId);
+    } finally {
+      claim?.release();
+    }
+  };
 
   backToProjects = (): void => {
     this.flushPendingWrites();
@@ -1024,9 +1207,7 @@ export class ProjectSession {
   importProjectFile = (data: unknown): void => {
     const state = this.readyState();
     if (state == null) throw new UserFacingError("Import once the project has finished opening.");
-    const imported = parseProject(data);
-    this.beginOperation();
-    this.showProjectState(state.project, imported);
+    this.showState(state.project, parseProject(data));
   };
 
   /** The open project as an export holds it. */
@@ -1074,6 +1255,7 @@ export class ProjectSession {
       pieces: [...pieces.reachable([address])].map((piece) => [piece, pieces.get(piece)!.bytes] as const),
       writing: { ...EMPTY_HISTORY, writing: address },
       written: { ...EMPTY_HISTORY, lastWritten: address },
+      overOutsideChange: false,
     });
   }
 }

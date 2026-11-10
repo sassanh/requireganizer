@@ -106,17 +106,31 @@ export class PieceStore {
 
   /** Every held piece the given states consist of. */
   reachable(roots: Iterable<Address>): Set<Address> {
+    return this.walk(roots).reached;
+  }
+
+  /** Whether every piece of the state at an address is held, so it can be put together. */
+  holdsWhole(address: Address): boolean {
+    return this.walk([address]).whole;
+  }
+
+  /** The held pieces the given states consist of, and whether none of theirs is missing. */
+  private walk(roots: Iterable<Address>): { reached: Set<Address>; whole: boolean } {
     const reached = new Set<Address>();
     const pending = [...roots];
+    let whole = true;
     while (pending.length > 0) {
       const address = pending.pop()!;
       if (reached.has(address)) continue;
       const piece = this.pieces.get(address);
-      if (piece == null) continue;
+      if (piece == null) {
+        whole = false;
+        continue;
+      }
       reached.add(address);
       for (const [child] of piece.children) pending.push(child);
     }
-    return reached;
+    return { reached, whole };
   }
 
   /** Let go of every piece but those given. */

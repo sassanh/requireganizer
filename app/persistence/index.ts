@@ -1,7 +1,6 @@
 export type {
   ClientPersistence,
   HistoryPersistence,
-  OutsideChange,
   OutsideChanges,
   PersistenceAdapter,
   ProjectPersistence,

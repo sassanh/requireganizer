@@ -4,13 +4,23 @@ export { buildExport, DEFAULT_EXPORT_OPTIONS, type ExportOptions } from "./expor
 export {
   type ChangeKind,
   EMPTY_HISTORY,
+  type HistoryMove,
+  type HistoryPosition,
+  historyPosition,
   historyRoots,
   type HistoryStep,
-  KEPT_STEPS,
+  listedSteps,
+  type ListedStep,
   parseHistory,
   type ProjectHistory,
+  redoMove,
+  type StepPlace,
+  stepToBringBack,
+  undoMove,
+  withStep,
 } from "./history";
 export { parseProject } from "./parseProject";
+export { type Opening, openingOf, type OutsideChange, type StoredProject, storedProjectChange } from "./storedProject";
 export { type Address, addressOfBytes, type Piece, type PieceLevel, PieceStore } from "./pieces";
 export {
   type ModuleContent,

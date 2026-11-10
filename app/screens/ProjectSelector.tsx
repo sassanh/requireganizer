@@ -34,7 +34,7 @@ interface ProjectSelectorProps {
 }
 
 export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
-  const { activeProject, persistence, storage, createProject, importNewProject } = useProject();
+  const { activeProject, persistence, storage, createProject, importNewProject, deleteProject } = useProject();
   const [projects, setProjects] = useState<ProjectMeta[] | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newName, setNewName] = useState("");
@@ -96,7 +96,7 @@ export default function ProjectSelector({ onSelect }: ProjectSelectorProps) {
 
   const handleDelete = async (id: string) => {
     try {
-      await persistence.projects.delete(id);
+      await deleteProject(id);
       setProjects((current) =>
         (current ?? []).filter((project) => project.id !== id),
       );

@@ -17,6 +17,7 @@ import { Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState
 
 import { switchModuleShortcut } from "actions/actions";
 import {
+  HistoryControls,
   ModuleSwitcherDialog,
   ProjectActionsMenu,
   OutsideChangeDialog,
@@ -272,6 +273,7 @@ function Home() {
             </Button>
           ) : null}
         </Stack>
+        <HistoryControls />
         </Toolbar>
       </AppBar>
       {/* Official fixed-AppBar spacer: reserves exactly the toolbar height. */}

@@ -21,3 +21,12 @@ export interface Action<Target> {
  * modules. Cmd+M is reserved by macOS (minimize), hence the Shift.
  */
 export const switchModuleShortcut: ShortcutSpec = { key: "m", mod: true, shift: true };
+
+/** Undo the project's current step. */
+export const undoShortcut: ShortcutSpec = { key: "z", mod: true };
+
+/** Redo the step undo last took back. */
+export const redoShortcut: ShortcutSpec = { key: "z", mod: true, shift: true };
+
+/** Redo as Windows and Linux programs also take it. */
+export const redoAlternateShortcut: ShortcutSpec = { key: "y", ctrl: true };

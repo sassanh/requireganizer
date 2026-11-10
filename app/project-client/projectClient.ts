@@ -30,7 +30,7 @@ import { UserFacingError } from "lib/errors";
 import type { ProjectIdentity } from "lib/projectStorage";
 import type { ClientPersistence } from "persistence";
 import { type ProjectSessionSnapshot, SiblingModuleStores } from "project-session";
-import type { ExportOptions, ModuleRegistry, ModuleState } from "storage-and-recovery";
+import type { ExportOptions, ListedStep, ModuleRegistry, ModuleState } from "storage-and-recovery";
 import { type ReplicatedVolatileState, Store } from "store";
 
 type Result<Name extends RequestName> = Awaited<ReturnType<HostApi[Name]>>;
@@ -313,6 +313,16 @@ export class ProjectClient {
   openChangedProject = (): Promise<void> => this.request("openChangedProject");
 
   keepShownProject = (): Promise<void> => this.request("keepShownProject");
+
+  undo = (): Promise<void> => this.request("undo");
+
+  redo = (): Promise<void> => this.request("redo");
+
+  listSteps = (): Promise<ListedStep[]> => this.request("listSteps");
+
+  bringBackStep = (stepId: string): Promise<void> => this.request("bringBackStep", stepId);
+
+  deleteProject = (projectId: string): Promise<void> => this.request("deleteProject", projectId);
 
   /** The tools an outside agent can call on the open project now. */
   listAgentTools = (): Promise<AgentToolDescription[]> => this.request("listAgentTools");

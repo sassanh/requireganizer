@@ -1,4 +1,4 @@
-import type { Address, ProjectHistory, ProjectState } from "storage-and-recovery";
+import type { Address, OutsideChange, ProjectHistory, ProjectState } from "storage-and-recovery";
 
 import type { ProjectIdentity, ProjectMeta } from "../lib/projectStorage";
 
@@ -16,6 +16,12 @@ export interface ProjectWrite {
   writing: ProjectHistory;
   /** The history once the project is written: it names the state as last written. */
   written: ProjectHistory;
+  /**
+   * The spec owner chose to write this over a stored project changed
+   * outside Requireganizer. Without it, a storage that has outside changes
+   * refuses to replace one, unless it holds this very state.
+   */
+  overOutsideChange: boolean;
 }
 
 /**
@@ -82,29 +88,18 @@ export interface StorageTraits {
 }
 
 /**
- * How the stored project differs from what its adapter last adopted or wrote,
- * because something else changed it, such as a checkout of the project file.
- * `problem` says why the changed project cannot be opened; null when it can.
- */
-export type OutsideChange = { kind: "changed"; problem: string | null } | { kind: "removed" };
-
-/**
- * Changes made to the stored project outside the adapter. While one stands,
- * the adapter refuses to write the project, so neither version is lost.
+ * Changes made to the stored project outside Requireganizer, by the one
+ * rule `storedProjectChange` applies to the stored project and its history.
+ * While one stands, the adapter refuses to write over it, so neither project
+ * is lost.
  */
 export interface OutsideChanges {
   /**
-   * Call `listener` with the change whenever it differs from the last one,
-   * null once the stored project is again what the adapter last adopted or
+   * Call `listener` with the change at once, then whenever it differs from
+   * the last one, null once the stored project is again one Requireganizer
    * wrote. Returns a function that stops watching.
    */
   watch(listener: (change: OutsideChange | null) => void): () => void;
-  /**
-   * Hold the stored project as it is now, as when opening it, so the next
-   * write may replace it. False, holding nothing new, while it cannot be read
-   * or holds another project. Loads never change what the adapter holds.
-   */
-  adoptStored(): boolean;
 }
 
 /**
@@ -121,5 +116,5 @@ export interface PersistenceAdapter {
 /** The storage operations a client may ask the host for. */
 export interface ClientPersistence {
   readonly traits: StorageTraits;
-  readonly projects: Pick<ProjectPersistence, "list" | "delete">;
+  readonly projects: Pick<ProjectPersistence, "list">;
 }

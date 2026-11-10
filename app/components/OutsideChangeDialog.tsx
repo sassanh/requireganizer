@@ -3,13 +3,14 @@ import { observer } from "mobx-react-lite";
 import { useState } from "react";
 
 import { getUserFacingErrorMessage } from "lib/errors";
-import type { OutsideChange } from "persistence";
 import { useProject } from "projectContext";
+import type { OutsideChange } from "storage-and-recovery";
 
 /**
- * Shown while the stored project differs from the one shown here because
- * something else changed it, such as a checkout of the project file. The
- * person keeps one version; nothing else can be done until then.
+ * Shown while the stored project differs from the one Requireganizer last
+ * wrote because something else changed or removed it, such as a checkout of
+ * the project file. The spec owner keeps one of the two; nothing changes
+ * until then.
  */
 const OutsideChangeDialog = () => {
   const { outsideChange } = useProject();
@@ -44,28 +45,24 @@ const OutsideChangeChoice = observer(({ outsideChange }: { outsideChange: Outsid
       </DialogTitle>
       <DialogContent>
         {problem != null && <Alert severity="error" sx={{ mb: 2 }}>{problem}</Alert>}
-        {openable && (
-          <DialogContentText>
-            Opening the changed file keeps this version one undo away.
-          </DialogContentText>
-        )}
+        {openable && <DialogContentText>Opening the changed project can be undone.</DialogContentText>}
         {failure != null && <Alert severity="error" sx={{ mt: 2 }}>{failure}</Alert>}
       </DialogContent>
       <DialogActions>
         <Button
-          disabled={working || problem != null}
+          disabled={working}
           color="warning"
-          onClick={() => void run(keepShownProject, "This version could not be written.")}
+          onClick={() => void run(keepShownProject, "The project on screen could not be written.")}
         >
-          {outsideChange.kind === "removed" ? "Write this version again" : "Keep this version"}
+          {outsideChange.kind === "removed" ? "Write the project on screen back" : "Keep the project on screen"}
         </Button>
-        {outsideChange.kind === "changed" && (
+        {openable && (
           <Button
-            disabled={working || !openable}
+            disabled={working}
             variant="contained"
-            onClick={() => void run(openChangedProject, "The changed file could not be opened.")}
+            onClick={() => void run(openChangedProject, "The changed project could not be opened.")}
           >
-            Open the changed file
+            Open the changed project
           </Button>
         )}
       </DialogActions>

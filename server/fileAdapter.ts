@@ -23,7 +23,6 @@ import {
 } from "lib/projectStorage";
 import type {
   HistoryPersistence,
-  OutsideChange,
   OutsideChanges,
   PersistenceAdapter,
   ProjectPersistence,
@@ -32,11 +31,15 @@ import type {
 } from "persistence";
 import {
   type Address,
+  type OutsideChange,
   parseHistory,
   parseProject,
+  PieceStore,
   type ProjectHistory,
   projectDocument,
   serializeCanonical,
+  type StoredProject,
+  storedProjectChange,
 } from "storage-and-recovery";
 
 /** The id of a project file that names none, such as an export placed by hand. */
@@ -49,6 +52,8 @@ interface ProjectFile {
   identity: ProjectIdentity;
   /** The project's document as stored, which `parseProject` read. */
   document: Record<string, unknown>;
+  /** The address of the state it holds. */
+  address: Address;
 }
 
 export interface FilePersistenceAdapterOptions {
@@ -98,11 +103,11 @@ function messageOf(error: unknown): string {
  *
  * Writes are issued synchronously and replace files atomically, so they are
  * never reordered: the pieces first, then the history naming the state being
- * written, then the project file, then the history naming it as written. A
- * project file that cannot be read is never overwritten: loading it fails
- * with what is wrong, and writes to it are refused. Neither is a file changed
- * since this adapter last adopted or wrote it, such as by a checkout;
- * `outsideChanges` reports such a change as it happens.
+ * written, then the project file, then the history naming it as written.
+ * Whether the project file changed outside Requireganizer, such as by a
+ * checkout, is decided by `storedProjectChange` from the file and the
+ * history in the state directory: `outsideChanges` reports such a change as
+ * it happens, and a write over one is refused unless the spec owner chose it.
  */
 export class FilePersistenceAdapter implements PersistenceAdapter {
   readonly traits: StorageTraits;
@@ -110,13 +115,12 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
   private readonly stateDirectory: string;
   private readonly now: () => Date;
   /**
-   * The project file's contents as this adapter last adopted or wrote them;
-   * undefined until it has done either. A write over anything else would
-   * replace a change made outside the server.
+   * The id of the project this adapter serves, once it loaded or wrote it.
+   * A file that holds another project cannot be opened in its place.
    */
-  private knownContents: string | null | undefined = undefined;
-  /** The project those contents hold; kept when the file is removed, so writing it again keeps its identity. */
-  private heldIdentity: ProjectIdentity | null = null;
+  private heldProjectId: string | null = null;
+  /** The last project file read and what it holds, so an unchanged file is not read into a state again. */
+  private lastRead: { source: string; file: ProjectFile } | null = null;
   private readonly outsideChangeListeners = new Set<(change: OutsideChange | null) => void>();
   private reportedOutsideChange: OutsideChange | null = null;
   private fileWatcher: FSWatcher | null = null;
@@ -140,6 +144,7 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
 
   private parseProjectFile(source: string | null): ProjectFile | null {
     if (source == null) return null;
+    if (this.lastRead?.source === source) return this.lastRead.file;
     const label = this.traits.name;
     let value: Record<string, unknown>;
     try {
@@ -149,56 +154,54 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
     }
     const document: Record<string, unknown> = { ...value };
     for (const key of IDENTITY_KEYS) delete document[key];
+    let address: Address;
     try {
-      parseProject(document);
+      address = new PieceStore().addressOf(parseProject(document));
     } catch (error) {
       throw new UserFacingError(`${label} does not hold a valid project: ${messageOf(error)} Fix the file, then try again.`);
     }
     const text = (key: string): string | null =>
       typeof value[key] === "string" && (value[key] as string).trim().length > 0 ? (value[key] as string) : null;
-    return {
+    const file: ProjectFile = {
       identity: { id: text("id") ?? DEFAULT_FILE_PROJECT_ID, name: text("name") ?? this.defaultName() },
       document,
+      address,
     };
+    this.lastRead = { source, file };
+    return file;
   }
 
   private metaOf(identity: ProjectIdentity): ProjectMeta {
     return { ...identity, updatedAt: this.modifiedAt().toISOString() };
   }
 
-  /** Record the project file's contents as this adapter adopted or wrote them. */
-  private remember(contents: string | null, identity: ProjectIdentity | null): void {
-    this.knownContents = contents;
-    if (identity != null) this.heldIdentity = identity;
-    if (this.outsideChangeListeners.size > 0 && this.fileWatcher == null) this.watchProjectFile();
-    this.checkOutsideChange();
+  /** The project file as the rule for outside changes reads it. */
+  private storedProject(): StoredProject {
+    let file: ProjectFile | null;
+    try {
+      file = this.readProjectFile();
+    } catch (error) {
+      return { kind: "unreadable", problem: messageOf(error) };
+    }
+    if (file == null) return { kind: "missing" };
+    if (this.heldProjectId != null && file.identity.id !== this.heldProjectId) {
+      return { kind: "unreadable", problem: `${this.traits.name} now holds another project.` };
+    }
+    return { kind: "readable", address: file.address };
   }
 
-  /**
-   * The identity of the stored project, read for a write, or null when there
-   * is none; a write never replaces a file it cannot read or one changed
-   * outside this adapter.
-   */
-  private storedForWrite(): ProjectIdentity | null {
-    let source: string | null;
+  /** The history in the state directory; null when there is none or it cannot be read, so there is nothing to compare with. */
+  private storedHistory(): ProjectHistory | null {
     try {
-      source = readIfPresent(this.projectFile);
-    } catch (error) {
-      throw new ProjectStorageError(PROJECT_SAVE_ERROR_MESSAGE, error);
+      const source = readIfPresent(this.historyPath());
+      return source == null ? null : parseHistory(JSON.parse(source));
+    } catch {
+      return null;
     }
-    if (this.knownContents !== undefined && source !== this.knownContents) {
-      this.checkOutsideChange();
-      throw new UserFacingError(
-        `${this.traits.name} changed outside Requireganizer, so it was not overwritten. Choose in Requireganizer which version to keep.`,
-      );
-    }
-    // What this adapter wrote or adopted holds the project it holds.
-    if (source != null && source === this.knownContents && this.heldIdentity != null) return this.heldIdentity;
-    try {
-      return this.parseProjectFile(source)?.identity ?? null;
-    } catch (error) {
-      throw new ProjectStorageError(messageOf(error), error);
-    }
+  }
+
+  private currentOutsideChange(): OutsideChange | null {
+    return storedProjectChange(this.storedProject(), this.storedHistory());
   }
 
   private historyPath(): string {
@@ -213,20 +216,41 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
     writeAtomically(this.historyPath(), serializeCanonical(history));
   }
 
-  /** Write a project, its pieces and its history, in the order that never leaves a record naming what is not stored. */
+  /**
+   * Write a project, its pieces and its history, in the order that never
+   * leaves a record naming what is not stored. A project file changed
+   * outside Requireganizer is replaced only when the spec owner chose it,
+   * or when it already holds the state written, which loses nothing.
+   */
   private store(write: ProjectWrite): void {
+    const stored = this.storedProject();
+    const holdsWritten = stored.kind === "readable" && stored.address === write.address;
+    if (!write.overOutsideChange && !holdsWritten && storedProjectChange(stored, this.storedHistory()) != null) {
+      this.checkOutsideChange();
+      throw new UserFacingError(
+        `${this.traits.name} changed outside Requireganizer, so it was not overwritten. Choose in Requireganizer which project to keep.`,
+      );
+    }
     try {
       for (const [address, bytes] of write.pieces) {
         const path = this.piecePath(address);
         if (!existsSync(path)) writeAtomically(path, bytes);
       }
       this.writeHistory(write.writing);
-      const contents = serializeCanonical({ ...projectDocument(write.state), ...write.project });
+      const document = projectDocument(write.state);
+      const contents = serializeCanonical({ ...document, ...write.project });
       writeAtomically(this.projectFile, contents);
-      this.remember(contents, write.project);
+      this.heldProjectId = write.project.id;
+      this.lastRead = {
+        source: contents,
+        file: { identity: write.project, document: { ...document }, address: write.address },
+      };
       this.writeHistory(write.written);
     } catch (error) {
       throw new ProjectStorageError(PROJECT_SAVE_ERROR_MESSAGE, error);
+    } finally {
+      if (this.outsideChangeListeners.size > 0 && this.fileWatcher == null) this.watchProjectFile();
+      this.checkOutsideChange();
     }
   }
 
@@ -248,20 +272,6 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
         if (this.outsideChangeCheck != null) clearTimeout(this.outsideChangeCheck);
         this.outsideChangeCheck = null;
       };
-    },
-    adoptStored: () => {
-      let stored: ProjectFile | null;
-      let source: string | null;
-      try {
-        source = readIfPresent(this.projectFile);
-        stored = this.parseProjectFile(source);
-      } catch {
-        // A file that cannot be read is never overwritten.
-        return false;
-      }
-      if (stored != null && this.heldIdentity != null && stored.identity.id !== this.heldIdentity.id) return false;
-      this.remember(source, stored?.identity ?? null);
-      return true;
     },
   };
 
@@ -287,41 +297,18 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
     watcher.on("error", (error) => {
       console.error(`Stopped watching ${this.traits.name} for changes made outside Requireganizer.`, error);
       watcher.close();
-      // Watched again at the next write or adoption.
+      // Watched again at the next write.
       if (this.fileWatcher === watcher) this.fileWatcher = null;
     });
   }
 
-  /** Tell the watchers when the project file's difference from what this adapter holds has changed. */
+  /** Tell the watchers when the project file's outside change has changed. */
   private checkOutsideChange(): void {
     if (this.outsideChangeListeners.size === 0) return;
     const change = this.currentOutsideChange();
     if (JSON.stringify(change) === JSON.stringify(this.reportedOutsideChange)) return;
     this.reportedOutsideChange = change;
     for (const listener of [...this.outsideChangeListeners]) listener(change);
-  }
-
-  private currentOutsideChange(): OutsideChange | null {
-    const known = this.knownContents;
-    if (known === undefined) return null;
-    let source: string | null;
-    try {
-      source = readIfPresent(this.projectFile);
-    } catch (error) {
-      return { kind: "changed", problem: messageOf(error) };
-    }
-    if (source === known) return null;
-    if (source == null) return { kind: "removed" };
-    let changedId: string;
-    try {
-      changedId = this.parseProjectFile(source)!.identity.id;
-    } catch (error) {
-      return { kind: "changed", problem: messageOf(error) };
-    }
-    if (this.heldIdentity != null && changedId !== this.heldIdentity.id) {
-      return { kind: "changed", problem: `${this.traits.name} now holds another project.` };
-    }
-    return { kind: "changed", problem: null };
   }
 
   /** When the project file last changed; now when that cannot be read, such as for a file removed meanwhile. */
@@ -344,22 +331,21 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
       }
     },
     load: async (projectId) => {
+      // Only the project's authority loads it; from then on this adapter
+      // serves that project, and a file holding another is a change.
+      this.heldProjectId ??= projectId;
       const stored = this.readProjectFile();
-      // A load, such as a page reading the project, never changes what this
-      // adapter holds: only `adoptStored` and writes do.
       if (stored == null) return null;
-      if (stored.identity.id !== projectId) throw new UserFacingError(this.otherProjectMessage());
+      if (stored.identity.id !== this.heldProjectId) throw new UserFacingError(this.otherProjectMessage());
       return stored.document;
     },
     create: async (write) => {
-      if (this.storedForWrite() != null) {
+      if (this.storedProject().kind !== "missing") {
         throw new ProjectStorageError(`${this.traits.name} already holds a project. Import into it from the open project instead.`);
       }
       this.store(write);
     },
     write: async (write) => {
-      const stored = this.storedForWrite();
-      if (stored != null && stored.id !== write.project.id) throw new ProjectStorageError(this.otherProjectMessage());
       this.store(write);
     },
     delete: async () => {

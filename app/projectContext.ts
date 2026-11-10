@@ -2,8 +2,9 @@
 import { createContext, useContext } from "react";
 
 import type { ProjectIdentity } from "lib/projectStorage";
-import type { ClientPersistence, OutsideChange, StorageTraits } from "persistence";
+import type { ClientPersistence, StorageTraits } from "persistence";
 import type { ModuleSummary, ProjectSessionStatus } from "project-session";
+import type { HistoryPosition, ListedStep, OutsideChange } from "storage-and-recovery";
 
 /**
  * The open project as the interface sees it. Every operation is a request to
@@ -18,12 +19,22 @@ export interface ProjectContextValue {
   outsideChange: OutsideChange | null;
   /** Open the project as storage now holds it. */
   openChangedProject: () => Promise<void>;
-  /** Write the shown project over the changed one. */
+  /** Write the shown project over the changed or removed one. */
   keepShownProject: () => Promise<void>;
+  /** Where the open project is in its history; null while no project is open. */
+  history: HistoryPosition | null;
+  undo: () => Promise<void>;
+  redo: () => Promise<void>;
+  /** Every kept step, newest first. */
+  listSteps: () => Promise<ListedStep[]>;
+  /** Bring the project back as it was after a step; itself a step undo takes back. */
+  bringBackStep: (stepId: string) => Promise<void>;
   /** The storage behind the host: whether it holds one project, and its name. */
   storage: StorageTraits;
   /** The host's storage, for the project list. */
   persistence: ClientPersistence;
+  /** Rejects while the project is open in another tab. */
+  deleteProject: (projectId: string) => Promise<void>;
   /** A starting intent drafts the overview once the project opens. */
   selectProject: (id: string, name: string, options?: { overviewSeed?: string }) => Promise<void>;
   /** Open here the project another tab holds. */
