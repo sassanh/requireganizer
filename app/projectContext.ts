@@ -4,7 +4,7 @@ import { createContext, useContext } from "react";
 import type { ProjectIdentity } from "lib/projectStorage";
 import type { ClientPersistence, StorageTraits } from "persistence";
 import type { ModuleSummary, ProjectSessionStatus } from "project-session";
-import type { HistoryPosition, ListedStep, OutsideChange } from "storage-and-recovery";
+import type { HistoryPosition, ListedRestorePoint, ListedStep, OutsideChange } from "storage-and-recovery";
 
 /**
  * The open project as the interface sees it. Every operation is a request to
@@ -31,6 +31,15 @@ export interface ProjectContextValue {
   listSteps: () => Promise<ListedStep[]>;
   /** Bring the project back as it was after a step; itself a step undo takes back. */
   bringBackStep: (stepId: string) => Promise<void>;
+  /** The kept restore points, newest first. */
+  listRestorePoints: () => Promise<ListedRestorePoint[]>;
+  /** Rejects when the name is empty. */
+  makeRestorePoint: (name: string) => Promise<void>;
+  /** Restore the project to a restore point; itself a step undo takes back. */
+  restoreToRestorePoint: (restorePointId: string) => Promise<void>;
+  pinRestorePoint: (restorePointId: string) => Promise<void>;
+  unpinRestorePoint: (restorePointId: string) => Promise<void>;
+  deleteRestorePoint: (restorePointId: string) => Promise<void>;
   /** The storage behind the host: whether it holds one project, and its name. */
   storage: StorageTraits;
   /** The host's storage, for the project list. */

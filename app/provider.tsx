@@ -38,18 +38,23 @@ interface ProjectConnection {
   session: ProjectSession | null;
 }
 
+/** The page's IANA time zone, whose calendar the host keeps restore points by. */
+function pageTimeZone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
+
 function connectProject(): ProjectConnection {
   if (PROJECT_HOST_LOCATION === "server") {
     return {
       session: null,
-      client: new ProjectClient(() => connectWebSocket(linkUrlFor(window.location.href))),
+      client: new ProjectClient(() => connectWebSocket(linkUrlFor(window.location.href)), { timeZone: pageTimeZone() }),
     };
   }
   installAiRuntime(browserAiSettings);
   // Every tab builds its own host; the lock makes one of them the project's writer.
   const session = new ProjectSession(webPersistence, { authority: webProjectAuthority });
   const host = new ProjectHost(session);
-  return { session, client: new ProjectClient(() => linkInProcess(host)) };
+  return { session, client: new ProjectClient(() => linkInProcess(host), { timeZone: pageTimeZone() }) };
 }
 
 let isStoreReloadNeeded = true;
@@ -125,6 +130,12 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     redo: client.redo,
     listSteps: client.listSteps,
     bringBackStep: client.bringBackStep,
+    listRestorePoints: client.listRestorePoints,
+    makeRestorePoint: client.makeRestorePoint,
+    restoreToRestorePoint: client.restoreToRestorePoint,
+    pinRestorePoint: client.pinRestorePoint,
+    unpinRestorePoint: client.unpinRestorePoint,
+    deleteRestorePoint: client.deleteRestorePoint,
     storage,
     persistence: client.persistence,
     deleteProject: client.deleteProject,

@@ -30,7 +30,7 @@ import { UserFacingError } from "lib/errors";
 import type { ProjectIdentity } from "lib/projectStorage";
 import type { ClientPersistence } from "persistence";
 import { type ProjectSessionSnapshot, SiblingModuleStores } from "project-session";
-import type { ExportOptions, ListedStep, ModuleRegistry, ModuleState } from "storage-and-recovery";
+import type { ExportOptions, ListedRestorePoint, ListedStep, ModuleRegistry, ModuleState } from "storage-and-recovery";
 import { type ReplicatedVolatileState, Store } from "store";
 
 type Result<Name extends RequestName> = Awaited<ReturnType<HostApi[Name]>>;
@@ -120,6 +120,8 @@ export class ProjectClient {
   readonly persistence: ClientPersistence;
 
   private readonly connect: () => ClientConnection;
+  /** The time zone this client reports to every host it connects to; null for a client that has none to report. */
+  private readonly timeZone: string | null;
   private connection: { link: ClientConnection; stopListening: () => void } | null = null;
   private opened = false;
   private connectionStatus: ConnectionStatus = { state: "connecting" };
@@ -149,8 +151,9 @@ export class ProjectClient {
   private snapshot: ProjectSessionSnapshot;
   private applyingLocally = false;
 
-  constructor(connect: () => ClientConnection) {
+  constructor(connect: () => ClientConnection, options: { timeZone?: string } = {}) {
     this.connect = connect;
+    this.timeZone = options.timeZone ?? null;
     // Until the host's first event arrives, actions on this blank replica
     // name a store the host never shows, so they are refused.
     this.replica = this.createReplica("", {}, null);
@@ -204,6 +207,12 @@ export class ProjectClient {
         if (this.connectionStatus.state !== "open") {
           this.reconnectDelay = FIRST_RECONNECT_DELAY_MS;
           this.setConnectionStatus({ state: "open" });
+          // Each host hears the time zone first, a restarted one included.
+          if (this.timeZone != null) {
+            this.request("reportTimeZone", this.timeZone).catch((error: unknown) =>
+              console.error("Could not report the time zone to the project host.", error),
+            );
+          }
           for (const request of this.queued.splice(0)) this.send(link, request);
         }
         this.receive(message);
@@ -323,6 +332,19 @@ export class ProjectClient {
   listSteps = (): Promise<ListedStep[]> => this.request("listSteps");
 
   bringBackStep = (stepId: string): Promise<void> => this.request("bringBackStep", stepId);
+
+  listRestorePoints = (): Promise<ListedRestorePoint[]> => this.request("listRestorePoints");
+
+  makeRestorePoint = (name: string): Promise<void> => this.request("makeRestorePoint", name);
+
+  restoreToRestorePoint = (restorePointId: string): Promise<void> =>
+    this.request("restoreToRestorePoint", restorePointId);
+
+  pinRestorePoint = (restorePointId: string): Promise<void> => this.request("pinRestorePoint", restorePointId);
+
+  unpinRestorePoint = (restorePointId: string): Promise<void> => this.request("unpinRestorePoint", restorePointId);
+
+  deleteRestorePoint = (restorePointId: string): Promise<void> => this.request("deleteRestorePoint", restorePointId);
 
   deleteProject = (projectId: string): Promise<void> => this.request("deleteProject", projectId);
 

@@ -1,4 +1,4 @@
-import { currentState, type ProjectHistory } from "./history";
+import type { ProjectHistory } from "./history";
 import type { Address } from "./pieces";
 
 /** The stored project as read: missing, unreadable with the reason, or a state with its address. */
@@ -67,7 +67,7 @@ export function openingOf<Stored extends StoredProject>(
   stored: Stored,
   history: ProjectHistory | null,
 ): Opening<ReadableOf<Stored>> {
-  const current = history == null ? null : currentState(history);
+  const current = history?.currentState ?? null;
   if (history == null || current == null) {
     if (isReadable(stored)) return { kind: "start", stored };
     return { kind: "cannot open", problem: stored.kind === "unreadable" ? stored.problem : null };

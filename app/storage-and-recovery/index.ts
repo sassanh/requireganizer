@@ -1,9 +1,12 @@
 export { type AuthorityClaim, type ProjectAuthority, webProjectAuthority } from "./authority";
 export { serializeCanonical } from "./canonicalJson";
 export { buildExport, DEFAULT_EXPORT_OPTIONS, type ExportOptions } from "./exportProject";
+export { isTimeZone, ownTimeZone } from "./calendar";
 export {
+  automaticRestorePointDue,
   type ChangeKind,
   EMPTY_HISTORY,
+  heldStates,
   type HistoryMove,
   type HistoryPosition,
   historyPosition,
@@ -17,11 +20,21 @@ export {
   type StepPlace,
   stepToBringBack,
   undoMove,
+  withoutRestorePoints,
+  withRestorePoint,
+  withRestorePointPinned,
   withStep,
 } from "./history";
 export { parseProject } from "./parseProject";
+export {
+  automaticRestorePointsToDelete,
+  keptRestorePoints,
+  listedRestorePoints,
+  type ListedRestorePoint,
+  type RestorePoint,
+} from "./restorePoints";
 export { type Opening, openingOf, type OutsideChange, type StoredProject, storedProjectChange } from "./storedProject";
-export { type Address, addressOfBytes, type Piece, type PieceLevel, PieceStore } from "./pieces";
+export { type Address, addressOfBytes, childrenOf, type Piece, type PieceLevel, PieceStore } from "./pieces";
 export {
   type ModuleContent,
   moduleContentOf,

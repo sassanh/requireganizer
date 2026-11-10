@@ -4,7 +4,14 @@ import type { AgentCaller, AgentToolDescription } from "ai-agent/agent-access";
 import type { ProjectIdentity } from "lib/projectStorage";
 import type { ClientPersistence, StorageTraits } from "persistence";
 import type { ProjectSessionSnapshot } from "project-session";
-import type { ExportOptions, ListedStep, ModuleContent, ModuleRegistry, ModuleState } from "storage-and-recovery";
+import type {
+  ExportOptions,
+  ListedRestorePoint,
+  ListedStep,
+  ModuleContent,
+  ModuleRegistry,
+  ModuleState,
+} from "storage-and-recovery";
 import type { ReplicatedVolatileState } from "store";
 
 /**
@@ -18,7 +25,7 @@ import type { ReplicatedVolatileState } from "store";
  * different builds checks it before any message is exchanged; change it
  * whenever a message changes shape.
  */
-export const PROTOCOL_VERSION = 9;
+export const PROTOCOL_VERSION = 10;
 
 /**
  * WebSocket close codes a host server ends a connection with when connecting
@@ -115,6 +122,17 @@ export interface HostApi {
   listSteps(): ListedStep[];
   /** Bring the project back as it was after a kept step, as a step of kind restore. */
   bringBackStep(stepId: string): void;
+  /** The kept restore points, newest first. */
+  listRestorePoints(): ListedRestorePoint[];
+  /** Make a restore point of the shown project under a name. */
+  makeRestorePoint(name: string): void;
+  /** Restore the project to a restore point, as a step of kind restore. */
+  restoreToRestorePoint(restorePointId: string): Promise<void>;
+  pinRestorePoint(restorePointId: string): void;
+  unpinRestorePoint(restorePointId: string): void;
+  deleteRestorePoint(restorePointId: string): void;
+  /** The page's IANA time zone, whose calendar the keeping rule of restore points reads. */
+  reportTimeZone(timeZone: string): void;
   /** Remove a project that is not open; refused while another tab holds it. */
   deleteProject(projectId: string): Promise<void>;
   runStoreAction(call: StoreActionCall): unknown;

@@ -36,12 +36,16 @@ export function addressOfBytes(bytes: string): Address {
   return bytesToHex(sha256(utf8ToBytes(bytes)));
 }
 
+export function isAddress(value: unknown): value is Address {
+  return typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
+}
+
 function textsOf(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
 }
 
 /** The pieces a piece names, read from its bytes. */
-function childrenOf(level: PieceLevel, bytes: string): (readonly [Address, PieceLevel])[] {
+export function childrenOf(level: PieceLevel, bytes: string): (readonly [Address, PieceLevel])[] {
   if (level === "item" || level === "thread") return [];
   const node = parseJson(bytes, "A stored piece");
   if (!isRecord(node)) return [];
