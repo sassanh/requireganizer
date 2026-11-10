@@ -149,10 +149,20 @@ function itemView(store: Store, id: string): Record<string, unknown> {
   };
 }
 
+/**
+ * The unit a thread is on. A removed unit keeps the code it had then, which
+ * another item may hold now, so it is named as removed.
+ */
+function threadUnit(store: Store, thread: Thread): Record<string, unknown> {
+  return thread.removedUnit == null
+    ? { unit: store.unitLabel(thread.unitId) }
+    : { unit: `${thread.removedUnit} (removed)`, unitRemoved: true };
+}
+
 function threadView(store: Store, thread: Thread): Record<string, unknown> {
   return {
     threadId: thread.id,
-    unit: store.unitLabel(thread.unitId),
+    ...threadUnit(store, thread),
     stage: thread.stage,
     status: thread.resolution != null ? "resolved" : waitsForAnswerer(thread) ? "waiting for you" : "waiting for the spec owner",
     messages: thread.messages.map(({ author, text, withChanges }) => ({
@@ -169,7 +179,6 @@ function threadWithUnit(store: Store, thread: Thread): Record<string, unknown> {
   const isItem = address.kind === "item" && store.itemState(address.itemId) != null;
   return {
     ...threadView(store, thread),
-    ...(thread.removedUnit == null ? {} : { unitRemoved: true }),
     ...(isItem ? { item: itemView(store, address.itemId) } : {}),
   };
 }
@@ -343,7 +352,7 @@ const workflowStateTool: AgentTool = {
       stages,
       threadsWaitingForYou: store.threadsWaitingForAnswerer.map((thread) => ({
         threadId: thread.id,
-        unit: store.unitLabel(thread.unitId),
+        ...threadUnit(store, thread),
         stage: thread.stage,
       })),
       stagesWaitingForYou: store.writingAskedOfAnswerer.map(({ stage }) => ({ stage, label: store.workflow.stage(stage).label })),
@@ -482,7 +491,7 @@ const writeTool: AgentTool = {
   description: {
     name: "write_items",
     description:
-      "Write, change and remove items of any open stages, all or none, following each stage's published rules from get_stage_rules. Name items by the codes of the codesVersion you send. An item missing a required field, referencing none of a kind it must reference, or breaking a rule of its kind (such as a name another item already has, a value of the wrong type, or an operation a step does not offer), is refused with each problem; the rules are checked once all the changes are applied, so their order does not matter. One write never changes a stage together with a stage that builds on it: change the earlier stage, and the later one once the earlier is complete again. Items added in one write cannot name each other by code: write an item, then those that choose it. An added or changed item rests on the current versions of what it references and depends on; an item changed to exactly what it was stays as it was. Removing a signed item proposes its removal, which the spec owner signs; an item never signed is removed at once. A reference links to an item of a stage this stage builds on; a dependency links to an item of the same stage, or of another module as \"Module name/CODE\" in the same stage or one it builds on. The reply names each item by the code you named it by, with its new code where that moved, and an added item by its new code. Pass answers to reply to the threads these changes answer. Only the spec owner signs and resolves threads.",
+      "Write, change and remove items of any open stages, all or none, following each stage's published rules from get_stage_rules. Name items by the codes of the codesVersion you send. An item missing a required field, referencing none of a kind it must reference, or breaking a rule of its kind (such as a name another item already has, a value of the wrong type, or an operation a step does not offer), is refused with each problem; the rules are checked once all the changes are applied, so their order does not matter. One write never changes a stage together with a stage that builds on it: change the earlier stage, and the later one once the earlier is complete again. Items added in one write cannot name each other by code: write an item, then those that choose it. An added or changed item rests on the current versions of what it references and depends on; an item changed to exactly what it was stays as it was. Removing a signed item proposes its removal, which the spec owner signs; an item never signed is removed at once. Changing an item proposed for removal withdraws the removal, even when the change leaves it exactly as it was. A reference links to an item of a stage this stage builds on; a dependency links to an item of the same stage, or of another module as \"Module name/CODE\" in the same stage or one it builds on. The reply names each item by the code you named it by, with its new code where that moved, and an added item by its new code. Pass answers to reply to the threads these changes answer. Only the spec owner signs and resolves threads.",
     inputSchema: {
       type: "object",
       properties: {
