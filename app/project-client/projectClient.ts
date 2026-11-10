@@ -314,6 +314,8 @@ export class ProjectClient {
 
   keepShownProject = (): Promise<void> => this.request("keepShownProject");
 
+  leaveProjectRemoved = (): Promise<void> => this.request("leaveProjectRemoved");
+
   undo = (): Promise<void> => this.request("undo");
 
   redo = (): Promise<void> => this.request("redo");

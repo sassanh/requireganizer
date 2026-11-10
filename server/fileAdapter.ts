@@ -13,7 +13,7 @@ import {
 import { basename, dirname, extname, join } from "node:path";
 
 import { UserFacingError } from "lib/errors";
-import { parseJsonObject } from "lib/json";
+import { isRecord, parseJsonObject } from "lib/json";
 import {
   PROJECT_DELETE_ERROR_MESSAGE,
   PROJECT_SAVE_ERROR_MESSAGE,
@@ -99,7 +99,10 @@ function messageOf(error: unknown): string {
  * by the one canonical serializer, so a change touches only the lines that
  * hold it. A file without an id or name, such as an export placed by hand,
  * opens too. The project's history and its pieces live in a separate state
- * directory, since they are local work rather than part of the project.
+ * directory, since they are local work rather than part of the project,
+ * with the identity of the project last written, so a project file removed
+ * outside Requireganizer still opens, from its history, for the spec owner
+ * to write back or leave removed.
  *
  * Writes are issued synchronously and replace files atomically, so they are
  * never reordered: the pieces first, then the history naming the state being
@@ -108,6 +111,8 @@ function messageOf(error: unknown): string {
  * checkout, is decided by `storedProjectChange` from the file and the
  * history in the state directory: `outsideChanges` reports such a change as
  * it happens, and a write over one is refused unless the spec owner chose it.
+ * Requireganizer never removes the project file: deleting the project
+ * forgets its history and pieces once the file is gone.
  */
 export class FilePersistenceAdapter implements PersistenceAdapter {
   readonly traits: StorageTraits;
@@ -208,8 +213,35 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
     return join(this.stateDirectory, "history.json");
   }
 
+  private identityPath(): string {
+    return join(this.stateDirectory, "identity.json");
+  }
+
+  private objectsPath(): string {
+    return join(this.stateDirectory, "objects");
+  }
+
+  /**
+   * The identity of the project last written; the one a file that names
+   * none has when there is no record of it, as for a history written before
+   * the record was kept.
+   */
+  private writtenIdentity(): ProjectIdentity {
+    const fallback = { id: DEFAULT_FILE_PROJECT_ID, name: this.defaultName() };
+    try {
+      const source = readIfPresent(this.identityPath());
+      const value: unknown = source == null ? null : JSON.parse(source);
+      if (isRecord(value) && typeof value.id === "string" && typeof value.name === "string") {
+        return { id: value.id, name: value.name };
+      }
+    } catch {
+      // Unreadable: the fallback names it.
+    }
+    return fallback;
+  }
+
   private piecePath(address: Address): string {
-    return join(this.stateDirectory, "objects", address.slice(0, 2), address.slice(2));
+    return join(this.objectsPath(), address.slice(0, 2), address.slice(2));
   }
 
   private writeHistory(history: ProjectHistory): void {
@@ -240,6 +272,7 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
       const document = projectDocument(write.state);
       const contents = serializeCanonical({ ...document, ...write.project });
       writeAtomically(this.projectFile, contents);
+      writeAtomically(this.identityPath(), serializeCanonical({ id: write.project.id, name: write.project.name }));
       this.heldProjectId = write.project.id;
       this.lastRead = {
         source: contents,
@@ -322,13 +355,19 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
 
   readonly projects: ProjectPersistence = {
     list: async () => {
+      let stored: ProjectFile | null;
       try {
-        const stored = this.readProjectFile();
-        return stored == null ? [] : [this.metaOf(stored.identity)];
+        stored = this.readProjectFile();
       } catch {
         // The project still opens, and loading it explains what is wrong.
         return [this.metaOf({ id: DEFAULT_FILE_PROJECT_ID, name: this.defaultName() })];
       }
+      if (stored != null) return [this.metaOf(stored.identity)];
+      // A project file removed outside Requireganizer still opens, from its
+      // history, so the spec owner chooses what becomes of it.
+      return storedProjectChange({ kind: "missing" }, this.storedHistory()) == null
+        ? []
+        : [this.metaOf(this.writtenIdentity())];
     },
     load: async (projectId) => {
       // Only the project's authority loads it; from then on this adapter
@@ -349,7 +388,21 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
       this.store(write);
     },
     delete: async () => {
-      throw new ProjectStorageError(`${PROJECT_DELETE_ERROR_MESSAGE} Delete ${this.traits.name} yourself to remove it.`);
+      if (this.storedProject().kind !== "missing") {
+        throw new ProjectStorageError(`${PROJECT_DELETE_ERROR_MESSAGE} Delete ${this.traits.name} yourself to remove it.`);
+      }
+      try {
+        // The history first: once it is gone, nothing reports the removal again.
+        rmSync(this.historyPath(), { force: true });
+        rmSync(this.identityPath(), { force: true });
+        rmSync(this.objectsPath(), { recursive: true, force: true });
+      } catch (error) {
+        throw new ProjectStorageError(PROJECT_DELETE_ERROR_MESSAGE, error);
+      } finally {
+        this.checkOutsideChange();
+      }
+      this.heldProjectId = null;
+      this.lastRead = null;
     },
   };
 
@@ -359,7 +412,7 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
       return source == null ? null : parseHistory(JSON.parse(source));
     },
     pieceAddresses: async () => {
-      const objects = join(this.stateDirectory, "objects");
+      const objects = this.objectsPath();
       if (!existsSync(objects)) return [];
       return readdirSync(objects).flatMap((prefix) =>
         readdirSync(join(objects, prefix))

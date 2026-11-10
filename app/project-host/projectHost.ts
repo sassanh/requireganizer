@@ -128,6 +128,7 @@ export class ProjectHost implements HostEndpoint {
       exportProject: (options, restorePointId) => session.exportProject(options, restorePointId),
       openChangedProject: () => session.openChangedProject(),
       keepShownProject: () => session.keepShownProject(),
+      leaveProjectRemoved: () => session.leaveProjectRemoved(),
       undo: () => session.undo(),
       redo: () => session.redo(),
       listSteps: () => session.listSteps(),

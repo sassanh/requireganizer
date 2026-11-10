@@ -18,7 +18,7 @@ import type { ReplicatedVolatileState } from "store";
  * different builds checks it before any message is exchanged; change it
  * whenever a message changes shape.
  */
-export const PROTOCOL_VERSION = 8;
+export const PROTOCOL_VERSION = 9;
 
 /**
  * WebSocket close codes a host server ends a connection with when connecting
@@ -105,6 +105,8 @@ export interface HostApi {
   openChangedProject(): Promise<void>;
   /** Write the shown project over the stored one that changed or was removed outside the host. */
   keepShownProject(): void;
+  /** Leave the stored project removed outside the host: close it and forget its history, writing nothing where it was. */
+  leaveProjectRemoved(): Promise<void>;
   /** Undo the current step; not itself a step. */
   undo(): void;
   /** Redo the step undo last left. */

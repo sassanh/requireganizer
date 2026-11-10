@@ -61,7 +61,12 @@ export interface ProjectPersistence {
    */
   write(write: ProjectWrite): Promise<void>;
 
-  /** Remove everything stored for the project: itself, its history and its pieces. */
+  /**
+   * Remove everything stored for the project: itself, its history and its
+   * pieces. A storage whose project is a file a person keeps, such as one in
+   * a repository, never removes that file: it rejects while the file is
+   * there, and once the file is gone it removes the history and pieces.
+   */
   delete(projectId: string): Promise<void>;
 }
 

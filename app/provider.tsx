@@ -119,6 +119,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     outsideChange,
     openChangedProject: client.openChangedProject,
     keepShownProject: client.keepShownProject,
+    leaveProjectRemoved: client.leaveProjectRemoved,
     history: sessionState.status === "ready" ? sessionState.history : null,
     undo: client.undo,
     redo: client.redo,

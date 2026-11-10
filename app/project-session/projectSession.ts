@@ -1034,6 +1034,36 @@ export class ProjectSession {
     this.publish();
   };
 
+  /**
+   * Leave the stored project removed outside the session: write nothing
+   * where it was, forget its history and pieces, so no later opening reports
+   * the removal again, and close it.
+   */
+  leaveProjectRemoved = async (): Promise<void> => {
+    const state = this.choosableState();
+    if (this.outsideChange?.kind !== "removed") {
+      throw new UserFacingError(`${state.project.name} is stored again, so it was not left removed.`);
+    }
+    // Once the history is forgotten, storage reports no outside change; what
+    // was held back is still not written where the stored project was.
+    const heldBack = this.writeHeldBack;
+    this.writeHeldBack = false;
+    try {
+      // Storage refuses this once the stored project is back.
+      await this.persistence.projects.delete(state.project.id);
+    } catch (error) {
+      this.writeHeldBack ||= heldBack;
+      throw error;
+    }
+    if (this.readyState()?.project.id !== state.project.id) return;
+    this.outsideChange = null;
+    this.issued = null;
+    this.history = EMPTY_HISTORY;
+    this.pieces = new PieceStore();
+    this.storedPieces = new Set();
+    this.closeProject({ write: false });
+  };
+
   /** The open project, while the choice between the two projects can be made. */
   private choosableState(): ReadySessionState {
     const state = this.readyState();
@@ -1095,14 +1125,19 @@ export class ProjectSession {
 
   backToProjects = (): void => {
     this.flushPendingWrites();
+    this.closeProject({ write: true });
+  };
+
+  /** Show no project, giving the open one up; `write` writes what waits for the debounce first. */
+  private closeProject(options: { write: boolean }): void {
     this.beginOperation();
     this.pendingOverviewSeed = null;
-    this.detachStoreSubscription();
+    this.detachStoreSubscription(options);
     this.releaseClaim();
     this.state = { status: "idle", store: this.state.store };
     this.syncModuleContext();
     this.publish();
-  };
+  }
 
   clearPersistenceError = (): void => {
     const state = this.readyState();

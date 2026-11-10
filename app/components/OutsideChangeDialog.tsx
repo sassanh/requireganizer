@@ -9,8 +9,8 @@ import type { OutsideChange } from "storage-and-recovery";
 /**
  * Shown while the stored project differs from the one Requireganizer last
  * wrote because something else changed or removed it, such as a checkout of
- * the project file. The spec owner keeps one of the two; nothing changes
- * until then.
+ * the project file. The spec owner keeps one of the two, or leaves a
+ * removed one removed; nothing changes until then.
  */
 const OutsideChangeDialog = () => {
   const { outsideChange } = useProject();
@@ -22,7 +22,7 @@ const OutsideChangeDialog = () => {
 };
 
 const OutsideChangeChoice = observer(({ outsideChange }: { outsideChange: OutsideChange }) => {
-  const { storage, openChangedProject, keepShownProject } = useProject();
+  const { storage, openChangedProject, keepShownProject, leaveProjectRemoved } = useProject();
   const [working, setWorking] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const run = async (choice: () => Promise<void>, fallback: string) => {
@@ -36,25 +36,41 @@ const OutsideChangeChoice = observer(({ outsideChange }: { outsideChange: Outsid
       setWorking(false);
     }
   };
+  const removed = outsideChange.kind === "removed";
   const problem = outsideChange.kind === "changed" ? outsideChange.problem : null;
   const openable = outsideChange.kind === "changed" && problem == null;
   return (
     <Dialog open maxWidth="sm" fullWidth>
       <DialogTitle>
-        {storage.name} {outsideChange.kind === "removed" ? "was removed" : "changed"} outside Requireganizer
+        {storage.name} {removed ? "was removed" : "changed"} outside Requireganizer
       </DialogTitle>
       <DialogContent>
         {problem != null && <Alert severity="error" sx={{ mb: 2 }}>{problem}</Alert>}
+        {removed && (
+          <DialogContentText>
+            Write the project on screen back, or leave it removed and close the project, forgetting its history.
+          </DialogContentText>
+        )}
         {openable && <DialogContentText>Opening the changed project can be undone.</DialogContentText>}
         {failure != null && <Alert severity="error" sx={{ mt: 2 }}>{failure}</Alert>}
       </DialogContent>
       <DialogActions>
+        {removed && (
+          <Button
+            disabled={working}
+            color="warning"
+            onClick={() => void run(leaveProjectRemoved, "The project's history could not be forgotten. Try again.")}
+          >
+            Leave it removed
+          </Button>
+        )}
         <Button
           disabled={working}
-          color="warning"
+          color={removed ? "primary" : "warning"}
+          variant={removed ? "contained" : "text"}
           onClick={() => void run(keepShownProject, "The project on screen could not be written.")}
         >
-          {outsideChange.kind === "removed" ? "Write the project on screen back" : "Keep the project on screen"}
+          {removed ? "Write it back" : "Keep the project on screen"}
         </Button>
         {openable && (
           <Button

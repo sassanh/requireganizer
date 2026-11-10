@@ -19,14 +19,15 @@ export type OutsideChange = { kind: "changed"; problem: string | null } | { kind
  * The one rule for whether the stored project changed outside
  * Requireganizer. It is unchanged while its state is the one last written or
  * the one being written, however its bytes are laid out. One that cannot be
- * read is a change, with the reason; a missing one is a removal. Without a
- * history there is nothing it could have changed from.
+ * read is a change, with the reason; a missing one is a removal once
+ * Requireganizer wrote it. Without a history there is nothing it could have
+ * changed from.
  */
 export function storedProjectChange(stored: StoredProject, history: ProjectHistory | null): OutsideChange | null {
   if (history == null) return null;
   switch (stored.kind) {
     case "missing":
-      return { kind: "removed" };
+      return history.lastWritten == null ? null : { kind: "removed" };
     case "unreadable":
       return { kind: "changed", problem: stored.problem };
     case "readable":
@@ -43,8 +44,8 @@ export function storedProjectChange(stored: StoredProject, history: ProjectHisto
  * - `write current`: S is W or the one being written but not C, so
  *   Requireganizer's own change was not written, as after a crash. C shows
  *   and is written.
- * - `outside change`: S changed outside Requireganizer. C shows, and
- *   nothing is written until the spec owner chooses.
+ * - `outside change`: S changed or was removed outside Requireganizer. C
+ *   shows, and nothing is written until the spec owner chooses.
  * - `start`: there is no history, so S becomes W, with no steps.
  * - `cannot open`: there is no history to show instead of a stored project
  *   that cannot be opened.

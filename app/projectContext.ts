@@ -21,6 +21,8 @@ export interface ProjectContextValue {
   openChangedProject: () => Promise<void>;
   /** Write the shown project over the changed or removed one. */
   keepShownProject: () => Promise<void>;
+  /** Close the project removed outside Requireganizer and forget its history, writing nothing where it was. */
+  leaveProjectRemoved: () => Promise<void>;
   /** Where the open project is in its history; null while no project is open. */
   history: HistoryPosition | null;
   undo: () => Promise<void>;
