@@ -267,7 +267,7 @@ export class ProjectHost implements HostEndpoint {
       receive: (message: ClientMessage) => this.receive(send, message, connection),
       close: () => {
         if (!this.links.delete(send)) return;
-        this.shown?.store.releaseThreads(connection);
+        this.shown?.store.releaseTurns(connection);
         if (this.links.size === 0) this.stopObserving();
       },
     };

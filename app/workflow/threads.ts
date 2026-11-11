@@ -62,8 +62,8 @@ export function threadTurn(thread: Thread): string {
   return `${thread.id}:${thread.messages.length}`;
 }
 
-/** An answerer at work on one turn of a thread, by the connection that took it up. */
-export interface ThreadInHand {
+/** An answerer at work on one turn, of a thread or of a request to write a stage, by the connection that took it up. */
+export interface TurnInHand {
   turn: string;
   by: string;
 }

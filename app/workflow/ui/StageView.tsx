@@ -27,6 +27,7 @@ import type { FieldDefinition } from "../definition";
 import type { CoverageState, ImpactState, ItemState, OutOfDateCause } from "../module";
 import { revisionOf, textValue, type ItemVersion } from "../records";
 import { STAGE_PROGRESS_LABELS, WAITING_CATEGORY_LABELS } from "../units";
+import { answeringSx } from "./answering";
 import { perform, useWorkflowNavigation, useWorkflowView } from "./context";
 import ItemChip, { ItemOption, useItemLabel } from "./ItemChip";
 import ItemEditor, { type EditorTarget } from "./ItemEditor";
@@ -674,7 +675,7 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
         <Stack
           ref={headerRef}
           spacing={compact ? 0.5 : 1}
-          sx={{ position: "sticky", top: 0, zIndex: 2, bgcolor: "background.default", mx: -2, px: 2, pt: compact ? 1 : 2, pb: compact ? 1 : 0, mb: 2, borderBottom: 1, borderColor: compact ? "divider" : "transparent" }}
+          sx={{ position: "sticky", top: 0, zIndex: 2, bgcolor: "background.default", mx: -2, px: 2, pt: compact ? 1 : 2, pb: compact ? 1.5 : 2, mb: compact ? 1.5 : 0, borderBottom: 1, borderColor: compact ? "divider" : "transparent" }}
         >
           <Stack direction="row" sx={{ alignItems: "center", gap: 1, flexWrap: "wrap" }}>
             <Typography variant={compact ? "subtitle1" : "h5"} sx={{ flexGrow: compact ? 0 : 1 }}>{definition.label}</Typography>
@@ -692,11 +693,20 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
           </Typography>
           {module.stagesToWriteAfter(stage).map((later) => {
             const asked = module.writingAskedOfAnswerer.some((ask) => ask.stage === later);
+            const writing = module.isBeingWritten(later);
             const label = workflow.stage(later).label;
             return (
               <Box key={later}>
-                <Button size="small" variant="contained" startIcon={<Send />} disabled={asked} onClick={() => void perform(() => module.askToWrite(later), "The coding agent could not be asked.")}>
-                  {asked ? `Asked the coding agent to write ${label}` : `Ask the coding agent to write ${label}`}
+                <Button
+                  size="small"
+                  variant={asked ? "outlined" : "contained"}
+                  startIcon={<Send />}
+                  disabled={asked}
+                  aria-busy={writing || undefined}
+                  sx={writing ? answeringSx : undefined}
+                  onClick={() => void perform(() => module.askToWrite(later), "The coding agent could not be asked.")}
+                >
+                  {writing ? `The coding agent is writing ${label}` : asked ? `Asked the coding agent to write ${label}` : `Ask the coding agent to write ${label}`}
                 </Button>
               </Box>
             );

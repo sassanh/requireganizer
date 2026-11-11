@@ -33,7 +33,7 @@ import {
   type Thread,
   type ThreadAnswer,
   type ThreadAuthor,
-  type ThreadInHand,
+  type TurnInHand,
   threadTurn,
   waitsForAnswerer,
   waitsForSpecOwner,
@@ -105,6 +105,11 @@ export interface LinkedModule {
 export interface WritingAsk {
   stage: string;
   at: string;
+}
+
+/** One request to write a stage: it changes when the stage is asked for again, so whatever concerned a request ends with it. */
+function writingTurn(ask: WritingAsk): string {
+  return `write:${ask.stage}:${ask.at}`;
 }
 
 /** An item that an item, coverage or impact names, of this module or another, as the page names and previews it. */
@@ -313,8 +318,8 @@ export function workflowModuleModel(workflow: Workflow) {
     .volatile(() => ({
       /** The project's other modules, which dependencies may name. */
       linkedModules: [] as LinkedModule[],
-      /** The thread turns an answerer is at work on now. */
-      threadsInHand: [] as ThreadInHand[],
+      /** The turns an answerer is at work on now: of threads, and of requests to write a stage. */
+      turnsInHand: [] as TurnInHand[],
     }))
     .views((self) => {
       const itemsOf = (stage: string): readonly Item[] => self.stages.get(stage)?.items ?? [];
@@ -879,6 +884,9 @@ export function workflowModuleModel(workflow: Workflow) {
         outOfDateBecauseOf: (id) => outOfDateBecauseOf(id),
       };
 
+      /** The stages the spec owner asked the coding agent to write that are still open and not complete. */
+      const writingAskedOfAnswerer = (): WritingAsk[] => self.writingAsked.filter(({ stage }) => self.stageOpen(stage) && !self.stageComplete(stage));
+
       return {
         stageProgress: progress,
         outOfDateBecauseOf,
@@ -930,16 +938,15 @@ export function workflowModuleModel(workflow: Workflow) {
         threadsOfStage(stage: string): Thread[] {
           return self.threads.filter((thread) => thread.stage === stage);
         },
-        /** The stages that build directly on a complete stage and can be written now, not yet complete. */
+        /** The stages that build directly on a complete stage and can be written now, still holding no item. */
         stagesToWriteAfter(stage: string): string[] {
           if (!self.stageComplete(stage)) return [];
           return workflow.stageIds.filter((later) =>
-            workflow.stage(later).buildsOn.some((basis) => basis.stage === stage) && self.stageOpen(later) && !self.stageComplete(later),
+            workflow.stage(later).buildsOn.some((basis) => basis.stage === stage) && self.stageOpen(later) && self.itemsOf(later).length === 0,
           );
         },
-        /** The stages the spec owner asked the coding agent to write that are still open and not complete. */
         get writingAskedOfAnswerer(): WritingAsk[] {
-          return self.writingAsked.filter(({ stage }) => self.stageOpen(stage) && !self.stageComplete(stage));
+          return writingAskedOfAnswerer();
         },
         /** The open threads that wait for the coding agent in stages open now. */
         get threadsWaitingForAnswerer(): Thread[] {
@@ -950,7 +957,12 @@ export function workflowModuleModel(workflow: Workflow) {
           const thread = self.threads.find(({ id }) => id === threadId);
           if (thread == null || !waitsForAnswerer(thread)) return false;
           const turn = threadTurn(thread);
-          return self.threadsInHand.some((inHand) => inHand.turn === turn);
+          return self.turnsInHand.some((inHand) => inHand.turn === turn);
+        },
+        /** An answerer is at work on the request to write the stage now. */
+        isBeingWritten(stage: string): boolean {
+          const ask = writingAskedOfAnswerer().find((asked) => asked.stage === stage);
+          return ask != null && self.turnsInHand.some((inHand) => inHand.turn === writingTurn(ask));
         },
         /** This module as another module resolves dependencies on it. */
         get lookup(): ModuleLookup {
@@ -1389,6 +1401,15 @@ export function workflowModuleModel(workflow: Workflow) {
         return thread;
       }
 
+      /** Record that `by` is at work on a turn, letting go of the turns that have ended. */
+      function takeUp(turn: string, by: string) {
+        const current = new Set([...self.threads.filter(waitsForAnswerer).map(threadTurn), ...self.writingAskedOfAnswerer.map(writingTurn)]);
+        self.turnsInHand = [
+          ...self.turnsInHand.filter((inHand) => current.has(inHand.turn) && !(inHand.turn === turn && inHand.by === by)),
+          { turn, by },
+        ];
+      }
+
       return {
         setLinkedModules(modules: LinkedModule[]) {
           self.linkedModules = modules;
@@ -1601,18 +1622,17 @@ export function workflowModuleModel(workflow: Workflow) {
         /** An answerer takes up the thread's current turn, which ends with the thread's next message. */
         takeUpThread(threadId: string, by: string) {
           const thread = self.threads.find(({ id }) => id === threadId);
-          if (thread == null || !waitsForAnswerer(thread)) return;
-          const turn = threadTurn(thread);
-          const current = new Set(self.threads.filter(waitsForAnswerer).map(threadTurn));
-          self.threadsInHand = [
-            ...self.threadsInHand.filter((inHand) => current.has(inHand.turn) && !(inHand.turn === turn && inHand.by === by)),
-            { turn, by },
-          ];
+          if (thread != null && waitsForAnswerer(thread)) takeUp(threadTurn(thread), by);
+        },
+        /** An answerer takes up the request to write a stage, which ends once the stage is written or asked for again. */
+        takeUpWriting(stage: string, by: string) {
+          const ask = self.writingAskedOfAnswerer.find((asked) => asked.stage === stage);
+          if (ask != null) takeUp(writingTurn(ask), by);
         },
         /** What `by` took up is no longer in hand, such as once its connection ends. */
-        releaseThreads(by: string) {
-          if (!self.threadsInHand.some((inHand) => inHand.by === by)) return;
-          self.threadsInHand = self.threadsInHand.filter((inHand) => inHand.by !== by);
+        releaseTurns(by: string) {
+          if (!self.turnsInHand.some((inHand) => inHand.by === by)) return;
+          self.turnsInHand = self.turnsInHand.filter((inHand) => inHand.by !== by);
         },
       };
     });

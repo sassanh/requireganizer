@@ -6,7 +6,7 @@ import { createContext, useContext } from "react";
 import { REQUIREMENTS_ENGINEERING_STAGES } from "requirements-engineering";
 import type { ModuleContent } from "storage-and-recovery";
 import { TEST_DESIGN_STAGES } from "test-design";
-import { type ThreadInHand, Workflow, workflowModuleModel } from "workflow";
+import { type TurnInHand, Workflow, workflowModuleModel } from "workflow";
 
 /** The workflow every module of a project follows. */
 export const WORKFLOW = new Workflow({ stages: [...REQUIREMENTS_ENGINEERING_STAGES, ...TEST_DESIGN_STAGES] });
@@ -16,11 +16,11 @@ export const WORKFLOW = new Workflow({ stages: [...REQUIREMENTS_ENGINEERING_STAG
  * patch, so the authority sends it to replicas separately.
  */
 export interface ReplicatedVolatileState {
-  /** The thread turns an answerer is at work on now. */
-  threadsInHand: ThreadInHand[];
+  /** The turns an answerer is at work on now. */
+  turnsInHand: TurnInHand[];
 }
 
-const REPLICATED_VOLATILE_KEYS = ["threadsInHand"] as const satisfies readonly (keyof ReplicatedVolatileState)[];
+const REPLICATED_VOLATILE_KEYS = ["turnsInHand"] as const satisfies readonly (keyof ReplicatedVolatileState)[];
 
 export const Store = workflowModuleModel(WORKFLOW)
   .named("Store")
