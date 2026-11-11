@@ -76,7 +76,7 @@ export function childrenOf(level: PieceLevel, bytes: string): (readonly [Address
  */
 export class PieceStore {
   private readonly pieces = new Map<Address, Piece>();
-  private addresses = new WeakMap<object, Address>();
+  private readonly addresses = new WeakMap<object, Address>();
   private readonly modules = new WeakMap<ModuleContent, { id: string; name: string; archivedAt: string | null; address: Address }>();
 
   get(address: Address): Piece | undefined {
@@ -137,35 +137,52 @@ export class PieceStore {
     return { reached, whole };
   }
 
-  /** Let go of every piece but those given. */
+  /**
+   * Let go of every piece but those given and the held pieces they consist
+   * of. A piece recognised by its object was held with all its own pieces,
+   * and so it stays: while it is held, the object needs no hashing again.
+   */
   retainOnly(kept: ReadonlySet<Address>): void {
+    const { reached } = this.walk(kept);
     for (const address of [...this.pieces.keys()]) {
-      if (!kept.has(address)) this.pieces.delete(address);
+      if (!reached.has(address)) this.pieces.delete(address);
     }
-    // An object may name a piece let go of; it is hashed again when next seen.
-    this.addresses = new WeakMap();
   }
 
-  /** The state at an address, put together from its pieces and read by the one project parser. */
+  /**
+   * The state at an address, put together from its pieces and read by the
+   * one project parser. Each part is recognised by its address from then
+   * on, so a state brought back is not hashed again.
+   */
   stateAt(address: Address): ProjectState {
     const read = (pieceAddress: Address): Record<string, unknown> => {
       const piece = this.pieces.get(pieceAddress);
       if (piece == null) throw new Error(`The piece ${pieceAddress} is missing.`);
       return parseJson(piece.bytes, "A stored piece") as Record<string, unknown>;
     };
+    const recognised = (pieceAddress: Address, value: object): object => {
+      this.addresses.set(value, pieceAddress);
+      return value;
+    };
+    const leaf = (pieceAddress: Address): object => recognised(pieceAddress, read(pieceAddress));
     const project = read(address);
-    const modules = textsOf(project.modules).map((moduleAddress) => {
+    const moduleAddresses = textsOf(project.modules);
+    const modules = moduleAddresses.map((moduleAddress) => {
       const moduleNode = read(moduleAddress);
       const node = moduleNode.content as Record<string, unknown>;
       const stages = Object.fromEntries(
         Object.entries(node.stages as Record<string, Address>).map(([stage, stageAddress]) => {
           const stored = read(stageAddress);
-          return [stage, { ...stored, items: textsOf(stored.items).map(read) }];
+          return [stage, recognised(stageAddress, { ...stored, items: textsOf(stored.items).map(leaf) })];
         }),
       );
-      return { ...moduleNode, content: { ...node, stages, threads: textsOf(node.threads).map(read) } };
+      return { ...moduleNode, content: { ...node, stages, threads: textsOf(node.threads).map(leaf) } };
     });
-    return parseProject({ ...project, modules });
+    const state = parseProject({ ...project, modules });
+    state.modules.forEach(({ id, name, archivedAt, content }, index) =>
+      this.modules.set(content, { id, name, archivedAt, address: moduleAddresses[index]! }),
+    );
+    return state;
   }
 
   private hold(level: PieceLevel, node: unknown, children: (readonly [Address, PieceLevel])[]): Address {

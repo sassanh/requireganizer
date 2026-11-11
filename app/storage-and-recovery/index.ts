@@ -33,6 +33,7 @@ export {
   type ListedRestorePoint,
   type RestorePoint,
 } from "./restorePoints";
+export { sharedWith } from "./shared";
 export { type Opening, openingOf, type OutsideChange, type StoredProject, storedProjectChange } from "./storedProject";
 export { type Address, addressOfBytes, childrenOf, type Piece, type PieceLevel, PieceStore } from "./pieces";
 export {

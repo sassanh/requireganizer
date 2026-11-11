@@ -1,3 +1,4 @@
+import { comparer } from "mobx";
 import { cast, getSnapshot, getType, type Instance, types } from "mobx-state-tree";
 
 import { UserFacingError } from "lib/errors";
@@ -359,8 +360,14 @@ export function workflowModuleModel(workflow: Workflow) {
         return map;
       });
 
+      /**
+       * Every thread on a unit, oldest first. Compared by content, so a
+       * message in one unit's thread reaches only what reads that unit.
+       */
+      const threadsOf = keyedView((unitId: string): Thread[] => threadsOfUnit().get(unitId) ?? [], comparer.structural);
+
       function openThreadOf(unitId: string): Thread | null {
-        return threadsOfUnit().get(unitId)?.find(({ resolution }) => resolution == null) ?? null;
+        return threadsOf(unitId).find(({ resolution }) => resolution == null) ?? null;
       }
 
       /** The items of single kinds that the given stages hold. */
@@ -425,6 +432,11 @@ export function workflowModuleModel(workflow: Workflow) {
         return { ...state, approved: state.reasons.length === 0 } as State;
       }
 
+      /**
+       * An item's state. Compared by content, like every unit's state: a unit
+       * derived again and found as it was stays the very same object, so a
+       * change reaches only what reads the units it changes.
+       */
       const itemState = keyedView((id: string): ItemState | null => {
         const located = locate(id);
         if (located == null) return null;
@@ -494,7 +506,7 @@ export function workflowModuleModel(workflow: Workflow) {
           reasons: phase === "removed" ? ["proposed-removal"] : reasons,
           waiting,
         });
-      });
+      }, comparer.structural);
 
       function itemStanding(id: string): { approved: boolean; outOfDate: boolean } | null {
         const state = itemState(id);
@@ -510,7 +522,22 @@ export function workflowModuleModel(workflow: Workflow) {
         itemsOf(stage).filter(({ removal }) => removal == null),
       );
 
-      const coverageStates = keyedView((stage: string): CoverageState[] => {
+      /** One unit of those a stage's coverages or impacts are derived as, compared by content. */
+      function unitOf<State extends UnitStateBase>(kind: "coverage" | "impact", derived: (stage: string) => State[]): (unitId: string) => State | null {
+        return keyedView((unitId: string): State | null => {
+          const address = parseUnitId(unitId);
+          if (address.kind !== kind || !workflow.isStage(address.stage)) return null;
+          return derived(address.stage).find((state) => state.unitId === unitId) ?? null;
+        }, comparer.structural);
+      }
+
+      /** A stage's coverages or impacts, each the object `unitOf` keeps for it. */
+      function unitsOf<State extends UnitStateBase>(derived: (stage: string) => State[], one: (unitId: string) => State | null): (stage: string) => State[] {
+        return keyedView((stage: string): State[] => derived(stage).map(({ unitId }) => one(unitId)!), comparer.shallow);
+      }
+
+      /** A stage's coverages, derived together: each rests on which of the stage's items reference what. */
+      const derivedCoverages = keyedView((stage: string): CoverageState[] => {
         const referencingIndex = new Map<string, Item[]>();
         for (const item of activeItems(stage)) {
           for (const reference of referencesOf(item)) {
@@ -550,7 +577,11 @@ export function workflowModuleModel(workflow: Workflow) {
         );
       });
 
-      const impactStates = keyedView((stage: string): ImpactState[] => {
+      const coverageState = unitOf("coverage", derivedCoverages);
+      const coverageStates = unitsOf(derivedCoverages, coverageState);
+
+      /** A stage's impacts, derived together from what it took in and the threads on it. */
+      const derivedImpacts = keyedView((stage: string): ImpactState[] => {
         const stored = self.stages.get(stage);
         const intake = stored?.intake ?? {};
         const signatures = stored?.impacts ?? {};
@@ -599,12 +630,18 @@ export function workflowModuleModel(workflow: Workflow) {
         });
       });
 
+      const impactState = unitOf("impact", derivedImpacts);
+      const impactStates = unitsOf(derivedImpacts, impactState);
+
       /** Every unit a stage asks for: its items not yet removed, its coverages and its impacts. */
-      const stageUnits = keyedView((stage: string): UnitState[] => [
-        ...countedItems(stage).map(({ id }) => itemState(id)!),
-        ...coverageStates(stage),
-        ...impactStates(stage),
-      ]);
+      const stageUnits = keyedView(
+        (stage: string): UnitState[] => [
+          ...countedItems(stage).map(({ id }) => itemState(id)!),
+          ...coverageStates(stage),
+          ...impactStates(stage),
+        ],
+        comparer.shallow,
+      );
 
       const stageComplete = keyedView((stage: string): boolean =>
         countedItems(stage).length > 0 && stageUnits(stage).every(({ approved }) => approved),
@@ -620,13 +657,9 @@ export function workflowModuleModel(workflow: Workflow) {
           case "item":
             return itemState(address.itemId);
           case "coverage":
-            return workflow.isStage(address.stage)
-              ? coverageStates(address.stage).find(({ itemId }) => itemId === address.itemId) ?? null
-              : null;
+            return coverageState(unitId);
           case "impact":
-            return workflow.isStage(address.stage)
-              ? impactStates(address.stage).find(({ itemId }) => itemId === address.itemId) ?? null
-              : null;
+            return impactState(unitId);
         }
       }
 
@@ -757,10 +790,7 @@ export function workflowModuleModel(workflow: Workflow) {
         isSignable,
         openThreadOf,
         currentBasisOf,
-        /** Every thread on a unit, oldest first. */
-        threadsOf(unitId: string): Thread[] {
-          return threadsOfUnit().get(unitId) ?? [];
-        },
+        threadsOf,
         /** Every item of the module, in stage order. */
         get allItems(): Item[] {
           return workflow.stageIds.flatMap((stage) => [...itemsOf(stage)]);
@@ -777,12 +807,34 @@ export function workflowModuleModel(workflow: Workflow) {
         return self.stageComplete(stage) ? "complete" : "in-progress";
       };
 
-      /** The items of this module out of date because of `id`, which may be of another module. */
-      const outOfDateBecauseOf = keyedView((id: string): string[] =>
-        self.allItems
-          .filter((item) => self.itemState(item.id)?.outOfDateCauses.some((cause) => cause.id === id) === true)
-          .map(({ id: dependent }) => dependent),
+      /** For every item that makes items of this module out of date, those items, in module order, from one pass over the items. */
+      const outOfDateDependents = cachedView((): ReadonlyMap<string, string[]> => {
+        const dependents = new Map<string, string[]>();
+        for (const item of self.allItems) {
+          const causes = new Set((self.itemState(item.id)?.outOfDateCauses ?? []).map((cause) => cause.id));
+          for (const cause of causes) dependents.set(cause, [...(dependents.get(cause) ?? []), item.id]);
+        }
+        return dependents;
+      });
+
+      /**
+       * The items of this module out of date because of `id`, which may be of
+       * another module. Compared by content, so a change elsewhere in the
+       * module that leaves this list as it was renders nothing that shows it.
+       */
+      const outOfDateBecauseOf = keyedView(
+        (id: string): string[] => outOfDateDependents().get(id) ?? [],
+        comparer.structural,
       );
+
+      /** The stages that build on this item's stage and cover its kind, where no item references it. */
+      const stagesNotReferencing = keyedView((id: string): string[] => {
+        const located = self.locate(id);
+        if (located == null || located.item.removal != null) return [];
+        return workflow
+          .coveringStages(located.item.kind)
+          .filter((stage) => self.coverageStates(stage).find(({ itemId }) => itemId === id)?.referencing.length === 0);
+      }, comparer.structural);
 
       /** A unit as the page names it: an item by its code, a coverage or an impact by the item it is on. */
       function unitLabel(unitId: string): string {
@@ -848,14 +900,7 @@ export function workflowModuleModel(workflow: Workflow) {
             ),
           ];
         },
-        /** The stages that build on this item's stage and cover its kind, where no item references it. */
-        stagesNotReferencing(id: string): string[] {
-          const located = self.locate(id);
-          if (located == null || located.item.removal != null) return [];
-          return workflow
-            .coveringStages(located.item.kind)
-            .filter((stage) => self.coverageStates(stage).find(({ itemId }) => itemId === id)?.referencing.length === 0);
-        },
+        stagesNotReferencing,
         /** Whether the unit still waits for a signature, as each stage counts it. */
         waitsForSignature,
         stageSummary(stage: string): StageSummary {

@@ -30,7 +30,7 @@ import { UserFacingError } from "lib/errors";
 import type { ProjectIdentity } from "lib/projectStorage";
 import type { ClientPersistence } from "persistence";
 import { type ProjectSessionSnapshot, SiblingModuleStores } from "project-session";
-import type { ExportOptions, ListedRestorePoint, ListedStep, ModuleRegistry, ModuleState } from "storage-and-recovery";
+import { type ExportOptions, type ListedRestorePoint, type ListedStep, type ModuleRegistry, type ModuleState, sharedWith } from "storage-and-recovery";
 import { type ReplicatedVolatileState, Store } from "store";
 
 type Result<Name extends RequestName> = Awaited<ReturnType<HostApi[Name]>>;
@@ -524,7 +524,8 @@ export class ProjectClient {
     } else if (registryChanged) {
       this.local(() => this.siblingStores.applyModuleContext(this.replica, this.registry));
     }
-    this.view = event.session;
+    // An event holds copies; a part left as it was stays the one held, so what reads it sees no change.
+    this.view = sharedWith(this.view, event.session);
     this.snapshot = snapshotFrom(this.view, this.registry, this.replica);
     for (const listener of this.listeners) listener();
   }

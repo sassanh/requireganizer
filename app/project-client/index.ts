@@ -1,1 +1,1 @@
-export { ConnectionLostError, ProjectClient } from "./projectClient";
+export { ConnectionLostError, type ConnectionStatus, ProjectClient } from "./projectClient";

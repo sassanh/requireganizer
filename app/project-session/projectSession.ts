@@ -1,4 +1,4 @@
-import { getSnapshot, onSnapshot } from "mobx-state-tree";
+import { applySnapshot, getSnapshot, onSnapshot } from "mobx-state-tree";
 
 import { getUserFacingErrorMessage, UserFacingError } from "lib/errors";
 import { parseJson } from "lib/json";
@@ -48,6 +48,7 @@ import {
   type ProjectState,
   redoMove,
   type RestorePoint,
+  sharedWith,
   type StoredProject,
   storedProjectChange,
   stepToBringBack,
@@ -616,10 +617,16 @@ export class ProjectSession {
 
   /** Write now what waits for the debounce. */
   private flushPendingWrites(): void {
-    if (this.saveTimer == null) return;
+    if (!this.dropPendingWrite()) return;
+    this.persistProject();
+  }
+
+  /** Stop waiting to write; whether a write waited. */
+  private dropPendingWrite(): boolean {
+    if (this.saveTimer == null) return false;
     clearTimeout(this.saveTimer);
     this.saveTimer = null;
-    this.persistProject();
+    return true;
   }
 
   private attachStoreSubscription(state: ReadySessionState): void {
@@ -631,12 +638,8 @@ export class ProjectSession {
   private detachStoreSubscription(options: { write: boolean } = { write: true }): void {
     this.unsubscribeStore?.();
     this.unsubscribeStore = null;
-    if (options.write) {
-      this.flushPendingWrites();
-    } else if (this.saveTimer != null) {
-      clearTimeout(this.saveTimer);
-      this.saveTimer = null;
-    }
+    if (options.write) this.flushPendingWrites();
+    else this.dropPendingWrite();
   }
 
   /**
@@ -871,11 +874,40 @@ export class ProjectSession {
    */
   private showState(project: ProjectIdentity, shown: ProjectState): void {
     const previous = this.readyState();
-    const kept = previous?.project.id === project.id ? previous.registry.activeModuleId : null;
+    const same = previous?.project.id === project.id ? previous : null;
+    const kept = same?.registry.activeModuleId ?? null;
     const visible = visibleModules(shown);
     const opened = visible.find(({ id }) => id === kept) ?? visible[0]!;
     this.beginOperation();
-    this.showStore(project, createModuleStore(opened.content), { ...shown, activeModuleId: opened.id });
+    if (same == null || opened.id !== kept) {
+      this.showStore(project, createModuleStore(opened.content), { ...shown, activeModuleId: opened.id });
+      return;
+    }
+    // The shown module stays in its store, which takes only what differs and
+    // so sends the page only that; a module left as it was keeps its entry,
+    // whose content the page already holds.
+    const held = moduleContentOf(same.store);
+    const content = sharedWith(held, opened.content);
+    if (content !== held) applySnapshot(same.store, content);
+    const modules = shown.modules.map((module): ModuleState => {
+      const entry = same.registry.modules.find(({ id }) => id === module.id);
+      if (entry == null) return module;
+      // The shown module's content lives in its store; its entry keeps the content it had when it was last shown.
+      const entryContent = module.id === opened.id ? entry.content : sharedWith(entry.content, module.content);
+      return entryContent === entry.content && entry.name === module.name && entry.archivedAt === module.archivedAt
+        ? entry
+        : { ...module, content: entryContent };
+    });
+    const registryKept =
+      shown.modulesEnabled === same.registry.modulesEnabled &&
+      modules.length === same.registry.modules.length &&
+      modules.every((entry, index) => entry === same.registry.modules[index]);
+    this.state = registryKept
+      ? same
+      : { ...same, registry: { modulesEnabled: shown.modulesEnabled, activeModuleId: opened.id, modules } };
+    this.scheduleWrite();
+    this.syncModuleContext();
+    this.publish();
   }
 
   /** A kept state, put together from its pieces; throws for the spec owner when storage lost one of them. */
@@ -1216,8 +1248,8 @@ export class ProjectSession {
     const state = this.changeableState();
     if (move == null) return;
     const shown = this.keptState(move.state);
-    // What waits for the debounce was made before the move, so it is written as it was.
-    this.flushPendingWrites();
+    // What waits for the debounce is the project as it was before the move, which the move's own write replaces.
+    this.dropPendingWrite();
     this.history = move.history;
     this.showState(state.project, shown);
   }

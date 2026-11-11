@@ -4,7 +4,7 @@ import DefaultPropsProvider from "@mui/material/DefaultPropsProvider";
 import { ThemeProvider } from "@mui/material/styles";
 import { AppRouterCacheProvider } from "@mui/material-nextjs/v15-appRouter";
 import { saveAs } from "file-saver";
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { memo, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
 import { installAiRuntime } from "ai-agent/runtime";
 import Link from "components/Link";
@@ -14,7 +14,7 @@ import { connectWebSocket, linkInProcess, linkUrlFor } from "connection";
 import { PROJECT_HOST_LOCATION } from "deployment";
 import { browserAiSettings } from "lib/aiSettingsStorage";
 import { webPersistence } from "persistence";
-import { ProjectClient } from "project-client";
+import { type ConnectionStatus, ProjectClient } from "project-client";
 import { ProjectHost } from "project-host";
 import { moduleSummaries, ProjectSession } from "project-session";
 import { type ExportOptions, type ListedRestorePoint, webProjectAuthority } from "storage-and-recovery";
@@ -69,6 +69,52 @@ function exportFileName(projectName: string, restorePoint?: ListedRestorePoint):
 
 let isStoreReloadNeeded = true;
 
+/**
+ * Values the providers below hand to every component that reads them, made
+ * once: a new object on each render would render every reader again.
+ */
+const CACHE_OPTIONS = {};
+const DEFAULT_PROPS = {
+  MuiLink: { component: Link },
+  MuiButtonBase: { LinkComponent: Link },
+  MuiTab: { LinkComponent: Link },
+};
+
+/**
+ * The theme, style cache and default props around the page. Memoized, so a
+ * new session snapshot renders only the contexts that changed, not every
+ * component under these providers.
+ */
+const PageShell = memo(function PageShell({
+  children,
+  connection,
+}: {
+  children: React.ReactNode;
+  connection: ConnectionStatus;
+}) {
+  return (
+    <AppRouterCacheProvider options={CACHE_OPTIONS}>
+      <ThemeProvider theme={theme}>
+        <DefaultPropsProvider value={DEFAULT_PROPS}>
+          {children}
+          <NoticeHost />
+          {connection.state === "reconnecting" && (
+            <PersistentAlert severity="warning">{connection.message}</PersistentAlert>
+          )}
+          {connection.state === "failed" && (
+            <PersistentAlert severity="error">
+              {connection.message}{" "}
+              <Button color="inherit" size="small" onClick={() => window.location.reload()}>
+                Reload
+              </Button>
+            </PersistentAlert>
+          )}
+        </DefaultPropsProvider>
+      </ThemeProvider>
+    </AppRouterCacheProvider>
+  );
+});
+
 export default function Providers({ children }: { children: React.ReactNode }) {
   const [{ session, client }] = useState(() => {
     isStoreReloadNeeded = false;
@@ -82,6 +128,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
   const { status, activeProject, persistenceError, outsideChange, registry, store } =
     sessionState;
   const projectName = activeProject?.name ?? null;
+  const history = sessionState.status === "ready" ? sessionState.history : null;
   const { storage } = useSyncExternalStore(
     client.subscribe,
     client.getHostInfo,
@@ -130,7 +177,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     [client, projectName],
   );
 
-  const contextValue: ProjectContextValue = {
+  const contextValue = useMemo((): ProjectContextValue => ({
     status,
     activeProject,
     persistenceError,
@@ -138,7 +185,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     openChangedProject: client.openChangedProject,
     keepShownProject: client.keepShownProject,
     leaveProjectRemoved: client.leaveProjectRemoved,
-    history: sessionState.status === "ready" ? sessionState.history : null,
+    history,
     undo: client.undo,
     redo: client.redo,
     listSteps: client.listSteps,
@@ -169,36 +216,12 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     importNewProject: client.importNewProject,
     importProjectFile: client.importProjectFile,
     exportProject,
-  };
+  }), [client, status, activeProject, persistenceError, outsideChange, history, storage, registry, exportProject]);
 
   return (
     <projectContext.Provider value={contextValue}>
       <storeContext.Provider value={store}>
-          <AppRouterCacheProvider options={{}}>
-            <ThemeProvider theme={theme}>
-              <DefaultPropsProvider
-                value={{
-                  MuiLink: { component: Link },
-                  MuiButtonBase: { LinkComponent: Link },
-                  MuiTab: { LinkComponent: Link },
-                }}
-              >
-                {children}
-                <NoticeHost />
-                {connection.state === "reconnecting" && (
-                  <PersistentAlert severity="warning">{connection.message}</PersistentAlert>
-                )}
-                {connection.state === "failed" && (
-                  <PersistentAlert severity="error">
-                    {connection.message}{" "}
-                    <Button color="inherit" size="small" onClick={() => window.location.reload()}>
-                      Reload
-                    </Button>
-                  </PersistentAlert>
-                )}
-              </DefaultPropsProvider>
-            </ThemeProvider>
-          </AppRouterCacheProvider>
+        <PageShell connection={connection}>{children}</PageShell>
       </storeContext.Provider>
     </projectContext.Provider>
   );

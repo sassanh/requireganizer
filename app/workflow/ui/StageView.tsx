@@ -21,7 +21,7 @@ import {
   useMediaQuery,
 } from "@mui/material";
 import { observer } from "mobx-react-lite";
-import { Fragment, type UIEvent, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, type UIEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { FieldDefinition } from "../definition";
 import type { CoverageState, ImpactState, ItemState, OutOfDateCause } from "../module";
@@ -626,12 +626,20 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
     return () => window.removeEventListener("keydown", listener);
   }, []);
 
-  const controls: CardControls = {
-    openThread: (unitId, anchor) => openThread(unitId, anchor),
-    edit: (itemId) => requestEditor({ stage, kind: module.itemState(itemId)!.itemKind, itemId }),
-    sign: (unitId) => void sign(unitId),
-    stageOpen: summary.open,
-  };
+  // The cards keep the same controls while the stage stays open or closed, so
+  // a change renders only the cards it changes; the handlers are the latest.
+  const handlers = useRef({ openThread, requestEditor, sign });
+  handlers.current = { openThread, requestEditor, sign };
+  const stageOpen = summary.open;
+  const controls = useMemo<CardControls>(
+    () => ({
+      openThread: (unitId, anchor) => handlers.current.openThread(unitId, anchor),
+      edit: (itemId) => handlers.current.requestEditor({ stage, kind: module.itemState(itemId)!.itemKind, itemId }),
+      sign: (unitId) => void handlers.current.sign(unitId),
+      stageOpen,
+    }),
+    [stage, module, stageOpen],
+  );
   const waitingParts = (Object.entries(WAITING_CATEGORY_LABELS) as [keyof typeof WAITING_CATEGORY_LABELS, string][])
     .filter(([category]) => summary.waiting[category] > 0)
     .map(([category, label]) => `${summary.waiting[category]} ${label}`);
