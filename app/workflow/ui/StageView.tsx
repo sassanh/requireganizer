@@ -24,7 +24,7 @@ import { observer } from "mobx-react-lite";
 import { Fragment, type UIEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { FieldDefinition } from "../definition";
-import type { CoverageState, ImpactState, ItemState, OutOfDateCause } from "../module";
+import type { CoverageState, ImpactState, ItemState, OutOfDateCause, WorkflowModule } from "../module";
 import { revisionOf, textValue, type ItemVersion } from "../records";
 import { STAGE_PROGRESS_LABELS, WAITING_CATEGORY_LABELS } from "../units";
 import { answeringSx } from "./answering";
@@ -457,8 +457,25 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
   };
   const [rulesOpen, setRulesOpen] = useState(false);
   const [compact, setCompact] = useState(false);
+  /** The action that completed this stage, for this visit only: the page offers writing the next stage until the person leaves. */
+  const [completedOn, setCompletedOn] = useState<{ module: WorkflowModule; stage: string } | null>(null);
+  const complete = summary.progress === "complete";
+  const justCompleted = complete && completedOn?.module === module && completedOn.stage === stage;
+  /** The last progress seen, so the transition to complete is noticed once, whatever action made it. */
+  const seen = useRef({ module, stage, complete });
   const containerRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
+
+  // A completion belongs to the visit that saw it: leaving the stage, switching module, or no longer being complete forgets it.
+  useEffect(() => {
+    const previous = seen.current;
+    seen.current = { module, stage, complete };
+    if (previous.module !== module || previous.stage !== stage) {
+      setCompletedOn(null);
+    } else if (complete !== previous.complete) {
+      setCompletedOn(complete ? { module, stage } : null);
+    }
+  }, [module, stage, complete]);
 
   /**
    * Focus a unit's card and scroll it into view clear of the sticky header, with a margin on either side.
@@ -649,6 +666,20 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
   const coverages = units.filter((unit): unit is CoverageState => unit.kind === "coverage");
   const impacts = units.filter((unit): unit is ImpactState => unit.kind === "impact");
   const items = units.filter((unit): unit is ItemState => unit.kind === "item");
+  // Besides the stages offered while empty, a sign that completes this stage offers writing the stages that build on it.
+  const stagesOffered = new Set(module.stagesToWriteAfter(stage));
+  if (justCompleted && summary.progress === "complete") {
+    for (const later of workflow.stageIds) {
+      if (
+        workflow.stage(later).buildsOn.some((basis) => basis.stage === stage) &&
+        module.stageOpen(later) &&
+        !module.stageComplete(later)
+      ) {
+        stagesOffered.add(later);
+      }
+    }
+  }
+  const stagesToWrite = workflow.stageIds.filter((later) => stagesOffered.has(later));
   const progressBar = (
     <Stack direction="row" sx={{ alignItems: "center", gap: 1, flexGrow: 1 }}>
       <LinearProgress
@@ -691,7 +722,7 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
             {waitingParts.length === 0 ? "Nothing waits for a signature." : `Waiting for a signature: ${waitingParts.join(", ")}.`}
             {summary.threadsWaitingForSpecOwner > 0 ? ` ${summary.threadsWaitingForSpecOwner} ${summary.threadsWaitingForSpecOwner === 1 ? "thread waits" : "threads wait"} for you.` : ""}
           </Typography>
-          {module.stagesToWriteAfter(stage).map((later) => {
+          {stagesToWrite.map((later) => {
             const asked = module.writingAskedOfAnswerer.some((ask) => ask.stage === later);
             const writing = module.isBeingWritten(later);
             const label = workflow.stage(later).label;
