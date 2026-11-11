@@ -2,6 +2,7 @@ import { UserFacingError } from "lib/errors";
 import { InvalidJsonError, isRecord } from "lib/json";
 
 import { isTimeZone } from "./calendar";
+import type { StateDifference } from "./difference";
 import { type Address, isAddress } from "./pieces";
 import { AUTOMATIC_RESTORE_POINT_INTERVAL_MS, parseRestorePoint, type RestorePoint } from "./restorePoints";
 
@@ -230,10 +231,12 @@ export interface ListedStep {
   at: string;
   kind: ChangeKind;
   place: StepPlace;
+  /** How the project as it was after the step differs from the project now; null when that state cannot be read. */
+  difference: StateDifference | null;
 }
 
-/** Every kept step, newest first, with where it stands. */
-export function listedSteps(history: ProjectHistory): ListedStep[] {
+/** Every kept step, newest first, with where it stands and how the project after it differs from now. */
+export function listedSteps(history: ProjectHistory, differenceFromNow: (state: Address) => StateDifference | null): ListedStep[] {
   const places = new Map<string, StepPlace>();
   for (let step = stepNamed(history, history.current); step != null; step = stepNamed(history, step.parent)) {
     places.set(step.id, step.id === history.current ? "current" : "done");
@@ -246,7 +249,7 @@ export function listedSteps(history: ProjectHistory): ListedStep[] {
   }
   return [...history.steps]
     .reverse()
-    .map(({ id, at, kind }) => ({ id, at, kind, place: places.get(id) ?? "other branch" }));
+    .map(({ id, at, kind, after }) => ({ id, at, kind, place: places.get(id) ?? "other branch", difference: differenceFromNow(after) }));
 }
 
 /** The kept step with this id; throws when there is none, such as one that gave way. */

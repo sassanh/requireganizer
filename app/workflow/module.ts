@@ -2,7 +2,7 @@ import { comparer } from "mobx";
 import { cast, getSnapshot, getType, type Instance, types } from "mobx-state-tree";
 
 import { UserFacingError } from "lib/errors";
-import { codesMatch, formatCode } from "lib/fragmentCodes";
+import { codesMatch } from "lib/fragmentCodes";
 import { uuid } from "utilities";
 
 import { cachedView, keyedView } from "./cachedViews";
@@ -337,10 +337,7 @@ export function workflowModuleModel(workflow: Workflow) {
       const codeById = keyedView((id: string): string | null => {
         const located = locate(id);
         if (located == null) return null;
-        const definition = workflow.kind(located.item.kind);
-        if (definition.single) return definition.code;
-        const sameKind = itemsOf(located.stage).filter(({ kind }) => kind === located.item.kind);
-        return formatCode(definition.code, sameKind.indexOf(located.item) + 1, sameKind.length);
+        return workflow.codeOf(located.item, itemsOf(located.stage));
       });
 
       /** An item this module's items may link to: its own, or another module's for a dependency. */

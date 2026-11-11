@@ -1,3 +1,5 @@
+import { formatCode } from "lib/fragmentCodes";
+
 import { chosenItems, type FieldValue, type ItemContent, type RecordContent, recordsValue, recordValue } from "./records";
 
 /** One item of the module, as a rule of a kind reads it. */
@@ -352,6 +354,17 @@ export class Workflow {
     const entry = this.kindsByName.get(name);
     if (entry == null) throw new Error(`No item kind ${name}.`);
     return entry.kind;
+  }
+
+  /**
+   * The code of one of a stage's items: its kind's code alone for a kind of
+   * a single item, otherwise numbered among the stage's items of its kind.
+   */
+  codeOf(item: { kind: string }, stageItems: readonly { kind: string }[]): string {
+    const definition = this.kind(item.kind);
+    if (definition.single) return definition.code;
+    const sameKind = stageItems.filter(({ kind }) => kind === item.kind);
+    return formatCode(definition.code, sameKind.indexOf(item) + 1, sameKind.length);
   }
 
   /** The words shown in front of a kind's display: the prefix of the first of its fields that has one. */

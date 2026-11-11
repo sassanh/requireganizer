@@ -25,6 +25,7 @@ import {
   heldStates,
   type HistoryMove,
   type HistoryPosition,
+  differenceReader,
   historyPosition,
   historyRoots,
   isTimeZone,
@@ -1254,8 +1255,12 @@ export class ProjectSession {
     this.showState(state.project, shown);
   }
 
-  /** Every kept step, newest first, with where each stands. */
-  listSteps = (): ListedStep[] => (this.readyState() == null ? [] : listedSteps(this.history));
+  /** Every kept step, newest first, with where each stands and how the project after it differs from now. */
+  listSteps = (): ListedStep[] => {
+    const { currentState } = this.history;
+    if (this.readyState() == null || currentState == null) return [];
+    return listedSteps(this.history, differenceReader(this.pieces, currentState));
+  };
 
   /**
    * Bring the project back as it was after a kept step, on any branch. Run

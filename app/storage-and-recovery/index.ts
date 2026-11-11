@@ -1,5 +1,6 @@
 export { type AuthorityClaim, type ProjectAuthority, webProjectAuthority } from "./authority";
 export { serializeCanonical } from "./canonicalJson";
+export { differenceReader, type StageDifference, type StateDifference } from "./difference";
 export { buildExport, DEFAULT_EXPORT_OPTIONS, type ExportOptions } from "./exportProject";
 export { isTimeZone, ownTimeZone } from "./calendar";
 export {
