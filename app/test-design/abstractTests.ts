@@ -22,6 +22,7 @@ import {
   describeFittingTypes,
   describeType,
   DURATION,
+  DURATION_UNITS,
   emptyProblem,
   expectedTypeOf,
   fitsType,
@@ -139,7 +140,7 @@ function offerSteps(place: FieldPlace, role: ValueRole): Offer {
 const LITERAL_FIELD: FieldDefinition = {
   name: "literal",
   label: "Value",
-  description: 'The value written out: a text in double quotes such as "red shoes", a whole number such as 3, a number with decimals such as 2.5, yes or no, a duration such as 200 ms, a word of its set as written, or a list such as [1, 2]; "" is the empty text and [] the empty list. An entity is never written out.',
+  description: `The value written out: a text in double quotes such as "Dune", a whole number such as 3, a number with decimals written with a point such as 2.5, yes or no, a duration as a number followed by ${DURATION_UNITS.join(", ")} such as 200 ms, a word of its set as written, or a list as its values in square brackets, separated by commas, such as [1, 2]; "" is the empty text and [] the empty list. An entity is never written out.`,
   type: "text",
   required: false,
 };
@@ -280,7 +281,7 @@ export const THEN_FIELDS: readonly FieldDefinition[] = [
   {
     name: "comparison",
     label: "Comparison",
-    description: `For observation, result and duration: one of ${COMPARISONS.join(", ")}, as the type of what it compares allows.`,
+    description: `For observation, result and duration: one of ${COMPARISONS.join(", ")}, as the type of what it compares allows. Two lists are equal only with the same values in the same order; has the same values as ignores the order; contains and does not contain take one entry.`,
     type: "choice",
     options: COMPARISONS,
     required: false,

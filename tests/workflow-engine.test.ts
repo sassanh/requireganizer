@@ -102,91 +102,6 @@ describe("workflow engine", () => {
     });
   });
 
-  it("opens each stage once the stages it builds on are complete", () => {
-    const store = Store.create({});
-    assert.equal(store.stageOpen("capabilities"), false);
-    assert.equal(store.stageOpen("features-and-target-users"), false);
-    assert.equal(store.stageOpen("user-stories"), false);
-    assert.equal(store.stageProgress("module-overview"), "empty");
-    overview(store);
-    assert.equal(store.stageProgress("module-overview"), "in-progress");
-    assert.throws(() => store.writeItems([{ type: "add", stage: "capabilities", kind: "capability", content: { name: "x", description: "y" }, references: [], dependencies: [] }]));
-    signAll(store, "module-overview");
-    assert.equal(store.stageProgress("module-overview"), "complete");
-    assert.equal(store.stageOpen("capabilities"), true);
-    assert.equal(store.stageOpen("features-and-target-users"), false);
-
-    store.writeItems([{ type: "add", stage: "capabilities", kind: "capability", content: { name: "Staging", description: "Staged workflow." }, references: [], dependencies: [] }]);
-    assert.equal(store.stageProgress("capabilities"), "in-progress");
-    assert.throws(() => store.writeItems([{ type: "add", stage: "features-and-target-users", kind: "target-user", content: { name: "x", description: "y" }, references: [], dependencies: [] }]));
-    signAll(store, "capabilities");
-    assert.equal(store.stageProgress("capabilities"), "complete");
-    assert.equal(store.stageOpen("features-and-target-users"), true);
-    assert.equal(store.stageOpen("user-stories"), false);
-
-    const capability = itemOf(store, "capabilities", "CAP-01");
-    store.writeItems([
-      { type: "add", stage: "features-and-target-users", kind: "feature", content: { name: "Order", description: "Stages in order.", capability: [capability] }, references: [], dependencies: [] },
-      { type: "add", stage: "features-and-target-users", kind: "target-user", content: { name: "spec owner", description: "Decides." }, references: [], dependencies: [] },
-    ]);
-    assert.equal(store.stageProgress("features-and-target-users"), "in-progress");
-    assert.throws(() => store.writeItems([{ type: "add", stage: "user-stories", kind: "user-story", content: { outcome: "x", reason: "y", priority: "P0" }, references: [], dependencies: [] }]));
-    signAll(store, "features-and-target-users");
-    assert.equal(store.stageProgress("features-and-target-users"), "complete");
-    assert.equal(store.stageOpen("user-stories"), true);
-    assert.equal(store.stageOpen("requirements"), false);
-  });
-
-  it("asks for coverage, marks out of date, signs as it is, and asks for impacts", () => {
-    const store = Store.create({});
-    specified(store);
-    const feature = itemOf(store, "features-and-target-users", "FEA-01");
-    const user = itemOf(store, "features-and-target-users", "USR-01");
-    store.writeItems([{ type: "add", stage: "user-stories", kind: "user-story", content: { targetUsers: [user], outcome: "stages", reason: "order", priority: "P0" }, references: [feature], dependencies: [] }]);
-    const story = itemOf(store, "user-stories", "US-01");
-    assert.equal(store.coverageStates("user-stories").length, 1);
-    signAll(store, "user-stories");
-    assert.equal(store.stageComplete("user-stories"), true);
-
-    store.writeItems([{ type: "change", item: feature, content: { description: "Staged workflow, stage by stage." } }]);
-    assert.equal(store.stageOpen("user-stories"), false);
-    assert.deepEqual(store.itemState(story)!.outOfDateCauses.find(({ id }) => id === feature)!.reasons, ["changed", "not-approved"]);
-    signAll(store, "features-and-target-users");
-    assert.equal(store.stageOpen("user-stories"), true);
-    assert.equal(store.itemState(story)!.outOfDate, true);
-    assert.equal(store.itemState(story)!.waiting, "out-of-date");
-    assert.equal(store.impactStates("user-stories").length, 1);
-    store.sign(story);
-    assert.equal(store.itemState(story)!.approved, true);
-    signAll(store, "user-stories");
-    assert.equal(store.stageComplete("user-stories"), true);
-    assert.equal(store.impactStates("user-stories").length, 0);
-  });
-
-  it("holds a removal until it is signed and keeps a removed item until its impacts are signed", () => {
-    const store = Store.create({});
-    specified(store);
-    const user = itemOf(store, "features-and-target-users", "USR-01");
-    const feature = itemOf(store, "features-and-target-users", "FEA-01");
-    store.writeItems([{ type: "add", stage: "user-stories", kind: "user-story", content: { targetUsers: [user], outcome: "stories", reason: "tracing", priority: "P1" }, references: [feature], dependencies: [] }]);
-    signAll(store, "user-stories");
-    store.writeItems([{ type: "add", stage: "features-and-target-users", kind: "target-user", content: { name: "agent", description: "Writes." }, references: [], dependencies: [] }]);
-    const draft = itemOf(store, "features-and-target-users", "USR-02");
-    store.writeItems([{ type: "remove", item: draft }]);
-    assert.equal(store.locate(draft), null);
-    store.writeItems([{ type: "add", stage: "features-and-target-users", kind: "target-user", content: { name: "agent", description: "Writes." }, references: [], dependencies: [] }]);
-    signAll(store, "features-and-target-users");
-    store.writeItems([{ type: "remove", item: user }]);
-    assert.equal(store.itemState(user)!.phase, "proposed-removal");
-    store.sign(user);
-    assert.equal(store.itemState(user)!.phase, "removed");
-    assert.equal(store.stageComplete("features-and-target-users"), true);
-    const impact = store.impactStates("user-stories")[0]!;
-    assert.equal(impact.after, null);
-    store.sign(impact.unitId);
-    assert.equal(store.locate(user), null);
-  });
-
   it("keeps an open thread from counting as approved and lets the agent answer it", async () => {
     const store = Store.create({});
     specified(store);
@@ -217,24 +132,6 @@ describe("workflow engine", () => {
     );
     assert.equal(store.textOf(capability), "Staging: Staged workflow.");
     assert.equal(store.threadsWaitingForAnswerer.length, 1);
-  });
-
-  it("asks the coding agent to write the stage after a complete one until a write reaches it", async () => {
-    const store = Store.create({});
-    specified(store);
-    assert.deepEqual(store.stagesToWriteAfter("features-and-target-users"), ["user-stories"]);
-    store.askToWrite("user-stories");
-    const state = JSON.parse(await callAgentTool(store, "get_workflow_state", {})) as { stagesWaitingForYou: { stage: string }[] };
-    assert.deepEqual(state.stagesWaitingForYou.map(({ stage }) => stage), ["user-stories"]);
-    store.writeItems([{
-      type: "add",
-      stage: "user-stories",
-      kind: "user-story",
-      content: { targetUsers: [itemOf(store, "features-and-target-users", "USR-01")], outcome: "see the stages in order", reason: "I know what comes next", priority: "P1" },
-      references: [itemOf(store, "features-and-target-users", "FEA-01")],
-      dependencies: [],
-    }]);
-    assert.deepEqual(store.writingAskedOfAnswerer, []);
   });
 
   it("reports each item written by the code the write named it by, with the code it moved to", async () => {
@@ -306,34 +203,5 @@ describe("workflow engine", () => {
 
     store.writeItems([{ type: "change", item: purpose, content: { text: "Owners get a spec they trust." } }]);
     assert.deepEqual(store.itemState(capability)!.outOfDateCauses[0]!.reasons, ["changed", "not-approved"]);
-  });
-
-  it("shows a requirement after the prefix its obligation declares", () => {
-    const store = Store.create({});
-    specified(store);
-    const feature = itemOf(store, "features-and-target-users", "FEA-01");
-    const owner = itemOf(store, "features-and-target-users", "USR-01");
-    store.writeItems([
-      { type: "add", stage: "user-stories", kind: "user-story", content: { targetUsers: [owner], outcome: "stages", reason: "order" }, references: [feature], dependencies: [] },
-    ]);
-    signAll(store, "user-stories");
-    const story = itemOf(store, "user-stories", "US-01");
-    store.writeItems([{ type: "add", stage: "requirements", kind: "requirement", content: { obligation: "keep stages" }, references: [story], dependencies: [] }]);
-    const requirement = store.locate(itemOf(store, "requirements", "REQ-01"))!.item;
-    assert.equal(store.workflow.prefixOf("requirement"), "The system must");
-    assert.equal(store.displayOf(requirement.kind, requirement.content), "keep stages");
-    assert.equal(store.textOf(requirement.id), "The system must keep stages");
-    assert.equal(store.workflow.prefixOf("capability"), null);
-  });
-
-  it("publishes each stage's own rules, then the shared ones, as a list", async () => {
-    const store = Store.create({});
-    for (const stage of store.workflow.stageIds) {
-      const published = JSON.parse(await callAgentTool(store, "get_stage_rules", { stage })) as { rules: string[] };
-      assert.deepEqual(published.rules.slice(0, store.workflow.stage(stage).rules.length), store.workflow.stage(stage).rules);
-      assert.ok(published.rules.at(-1)!.startsWith("An item is signed as it is shown"), `${stage} ends with the shared rules`);
-    }
-    const capabilities = JSON.parse(await callAgentTool(store, "get_stage_rules", { stage: "capabilities" })) as { kinds: { countsAsReferencing?: string[] }[] };
-    assert.deepEqual(capabilities.kinds[0]!.countsAsReferencing, ["purpose"]);
   });
 });

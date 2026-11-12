@@ -336,7 +336,7 @@ const workflowStateTool: AgentTool = {
       return {
         stage,
         label: definition.label,
-        buildsOn: definition.buildsOn.map((basis) => basis.stage),
+        buildsOn: definition.buildsOn,
         state: summary.open ? "open" : "closed",
         progress: STAGE_PROGRESS_LABELS[summary.progress],
         approved: `${summary.approved} of ${summary.total}`,
@@ -379,7 +379,7 @@ const stageRulesTool: AgentTool = {
   description: {
     name: "get_stage_rules",
     description:
-      "Read one stage's published rules, the same the spec owner reads and signs against: what it builds on and which kinds of items it covers there, the kinds of item it holds with their codes, fields, the kinds each must reference at least one of, the single items each counts as referencing or depending on without listing them, an example of its fields where the shape is not plain, the rules every item of it follows, as a list, and, for some stages, examples of what follows them and what does not. Each field has a type: text; choice, one of its options; flag, true or false; texts, a list of texts; items, a list of codes of the kind it chooses, or one code, never a list, when single, which count as the item's references when that kind is in a stage this stage builds on, or as its dependencies when it is in this stage, and are never listed again in references or dependencies; record, an object of its own fields, or null for none; records, a list of such objects, one per entry. A field with shownAfter holds only what follows those words. A refused write names the field by its place, such as \"AT-01, Then step 2: Comparison\". Read them before writing a stage. Reading the rules of a stage the spec owner asked you to write shows them you are working on it, until you write it.",
+      "Read the published rules of each kind of item one stage holds, the same the spec owner reads and signs against, and the shared rules every kind follows. For each kind: the question its items answer, which decides what belongs in an item of it; its own rules; its code and fields; the kinds of the stages it builds on whose coverage its items give; the kinds of which it must reference at least one item, of any of them, and those it never references; the single items it counts as referencing or depending on without listing them; an example of its fields where the shape is not plain; and examples: one item of the kind, then items of other kinds, or wrong items of the same kind, that could pass for one, each with why it is not. Each field has a type: text; choice, one of its options; flag, true or false; texts, a list of texts; items, a list of codes of the kind it chooses, or one code, never a list, when single, which count as the item's references when that kind is in a stage this stage builds on, or as its dependencies when it is in this stage, and are never listed again in references or dependencies; record, an object of its own fields, or null for none; records, a list of such objects, one per entry. A field with shownAfter holds only what follows those words. A refused write names the field by its place, such as \"AT-01, Then step 2: Comparison\". Read them before writing a stage. Reading the rules of a stage the spec owner asked you to write shows them you are working on it, until you write it.",
     inputSchema: { type: "object", properties: { stage: STAGE_PROPERTY }, required: ["stage"], additionalProperties: false },
   },
   run: (store, args, _open, caller) => {
@@ -388,20 +388,30 @@ const stageRulesTool: AgentTool = {
     return JSON.stringify({
       stage: stage.id,
       label: stage.label,
-      buildsOn: stage.buildsOn.map(({ stage: basis, covers }) => ({ stage: basis, covers })),
-      kinds: stage.kinds.map((kind) => ({
-        kind: kind.kind,
-        label: kind.label,
-        code: kind.code,
-        ...(kind.single ? { single: true } : {}),
-        fields: kind.fields.map(fieldView),
-        ...(kind.mustReference == null ? {} : { mustReferenceAtLeastOne: kind.mustReference }),
-        ...(kind.referencesSingle == null ? {} : { countsAsReferencing: kind.referencesSingle }),
-        ...(kind.dependsOnSingle == null ? {} : { countsAsDependingOn: kind.dependsOnSingle }),
-        ...(kind.example == null ? {} : { exampleFields: kind.example }),
-      })),
-      rules: store.workflow.rulesOf(stage.id),
-      ...(stage.examples == null ? {} : { examples: stage.examples }),
+      buildsOn: stage.buildsOn,
+      kinds: stage.kinds.map((kind) => {
+        const published = store.workflow.publishedRules(kind.kind);
+        return {
+          kind: kind.kind,
+          label: kind.label,
+          question: published.question,
+          rules: published.rules,
+          code: kind.code,
+          ...(kind.single ? { single: true } : {}),
+          fields: kind.fields.map(fieldView),
+          ...(kind.covers == null ? {} : { covers: kind.covers }),
+          ...(kind.mustReference == null ? {} : { mustReferenceAtLeastOneOf: kind.mustReference }),
+          ...(kind.mayNotReference == null ? {} : { neverReferences: kind.mayNotReference }),
+          ...(kind.referencesSingle == null ? {} : { countsAsReferencing: kind.referencesSingle }),
+          ...(kind.dependsOnSingle == null ? {} : { countsAsDependingOn: kind.dependsOnSingle }),
+          ...(kind.example == null ? {} : { exampleFields: kind.example }),
+          examples: {
+            item: published.examples.good,
+            couldPassForOne: published.examples.traps.map(({ kind: trapKind, text, why }) => ({ kind: trapKind, text, why })),
+          },
+        };
+      }),
+      sharedRules: store.workflow.sharedRules,
     });
   },
 };

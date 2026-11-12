@@ -4,6 +4,7 @@ import { Add, Delete, Edit, KeyboardArrowDown, KeyboardArrowUp, MenuBook, Restor
 import {
   Alert,
   Autocomplete,
+  Badge,
   Box,
   Button,
   Chip,
@@ -15,6 +16,8 @@ import {
   LinearProgress,
   Paper,
   Stack,
+  Tab,
+  Tabs,
   TextField,
   Tooltip,
   Typography,
@@ -23,8 +26,8 @@ import {
 import { observer } from "mobx-react-lite";
 import { Fragment, type UIEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { FieldDefinition } from "../definition";
-import type { CoverageState, ImpactState, ItemState, OutOfDateCause, WorkflowModule } from "../module";
+import { type FieldDefinition, itemsFields, type Workflow } from "../definition";
+import type { CoverageState, ImpactState, ItemState, OutOfDateCause, UnitState, WorkflowModule } from "../module";
 import { revisionOf, textValue, type ItemVersion } from "../records";
 import { STAGE_PROGRESS_LABELS, WAITING_CATEGORY_LABELS } from "../units";
 import { answeringSx } from "./answering";
@@ -43,11 +46,19 @@ interface CardControls {
   stageOpen: boolean;
 }
 
-/** Each choice field's value of an item's version, such as its priority, as chips. */
+/** The colours that tell the options of a cued choice field apart, by the option's position. */
+const CUE_COLORS = ["info", "secondary", "warning", "success", "error", "primary"] as const;
+
+/** Each choice field's value of an item's version, such as its priority, as chips; an option of a cued field in a colour of its own. */
 function ChoiceChips({ kind, version }: { kind: string; version: ItemVersion }) {
   const { workflow } = useWorkflowView();
   const choices = workflow.kind(kind).fields.flatMap((field) => (field.type === "choice" && textValue(version.content[field.name]) !== "" ? [field] : []));
-  return choices.map((field) => <Chip key={field.name} size="small" label={textValue(version.content[field.name])} sx={{ alignSelf: "flex-start" }} />);
+  return choices.map((field) => {
+    const value = textValue(version.content[field.name]);
+    const position = field.options.indexOf(value);
+    const cue = field.cued && position >= 0 ? CUE_COLORS[position % CUE_COLORS.length] : undefined;
+    return <Chip key={field.name} size="small" label={value} color={cue} variant={cue == null ? "filled" : "outlined"} sx={{ alignSelf: "flex-start" }} />;
+  });
 }
 
 /** An item's version as it reads, with each choice field's value under it unless the card shows them in its header. */
@@ -353,56 +364,99 @@ function RuleFields({ fields, depth = 0 }: { fields: readonly FieldDefinition[];
   );
 }
 
-function RulesDialog({ stage, open, onClose }: { stage: string; open: boolean; onClose: () => void }) {
+function RuleList({ rules }: { rules: readonly string[] }) {
+  return (
+    <Box component="ul" sx={{ pl: 3, my: 0 }}>
+      {rules.map((rule, index) => (
+        <Typography key={index} component="li" variant="body2" sx={{ mb: 1 }}>
+          {rule}
+        </Typography>
+      ))}
+    </Box>
+  );
+}
+
+/** One item of an example, as it is shown. */
+function ExampleText({ text }: { text: string }) {
+  return (
+    <Typography variant="body2" sx={{ pl: 2, py: 0.5, borderLeft: 2, borderColor: "divider", whiteSpace: "pre-wrap" }}>
+      {text}
+    </Typography>
+  );
+}
+
+/** A name with "a" or "an" in front. */
+function withArticle(name: string): string {
+  return `${/^[aeiou]/i.test(name) ? "an" : "a"} ${name}`;
+}
+
+/** A list of kinds as a sentence names them, such as "user stories, quality goals or constraints". */
+function namedKinds(names: readonly string[], joiner: "and" | "or"): string {
+  return names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} ${joiner} ${names.at(-1)}`;
+}
+
+/** One kind's published rules: its question first, then its stage's place, its fields and links, its rules, the shared rules and its examples. */
+function RulesDialog({ stage, kind, open, onClose }: { stage: string; kind: string; open: boolean; onClose: () => void }) {
   const { workflow } = useWorkflowView();
-  const definition = workflow.stage(stage);
+  const stageDefinition = workflow.stage(stage);
+  const definition = workflow.kind(kind);
+  const published = workflow.publishedRules(kind);
+  const label = (name: string) => workflow.kind(name).label.toLowerCase();
+  const plural = (name: string) => workflow.kind(name).plural.toLowerCase();
+  const links = new Set([
+    ...(definition.covers == null ? [] : [`Its items give the coverage of the ${namedKinds(definition.covers.map(plural), "and")}.`]),
+    ...(definition.mustReference == null ? [] : [`Each references at least one ${namedKinds(definition.mustReference.map(label), "or")}.`]),
+    ...itemsFields(definition.fields).map(
+      (field) => `Each counts as ${workflow.stageOfKind(field.of) === stage ? "depending on" : "referencing"} the ${plural(field.of)} its ${field.label} field chooses, without listing them.`,
+    ),
+    ...(definition.mayNotReference ?? []).map((name) => `Each references no ${label(name)}.`),
+    ...(definition.referencesSingle ?? []).map((name) => `Each counts as referencing the ${label(name)}, without listing it.`),
+    ...(definition.dependsOnSingle ?? []).map((name) => `Each counts as depending on the ${label(name)}, without listing it.`),
+  ]);
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
-      <DialogTitle>{definition.label}: published rules</DialogTitle>
+      <DialogTitle>{definition.plural}: published rules</DialogTitle>
       <DialogContent>
+        <Typography variant="subtitle1">The question {definition.single ? "it answers" : "each answers"}</Typography>
+        <Typography variant="body1" sx={{ fontWeight: 600, mb: 2 }}>{published.question}</Typography>
         <Typography variant="body2" sx={{ mb: 1 }}>
-          {definition.buildsOn.length === 0
-            ? "Builds on no stage."
-            : `Builds on ${definition.buildsOn
-                .map(({ stage: basis, covers }) => `${workflow.stage(basis).label}${covers.length === 0 ? "" : `, covering its ${covers.map((kind) => workflow.kind(kind).plural.toLowerCase()).join(" and ")}`}`)
-                .join("; ")}.`}
+          {stageDefinition.buildsOn.length === 0
+            ? `${stageDefinition.label} builds on no stage.`
+            : `${stageDefinition.label} builds on ${namedKinds(stageDefinition.buildsOn.map((basis) => workflow.stage(basis).label), "and")}.`}
+          {` Code ${definition.code}${definition.single ? ", one item only" : ""}.`}
         </Typography>
-        <Typography variant="subtitle1" sx={{ mt: 2 }}>Kinds</Typography>
+        {[...links].map((line) => (
+          <Typography key={line} variant="body2" sx={{ mb: 1 }}>{line}</Typography>
+        ))}
+        <Typography variant="subtitle1" sx={{ mt: 2 }}>Fields</Typography>
+        <RuleFields fields={definition.fields} />
+        {published.rules.length > 0 && (
+          <>
+            <Typography variant="subtitle1" sx={{ mt: 2 }}>Rules</Typography>
+            <RuleList rules={published.rules} />
+          </>
+        )}
+        <Typography variant="subtitle1" sx={{ mt: 2 }}>Rules of every kind</Typography>
+        <RuleList rules={published.shared} />
+        <Typography variant="subtitle1" sx={{ mt: 2 }}>Examples</Typography>
         <Stack spacing={1.5}>
-          {definition.kinds.map((kind) => (
-            <Box key={kind.kind}>
-              <Typography variant="subtitle2">
-                {kind.label} ({kind.code}){kind.single ? ", single" : ""}
+          <Box>
+            <Typography variant="subtitle2" color="success.main" sx={{ "&::first-letter": { textTransform: "uppercase" } }}>{withArticle(label(kind))}</Typography>
+            <ExampleText text={published.examples.good.text} />
+            {published.examples.good.details != null && (
+              <Typography variant="caption" color="text.secondary" sx={{ pl: 2 }}>{published.examples.good.details}</Typography>
+            )}
+          </Box>
+          {published.examples.traps.map((trap, index) => (
+            <Box key={index}>
+              <Typography variant="subtitle2" color="error.main" sx={{ "&::first-letter": { textTransform: "uppercase" } }}>
+                {trap.kind === kind ? `a wrong ${label(kind)}` : `${withArticle(label(trap.kind))} that could pass for ${withArticle(label(kind))}`}
               </Typography>
-              <RuleFields fields={kind.fields} />
+              <ExampleText text={trap.text} />
+              <Typography variant="body2" color="text.secondary" sx={{ pl: 2, mt: 0.5 }}>{trap.why}</Typography>
             </Box>
           ))}
         </Stack>
-        <Typography variant="subtitle1" sx={{ mt: 2 }}>Rules</Typography>
-        <Box component="ul" sx={{ pl: 3, my: 0 }}>
-          {workflow.rulesOf(stage).map((rule, index) => (
-            <Typography key={index} component="li" variant="body2" sx={{ mb: 1 }}>
-              {rule}
-            </Typography>
-          ))}
-        </Box>
-        {definition.examples == null ? null : (
-          <>
-            <Typography variant="subtitle1" sx={{ mt: 2 }}>Examples</Typography>
-            <Stack spacing={1.5}>
-              {definition.examples.map((example, index) => (
-                <Box key={index}>
-                  <Typography variant="subtitle2" color={example.good ? "success.main" : "error.main"}>
-                    {example.label}:
-                  </Typography>
-                  <Typography variant="body2" sx={{ pl: 2, fontStyle: "italic" }}>
-                    {`"${example.text}"`}
-                  </Typography>
-                </Box>
-              ))}
-            </Stack>
-          </>
-        )}
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Close</Button>
@@ -416,12 +470,31 @@ function isEditable(target: EventTarget | null): boolean {
 }
 
 /**
- * One stage: its state, progress and what waits for a signature, its
- * published rules, its items, coverages and impacts, and the threads whose
- * unit is gone. j and k move between units, Shift+J and Shift+K between
- * units that wait for a signature, g and Shift+G to the first and last
- * unit, s signs the focused one (Shift+S then moves to the next unit
- * that waits for a signature) and c opens its threads, where a change
+ * The kind whose tab shows a unit: an item's own kind, and a coverage's
+ * covering kind. An impact belongs to the whole stage, so to no one tab.
+ */
+function tabOf(module: WorkflowModule, workflow: Workflow, unit: UnitState): string | null {
+  switch (unit.kind) {
+    case "item":
+      return unit.itemKind;
+    case "coverage": {
+      const covered = module.locate(unit.itemId)?.item.kind;
+      return covered == null ? null : workflow.coveringKind(unit.stage, covered);
+    }
+    case "impact":
+      return null;
+  }
+}
+
+/**
+ * One stage: its state, progress and what waits for a signature, and, for
+ * a stage holding several kinds, one tab per kind under them that stays in
+ * view. A tab shows its kind's published rules, its items and the
+ * coverages they give; every tab shows the stage's impacts and the threads
+ * whose unit is gone. j and k move between the units shown, Shift+J and
+ * Shift+K between those that wait for a signature, g and Shift+G to the
+ * first and last, s signs the focused one (Shift+S then moves to the next
+ * unit that waits for a signature) and c opens its threads, where a change
  * request is written. An open thread shows beside its card, docked at the
  * right, where it follows the focused card, or full screen on a narrow
  * screen.
@@ -430,8 +503,16 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
   const { module, workflow } = useWorkflowView();
   const definition = workflow.stage(stage);
   const summary = module.stageSummary(stage);
-  const units = module.stageUnits(stage);
-  const removedItems = module.itemsOf(stage).filter((item) => module.itemState(item.id)?.phase === "removed");
+  const tabbed = definition.kinds.length > 1;
+  const [shownKind, setShownKind] = useState(definition.kinds[0]!.kind);
+  /** Whether the shown tab holds a unit: every unit while the stage has no tabs. */
+  const inShownTab = (unit: UnitState) => {
+    const tab = tabOf(module, workflow, unit);
+    return tab == null || tab === shownKind;
+  };
+  const allUnits = module.stageUnits(stage);
+  const units = allUnits.filter(inShownTab);
+  const removedItems = module.itemsOf(stage).filter((item) => item.kind === shownKind && module.itemState(item.id)?.phase === "removed");
   const orphanThreads = module.threadsOfStage(stage).filter(({ unitId }) => module.unitState(unitId) == null);
   /** The unit whose threads are open, where the overlay shows, and whether its box takes the focus. */
   const [thread, setThread] = useState<{ unitId: string; anchor: HTMLElement | null; autoFocus: boolean } | null>(null);
@@ -628,6 +709,13 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
 
   // An item opened where it is named, or a unit returned to by the browser's history, is revealed once its card shows.
   const { revealRequest, revealed } = useWorkflowNavigation();
+  // A unit to reveal in another tab shows once its tab does.
+  useEffect(() => {
+    if (revealRequest == null) return;
+    const requested = module.unitState(revealRequest.unitId);
+    const tab = requested == null || requested.stage !== stage ? null : tabOf(module, workflow, requested);
+    if (tab != null) setShownKind(tab);
+  }, [revealRequest, module, stage, workflow]);
   useEffect(() => {
     if (revealRequest == null) return;
     const card = cards().find((candidate) => candidate.dataset.unitCard === revealRequest.unitId);
@@ -666,17 +754,12 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
   const coverages = units.filter((unit): unit is CoverageState => unit.kind === "coverage");
   const impacts = units.filter((unit): unit is ImpactState => unit.kind === "impact");
   const items = units.filter((unit): unit is ItemState => unit.kind === "item");
+  const waitingShown = units.some((unit) => module.waitsForSignature(unit));
   // Besides the stages offered while empty, a sign that completes this stage offers writing the stages that build on it.
   const stagesOffered = new Set(module.stagesToWriteAfter(stage));
   if (justCompleted && summary.progress === "complete") {
-    for (const later of workflow.stageIds) {
-      if (
-        workflow.stage(later).buildsOn.some((basis) => basis.stage === stage) &&
-        module.stageOpen(later) &&
-        !module.stageComplete(later)
-      ) {
-        stagesOffered.add(later);
-      }
+    for (const later of workflow.stagesBuildingOn(stage)) {
+      if (module.stageOpen(later) && !module.stageComplete(later)) stagesOffered.add(later);
     }
   }
   const stagesToWrite = workflow.stageIds.filter((later) => stagesOffered.has(later));
@@ -692,13 +775,34 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
         {summary.approved} of {summary.total} approved
       </Typography>
       <Tooltip title="Previous unit waiting for a signature (Shift+K)">
-        <span><IconButton size="small" aria-label="Previous unit waiting for a signature" disabled={waitingParts.length === 0} onClick={() => moveToWaiting(-1)}><KeyboardArrowUp fontSize="small" /></IconButton></span>
+        <span><IconButton size="small" aria-label="Previous unit waiting for a signature" disabled={!waitingShown} onClick={() => moveToWaiting(-1)}><KeyboardArrowUp fontSize="small" /></IconButton></span>
       </Tooltip>
       <Tooltip title="Next unit waiting for a signature (Shift+J)">
-        <span><IconButton size="small" aria-label="Next unit waiting for a signature" disabled={waitingParts.length === 0} onClick={() => moveToWaiting(1)}><KeyboardArrowDown fontSize="small" /></IconButton></span>
+        <span><IconButton size="small" aria-label="Next unit waiting for a signature" disabled={!waitingShown} onClick={() => moveToWaiting(1)}><KeyboardArrowDown fontSize="small" /></IconButton></span>
       </Tooltip>
     </Stack>
   );
+  const rulesButton = (
+    <Button size={compact || tabbed ? "small" : "medium"} startIcon={<MenuBook />} onClick={() => setRulesOpen(true)}>
+      {tabbed ? `Rules of ${workflow.kind(shownKind).plural.toLowerCase()}` : "Rules"}
+    </Button>
+  );
+  /** Each tab's label: its kind, and, on a tab not shown, a badge counting its units not approved, which keep the stage from completing. */
+  const tabLabel = (kind: string) => {
+    const notApproved = allUnits.filter((unit) => tabOf(module, workflow, unit) === kind && !unit.approved).length;
+    const plural = workflow.kind(kind).plural;
+    return (
+      <Badge
+        color="warning"
+        badgeContent={notApproved}
+        invisible={kind === shownKind || notApproved === 0}
+        aria-label={kind !== shownKind && notApproved > 0 ? `${plural}, ${notApproved} not approved` : plural}
+        sx={{ pr: kind !== shownKind && notApproved > 0 ? 2 : 0, "& .MuiBadge-badge": { right: 0, top: "50%", transform: "translateY(-50%)" } }}
+      >
+        {plural}
+      </Badge>
+    );
+  };
 
   return (
     <Stack direction="row" sx={{ flexGrow: 1, minWidth: 0, minHeight: 0 }}>
@@ -713,9 +817,7 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
             {compact && progressBar}
             <Chip size={compact ? "small" : "medium"} label={summary.open ? "Open" : "Closed"} color={summary.open ? "primary" : "default"} variant="outlined" />
             <Chip size={compact ? "small" : "medium"} label={STAGE_PROGRESS_LABELS[summary.progress]} color={summary.progress === "complete" ? "success" : summary.progress === "empty" ? "default" : "warning"} />
-            <Button size={compact ? "small" : "medium"} startIcon={<MenuBook />} onClick={() => setRulesOpen(true)}>
-              Rules
-            </Button>
+            {!tabbed && rulesButton}
           </Stack>
           {!compact && progressBar}
           <Typography variant="body2" color="text.secondary">
@@ -747,6 +849,16 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
               Closed until {workflow.upstreamStages(stage).filter((upstream) => !module.stageComplete(upstream)).map((upstream) => workflow.stage(upstream).label).join(" and ")} {workflow.upstreamStages(stage).filter((upstream) => !module.stageComplete(upstream)).length === 1 ? "is" : "are"} complete. Its work stays readable.
             </Alert>
           )}
+          {tabbed && (
+            <Stack direction="row" sx={{ alignItems: "center", gap: 1, borderBottom: 1, borderColor: "divider" }}>
+              <Tabs value={shownKind} onChange={(_event, kind: string) => setShownKind(kind)} variant="scrollable" scrollButtons="auto" sx={{ flexGrow: 1, minHeight: 40 }}>
+                {definition.kinds.map((kind) => (
+                  <Tab key={kind.kind} value={kind.kind} label={tabLabel(kind.kind)} sx={{ minHeight: 40, textTransform: "none" }} />
+                ))}
+              </Tabs>
+              {rulesButton}
+            </Stack>
+          )}
         </Stack>
 
         <Stack spacing={1.5}>
@@ -755,7 +867,7 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
           {summary.open && (
             <Stack direction="row" sx={{ gap: 1, flexWrap: "wrap" }}>
               {definition.kinds
-                .filter((kind) => !kind.single || !module.itemsOf(stage).some((item) => item.kind === kind.kind && item.removal == null))
+                .filter((kind) => kind.kind === shownKind && (!kind.single || !module.itemsOf(stage).some((item) => item.kind === kind.kind && item.removal == null)))
                 .map((kind) => (
                   <Button key={kind.kind} startIcon={<Add />} variant={editor?.itemId == null && editor?.kind === kind.kind ? "contained" : "outlined"} onClick={() => requestEditor({ stage, kind: kind.kind, itemId: null })}>
                     Add {kind.label.toLowerCase()}
@@ -783,7 +895,7 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
         <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 3 }}>
           Keyboard: j or ↓ next, k or ↑ previous, Shift+J or Shift+K next or previous waiting for a signature, g first, Shift+G last, s sign, Shift+S sign and go to the next waiting for a signature, c open the thread or request a change, Esc close it.
         </Typography>
-        <RulesDialog stage={stage} open={rulesOpen} onClose={() => setRulesOpen(false)} />
+        <RulesDialog stage={stage} kind={shownKind} open={rulesOpen} onClose={() => setRulesOpen(false)} />
       </Box>
       {thread != null && module.unitState(thread.unitId) != null && (
         <ThreadView

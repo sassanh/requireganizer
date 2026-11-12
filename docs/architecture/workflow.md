@@ -1,65 +1,49 @@
 # Engineering workflow
 
-Requireganizer uses this contract-first order. A new project may optionally supply starting intent once to draft the Product Overview; that text is not a stage. It is kept as revision 0 provenance so the overview can always be audited back to its seed.
+Each module of a product holds its spec as stages. A stage builds on the stages before it: it opens once they are complete, its items reference their items, and it asks for a coverage of each of their items of the kinds it covers.
 
 ```text
-Product Overview → User Stories → Requirements
-→ Acceptance Criteria → Boundary Design → Interface Contracts
-→ Test Scenarios → Test Cases → Project Setup → Automated Tests → Code
+Module Overview → Capabilities → Features and Target Users → Needs
+→ Requirements → Acceptance Criteria → Boundary → Abstract tests
 ```
 
-## Stage contracts
+Abstract tests build on both Acceptance Criteria and Boundary.
 
-| Stage | Delivered artifact | Completion rule |
+## Stages and kinds
+
+| Stage | Kinds of item | Covers |
 | --- | --- | --- |
-| Product Overview | Purpose, primary features, target users | The overview is complete, every item is approved, and it contains no implementation choice. Downstream generate waits until every item is approved. |
-| User Stories | Independently valuable user outcomes | Every primary feature has traceable coverage, every story is approved, and every feature's coverage is approved. |
-| Requirements | Atomic, solution-neutral obligations | Every story has traceable coverage, every requirement is approved, and every story's coverage is approved. |
-| Acceptance Criteria | Observable pass/fail conditions | Every requirement has traceable coverage, every criterion is approved, and every requirement's coverage is approved. |
-| Boundary Design | Revisioned subjects, semantic interfaces/interactions, verification obligations, complete criterion coverage | The complete graph validates and is explicitly approved. |
-| Interface Contracts | Approved implementation profile; per-interface adapter, native/neutral contract and normalized index; per-subject protocol and harness binding; verification contracts | The profile and every formal bundle are explicitly approved. |
-| Test Scenarios | Behavioral or verification scenarios bound to exact contract revisions | Every scenario has one valid revision binding. |
-| Test Cases | Structured behavioral traces or verification plans | Every scenario has at least one valid structured case. |
-| Project Setup | Build configuration, scaffold manifest, contract-bearing files and unimplemented binding seams | Contract hashes, paths, targets, and bindings validate. |
-| Automated Tests | Executable tests generated into manifest-controlled targets | Every current structured case has a generated file fingerprint. |
-| Code | Future application implementation | This stage remains pending. Scaffold and tests never complete it. |
+| Module Overview | purpose | nothing |
+| Capabilities | capability | the purpose |
+| Features and Target Users | feature, target user | each capability, by its features |
+| Needs | user story, quality goal, constraint | each feature, by its user stories |
+| Requirements | requirement (functional, quality or constraint) | each user story, quality goal and constraint |
+| Acceptance Criteria | acceptance criterion | each requirement |
+| Boundary | boundary statement, entity type, set of words, operation | nothing |
+| Abstract tests | abstract test | each acceptance criterion and each operation |
 
-Nobody types artifact prose; reviewers **Request change** or **Approve**. Generate and rewrite produce **draft**. Downstream generate consumes only a fully approved stage.
+## Published rules
 
-A change request opens a thread on its unit. The project names who answers threads: Requireganizer's writer or a connected coding agent. An answer changes the unit or only replies, and only a person resolves a thread.
-
-Validators check IDs, allowed references, coverage of upstream IDs, and acyclic dependencies immediately in code. They do not parse sentence shape or ban words. Coverage holes remain standing after changes; they are not generate-time only.
+Every writer and every signer of a kind works to the same published rules. A kind's rules start with the question its items answer, then hold its own rules, the rules every kind shares, and examples: one item of the kind, and for each kind in its stage and in the stages next to it, an item of that kind that could pass for one of this kind, with a sentence saying why it does not. A rule a form can enforce, such as a required field, is enforced when the item is saved instead.
 
 ## Progress
 
-A project is **in progress** or **complete**, derived from its stages and never stored. A stage is complete when its completion rule holds and every approval it needs is given. The frontier is the first stage that is not complete; a project without one is complete. Code is outside this workflow and does not count toward completion; code work waits until the project is complete.
+A stage is open while every stage it builds on, directly or through other stages, is complete. A closed stage stays readable but takes no writing, signing or thread activity. A stage is complete when it holds at least one item and every item, coverage and impact in it is approved. Changing a complete stage keeps the stages building on it readable but closed until it is complete again.
 
-Only the frontier and the stages before it can change. Later stages are read-only: their work stays visible but cannot be edited, generated, or approved until the frontier reaches them. Changing an earlier stage, or any stage of a complete project, makes that stage the frontier. The change applies at once as drafts to approve or restore.
+## Signatures
 
-Modules are the slices of a product; within a module, the frontier advances one stage at a time. Priority labels are not part of the method and never scope generation or coverage.
+A signature covers the exact version it was given for: an item's content, references and dependencies; a coverage's item and the items referencing it; an impact's item version or its removal. It records who gave it. An item, coverage or impact is approved while a signature on it counts, no thread on it is open, and, for an item, it is neither out of date nor proposed for removal.
 
-## Approval
+Removing a signed item proposes its removal, which waits for a signature; an item never signed is removed at once. An item changed since its last signature, or proposed for removal, can be returned to the signed version.
 
-An approval records what was checked, who checked it (a person, or the reviewer model by name), and when. What was checked is the item's full content (its text, structured definition, and references) together with the exact revisions of the items it references. An item is approved only while that record matches. Any change to either, however small, returns the item to draft. Approval is not part of any revision, so approving never outdates other work.
+## Out of date
 
-A stage's inputs are only the stages its items reference; earlier stages reach it through them. When an item changes, every item referencing it is outdated and must be regenerated before it can be approved again. The rewriter may keep an item word for word when the change does not affect it; the regenerated item returns to draft either way. An item kept unchanged keeps its revision, so the change reaches no further than the items that reference it.
+An item is out of date while an item it references or depends on has changed since it was written or signed, is removed, is not approved, or is out of date itself. The same holds for a dependency on an item of another module. An out-of-date item that still holds can be signed as it is.
 
-A rewritten item that was approved before can be restored to its signed version, which discards the rewrite; restoring an item proposed for removal withdraws the removal. The restored item is approved again only if the revisions it references have not changed since it was signed; otherwise it is a draft, reviewed against the new inputs.
+## Coverage and impact
 
-A change can also affect an item that does not reference the changed item. So when upstream revisions change, the stage's approved items that reference none of them need one impact approval: the change affects none of these items. It records the upstream changes and the items it covers. The reviewer approves it, or sends chosen items back to be regenerated, which returns them to draft.
+A coverage is one signature per item of a covered kind: the items referencing it cover it fully. An impact is asked in a stage for each upstream item changed or removed since the stage took it in: no approved item of the stage relies on the change without referencing the item.
 
-Approving every item does not attest that nothing is missing. In User Stories, Requirements, and Acceptance Criteria, each upstream item also needs a coverage approval: the items referencing it cover it fully. A coverage approval records the upstream item and the complete set of items referencing it, so changing the upstream item, or adding, removing, or changing any item referencing it, returns it to draft.
+## Change requests
 
-Every reviewable stage, and every coverage and impact approval, has a quality contract. The writer checks its items against it before submitting. A reviewer model judges every draft against it, in a context separate from the model that wrote the items. The reviewer model is configured separately; without it there is no model verdict, and auto review is unavailable.
-
-Each stage runs in **manual** or **auto** review, switchable at any time. In auto review the reviewer model's approval is the approval. In manual review its verdict is a recommendation shown with the item, and a person approves or requests changes. A rejection leaves the item in draft with the reviewer's reason until a person requests a change or restores the signed version; nothing is rewritten automatically. A person can approve or reject any item in either mode. When a person's verdict and the model's differ, the item stays unapproved until the person decides, shown both verdicts and the model's reason; the decision records both verdicts. Switching modes affects only future decisions; approvals already given stay, each recording who gave it.
-
-## Boundary invariants
-
-The root product subject is mandatory. An internal subject needs explicit requirement or criterion justification. Every interface belongs to one subject, and every interaction belongs to one interface. A behavioral scenario can use several interfaces only when they belong to its one subject. Cross-subject behavior requires an explicit composite subject.
-
-Every acceptance criterion maps to either a semantic interaction or a typed non-behavioral verification obligation. The graph cannot be approved with missing or inconsistent coverage.
-
-## Revision bindings
-
-Every downstream artifact stores exact upstream revision IDs. A changed approved artifact produces a new revision; it never mutates an approved revision in place.
+A change request opens a thread on an item, a coverage or an impact, with at most one open thread per unit. The answerer replies alone or with changes to any items, and only the spec owner resolves a thread.

@@ -547,9 +547,9 @@ export function workflowModuleModel(workflow: Workflow) {
           }
         }
         const stored = self.stages.get(stage)?.coverages ?? {};
-        return workflow.stage(stage).buildsOn.flatMap(({ stage: basis, covers }) =>
+        return workflow.basisStages(stage).flatMap((basis) =>
           activeItems(basis)
-            .filter(({ kind }) => covers.includes(kind))
+            .filter(({ kind }) => workflow.coveredKinds(stage, basis).includes(kind))
             .map((covered) => {
               const referencing = [...(referencingIndex.get(covered.id) ?? [])].sort((left, right) => left.id.localeCompare(right.id));
               const checked = fingerprint({
@@ -942,7 +942,7 @@ export function workflowModuleModel(workflow: Workflow) {
         stagesToWriteAfter(stage: string): string[] {
           if (!self.stageComplete(stage)) return [];
           return workflow.stageIds.filter((later) =>
-            workflow.stage(later).buildsOn.some((basis) => basis.stage === stage) && self.stageOpen(later) && self.itemsOf(later).length === 0,
+            workflow.basisStages(later).includes(stage) && self.stageOpen(later) && self.itemsOf(later).length === 0,
           );
         },
         get writingAskedOfAnswerer(): WritingAsk[] {
@@ -1286,14 +1286,21 @@ export function workflowModuleModel(workflow: Workflow) {
             problems.push(`${name} lists ${self.codeOf(dependency)} in its dependencies; it counts as depending on it already, so leave it out.`);
           }
         }
-        const all = self.referencesOfVersion(kind, { content, references });
-        for (const required of definition.mustReference ?? []) {
-          const referenced = all.some((id) => {
+        const referencedKinds = new Set(
+          self.referencesOfVersion(kind, { content, references }).flatMap((id) => {
             const located = self.locate(id);
-            return located != null && located.item.kind === required && phaseOf(located.item.removal) !== "removed";
-          });
-          if (!referenced) {
-            problems.push(`${name} references no ${workflow.kind(required).label.toLowerCase()} of this module; reference at least one.`);
+            return located == null || phaseOf(located.item.removal) === "removed" ? [] : [located.item.kind];
+          }),
+        );
+        const required = definition.mustReference ?? [];
+        if (required.length > 0 && !required.some((candidate) => referencedKinds.has(candidate))) {
+          const labels = required.map((candidate) => workflow.kind(candidate).label.toLowerCase());
+          const named = labels.length === 1 ? labels[0] : `${labels.slice(0, -1).join(", ")} or ${labels.at(-1)}`;
+          problems.push(`${name} references no ${named} of this module; reference at least one.`);
+        }
+        for (const refused of definition.mayNotReference ?? []) {
+          if (referencedKinds.has(refused)) {
+            problems.push(`${name} references a ${workflow.kind(refused).label.toLowerCase()}; a ${definition.label.toLowerCase()} references none.`);
           }
         }
         return problems;

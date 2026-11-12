@@ -1,12 +1,10 @@
 # Requireganizer
 
-Requireganizer turns a product idea into the spec your code is built against: user stories, requirements, acceptance criteria, interface contracts, test cases and executable tests. Each item is traced to what it serves, and you approve each one. When something upstream changes, it shows exactly which items went stale. Coding agents read the approved spec and submit their stage work over MCP; only you approve.
-
-The AI harness is contract-first: each operation exposes one scoped OpenAI-compatible function, validates its arguments and engineering relationships, and applies successful proposals atomically.
+Requireganizer keeps the spec your code is built against, stage by stage: a module's purpose, capabilities, features and target users, needs, requirements, acceptance criteria, the boundary its tests use, and abstract tests. Each item is traced to what it builds on, and you sign each one. When something upstream changes, it shows exactly which items are out of date. Coding agents read the spec and write items over MCP; only you sign.
 
 ## Documentation
 
-Read the [project documentation](docs/index.md) for the complete workflow, architecture, harness contracts, prompt design, state invalidation, testing, environment, and deployment model.
+Read the [project documentation](docs/index.md) for the workflow, architecture, storage and recovery, testing, environment, and deployment.
 
 The published site is available at [sassanh.github.io/requireganizer](https://sassanh.github.io/requireganizer/).
 
@@ -16,7 +14,7 @@ The published site is available at [sassanh.github.io/requireganizer](https://sa
 claude plugin install requireganizer --marketplace sassanh/requireganizer
 ```
 
-The plugin brings the MCP server and the Skill that teaches the agent the workflow. See [getting started](docs/guide/getting-started.md) for the project server and the browser build.
+The plugin brings the MCP server and the Skill that teaches the agent the stages. See [getting started](docs/guide/getting-started.md) for the project server and the browser build.
 
 ## Quick start
 
@@ -31,7 +29,7 @@ cp .env.example .env.local
 pnpm run dev
 ```
 
-Open [http://127.0.0.1:3000](http://127.0.0.1:3000). Set `AI_API_KEY` in `.env.local` first; the default endpoint is OpenRouter.
+Open [http://127.0.0.1:3000](http://127.0.0.1:3000).
 
 Requireganizer runs either entirely in the browser, with projects in browser storage, or with a project server that keeps one project in a file in your repository. See [getting started](docs/guide/getting-started.md) and the [environment reference](docs/reference/environment.md).
 
@@ -41,7 +39,7 @@ Requireganizer runs either entirely in the browser, with projects in browser sto
 pnpm run check
 ```
 
-This runs linting, strict TypeScript checks, unit and harness contract tests, the production application build, and the production VitePress build. GitHub Actions runs the same gate for pushes to `main` and pull requests.
+This runs linting, strict TypeScript checks, the tests, the production application build, and the production VitePress build. GitHub Actions runs the same gate for pushes to `main` and pull requests.
 
 To work on the docs locally:
 

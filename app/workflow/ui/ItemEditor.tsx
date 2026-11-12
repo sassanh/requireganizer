@@ -325,7 +325,12 @@ const ItemEditor = observer(function ItemEditor({
   const definition = workflow.kind(kind);
   const current = itemId == null ? null : module.versionOf(itemId);
   const [content, setContent] = useState<RecordContent>(() =>
-    Object.fromEntries(definition.fields.map((field) => [field.name, current?.content[field.name] ?? (field.type === "items" ? [] : null)])),
+    Object.fromEntries(
+      definition.fields.map((field) => [
+        field.name,
+        current == null ? (field.type === "items" ? [] : field.type === "choice" ? (field.initial ?? null) : null) : (current.content[field.name] ?? null),
+      ]),
+    ),
   );
   const [references, setReferences] = useState<string[]>(() => [...(current?.references ?? [])]);
   const [dependencies, setDependencies] = useState<string[]>(() => [...(current?.dependencies ?? [])]);
@@ -335,10 +340,10 @@ const ItemEditor = observer(function ItemEditor({
 
   const option = (id: string, label: string): Option => ({ id, label });
   const chosenKinds = workflow.chosenKinds(kind);
-  const countedReferences = [...chosenKinds, ...(definition.referencesSingle ?? [])];
+  const kindsNotOfferedAsReferences = [...chosenKinds, ...(definition.referencesSingle ?? []), ...(definition.mayNotReference ?? [])];
   const referenceOptions: Option[] = workflow.basisStages(stage).flatMap((basis) =>
     module.itemsOf(basis)
-      .filter(({ kind: candidate, removal }) => removal == null && !countedReferences.includes(candidate))
+      .filter(({ kind: candidate, removal }) => removal == null && !kindsNotOfferedAsReferences.includes(candidate))
       .map((item) => option(item.id, `${module.codeOf(item.id)} ${module.textOf(item.id)}`)),
   );
   const counted = [...chosenKinds, ...(definition.dependsOnSingle ?? [])];

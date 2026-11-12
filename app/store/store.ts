@@ -8,8 +8,10 @@ import type { ModuleContent } from "storage-and-recovery";
 import { TEST_DESIGN_STAGES } from "test-design";
 import { type TurnInHand, Workflow, workflowModuleModel } from "workflow";
 
+import { KIND_EXAMPLES } from "./examples";
+
 /** The workflow every module of a project follows. */
-export const WORKFLOW = new Workflow({ stages: [...REQUIREMENTS_ENGINEERING_STAGES, ...TEST_DESIGN_STAGES] });
+export const WORKFLOW = new Workflow({ stages: [...REQUIREMENTS_ENGINEERING_STAGES, ...TEST_DESIGN_STAGES], examples: KIND_EXAMPLES });
 
 /**
  * The volatile state the interface reads. It never enters a snapshot or a

@@ -3,7 +3,7 @@ import { defineConfig } from "vitepress";
 export default defineConfig({
   title: "Requireganizer",
   description:
-    "Architecture, AI harness, workflow, and contributor documentation for Requireganizer.",
+    "Workflow, architecture, and contributor documentation for Requireganizer.",
   base: "/requireganizer/",
   cleanUrls: true,
   lastUpdated: true,
@@ -27,12 +27,7 @@ export default defineConfig({
         items: [
           { text: "System overview", link: "/architecture/overview" },
           { text: "Engineering workflow", link: "/architecture/workflow" },
-          { text: "AI harness", link: "/architecture/ai-harness" },
-          { text: "Prompt contracts", link: "/architecture/prompt-contracts" },
-          {
-            text: "State and invalidation",
-            link: "/architecture/state-and-invalidation",
-          },
+          { text: "Storage and recovery", link: "/architecture/storage-and-recovery" },
         ],
       },
       {
@@ -45,9 +40,7 @@ export default defineConfig({
       {
         text: "Reference",
         items: [
-          { text: "Artifact contracts", link: "/reference/artifacts" },
           { text: "Environment variables", link: "/reference/environment" },
-          { text: "Design scope", link: "/reference/design-scope" },
         ],
       },
     ],

@@ -1,59 +1,19 @@
 # Using the workflow
 
-Work happens at the frontier: the first stage that is not complete. Generate it, review every item, and approve; when the stage is complete, the next one becomes the frontier. Stages after the frontier are read-only until it reaches them. Generated work is draft.
-
-Approval is the same gate everywhere: Product Overview items, stories, requirements, and criteria, then Boundary Design, the Implementation Profile, every interface bundle, every subject protocol and binding, every verification contract, scenarios, cases, and Project Setup.
+A module's stages open in order: a stage opens once every stage it builds on is complete.
 
 ## Reviewing a stage
 
-Each item's left bar is its approval stamp: muted until approved, green when approved. Coverage holes and dangling IDs stay as text under the item, and so does a note on an item that is outdated. After a rewrite of an approved item, the row shows a standing word diff against the signed text; **Restore** brings the signed version back, with its approval when nothing it references has changed since. A proposed removal stays on the page, struck through, until Approve deletes it or Restore withdraws it. A stage line names kept, rewrote, added, and dropped when more than one row changed. Formal contracts show a semantic suite diff; whole-revision artifacts (boundary, profile, setup) are not prose rows.
+A stage holding several kinds of item shows one tab per kind under its progress bar. A tab you are not on shows how many of its units are not approved, so you can see which tab keeps the stage from completing. **Rules** shows the shown kind's published rules: its question, its rules, the shared rules and its examples.
 
-In User Stories, Requirements, and Acceptance Criteria, the **Coverage** list under the items asks one approval per upstream item: the items referencing it cover it fully. Request a change there when something is missing.
+Sign each item, coverage and impact on its own. An item changed since you signed it shows how it differs, and **Restore** returns it to the version you signed. An item that is not approved names every reason: no signature, an open thread, out of date, or proposed for removal.
 
 ## Change requests
 
-**Request change** on an item opens a thread on it; another request while the thread is open adds to it. **Change requests go to** in the project menu names who answers: Requireganizer's AI, which starts as soon as you send a request, or the coding agent connected over MCP, which answers when you ask it to. To have Claude Code answer as soon as you send a request, start it with `claude --dangerously-load-development-channels plugin:requireganizer@requireganizer`; while channels are a research preview, Claude Code accepts only this flag for them. While an answerer works on your request, the border of its **Waiting for …** label runs. An answer changes the item and says what changed, or only replies, such as with a question. When Requireganizer's AI could not answer, **Ask again** in the thread retries.
+**c** on a unit opens its thread; a further request while the thread is open adds to it. The coding agent connected over MCP answers with a reply, or with a reply and changes to items. Only you resolve a thread.
 
-An item whose thread waits for you is marked, and its stage tab counts those threads. Only you resolve a thread; resolved threads stay readable in the item's thread.
-
-## Review modes
-
-Each stage runs in **Manual review** or **Auto review**. With a reviewer model configured (`AI_REVIEWER_MODEL` for a server, **AI settings** in the page build), the model judges every draft against the stage's quality contract. In manual review its verdict appears next to the item as a recommendation and you approve. In auto review its approval is the approval; a rejection waits for you with the model's reason. When you approve something the model rejected, or request a change to something it approved, you decide in a dialog that shows its reason. **Review with the model** asks for verdicts on drafts that have none.
-
-## Changing an earlier stage
-
-A change to a stage before the frontier applies at once and reopens that stage: the changed items wait for your approval. When later stages hold work, a recovery snapshot of the project before the change is saved first.
-
-When an item changes, every item that references it is outdated: refresh the stage to regenerate them. A regenerated item returns to draft even when the rewriter kept it word for word. Items that reference none of the changed inputs keep their approvals but need one **impact** approval: the change affects none of them. Mark out of date any item it does affect, until it is regenerated.
-
-## Stage tabs
-
-A lock is an empty stage after the frontier; it cannot be opened. An hourglass is a stage after the frontier that holds work, readable but waiting. A timer is the frontier while it is empty or misses coverage. A warning is the frontier while it holds outdated or unapproved work. A green check is a complete stage.
-
-## Boundary Design
-
-Review what each subject owns and excludes, which peer uses each interface, and whether interactions describe observable behavior without implementation syntax. Confirm that internal subjects are justified and every acceptance criterion has behavioral or non-behavioral coverage. Request a graph-level change when the graph needs one, then approve the complete graph.
-
-## Interface Contracts
-
-Review and approve the open-ended Implementation Profile first. For each interface, inspect the adapter identity, formal declarations, normalized operation/outcome schemas, native anchors, and hashes. Review each subject's shared lifecycle and harness binding. Formal artifacts are read-only; request a reconciled revision when they need changes. The reconciled draft includes an artifact diff, and every changed bundle returns to draft for explicit approval.
-
-## Scenarios and cases
-
-A behavioral scenario identifies one subject and approved interfaces owned by it. A verification scenario identifies one formal non-behavioral obligation. Generated cases show human-readable steps and expected results, but their source of truth is the structured trace or verification plan.
-
-## Project Setup and tests
-
-Project Setup selects deterministic build/test commands and creates a manifest-controlled scaffold. Approved native contracts are copied byte-for-byte. Product seams remain unimplemented. Automated Tests use exact case and contract revisions and write only to the scenario path declared by the manifest.
-
-Project Files is a separate viewer. The Code stage remains pending because neither scaffold nor test generation implements the product.
+When a stage is empty, or a signature completes the stage it builds on, the stage offers **Ask the coding agent to write** it.
 
 ## Modules
 
-A large product splits into modules, each with its own overview and stages. **Cmd+Shift+M** shows the product as the project's name above its modules. A project's name is the product's name, and a module's name is the one in that list; rename either there.
-
-## Recovery and imports
-
-Open **Revisions** to pin, restore, download, or delete recovery snapshots.
-
-Imports accept schema 4 (modular projects) or a single module snapshot of schema 6, or of schema 3, which is migrated on load. Any other version is rejected with the accepted versions named.
+A large product splits into modules, each with its own stages. **Cmd+Shift+M** shows the product as the project's name above its modules.

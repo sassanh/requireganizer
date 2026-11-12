@@ -66,6 +66,10 @@ export interface TextFieldDefinition extends FieldBase {
 export interface ChoiceFieldDefinition extends FieldBase {
   type: "choice";
   options: readonly string[];
+  /** The option a new item starts with, if any. */
+  initial?: string;
+  /** Whether each option is shown with a visual cue of its own, telling the options apart at a glance. */
+  cued?: boolean;
   /** The options it offers where it sits, when they depend on the rest of the item. */
   offered?: (place: FieldPlace) => Offer;
 }
@@ -205,9 +209,17 @@ export interface ItemKindDefinition {
    */
   code: string;
   single?: boolean;
+  /** The question its items answer, as its definition states it: the first of its published rules. */
+  question: string;
+  /** Its own published rules, each a sentence, after its question; every kind also publishes the shared rules. */
+  rules: readonly string[];
   fields: readonly FieldDefinition[];
-  /** Kinds of a basis stage of which an item must reference at least one item, through its references or an items field. */
+  /** Kinds of a basis stage whose items' coverage its items give: the coverage of each such item is asked in its stage. */
+  covers?: readonly string[];
+  /** Kinds of a basis stage of which an item must reference at least one item, of any of them, through its references or an items field. */
   mustReference?: readonly string[];
+  /** Kinds of a basis stage whose items an item never references. */
+  mayNotReference?: readonly string[];
   /** Single kinds of a basis stage whose item every item of this kind counts as referencing, without listing it. */
   referencesSingle?: readonly string[];
   /** Single kinds of its own stage whose item every item of this kind counts as depending on, without listing it. */
@@ -225,45 +237,82 @@ export interface ItemKindDefinition {
   example?: Readonly<Record<string, unknown>>;
 }
 
-/** A stage this stage builds on, and the kinds of its items this stage covers. */
-export interface BasisDefinition {
-  stage: string;
-  covers: readonly string[];
-}
-
-/** One example of an item that follows a stage's rules, or one that does not. */
-export interface StageRuleExample {
-  /** What the example shows, such as "Good, a tool-like module". */
-  label: string;
-  /** The example itself. */
-  text: string;
-  /** Whether it is an example to follow, rather than one not to. */
-  good: boolean;
-}
-
 export interface StageDefinition {
   id: string;
   label: string;
-  buildsOn: readonly BasisDefinition[];
+  /** The stages it builds on directly. Which kinds of their items it covers, its kinds say. */
+  buildsOn: readonly string[];
   kinds: readonly ItemKindDefinition[];
-  /** The stage's own published rules, each a sentence or short paragraph; every stage also publishes the shared rules. */
-  rules: readonly string[];
-  /** Examples of items that follow the rules, and ones that do not, published with them. */
-  examples?: readonly StageRuleExample[];
 }
 
-/** The published rules every stage holds after its own. */
-const SHARED_RULES = [
-  "A reference links an item to an item of a stage this stage builds on; a dependency links it to an item of its own stage or of another module that it relies on.",
+/** One item of a kind as its published rules show it: its text as shown, and what it holds that its text does not show. */
+export interface KindExample {
+  text: string;
+  /** Such as its references, or a requirement's type. */
+  details?: string;
+}
+
+/** An item of another kind, or a wrong item of the same kind, that could pass for an item of a kind. */
+export interface KindTrap {
+  /** The kind the item is of. */
+  kind: string;
+  text: string;
+  /** One sentence: which question it answers, and why that is not the question of the kind it could pass for. */
+  why: string;
+}
+
+/** The examples published with a kind's rules. */
+export interface KindExamples {
+  /** One item of the kind. */
+  good: KindExample;
+  /**
+   * For each other kind held by its stage, by a stage its stage builds on
+   * or by a stage building on its stage, one item of that kind that could
+   * pass for an item of this kind; and any item of this kind written as
+   * something it is not.
+   */
+  traps: readonly KindTrap[];
+}
+
+/** A kind's published rules, the same for every writer and every signer: its question first, then its own rules, the shared rules and its examples. */
+export interface PublishedRules {
+  question: string;
+  rules: readonly string[];
+  shared: readonly string[];
+  examples: KindExamples;
+}
+
+/** The published rules every kind of item holds after its own. */
+const SHARED_RULES: readonly string[] = [
+  "An item states only what answers its kind's question.",
+  "Two items of the same kind never give the same answer to its question, wholly or in part.",
+  "An item serves each item it references: if the item were removed, each item it references would be less delivered.",
+  "An item names no way of building the product, unless its kind's question asks for limits set from outside the product, or an item it references, directly or through other items, names that way.",
+  "A reference links an item to an item of a stage its own stage builds on; a dependency links it to an item of its own stage or of another module that it relies on.",
   "An item is signed as it is shown. Write each item so that it can be judged on its own.",
 ];
 
-/** The stages of a module, each after the stages it builds on. */
+/** The stages of a module, each after the stages it builds on, and the examples published with each kind's rules. */
 export interface WorkflowDefinition {
   stages: readonly StageDefinition[];
+  /** By kind. */
+  examples: Readonly<Record<string, KindExamples>>;
 }
 
-/** The definition, checked once: a stage builds only on earlier stages and covers only their kinds. */
+/** The kinds held by a stage, by the stages it builds on directly and by the stages building on it directly. */
+function neighbourKinds(stages: readonly StageDefinition[], stage: StageDefinition): Set<string> {
+  const neighbours = stages.filter(
+    (candidate) => candidate.id === stage.id || stage.buildsOn.includes(candidate.id) || candidate.buildsOn.includes(stage.id),
+  );
+  return new Set(neighbours.flatMap((candidate) => candidate.kinds.map(({ kind }) => kind)));
+}
+
+/**
+ * The definition, checked once: a stage builds only on earlier stages; its
+ * kinds cover, require and refuse only kinds of those stages, each covered
+ * kind by one kind; and each kind's examples hold one trap of each other
+ * kind next to it.
+ */
 export function defineWorkflow(definition: WorkflowDefinition): WorkflowDefinition {
   const seenStages = new Map<string, StageDefinition>();
   const seenKinds = new Set<string>();
@@ -271,20 +320,13 @@ export function defineWorkflow(definition: WorkflowDefinition): WorkflowDefiniti
   for (const stage of definition.stages) {
     if (seenStages.has(stage.id)) throw new Error(`Stage ${stage.id} is defined twice.`);
     for (const basis of stage.buildsOn) {
-      const basisStage = seenStages.get(basis.stage);
-      if (basisStage == null) {
-        throw new Error(`Stage ${stage.id} builds on ${basis.stage}, which is not defined before it.`);
-      }
-      for (const kind of basis.covers) {
-        if (!basisStage.kinds.some((candidate) => candidate.kind === kind)) {
-          throw new Error(`Stage ${stage.id} covers ${kind}, which ${basis.stage} does not hold.`);
-        }
-      }
+      if (!seenStages.has(basis)) throw new Error(`Stage ${stage.id} builds on ${basis}, which is not defined before it.`);
     }
     const basisKinds = new Map(
-      stage.buildsOn.flatMap((basis) => seenStages.get(basis.stage)!.kinds.map((kind) => [kind.kind, kind] as const)),
+      stage.buildsOn.flatMap((basis) => seenStages.get(basis)!.kinds.map((kind) => [kind.kind, kind] as const)),
     );
     const ownKinds = new Map(stage.kinds.map((kind) => [kind.kind, kind] as const));
+    const coveredBy = new Map<string, string>();
     for (const kind of stage.kinds) {
       if (seenKinds.has(kind.kind)) throw new Error(`Item kind ${kind.kind} is defined twice.`);
       for (const field of itemsFields(kind.fields)) {
@@ -294,8 +336,14 @@ export function defineWorkflow(definition: WorkflowDefinition): WorkflowDefiniti
           throw new Error(`${kind.kind}.${field.name} shows ${field.shows}, which is not a text field of ${field.of}.`);
         }
       }
-      for (const required of kind.mustReference ?? []) {
-        if (!basisKinds.has(required)) throw new Error(`${kind.kind} must reference ${required}, which no stage ${stage.id} builds on holds.`);
+      for (const covered of kind.covers ?? []) {
+        if (!basisKinds.has(covered)) throw new Error(`${kind.kind} covers ${covered}, which no stage ${stage.id} builds on holds.`);
+        const other = coveredBy.get(covered);
+        if (other != null) throw new Error(`${kind.kind} and ${other} both cover ${covered}.`);
+        coveredBy.set(covered, kind.kind);
+      }
+      for (const linked of [...(kind.mustReference ?? []), ...(kind.mayNotReference ?? [])]) {
+        if (!basisKinds.has(linked)) throw new Error(`${kind.kind} names ${linked} among what it references, which no stage ${stage.id} builds on holds.`);
       }
       for (const single of kind.referencesSingle ?? []) {
         if (basisKinds.get(single)?.single !== true) throw new Error(`${kind.kind} references ${single}, which is not a single kind of a stage ${stage.id} builds on.`);
@@ -308,6 +356,21 @@ export function defineWorkflow(definition: WorkflowDefinition): WorkflowDefiniti
       seenCodes.add(kind.code);
     }
     seenStages.set(stage.id, stage);
+  }
+  for (const stage of definition.stages) {
+    const neighbours = neighbourKinds(definition.stages, stage);
+    for (const { kind } of stage.kinds) {
+      const examples = definition.examples[kind];
+      if (examples == null) throw new Error(`${kind} has no examples.`);
+      const trapped = examples.traps.map((trap) => trap.kind).filter((trapKind) => trapKind !== kind);
+      const expected = [...neighbours].filter((neighbour) => neighbour !== kind);
+      if (trapped.length !== new Set(trapped).size || trapped.length !== expected.length || !expected.every((neighbour) => trapped.includes(neighbour))) {
+        throw new Error(`${kind}'s examples hold traps of ${trapped.join(", ") || "no kind"}; they hold one of each of ${expected.join(", ") || "no kind"}.`);
+      }
+    }
+  }
+  for (const kind of Object.keys(definition.examples)) {
+    if (!seenKinds.has(kind)) throw new Error(`Examples are given for ${kind}, which no stage holds.`);
   }
   return definition;
 }
@@ -335,9 +398,15 @@ export class Workflow {
     return this.definition.stages[0]!.id;
   }
 
-  /** A stage's published rules: its own, then those every stage shares. */
-  rulesOf(id: string): string[] {
-    return [...this.stage(id).rules, ...SHARED_RULES];
+  /** The published rules every kind holds after its own. */
+  get sharedRules(): readonly string[] {
+    return SHARED_RULES;
+  }
+
+  /** A kind's published rules: its question, its own rules, the rules every kind shares, and its examples. */
+  publishedRules(kind: string): PublishedRules {
+    const definition = this.kind(kind);
+    return { question: definition.question, rules: definition.rules, shared: SHARED_RULES, examples: this.definition.examples[kind]! };
   }
 
   isStage(id: unknown): id is string {
@@ -386,8 +455,8 @@ export class Workflow {
   }
 
   /** The stages a stage builds on directly. */
-  basisStages(id: string): string[] {
-    return this.stage(id).buildsOn.map(({ stage }) => stage);
+  basisStages(id: string): readonly string[] {
+    return this.stage(id).buildsOn;
   }
 
   /** The stages a stage builds on, directly or through other stages. */
@@ -413,12 +482,19 @@ export class Workflow {
     return this.upstreamStages(later).includes(earlier);
   }
 
-  /** The stages that build on a stage directly and cover the kind, with the kind's coverage asked there. */
+  /** The stages that build on a stage directly. */
+  stagesBuildingOn(id: string): string[] {
+    return this.definition.stages.filter(({ buildsOn }) => buildsOn.includes(id)).map((stage) => stage.id);
+  }
+
+  /** The kind of a stage whose items give the coverage of items of `covered`, if the stage asks for that coverage. */
+  coveringKind(stage: string, covered: string): string | null {
+    return this.stage(stage).kinds.find((kind) => kind.covers?.includes(covered) === true)?.kind ?? null;
+  }
+
+  /** The stages that build on the kind's stage directly and cover the kind, with the kind's coverage asked there. */
   coveringStages(kind: string): string[] {
-    const stage = this.stageOfKind(kind);
-    return this.definition.stages
-      .filter(({ buildsOn }) => buildsOn.some((basis) => basis.stage === stage && basis.covers.includes(kind)))
-      .map(({ id }) => id);
+    return this.stagesBuildingOn(this.stageOfKind(kind)).filter((stage) => this.coveringKind(stage, kind) != null);
   }
 
   /** The kinds whose items an item of `kind` chooses through an items field, at any depth, rather than its links. */
@@ -443,8 +519,9 @@ export class Workflow {
     return [...new Set(this.chosenIn(kind, content, [this.stageOfKind(kind)]))];
   }
 
-  /** The kinds of a basis stage's items that a stage covers. */
-  coveredKinds(stage: string, basis: string): readonly string[] {
-    return this.stage(stage).buildsOn.find((candidate) => candidate.stage === basis)?.covers ?? [];
+  /** The kinds of a basis stage's items that a stage covers, as its kinds cover them. */
+  coveredKinds(stage: string, basis: string): string[] {
+    const held = new Set(this.stage(basis).kinds.map(({ kind }) => kind));
+    return this.stage(stage).kinds.flatMap((kind) => (kind.covers ?? []).filter((covered) => held.has(covered)));
   }
 }

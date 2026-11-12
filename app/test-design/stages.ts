@@ -4,7 +4,7 @@ import type { StageDefinition, TextFieldDefinition } from "workflow";
 import { checkAbstractTest, displayAbstractTest, marksOfAbstractTest, ROW_FIELDS, STEP_FIELDS, THEN_FIELDS } from "./abstractTests";
 import { checkEntityType, checkOperation, checkWordSet, displayBoundaryStatement, displayOperation } from "./boundary";
 import { ABSTRACT_TEST, ABSTRACT_TESTS, BOUNDARY, BOUNDARY_STATEMENT, ENTITY_TYPE, OPERATION, OPERATION_KINDS, WORD_SET } from "./identifiers";
-import { DURATION_UNITS, SIMPLE_TYPES, TYPE_FIELDS } from "./valueTypes";
+import { TYPE_FIELDS } from "./valueTypes";
 
 const text = (name: string, label: string, description: string, required = true): TextFieldDefinition => ({
   name,
@@ -14,12 +14,18 @@ const text = (name: string, label: string, description: string, required = true)
   required,
 });
 
+/** A rule of operations and of entity types. */
+const CRITERIA_WORDS = "An operation's phrase, and an entity type's name and what it is, use the words of the acceptance criteria.";
+
+/** A rule of entity types and of sets of words. */
+const NAMED_BY_AN_OPERATION = "Every entity type and every set of words the boundary holds is named by some operation.";
+
 /** The stages of Test design, as the workflow engine takes them. */
 export const TEST_DESIGN_STAGES: readonly StageDefinition[] = [
   {
     id: BOUNDARY,
     label: "Boundary",
-    buildsOn: [{ stage: ACCEPTANCE_CRITERIA, covers: [] }],
+    buildsOn: [ACCEPTANCE_CRITERIA],
     kinds: [
       {
         kind: BOUNDARY_STATEMENT,
@@ -27,10 +33,12 @@ export const TEST_DESIGN_STAGES: readonly StageDefinition[] = [
         plural: "Boundary statement",
         code: "BND",
         single: true,
+        question: "What do the module's tests act on and observe, what do they leave out, and which state does every test of the module start from?",
+        rules: ["The starting state holds no entity."],
         fields: [
           text("actsOn", "Acts on and observes", "What the module's tests act on and observe."),
           text("leavesOut", "Leaves out", "What the module's tests leave out.", false),
-          text("startingState", "Starting state", "The state every abstract test of the module starts from; it holds no entity."),
+          text("startingState", "Starting state", "The state every abstract test of the module starts from."),
         ],
         display: displayBoundaryStatement,
       },
@@ -39,8 +47,10 @@ export const TEST_DESIGN_STAGES: readonly StageDefinition[] = [
         label: "Entity type",
         plural: "Entity types",
         code: "ENT",
+        question: "Which thing does a test get as one step's result and refer to by name in later steps?",
+        rules: [CRITERIA_WORDS, NAMED_BY_AN_OPERATION],
         fields: [
-          text("name", "Name", "The name of the entities, in the acceptance criteria's words, such as Order."),
+          text("name", "Name", "The name of the entities, unique in the boundary."),
           text("meaning", "What it is", "What such an entity is, as seen at the boundary."),
         ],
         check: checkEntityType,
@@ -51,9 +61,11 @@ export const TEST_DESIGN_STAGES: readonly StageDefinition[] = [
         label: "Set of words",
         plural: "Sets of words",
         code: "SET",
+        question: "Which words can an input or a result be, when it can be only one of them?",
+        rules: [NAMED_BY_AN_OPERATION],
         fields: [
-          text("name", "Name", "The name of the set, such as Order status."),
-          { name: "words", label: "Words", description: "The words a value of the set can be, at least one.", type: "texts", required: true },
+          text("name", "Name", "The name of the set, unique in the boundary."),
+          { name: "words", label: "Words", description: "The words a value of the set can be, at least one, each once.", type: "texts", required: true },
         ],
         check: checkWordSet,
         display: (parts) => `${parts.text("name")}: ${(parts.content.words as readonly string[] | null ?? []).join(", ")}`,
@@ -63,8 +75,15 @@ export const TEST_DESIGN_STAGES: readonly StageDefinition[] = [
         label: "Operation",
         plural: "Operations",
         code: "OP",
+        question:
+          "What can a test do or see at the boundary that an acceptance criterion needs: as an action, the product's own behaviour under test; as an observation, a value the product holds or shows, reported without computing or comparing anything; or as a direct setup, a state put in place that the product's own actions cannot build?",
+        rules: [
+          "An operation acts on and observes only what the boundary statement says the module's tests act on and observe.",
+          CRITERIA_WORDS,
+          "Operations are written for the acceptance criteria as best understood, and an operation found missing while writing abstract tests is added then.",
+        ],
         fields: [
-          text("name", "Name", "A short name, unique in the boundary, such as place order."),
+          text("name", "Name", "A short name, unique in the boundary."),
           {
             name: "kind",
             label: "Kind",
@@ -73,7 +92,7 @@ export const TEST_DESIGN_STAGES: readonly StageDefinition[] = [
             options: OPERATION_KINDS,
             required: true,
           },
-          text("phrase", "Phrase", "What it does at the boundary, in the acceptance criteria's words, with a place for each input written as its name in braces, such as place an order for {quantity} of {product}."),
+          text("phrase", "Phrase", "What it does at the boundary, with a place for each input written as its name in braces, such as {quantity}."),
           {
             name: "inputs",
             label: "Inputs",
@@ -93,7 +112,7 @@ export const TEST_DESIGN_STAGES: readonly StageDefinition[] = [
             entry: "refusal",
             description: "For an action only: the refusals it can give, each with a name unique in the action and its meaning.",
             type: "records",
-            fields: [text("name", "Name", "The refusal's name, such as out of stock."), text("meaning", "Meaning", "What the refusal means.")],
+            fields: [text("name", "Name", "The refusal's name."), text("meaning", "Meaning", "What the refusal means.")],
             required: false,
           },
           { name: "completesLater", label: "Completes later", description: "For an action or an observation: it completes some time after it is called.", type: "flag", required: false },
@@ -104,67 +123,45 @@ export const TEST_DESIGN_STAGES: readonly StageDefinition[] = [
         check: checkOperation,
         display: displayOperation,
         example: {
-          name: "place order",
+          name: "lend book",
           kind: "action",
-          phrase: "place an order for {quantity} of {product}",
+          phrase: "lend {book} to {member}",
           inputs: [
-            { name: "quantity", type: { simple: "whole number" } },
-            { name: "product", type: { simple: "text" } },
+            { name: "book", type: { entity: "ENT-01" } },
+            { name: "member", type: { entity: "ENT-02" } },
           ],
-          result: { entity: "ENT-01" },
-          refusals: [{ name: "out of stock", meaning: "fewer than quantity of product are in stock" }],
+          result: { entity: "ENT-03" },
+          refusals: [{ name: "already lent", meaning: "another member holds the book" }],
           completesLater: false,
         },
-      },
-    ],
-    rules: [
-      "The boundary statement says what the module's tests act on and observe, what they leave out, and the starting state every abstract test of the module starts from. What they act on and observe and the starting state are required.",
-      "The starting state holds no entity: each test builds in its Given every entity its steps use.",
-      "An entity type names something a test gets as one step's result and refers to by name in later steps, such as an order; it has a name and what it is. A set of words has a name and the words a value of it can be, at least one.",
-      "Names of entity types, sets of words and operations are unique in the boundary.",
-      "Each operation is exactly one kind. An action is the product's own behaviour under test, whether it changes state or answers with a result. An observation reports what the product holds or shows. A direct setup puts a state in place without the product's own actions, only where actions cannot build it, and states why they cannot.",
-      "An observation only reports a value the product holds or shows, computing nothing and comparing nothing. Anything the product computes to answer, such as a search, is an action.",
-      "An operation acts on and observes only what the boundary statement says the module's tests act on and observe.",
-      "An operation's phrase, and an entity type's name and what it is, use the words of the acceptance criteria, describe what is seen at the boundary and never how the product does it, and name none of the product's technology.",
-      "An operation has a phrase with a place for each input, written as the input's name in braces, such as place an order for {quantity} of {product}; its inputs, each with a name unique in the operation and a type; and its result, as a type or none. An observation's result is never none.",
-      "An action may declare the refusals it can give, each with a name unique in the action and its meaning. An action or an observation may complete some time after it is called.",
-      `A type is one of ${SIMPLE_TYPES.join(", ")}, a set of words of this boundary or an entity type of this boundary, or a list of one of these; any of them may be possibly empty. A duration is written with a unit of ${DURATION_UNITS.join(", ")}.`,
-      "An operation references the acceptance criteria that need it, at least one. It counts as depending on the boundary statement and on each entity type and set of words its types name, without listing them.",
-      "Every entity type and every set of words the boundary holds is named by some operation.",
-      "Operations are written for the acceptance criteria as best understood; an operation found missing while writing abstract tests is added then.",
-      "The Boundary builds on Acceptance Criteria without asking for their coverage; Abstract tests covers the acceptance criteria and the operations.",
-    ],
-    examples: [
-      {
-        good: true,
-        label: "Good, an entity type",
-        text: "Order: A request to buy one or more products.",
-      },
-      {
-        good: false,
-        label: "Not an operation, an observation that computes",
-        text: 'Observation "search orders": search the orders for {text}',
-      },
-      {
-        good: false,
-        label: "Not an entity type, a choice of technology",
-        text: "Order: The orders table in PostgreSQL.",
       },
     ],
   },
   {
     id: ABSTRACT_TESTS,
     label: "Abstract tests",
-    buildsOn: [
-      { stage: ACCEPTANCE_CRITERIA, covers: [ACCEPTANCE_CRITERION] },
-      { stage: BOUNDARY, covers: [OPERATION] },
-    ],
+    buildsOn: [ACCEPTANCE_CRITERIA, BOUNDARY],
     kinds: [
       {
         kind: ABSTRACT_TEST,
         label: "Abstract test",
         plural: "Abstract tests",
         code: "AT",
+        question: "Which steps, using only the boundary's operations, with which concrete values, check one acceptance criterion?",
+        rules: [
+          "Each test starts from the boundary statement's starting state and builds in its Given everything its steps use.",
+          "A test's When does what its criterion's When says, and is empty when the criterion has none.",
+          "A step whose operation completes later completes when the operation does, and the next step starts only after it.",
+          "How long a step took runs from when the product starts its operation until the product completes it, measured inside the product, so that no time spent reaching the product or reporting back is counted.",
+          "A step still running when the time limit a Then step compares it with passes took longer than that limit.",
+          "A test passes when every Then step holds; fails when a Then step does not hold, or when a When step or a Then step's observation does not complete, ends with an error it does not declare, or is refused without a Then step expecting it; and is inconclusive when a Given step does not complete.",
+          "A step refused as a Then step expects counts as completed, and the test goes on.",
+          "Tests of one criterion that differ only in their values are written as one test with a table.",
+          "Each row of a test's table counts as one test, for its verdict and for its criterion's coverage.",
+          "An acceptance criterion is covered when its tests include one for each case it distinguishes, refusals included, and, at each edge of a range of input values it allows, one at the edge value and one at the nearest value beyond it, at the precision the criterion states.",
+          "An acceptance criterion needing anything the boundary statement leaves out gets no abstract test, and its coverage is signed as untested.",
+          "An operation is covered when some test uses it and, for each refusal it declares, some test expects that refusal.",
+        ],
         fields: [
           {
             name: "criterion",
@@ -177,13 +174,13 @@ export const TEST_DESIGN_STAGES: readonly StageDefinition[] = [
             required: true,
           },
           { name: "given", label: "Given", entry: "Given step", description: "Steps calling actions, direct setups or observations that build what the test starts from.", type: "records", fields: STEP_FIELDS, required: false },
-          { name: "when", label: "When", entry: "When step", description: "Steps calling actions that do what the criterion's When says; none when it has no When.", type: "records", fields: STEP_FIELDS, required: false },
+          { name: "when", label: "When", entry: "When step", description: "Steps calling actions.", type: "records", fields: STEP_FIELDS, required: false },
           { name: "then", label: "Then", entry: "Then step", description: "The expectations, at least one.", type: "records", fields: THEN_FIELDS, required: true },
           {
             name: "columns",
             label: "Table columns",
             entry: "column",
-            description: "For a test written once for several sets of values: the table's columns, each with a name and a type other than an entity type or a list of entities.",
+            description: "For a test written once for several sets of values: the table's columns, each with a name and a type other than an entity type or a list of entities, each used by some step.",
             type: "records",
             fields: [
               text("name", "Name", "The column's name, which steps use in place of a value."),
@@ -201,54 +198,23 @@ export const TEST_DESIGN_STAGES: readonly StageDefinition[] = [
             required: false,
           },
         ],
+        covers: [ACCEPTANCE_CRITERION, OPERATION],
         check: (content, module) => checkAbstractTest(content, module),
         display: displayAbstractTest,
         marks: marksOfAbstractTest,
         example: {
-          criterion: "AC-02",
-          given: [{ operation: "OP-01", inputs: [{ input: "product", literal: '"shoe"' }, { input: "count", literal: "1" }] }],
-          when: [{ name: "order", operation: "OP-02", inputs: [{ input: "quantity", column: "quantity" }, { input: "product", literal: '"shoe"' }] }],
-          then: [{ expects: "refusal", step: "order", refusal: "out of stock" }],
-          columns: [{ name: "quantity", type: { simple: "whole number" } }],
-          rows: [{ cells: [{ literal: "2" }] }, { cells: [{ literal: "5" }] }],
+          criterion: "AC-01",
+          given: [
+            { name: "dune", operation: "OP-01", inputs: [{ input: "title", literal: '"Dune"' }] },
+            { name: "ana", operation: "OP-02", inputs: [{ input: "name", literal: '"Ana"' }] },
+            { name: "loan", operation: "OP-03", inputs: [{ input: "book", step: "dune" }, { input: "member", step: "ana" }] },
+            { operation: "OP-04", inputs: [{ input: "days", column: "days" }] },
+          ],
+          when: [{ operation: "OP-05", inputs: [{ input: "loan", step: "loan" }] }],
+          then: [{ expects: "observation", operation: "OP-06", inputs: [{ input: "loan", step: "loan" }], comparison: "equals", expected: { literal: "21" } }],
+          columns: [{ name: "days", type: { simple: "whole number" } }],
+          rows: [{ cells: [{ literal: "0" }] }, { cells: [{ literal: "21" }] }],
         },
-      },
-    ],
-    rules: [
-      "An abstract test verifies exactly one acceptance criterion of its module, chosen in its criterion field, with concrete values, and names nothing of the product's technology.",
-      "An abstract test holds Given steps, When steps and Then steps, at least one Then step. It counts as referencing each operation its steps use, without listing them.",
-      "Each test starts from the boundary statement's starting state and builds in its Given everything its steps use.",
-      "A step calls an operation of the boundary that references the test's acceptance criterion: a Given step an action, a direct setup or an observation, a When step an action, and a Then step that compares an observation an observation.",
-      "A test's When does what its criterion's When says, and is empty when the criterion has none.",
-      "A Given or When step may have a name, unique in the test, by which later steps use its result.",
-      "A step gives each input of its operation one value of the input's type: a literal, a column of the test's table with that type, or the result of an earlier named step of the same test with that type. A value whose type is never empty also fits an input whose type is possibly empty, but not the reverse.",
-      'A literal is a text in double quotes such as "red shoes"; a whole number such as 3, or a number with decimals written with a point such as 2.5; yes or no; a duration as a number followed by ms, s or min, such as 200 ms; one of the words of its set, as written; or a list as its values in square brackets, separated by commas, such as [1, 2]. For a type that is possibly empty, the empty value is a literal too, chosen as empty and never written as a word; "" is also the empty text and [] the empty list. An entity is never written out.',
-      "A step whose operation completes later completes when the operation does, and the next step starts only after it.",
-      "A Then step compares an observation, or the result of a named Given or When step, with an expected value; compares how long a named When step took with a duration; or expects a named When step to be refused with a refusal its action declares. No step uses the result of a step a Then step expects to be refused.",
-      "The comparisons are: equals and differs from, for every type, two lists being equal only with the same values in the same order; has the same values as, in any order, for lists; at most and at least, for numbers and durations; contains and does not contain, for lists, whose expected value is one entry. An expected value is a literal or a column of the test's table, fitting the type the comparison takes as an input's value fits the input's type; it is the result of a named step only when what it compares is an entity or a list of entities.",
-      "How long a step took runs from when the product starts its operation until the product completes it, measured inside the product, so that no time spent reaching the product or reporting back is counted. A step still running when the time limit a Then step compares it with passes took longer than that limit.",
-      "A test passes when every Then step holds. It fails when a Then step does not hold, or when a When step or a Then step's observation does not complete, ends with an error it does not declare, or is refused without a Then step expecting it. It is inconclusive when a Given step does not complete.",
-      "A step refused as a Then step expects counts as completed, and the test goes on.",
-      "Tests of one criterion that differ only in their values are written as one test with a table: named columns, each with a type other than an entity type or a list of entities, and one or more rows giving each column a literal of its type. Every column is used by some step. Each row counts as one test, for its verdict and for its criterion's coverage.",
-      "An acceptance criterion is covered when its tests include one for each case it distinguishes, refusals included, and, at each edge of a range of input values it allows, one at the edge value and one at the nearest value beyond it, at the precision the criterion states.",
-      "An acceptance criterion needing anything the boundary statement leaves out gets no abstract test, and its coverage is signed as untested.",
-      "An operation is covered when some test uses it and, for each refusal it declares, some test expects that refusal.",
-    ],
-    examples: [
-      {
-        good: true,
-        label: "Good, an abstract test",
-        text: "Verifies AC-02: Given the shop holds one shoe, When an order is placed for two shoes, Then the order is refused as out of stock.",
-      },
-      {
-        good: false,
-        label: "Not an abstract test, a test that names technology",
-        text: "Verifies AC-02: Given a row in the orders table, When a row is inserted, Then the row is stored.",
-      },
-      {
-        good: false,
-        label: "Not an abstract test, no Then step",
-        text: "Verifies AC-02: Given the shop holds one shoe, When an order is placed for two shoes.",
       },
     ],
   },
