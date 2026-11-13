@@ -7,7 +7,7 @@ import { onSnapshot } from "mobx-state-tree";
 
 import type { AgentToolDescription } from "ai-agent/agent-access";
 import { ConnectionLostError, ProjectClient } from "project-client";
-import { replyRulesText, threadTurn } from "workflow";
+import { replyRulesText, threadTurn, writingTurn } from "workflow";
 
 import { projectLink } from "./projectLink";
 import type { ProjectServerOptions } from "./projectServer";
@@ -170,32 +170,32 @@ export async function serveMcp(
   };
   // Each change request that waits for the agent is announced once its stage
   // is open, and again only after the spec owner writes in it again. Each
-  // request to write a stage is announced once.
+  // request to write a stage is announced once. A turn is never forgotten,
+  // since a new message or request makes a new one: one hidden while its
+  // stage is closed or its module is not shown is not announced again.
   let initialized = false;
-  let announced = new Set<string>();
+  const announced = new Set<string>();
   const announceWaitingThreads = () => {
     if (!initialized) return;
-    const waiting = new Set<string>();
     const store = client.getSnapshot().store;
     for (const thread of store.threadsWaitingForAnswerer) {
       const turn = threadTurn(thread);
-      waiting.add(turn);
       if (announced.has(turn)) continue;
+      announced.add(turn);
       server.notification({
         method: "notifications/claude/channel",
         params: { content: `A change request on ${store.unitLabel(thread.unitId)} waits for you.`, meta: { thread_id: thread.id } },
       }).catch(() => {});
     }
     for (const ask of store.writingAskedOfAnswerer) {
-      const turn = `${ask.stage}@${ask.at}`;
-      waiting.add(turn);
+      const turn = writingTurn(ask);
       if (announced.has(turn)) continue;
+      announced.add(turn);
       server.notification({
         method: "notifications/claude/channel",
         params: { content: `The spec owner asks you to write ${store.workflow.stage(ask.stage).label}.`, meta: { stage: ask.stage } },
       }).catch(() => {});
     }
-    announced = waiting;
   };
   server.oninitialized = () => {
     initialized = true;

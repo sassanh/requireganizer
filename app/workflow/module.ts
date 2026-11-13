@@ -113,7 +113,7 @@ export interface WritingAsk {
 }
 
 /** One request to write a stage: it changes when the stage is asked for again, so whatever concerned a request ends with it. */
-function writingTurn(ask: WritingAsk): string {
+export function writingTurn(ask: WritingAsk): string {
   return `write:${ask.stage}:${ask.at}`;
 }
 
