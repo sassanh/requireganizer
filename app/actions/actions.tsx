@@ -30,3 +30,9 @@ export const redoShortcut: ShortcutSpec = { key: "z", mod: true, shift: true };
 
 /** Redo as Windows and Linux programs also take it. */
 export const redoAlternateShortcut: ShortcutSpec = { key: "y", ctrl: true };
+
+/** Sign the focused unit; with Shift, focus then moves to the next one waiting for a signature. */
+export const signShortcut: ShortcutSpec = { key: "s" };
+
+/** Open the focused unit's threads, to request a change or reply. */
+export const threadShortcut: ShortcutSpec = { key: "c" };

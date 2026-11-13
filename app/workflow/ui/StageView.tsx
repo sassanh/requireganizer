@@ -26,6 +26,7 @@ import {
 import { observer } from "mobx-react-lite";
 import { Fragment, type UIEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { signShortcut, threadShortcut } from "actions/actions";
 import { autoScrollBehavior } from "lib/scroll";
 
 import { type FieldDefinition, itemsFields, type Workflow } from "../definition";
@@ -697,14 +698,14 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
         event.preventDefault();
         move(-1);
         return;
-      case "s":
-      case "S":
+      case signShortcut.key:
+      case signShortcut.key.toUpperCase():
         if (unit != null && module.isSignable(unit)) {
           event.preventDefault();
-          void sign(unit, event.key === "S");
+          void sign(unit, event.shiftKey);
         }
         return;
-      case "c":
+      case threadShortcut.key:
         if (unit != null && module.unitState(unit) != null && (summary.open || module.threadsOf(unit).length > 0)) {
           event.preventDefault();
           const card = cards().find((candidate) => candidate.dataset.unitCard === unit);

@@ -5,6 +5,9 @@ import { Box, Button, Chip, Paper, Stack, Tooltip, Typography } from "@mui/mater
 import { observer } from "mobx-react-lite";
 import type { ReactNode } from "react";
 
+import { ActionTooltip } from "actions/ActionHint";
+import { signShortcut, threadShortcut } from "actions/actions";
+
 import { signerLabel, type SignatureRecord } from "../records";
 import { waitsForSpecOwner } from "../threads";
 import { NOT_APPROVED_REASON_LABELS, type NotApprovedReason } from "../units";
@@ -69,6 +72,7 @@ const UnitFrame = observer(function UnitFrame({
   const waitsForYou = open != null && waitsForSpecOwner(open);
   const answering = open != null && module.isBeingAnswered(open.id);
   const threadTitle = open == null ? "" : waitsForYou ? "Waits for you" : answering ? "The coding agent is answering" : "Waits for the coding agent";
+  const threadLabel = threads.length > 0 ? "Thread" : "Request a change";
   return (
     <Paper
       variant="outlined"
@@ -97,23 +101,26 @@ const UnitFrame = observer(function UnitFrame({
       <Box sx={{ mt: 1 }}>{children}</Box>
       <Stack data-unit-actions direction="row" sx={{ alignItems: "center", gap: 1, mt: 1, flexWrap: "wrap" }}>
         {signable && (
-          <Button size="small" variant="contained" startIcon={<Check />} onClick={onSign} title="Sign (S)">
-            {signLabel}
-          </Button>
+          <ActionTooltip name={signLabel} shortcut={signShortcut}>
+            <Button size="small" variant="contained" startIcon={<Check />} onClick={onSign}>
+              {signLabel}
+            </Button>
+          </ActionTooltip>
         )}
         {(stageOpen || threads.length > 0) && (
-          <Button
-            {...{ [THREAD_BUTTON]: true }}
-            size="small"
-            color={waitsForYou ? "warning" : "primary"}
-            startIcon={<Comment />}
-            aria-busy={answering || undefined}
-            sx={answering ? answeringSx : undefined}
-            onClick={(event) => onOpenThread(event.currentTarget.closest<HTMLElement>("[data-unit-actions]") ?? event.currentTarget)}
-            title={`${threadTitle}${threadTitle === "" ? "" : " "}(C)`}
-          >
-            {threads.length > 0 ? "Thread" : "Request a change"}
-          </Button>
+          <ActionTooltip name={threadTitle === "" ? threadLabel : threadTitle} shortcut={threadShortcut}>
+            <Button
+              {...{ [THREAD_BUTTON]: true }}
+              size="small"
+              color={waitsForYou ? "warning" : "primary"}
+              startIcon={<Comment />}
+              aria-busy={answering || undefined}
+              sx={answering ? answeringSx : undefined}
+              onClick={(event) => onOpenThread(event.currentTarget.closest<HTMLElement>("[data-unit-actions]") ?? event.currentTarget)}
+            >
+              {threadLabel}
+            </Button>
+          </ActionTooltip>
         )}
         {actions}
       </Stack>
