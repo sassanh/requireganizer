@@ -26,6 +26,8 @@ import {
 import { observer } from "mobx-react-lite";
 import { Fragment, type UIEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { autoScrollBehavior } from "lib/scroll";
+
 import { type FieldDefinition, itemsFields, type Workflow } from "../definition";
 import type { CoverageState, ImpactState, ItemState, OutOfDateCause, UnitState, WorkflowModule } from "../module";
 import { revisionOf, textValue, type ItemVersion } from "../records";
@@ -572,10 +574,11 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
     const bottom = container.getBoundingClientRect().bottom - margin;
     const { top: cardTop, bottom: cardBottom } = card.getBoundingClientRect();
     const actions = card.querySelector("[data-unit-actions]");
+    const behavior = autoScrollBehavior();
     if (actionsAt != null && actions != null) {
-      container.scrollBy({ top: Math.min(actions.getBoundingClientRect().top - actionsAt, cardTop - top) });
-    } else if (cardTop < top) container.scrollBy({ top: cardTop - top });
-    else if (cardBottom > bottom) container.scrollBy({ top: Math.min(cardBottom - bottom, cardTop - top) });
+      container.scrollBy({ top: Math.min(actions.getBoundingClientRect().top - actionsAt, cardTop - top), behavior });
+    } else if (cardTop < top) container.scrollBy({ top: cardTop - top, behavior });
+    else if (cardBottom > bottom) container.scrollBy({ top: Math.min(cardBottom - bottom, cardTop - top), behavior });
   };
 
   /** Where a unit's actions are on screen now, if its card is shown. */

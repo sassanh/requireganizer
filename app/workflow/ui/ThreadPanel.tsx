@@ -4,6 +4,8 @@ import { Button, Divider, Stack, TextField, Typography } from "@mui/material";
 import { observer } from "mobx-react-lite";
 import { useEffect, useRef, useState } from "react";
 
+import { autoScrollBehavior } from "lib/scroll";
+
 import { authorLabel, type Thread, waitsForSpecOwner } from "../threads";
 import { answeringSx } from "./answering";
 import { perform, useWorkflowView } from "./context";
@@ -68,11 +70,15 @@ const ThreadPanel = observer(function ThreadPanel({
     if (sent) setText("");
   };
 
-  // The latest message shows first: the history opens, and stays, scrolled to its end.
+  // The latest message shows first: the history opens at its end, then follows new messages there smoothly.
   const history = useRef<HTMLDivElement>(null);
+  const opened = useRef(false);
   const messageCount = threads.reduce((count, thread) => count + thread.messages.length, 0);
   useEffect(() => {
-    if (history.current != null) history.current.scrollTop = history.current.scrollHeight;
+    const element = history.current;
+    if (element == null) return;
+    element.scrollTo({ top: element.scrollHeight, behavior: opened.current ? autoScrollBehavior() : "auto" });
+    opened.current = true;
   }, [messageCount]);
 
   return (
