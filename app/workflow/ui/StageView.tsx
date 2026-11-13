@@ -31,9 +31,10 @@ import { autoScrollBehavior } from "lib/scroll";
 import { type FieldDefinition, itemsFields, type Workflow } from "../definition";
 import type { CoverageState, ImpactState, ItemState, OutOfDateCause, UnitState, WorkflowModule } from "../module";
 import { revisionOf, textValue, type ItemVersion } from "../records";
+import { mentionMarkup } from "../threads";
 import { STAGE_PROGRESS_LABELS, WAITING_CATEGORY_LABELS } from "../units";
 import { answeringSx } from "./answering";
-import { perform, useWorkflowNavigation, useWorkflowView } from "./context";
+import { perform, type RevealRequest, useWorkflowNavigation, useWorkflowView } from "./context";
 import ItemChip, { ItemOption, useItemLabel } from "./ItemChip";
 import ItemEditor, { type EditorTarget } from "./ItemEditor";
 import ThreadPanel from "./ThreadPanel";
@@ -266,11 +267,13 @@ const ImpactCard = observer(function ImpactCard({ state, controls }: { state: Im
   const [requesting, setRequesting] = useState(false);
   const [target, setTarget] = useState<string | null>(null);
   const label = module.unitLabel(state.unitId).replace(/^impact of /, "");
+  const named = module.namedItem(state.itemId);
   const candidates = module.itemsOf(state.stage).filter(({ removal }) => removal == null);
   const request = async () => {
     if (target == null) return;
+    const changed = named == null ? label : mentionMarkup(named.name, named.id);
     const sent = await perform(
-      () => module.requestChange(target, `Reference ${label}: this item relies on its ${state.after == null ? "removal" : "change"} without referencing it.`),
+      () => module.requestChange(target, `Reference ${changed}: this item relies on its ${state.after == null ? "removal" : "change"} without referencing it.`),
       "The change request could not be sent.",
     );
     if (sent) {
@@ -653,11 +656,12 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
     cards().find((card) => card.dataset.unitCard === unitId)?.focus({ preventScroll: true });
   };
 
-  /** A docked thread follows the card that takes the focus. */
+  /** A docked thread follows the card that takes the focus; a thread shown over the stage closes, as it does on a click away. */
   const followFocus = (target: EventTarget) => {
-    if (thread == null || threadForm !== "docked" || !(target instanceof HTMLElement)) return;
+    if (thread == null || !(target instanceof HTMLElement)) return;
     const unitId = target.closest<HTMLElement>("[data-unit-card]")?.dataset.unitCard;
-    if (unitId != null && unitId !== thread.unitId) setThread({ unitId, anchor: null, autoFocus: false });
+    if (unitId == null || unitId === thread.unitId) return;
+    setThread(threadForm === "docked" ? { unitId, anchor: null, autoFocus: false } : null);
   };
 
   const onKeyDown = (event: KeyboardEvent) => {
@@ -710,7 +714,9 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
     }
   };
 
-  // An item opened where it is named, or a unit returned to by the browser's history, is revealed once its card shows.
+  // An item opened where it is named, or a unit or thread message returned
+  // to by the browser's history, is revealed once its card shows; a thread
+  // message, in its thread, opened beside the card.
   const { revealRequest, revealed } = useWorkflowNavigation();
   // A unit to reveal in another tab shows once its tab does.
   useEffect(() => {
@@ -719,12 +725,31 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
     const tab = requested == null || requested.stage !== stage ? null : tabOf(module, workflow, requested);
     if (tab != null) setShownKind(tab);
   }, [revealRequest, module, stage, workflow]);
+  // A thread message stays to reveal until its thread, once it shows, has given it the focus.
+  const messageToFocus = revealRequest?.message ?? null;
+  const messageFocused = useCallback(() => {
+    if (revealRequest != null) revealed(revealRequest);
+  }, [revealRequest, revealed]);
+  const handledRequest = useRef<RevealRequest | null>(null);
   useEffect(() => {
-    if (revealRequest == null) return;
-    const card = cards().find((candidate) => candidate.dataset.unitCard === revealRequest.unitId);
+    if (revealRequest == null || handledRequest.current === revealRequest) return;
+    const { unitId, message } = revealRequest;
+    if (message != null && module.unitState(unitId) == null) {
+      // The threads of a removed unit show in its stage itself, and focus the message there.
+      handledRequest.current = revealRequest;
+      if (!orphanThreads.some(({ id }) => id === message.threadId)) revealed(revealRequest);
+      return;
+    }
+    const card = cards().find((candidate) => candidate.dataset.unitCard === unitId);
     if (card == null) return;
-    revealed(revealRequest);
-    reveal(card);
+    handledRequest.current = revealRequest;
+    if (message == null) {
+      revealed(revealRequest);
+      reveal(card);
+    } else if (thread?.unitId !== unitId) {
+      reveal(card);
+      openThread(unitId, card.querySelector<HTMLElement>("[data-unit-actions]") ?? card, false);
+    }
   });
 
   const onKeyDownRef = useRef(onKeyDown);
@@ -890,7 +915,13 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
             <Box key={orphan.id}>
               <Typography variant="subtitle2">{orphan.removedUnit ?? module.unitLabel(orphan.unitId)}</Typography>
               <Paper variant="outlined" sx={{ p: 1.5, mt: 1 }}>
-                <ThreadPanel unitId={null} threads={[orphan]} stageOpen={summary.open} />
+                <ThreadPanel
+                  unitId={null}
+                  threads={[orphan]}
+                  stageOpen={summary.open}
+                  focusMessage={messageToFocus}
+                  onMessageFocused={messageFocused}
+                />
               </Paper>
             </Box>
           ))}
@@ -907,6 +938,8 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
           anchor={thread.anchor}
           stageOpen={summary.open}
           autoFocus={thread.autoFocus}
+          focusMessage={messageToFocus}
+          onMessageFocused={messageFocused}
           onDock={() => setChosenForm("docked")}
           onClose={() => {
             if (threadForm === "docked") setChosenForm("overlay");

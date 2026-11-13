@@ -26,23 +26,36 @@ export function projectPlaceHref(projectId: string, place: string): string {
   return `/project?${query.toString()}${url.hash}`;
 }
 
-/** The page at `pathname` showing `step`, keeping the project, module and all else `search` names but the unit it focuses. */
+/** The page at `pathname` showing `step`, keeping the project, module and all else `search` names but the unit or thread message it focuses. */
 export function stepHref(pathname: string, search: string, step: string): string {
   const query = new URLSearchParams(search);
   query.set("step", step);
   query.delete("unit");
+  query.delete("thread");
+  query.delete("message");
   return `${pathname}?${query.toString()}`;
 }
 
 /**
- * The page at `pathname` showing `step` with `unit` focused, in `module`
- * when one is given, keeping the project, module and all else `search` names.
+ * The page at `pathname` showing `step` with `unit` focused, or with
+ * `message`, a message of a thread on it, in `module` when one is given,
+ * keeping the project, module and all else `search` names.
  */
-export function unitHref(pathname: string, search: string, place: { module?: string; step: string; unit: string }): string {
+export function unitHref(
+  pathname: string,
+  search: string,
+  place: { module?: string; step: string; unit: string; message?: { threadId: string; index: number } | null },
+): string {
   const query = new URLSearchParams(search);
   if (place.module != null) query.set("module", place.module);
   query.set("step", place.step);
   query.set("unit", place.unit);
+  query.delete("thread");
+  query.delete("message");
+  if (place.message != null) {
+    query.set("thread", place.message.threadId);
+    query.set("message", String(place.message.index));
+  }
   return `${pathname}?${query.toString()}`;
 }
 

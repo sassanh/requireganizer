@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, Divider, Stack, TextField, Typography } from "@mui/material";
+import { Button, Divider, Stack, Typography } from "@mui/material";
 import { observer } from "mobx-react-lite";
 import { useEffect, useRef, useState } from "react";
 
@@ -8,14 +8,22 @@ import { autoScrollBehavior } from "lib/scroll";
 
 import { authorLabel, type Thread, waitsForSpecOwner } from "../threads";
 import { answeringSx } from "./answering";
-import { perform, useWorkflowView } from "./context";
+import { type MessagePlace, messageAttributes, messageElement, perform, useWorkflowView } from "./context";
+import MentionField from "./MentionField";
 import MessageText from "./MessageText";
 
+/** A thread's messages, each one focusable, so the page can return to the one an item was opened from. */
 function Messages({ thread }: { thread: Thread }) {
   return (
     <Stack spacing={1} divider={<Divider flexItem />} sx={{ opacity: thread.resolution == null ? 1 : 0.6 }}>
       {thread.messages.map((message, index) => (
-        <Stack key={index} spacing={0.25}>
+        <Stack
+          key={index}
+          spacing={0.25}
+          tabIndex={-1}
+          {...messageAttributes(thread, index)}
+          sx={{ borderRadius: 1, outline: "none", "&:focus": { boxShadow: (theme) => `0 0 0 2px ${theme.vars.palette.primary.main}` } }}
+        >
           <Typography variant="caption" color="text.secondary">
             {authorLabel(message.author)}{message.at == null ? "" : ` · ${new Date(message.at).toLocaleString()}`}
             {message.withChanges ? " · with changes" : ""}
@@ -39,6 +47,8 @@ const ThreadPanel = observer(function ThreadPanel({
   threads,
   stageOpen,
   autoFocus = false,
+  focusMessage = null,
+  onMessageFocused,
   onClose,
 }: {
   /** The unit, or null when it is gone and only its threads remain. */
@@ -46,6 +56,9 @@ const ThreadPanel = observer(function ThreadPanel({
   threads: readonly Thread[];
   stageOpen: boolean;
   autoFocus?: boolean;
+  /** A message to show and focus, if it is in these threads, such as the one an item was opened from. */
+  focusMessage?: MessagePlace | null;
+  onMessageFocused?: () => void;
   onClose?: () => void;
 }) {
   const { module } = useWorkflowView();
@@ -81,6 +94,18 @@ const ThreadPanel = observer(function ThreadPanel({
     opened.current = true;
   }, [messageCount]);
 
+  // A message to return to shows, among the resolved threads too, and takes the focus.
+  const messageToFocus = focusMessage != null && threads.some(({ id }) => id === focusMessage.threadId) ? focusMessage : null;
+  const focusInResolved = messageToFocus != null && resolved.some(({ id }) => id === messageToFocus.threadId);
+  const resolvedShown = showResolved || focusInResolved;
+  useEffect(() => {
+    if (messageToFocus == null) return;
+    if (focusInResolved) setShowResolved(true);
+    const element = history.current == null ? null : messageElement(history.current, messageToFocus);
+    element?.focus();
+    onMessageFocused?.();
+  }, [messageToFocus, focusInResolved, onMessageFocused]);
+
   return (
     <Stack spacing={1.5} sx={{ minHeight: 0, flexGrow: 1 }}>
       {open != null && (
@@ -95,23 +120,23 @@ const ThreadPanel = observer(function ThreadPanel({
       )}
       <Stack ref={history} spacing={1.5} sx={{ minHeight: 0, flexShrink: 1, overflowY: "auto" }}>
         {resolved.length > 0 && (
-          <Button size="small" sx={{ alignSelf: "flex-start" }} onClick={() => setShowResolved(!showResolved)}>
-            {showResolved ? "Hide" : "Show"} {resolved.length} resolved {resolved.length === 1 ? "thread" : "threads"}
+          <Button size="small" sx={{ alignSelf: "flex-start" }} onClick={() => setShowResolved(!resolvedShown)}>
+            {resolvedShown ? "Hide" : "Show"} {resolved.length} resolved {resolved.length === 1 ? "thread" : "threads"}
           </Button>
         )}
-        {showResolved && resolved.map((thread) => <Messages key={thread.id} thread={thread} />)}
+        {resolvedShown && resolved.map((thread) => <Messages key={thread.id} thread={thread} />)}
         {open != null && <Messages thread={open} />}
       </Stack>
       {stageOpen && (unitId != null || open != null) && (
         <Stack spacing={1} sx={{ flexShrink: 0, pt: 1 }}>
-          <TextField
+          <MentionField
             autoFocus={autoFocus}
             multiline
             minRows={2}
             size="small"
             label={open == null ? "Request a change" : "Reply"}
             value={text}
-            onChange={(event) => setText(event.target.value)}
+            onChange={setText}
             onKeyDown={(event) => {
               if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
                 event.preventDefault();

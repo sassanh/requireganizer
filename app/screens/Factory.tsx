@@ -11,10 +11,13 @@ import { useProject } from "projectContext";
 import { useStore } from "store";
 import { type RevealRequest, StageNavigation, StageView, type WorkflowNavigation, workflowNavigationContext, workflowViewContext } from "workflow/ui";
 
-/** The unit an address focuses, to reveal once its card shows. */
+/** The unit or thread message an address focuses, to reveal once it shows. */
 function revealRequestOf(search: URLSearchParams): RevealRequest | null {
   const unitId = search.get("unit");
-  return unitId == null ? null : { unitId };
+  if (unitId == null) return null;
+  const threadId = search.get("thread");
+  const index = Number(search.get("message") ?? Number.NaN);
+  return { unitId, message: threadId == null || !Number.isInteger(index) ? null : { threadId, index } };
 }
 
 /** The open module: its stages beside the one the page shows. */
@@ -58,10 +61,10 @@ const Factory = observer(function Factory() {
     () => ({
       openUnit: (place, from) => {
         const search = searchParams.toString();
-        if (from != null) window.history.replaceState(null, "", unitHref(pathname, search, { step: stage, unit: from }));
+        if (from != null) window.history.replaceState(null, "", unitHref(pathname, search, { step: stage, unit: from.unitId, message: from.message }));
         // The page reveals the unit itself; Next's own scroll and focus would take the focus from it.
         router.push(unitHref(pathname, search, { ...(place.module == null ? {} : { module: place.module }), step: place.stage, unit: place.unitId }), { scroll: false });
-        setRevealRequest({ unitId: place.unitId });
+        setRevealRequest({ unitId: place.unitId, message: null });
       },
       revealRequest,
       revealed: (request) => setRevealRequest((current) => (current === request ? null : current)),

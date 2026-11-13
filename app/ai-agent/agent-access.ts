@@ -11,8 +11,13 @@ import {
   type ItemVersion,
   LINK_REASON_LABELS,
   mapItemsFields,
+  type Mention,
+  mentionMarkup,
+  mentionsIn,
   NOT_APPROVED_REASON_LABELS,
   parseUnitId,
+  replaceMentions,
+  replyRulesText,
   signerLabel,
   STAGE_PROGRESS_LABELS,
   type Thread,
@@ -159,6 +164,18 @@ function threadUnit(store: Store, thread: Thread): Record<string, unknown> {
     : { unit: `${thread.removedUnit} (removed)`, unitRemoved: true };
 }
 
+/**
+ * A message's text as an agent reads it: each marked mention by its item's
+ * code now and its id, as a reply writes it again, or by the code it was
+ * written with, marked as removed, once its item no longer exists.
+ */
+function messageText(store: Store, text: string): string {
+  return replaceMentions(text, ({ writtenAs, itemId }) => {
+    const named = store.namedItem(itemId);
+    return named == null ? `${mentionMarkup(writtenAs, itemId)} (removed)` : mentionMarkup(named.name, itemId);
+  });
+}
+
 function threadView(store: Store, thread: Thread): Record<string, unknown> {
   return {
     threadId: thread.id,
@@ -167,7 +184,7 @@ function threadView(store: Store, thread: Thread): Record<string, unknown> {
     status: thread.resolution != null ? "resolved" : waitsForAnswerer(thread) ? "waiting for you" : "waiting for the spec owner",
     messages: thread.messages.map(({ author, text, withChanges }) => ({
       from: author.kind === "person" ? "spec owner" : authorLabel(author),
-      text,
+      text: messageText(store, text),
       ...(withChanges ? { withChanges } : {}),
     })),
   };
@@ -275,7 +292,43 @@ function parseChanges(store: Store, value: unknown): ItemChange[] {
   return changes;
 }
 
-function parseAnswers(value: unknown): ThreadAnswer[] {
+/** What is wrong with a marked mention an agent wrote, or null when its code names the item its id names. */
+function mentionProblem(store: Store, { writtenAs, itemId }: Mention): string | null {
+  const meant = store.namedItem(itemId);
+  if (meant?.name === writtenAs) return null;
+  let named: string | null;
+  try {
+    named = resolveLink(store, writtenAs, true, "");
+  } catch {
+    named = null;
+  }
+  const markup = mentionMarkup(writtenAs, itemId);
+  if (named == null) return `${markup}: ${writtenAs} names no item.`;
+  if (named === itemId) return null;
+  return `${markup}: ${writtenAs} names another item than ${itemId}, which ${meant == null ? "is removed" : `is ${meant.name} now`}.`;
+}
+
+/**
+ * A reply as an agent sends it, refused, naming each one, when a marked
+ * mention's code names no item or another item than its id: the codes
+ * moved since `codesVersion`, the read they come from, or they were
+ * miscopied. A reply without marked mentions needs no codesVersion.
+ */
+function parseReply(store: Store, threadId: string, text: string, codesVersion: unknown): ThreadAnswer {
+  const mentions = mentionsIn(text);
+  if (mentions.length === 0) return { threadId, text };
+  if (typeof codesVersion !== "string") {
+    throw new UserFacingError("A reply with a marked mention needs the codesVersion of the get_items or get_workflow_state read its codes come from.");
+  }
+  const problems = mentions.flatMap((mention) => mentionProblem(store, mention) ?? []);
+  if (problems.length === 0) return { threadId, text };
+  if (codesVersion !== store.codesVersion) {
+    problems.push(`The codes moved since codesVersion ${codesVersion}; it is ${store.codesVersion} now. Read get_items again and write each mention with the item's code and id from that read.`);
+  }
+  throw new UserFacingError(problems.join("\n"));
+}
+
+function parseAnswers(store: Store, value: unknown, codesVersion: unknown): ThreadAnswer[] {
   if (value == null) return [];
   if (
     !Array.isArray(value) ||
@@ -283,7 +336,7 @@ function parseAnswers(value: unknown): ThreadAnswer[] {
   ) {
     throw new UserFacingError("answers must be a list of { threadId, reply }.");
   }
-  return value.map(({ threadId, reply }: { threadId: string; reply: string }) => ({ threadId, text: reply }));
+  return value.map(({ threadId, reply }: { threadId: string; reply: string }) => parseReply(store, threadId, reply, codesVersion));
 }
 
 /** Every item's code, by id, as a write names them before it runs. */
@@ -455,7 +508,7 @@ const threadTool: AgentTool = {
   description: {
     name: "get_thread",
     description:
-      "Read one thread, open or resolved: whom it waits for, every message, and its unit; for an item, the item as get_items gives it. A channel event about a change request names its thread. Reading a thread that waits for you shows the spec owner you are working on it, until you answer or they write again.",
+      "Read one thread, open or resolved: whom it waits for, every message, and its unit; for an item, the item as get_items gives it. A marked mention in a message reads [CODE](item:ID), by the item's code now, or by the code it was written with followed by (removed) once its item is gone; any other code in a message is plain text. A channel event about a change request names its thread. Reading a thread that waits for you shows the spec owner you are working on it, until you answer or they write again.",
     inputSchema: {
       type: "object",
       properties: { threadId: { type: "string", description: "The thread to read." } },
@@ -477,7 +530,7 @@ const threadsTool: AgentTool = {
   description: {
     name: "get_threads",
     description:
-      "Read every thread of the module, open and resolved, with all their messages and, for an item, the item as get_items gives it, oldest first; pass a stage to read only its threads, including those whose unit was removed.",
+      "Read every thread of the module, open and resolved, with all their messages and, for an item, the item as get_items gives it, oldest first; pass a stage to read only its threads, including those whose unit was removed. Marked mentions read as in get_thread.",
     inputSchema: { type: "object", properties: { stage: STAGE_PROPERTY }, additionalProperties: false },
   },
   run: (store, args) => {
@@ -489,7 +542,7 @@ const threadsTool: AgentTool = {
 const ANSWERS_PROPERTY = {
   type: "array",
   description:
-    "The open threads these changes answer, each with a reply telling the spec owner what changed. get_workflow_state lists them. A thread in a stage these changes close is answered once that stage is open again.",
+    `The open threads these changes answer, each with a reply telling the spec owner what changed. get_workflow_state lists them. A thread in a stage these changes close is answered once that stage is open again. The codes of marked mentions are those of the codesVersion you send, before this write. ${replyRulesText()}`,
   items: {
     type: "object",
     properties: { threadId: { type: "string" }, reply: { type: "string", minLength: 1 } },
@@ -535,7 +588,7 @@ const writeTool: AgentTool = {
   },
   run: (store, args, _open, caller) => {
     requireCodesVersion(store, args);
-    const answers = parseAnswers(args.answers);
+    const answers = parseAnswers(store, args.answers, args.codesVersion);
     const changes = parseChanges(store, args.changes);
     const versionBefore = store.codesVersion;
     const codesBefore = codesNow(store);
@@ -619,19 +672,20 @@ const replyTool: AgentTool = {
   description: {
     name: "reply_to_thread",
     description:
-      "Reply to an open thread without changing items, such as to ask what the spec owner means or to say why the unit should stay as it is. To answer with changes, use write_items with answers. Only the spec owner resolves a thread.",
+      `Reply to an open thread without changing items, such as to ask what the spec owner means or to say why the unit should stay as it is. To answer with changes, use write_items with answers. Only the spec owner resolves a thread. ${replyRulesText()}`,
     inputSchema: {
       type: "object",
       properties: {
         threadId: { type: "string", description: "The thread to reply to, from get_workflow_state or get_thread." },
         text: { type: "string", minLength: 1, description: "The reply the spec owner reads." },
+        codesVersion: { type: "string", description: "The codesVersion of the get_items or get_workflow_state read the codes of the reply's marked mentions come from; needed when it holds one." },
       },
       required: ["threadId", "text"],
       additionalProperties: false,
     },
   },
   run: (store, args, _open, caller) => {
-    store.answerThreads([{ threadId: stringArgument(args, "threadId"), text: stringArgument(args, "text") }], { kind: "agent", name: caller.name });
+    store.answerThreads([parseReply(store, stringArgument(args, "threadId"), stringArgument(args, "text"), args.codesVersion)], { kind: "agent", name: caller.name });
     return "Replied. The thread waits for the spec owner.";
   },
 };

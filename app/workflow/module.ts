@@ -112,7 +112,7 @@ function writingTurn(ask: WritingAsk): string {
   return `write:${ask.stage}:${ask.at}`;
 }
 
-/** An item that an item, coverage or impact names, of this module or another, as the page names and previews it. */
+/** An item that an item, coverage, impact or marked mention names, of this module or another, as the page names and previews it. */
 export interface NamedItem {
   id: string;
   /** The other module, for an item of another module. */
@@ -126,6 +126,11 @@ export interface NamedItem {
   stage: string;
   phase: ItemPhase;
   approved: boolean;
+}
+
+/** How the page and the agent interface name an item: its code, or "Module/CODE" for an item of another module than the one read. */
+function itemName(code: string, moduleName: string | null): string {
+  return moduleName == null ? code : `${moduleName}/${code}`;
 }
 
 /** The items a version of an item links to: those it lists, and those it counts as linking to without listing them. */
@@ -884,6 +889,11 @@ export function workflowModuleModel(workflow: Workflow) {
         outOfDateBecauseOf: (id) => outOfDateBecauseOf(id),
       };
 
+      const mentionableItems = cachedView((): { id: string; name: string }[] => [
+        ...self.allItems.filter(({ removal }) => phaseOf(removal) !== "removed").map(({ id }) => ({ id, name: self.codeOf(id)! })),
+        ...self.linkedModules.flatMap((linked) => linked.lookup.listItems().map(({ id, code }) => ({ id, name: itemName(code, linked.name) }))),
+      ]);
+
       /** The stages the spec owner asked the coding agent to write that are still open and not complete. */
       const writingAskedOfAnswerer = (): WritingAsk[] => self.writingAsked.filter(({ stage }) => self.stageOpen(stage) && !self.stageComplete(stage));
 
@@ -968,7 +978,15 @@ export function workflowModuleModel(workflow: Workflow) {
         get lookup(): ModuleLookup {
           return lookup;
         },
-        /** An item that an item, coverage or impact of this module names, of this module or another; null once it no longer exists. */
+        /**
+         * Every item a thread message of this module can mention, by its name:
+         * this module's items in page order, then each other module's in
+         * module order and page order; none whose removal is signed.
+         */
+        get mentionableItems(): { id: string; name: string }[] {
+          return mentionableItems();
+        },
+        /** An item that an item, coverage or impact of this module, or a marked mention in its threads, names, of this module or another; null once it no longer exists. */
         namedItem(id: string): NamedItem | null {
           const linked = self.findLinked(id);
           if (linked == null) return null;
@@ -978,7 +996,7 @@ export function workflowModuleModel(workflow: Workflow) {
             id,
             module: linked.module == null ? null : { id: linked.module.id, name: linked.module.name },
             code,
-            name: linked.module == null ? code : `${linked.module.name}/${code}`,
+            name: itemName(code, linked.module?.name ?? null),
             kind: linked.kind,
             text: source.textOf(id),
             stage: linked.stage,

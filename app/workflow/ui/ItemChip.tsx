@@ -6,7 +6,7 @@ import type { MouseEvent } from "react";
 
 import type { NamedItem, OutOfDateCause } from "../module";
 import { LINK_REASON_LABELS, type LinkReason } from "../units";
-import { useWorkflowNavigation, useWorkflowView } from "./context";
+import { placeOf, useWorkflowNavigation, useWorkflowView } from "./context";
 import VersionDiff from "./VersionDiff";
 
 const REMOVED_ITEM = "removed item";
@@ -64,6 +64,7 @@ const ItemChip = observer(function ItemChip({
   reasons = [],
   change = null,
   opens = true,
+  writtenAs,
   onDelete,
 }: {
   itemId: string;
@@ -72,6 +73,8 @@ const ItemChip = observer(function ItemChip({
   change?: OutOfDateCause["change"];
   /** False where opening the item would leave work behind, such as in an editor. */
   opens?: boolean;
+  /** The name a marked mention was written with, which it shows, marked as removed, once the item no longer exists. */
+  writtenAs?: string;
   onDelete?: (event: unknown) => void;
 }) {
   const { module } = useWorkflowView();
@@ -80,10 +83,9 @@ const ItemChip = observer(function ItemChip({
   const named = module.namedItem(itemId);
   const cause = reasons.length > 0;
   const look = { size: "small", variant: cause ? "filled" : "outlined", color: cause ? "warning" : "default" } as const;
-  if (named == null) return <Chip {...look} label={label(itemId)} onDelete={onDelete} />;
+  if (named == null) return <Chip {...look} label={writtenAs == null ? label(itemId) : `${writtenAs} (removed)`} onDelete={onDelete} />;
   const open = (event: MouseEvent<HTMLElement>) => {
-    const from = event.currentTarget.closest<HTMLElement>("[data-unit-card]")?.dataset.unitCard ?? null;
-    openUnit({ module: named.module?.id ?? null, stage: named.stage, unitId: named.id }, from);
+    openUnit({ module: named.module?.id ?? null, stage: named.stage, unitId: named.id }, placeOf(event.currentTarget));
   };
   return (
     <Tooltip title={<ItemPreview item={named} change={change} />} describeChild disableInteractive slotProps={{ tooltip: { sx: { maxWidth: 440 } } }}>

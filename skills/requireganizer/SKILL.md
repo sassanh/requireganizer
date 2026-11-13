@@ -96,6 +96,15 @@ tool signs.
 - Answer a thread in the thread only. Its reply is where you tell the person
   what changed or what waits; do not repeat, summarize or announce it in your
   conversation with them.
+- Each reply speaks only to its thread's request and makes sense read on its
+  own.
+- Give an item's code in a reply only inside a marked mention of that item:
+  `[CODE](item:ID)`, with the code and id `get_items` gives the item, or
+  `[Module name/CODE](item:ID)` for an item of another module than the
+  thread's. Pass the `codesVersion` the codes come from; a reply whose
+  mention's code names no item, or another item than its id, is refused.
+- Name each item that the changes sent with a reply add by the item's text,
+  not by a marked mention: it has no code before the write.
 
 ## Where the person works
 

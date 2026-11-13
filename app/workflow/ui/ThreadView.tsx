@@ -5,7 +5,7 @@ import { ClickAwayListener, Dialog, IconButton, Paper, Popper, Stack, Tooltip, T
 import { observer } from "mobx-react-lite";
 import { useState, type ReactNode } from "react";
 
-import { useWorkflowView } from "./context";
+import { type MessagePlace, useWorkflowView } from "./context";
 import ThreadPanel from "./ThreadPanel";
 
 /** How an opened thread shows: over the stage beside its card, docked at the right edge, or over the whole screen. */
@@ -51,6 +51,8 @@ const ThreadView = observer(function ThreadView({
   anchor,
   stageOpen,
   autoFocus,
+  focusMessage,
+  onMessageFocused,
   onDock,
   onClose,
 }: {
@@ -60,6 +62,9 @@ const ThreadView = observer(function ThreadView({
   anchor: HTMLElement | null;
   stageOpen: boolean;
   autoFocus: boolean;
+  /** A message to show and focus, such as the one an item was opened from. */
+  focusMessage: MessagePlace | null;
+  onMessageFocused: () => void;
   onDock: () => void;
   /** Closes the thread; closing the docked form also undocks, so the next thread opens beside its card. */
   onClose: () => void;
@@ -78,7 +83,16 @@ const ThreadView = observer(function ThreadView({
           <IconButton size="small" onClick={onClose}><Close fontSize="small" /></IconButton>
         </Tooltip>
       </Stack>
-      <ThreadPanel key={unitId} unitId={unitId} threads={module.threadsOf(unitId)} stageOpen={stageOpen} autoFocus={autoFocus} onClose={onClose} />
+      <ThreadPanel
+        key={unitId}
+        unitId={unitId}
+        threads={module.threadsOf(unitId)}
+        stageOpen={stageOpen}
+        autoFocus={autoFocus}
+        focusMessage={focusMessage}
+        onMessageFocused={onMessageFocused}
+        onClose={onClose}
+      />
     </Stack>
   );
   const closeOnEscape = (content: ReactNode) => (

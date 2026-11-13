@@ -29,19 +29,49 @@ export interface UnitPlace {
   unitId: string;
 }
 
-/** A unit the page focuses and reveals once its card shows. */
+/** A message of a thread, by the thread and the message's place in it. */
+export interface MessagePlace {
+  threadId: string;
+  index: number;
+}
+
+/** What the page focuses and reveals once it shows: a unit's card, or a message of a thread on the unit. */
 export interface RevealRequest {
   unitId: string;
+  message: MessagePlace | null;
+}
+
+const THREAD_ATTRIBUTE = "data-thread";
+const MESSAGE_ATTRIBUTE = "data-thread-message";
+
+/** The attributes that mark an element as a thread message, so an item opened from inside it returns to it. */
+export function messageAttributes(thread: { id: string; unitId: string }, index: number): Record<string, string> {
+  return { [THREAD_ATTRIBUTE]: thread.id, [MESSAGE_ATTRIBUTE]: String(index), "data-message-unit": thread.unitId };
+}
+
+/** The element showing a thread message, inside `root`, if it shows. */
+export function messageElement(root: ParentNode, message: MessagePlace): HTMLElement | null {
+  return root.querySelector<HTMLElement>(`[${THREAD_ATTRIBUTE}="${CSS.escape(message.threadId)}"][${MESSAGE_ATTRIBUTE}="${message.index}"]`);
+}
+
+/** Where an element shows: in a thread message, or else in a unit's card; null anywhere else. */
+export function placeOf(element: Element): RevealRequest | null {
+  const message = element.closest<HTMLElement>(`[${MESSAGE_ATTRIBUTE}]`);
+  if (message != null) {
+    return { unitId: message.dataset.messageUnit!, message: { threadId: message.dataset.thread!, index: Number(message.dataset.threadMessage) } };
+  }
+  const card = element.closest<HTMLElement>("[data-unit-card]")?.dataset.unitCard;
+  return card == null ? null : { unitId: card, message: null };
 }
 
 /** How the page moves between units: opening one where an item names it, and coming back by the browser's history. */
 export interface WorkflowNavigation {
   /**
    * Show a unit in its module and stage, focused, as a new history entry.
-   * The entry left behind records `from`, the unit it was opened from, so
-   * going back focuses that unit again.
+   * The entry left behind records `from`, the unit card or thread message it
+   * was opened from, so going back focuses it again.
    */
-  openUnit(place: UnitPlace, from: string | null): void;
+  openUnit(place: UnitPlace, from: RevealRequest | null): void;
   /** The unit to reveal, until the page has revealed it. */
   revealRequest: RevealRequest | null;
   revealed(request: RevealRequest): void;

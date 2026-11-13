@@ -1,19 +1,40 @@
 "use client";
 
 import { Box, Typography } from "@mui/material";
-import ReactMarkdown from "react-markdown";
+import type { ReactNode } from "react";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
+
+import { mentionedItem } from "../threads";
+import ItemChip from "./ItemChip";
 
 const listSx = { my: 0.5, pl: 3, ml: 0, listStylePosition: "outside", minWidth: 0 } as const;
 
-/** A thread message's text, rendered as Markdown. */
+/** A marked mention's address is kept as written; every other address as Markdown keeps it. */
+function urlTransform(url: string): string {
+  return mentionedItem(url) == null ? defaultUrlTransform(url) : url;
+}
+
+/** The text a link shows, as written. */
+function textOf(children: ReactNode): string {
+  if (typeof children === "string" || typeof children === "number") return String(children);
+  return Array.isArray(children) ? children.map(textOf).join("") : "";
+}
+
+/** A thread message's text, rendered as Markdown, each marked mention as the item it names. */
 export default function MessageText({ text }: { text: string }) {
   return (
     <Box sx={{ "& > :first-of-type": { mt: 0 }, "& > :last-child": { mb: 0 } }}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
+        urlTransform={urlTransform}
         components={{
-          p: ({ children }) => <Typography variant="body2" sx={{ my: 1 }}>{children}</Typography>,
+          // A paragraph is a block, so the chip of a marked mention may sit in it.
+          p: ({ children }) => <Typography component="div" variant="body2" sx={{ my: 1 }}>{children}</Typography>,
+          a: ({ node: _node, href, children, ...props }) => {
+            const itemId = href == null ? null : mentionedItem(href);
+            return itemId == null ? <a href={href} {...props}>{children}</a> : <ItemChip itemId={itemId} writtenAs={textOf(children)} />;
+          },
           // The app-wide CSS reset removes list indentation; without these
           // the outside-positioned markers overflow or misalign.
           ul: ({ children }) => <Box component="ul" sx={{ ...listSx, listStyleType: "disc" }}>{children}</Box>,

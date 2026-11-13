@@ -1,4 +1,5 @@
 export {
+  type MessagePlace,
   perform,
   type RevealRequest,
   type UnitPlace,

@@ -68,6 +68,70 @@ export interface TurnInHand {
   by: string;
 }
 
+/**
+ * A marked mention in a thread message's text: the part of it that names one
+ * item, tied to the item by its id, with the item's name as the writer wrote
+ * it. It is written as a Markdown link to `item:<id>`, so the text stays plain
+ * and every reader of Markdown keeps it apart from the text around it.
+ */
+export interface Mention {
+  start: number;
+  end: number;
+  writtenAs: string;
+  itemId: string;
+}
+
+const MENTION_SCHEME = "item:";
+const MENTION_PATTERN = /\[((?:\\.|[^\\\]\n])+)\]\(item:([^\s()]+)\)/g;
+
+/** A marked mention of an item, written as `[name](item:<id>)`. */
+export function mentionMarkup(name: string, itemId: string): string {
+  return `[${name.replace(/[\\[\]]/g, "\\$&")}](${MENTION_SCHEME}${itemId})`;
+}
+
+/** Every marked mention a text holds, in order. */
+export function mentionsIn(text: string): Mention[] {
+  return [...text.matchAll(MENTION_PATTERN)].map((match) => ({
+    start: match.index,
+    end: match.index + match[0].length,
+    writtenAs: match[1]!.replace(/\\(.)/g, "$1"),
+    itemId: match[2]!,
+  }));
+}
+
+/** The text with each marked mention replaced as `replace` gives it. */
+export function replaceMentions(text: string, replace: (mention: Mention) => string): string {
+  let result = "";
+  let last = 0;
+  for (const mention of mentionsIn(text)) {
+    result += text.slice(last, mention.start) + replace(mention);
+    last = mention.end;
+  }
+  return result + text.slice(last);
+}
+
+/** The item a link's address marks as mentioned, or null for any other link. */
+export function mentionedItem(href: string): string | null {
+  return href.startsWith(MENTION_SCHEME) && href.length > MENTION_SCHEME.length ? href.slice(MENTION_SCHEME.length) : null;
+}
+
+/** How an answerer through the agent interface writes a marked mention, and what it is. */
+export const MENTION_MARKUP_TEXT =
+  "A marked mention ties a part of a reply to one item: write it [CODE](item:ID), with the item's code and id as get_items gives them, or [Module name/CODE](item:ID) for an item of another module than the thread's. The spec owner sees it by the item's code at the time they read it, with a preview and a way to open it; a code written outside a marked mention is plain text, tied to no item. A reply holding a marked mention whose code names no item, or another item than its id, is refused.";
+
+/** The rules every reply of an answerer through the agent interface follows. */
+export const REPLY_RULES: readonly string[] = [
+  "it speaks only to its thread's request;",
+  "it makes sense read on its own;",
+  "it gives an item's code only inside a marked mention of that item; and",
+  "it names each item that the item changes sent with it add by the item's text, not by a marked mention: such an item has no code before the write.",
+];
+
+/** The reply rules and the mention markup as one text, for an answerer through the agent interface. */
+export function replyRulesText(): string {
+  return `Each reply follows these rules: ${REPLY_RULES.join(" ")} ${MENTION_MARKUP_TEXT}`;
+}
+
 /** The thread as one text, for an answerer that reads it as a request. */
 export function threadText(thread: Thread): string {
   return thread.messages
