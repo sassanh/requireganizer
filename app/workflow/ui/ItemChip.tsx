@@ -8,6 +8,7 @@ import type { NamedItem, OutOfDateCause } from "../module";
 import { LINK_REASON_LABELS, type LinkReason, REMOVED_ITEM } from "../units";
 import { placeOf, useWorkflowNavigation, useWorkflowView } from "./context";
 import VersionDiff from "./VersionDiff";
+import WrittenText from "./WrittenText";
 
 /** How the page names an item: its code, "Module/CODE" for an item of another module, or "removed item" once it no longer exists. */
 export function useItemName(): (id: string) => string {
@@ -40,7 +41,7 @@ function ItemPreview({ item, change }: { item: NamedItem; change: OutOfDateCause
         <Typography variant="caption">{workflow.kind(item.kind).label}</Typography>
       </Stack>
       {change != null && <VersionDiff kind={item.kind} signed={change.from} current={change.to} caption="Since the version referenced here" />}
-      <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>{item.text}</Typography>
+      <WrittenText text={item.text} />
       <Typography variant="caption">
         {workflow.stage(item.stage).label} · {item.approved ? "Approved" : item.phase === "removed" ? "Removed" : "Not approved"}
       </Typography>

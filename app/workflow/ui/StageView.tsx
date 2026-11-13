@@ -42,6 +42,7 @@ import ThreadPanel from "./ThreadPanel";
 import ThreadView, { useThreadForm } from "./ThreadView";
 import UnitFrame, { SignatureLine } from "./UnitFrame";
 import VersionDiff from "./VersionDiff";
+import WrittenText from "./WrittenText";
 
 interface CardControls {
   openThread: (unitId: string, anchor: HTMLElement) => void;
@@ -72,14 +73,7 @@ function Fields({ kind, version, choices = true }: { kind: string; version: Item
   const prefix = workflow.prefixOf(kind);
   return (
     <Stack spacing={0.5}>
-      <Typography variant="body1" sx={{ whiteSpace: "pre-wrap" }}>
-        {prefix == null ? null : (
-          <Box component="span" sx={{ color: "text.secondary", fontWeight: 600 }}>
-            {`${prefix} `}
-          </Box>
-        )}
-        {module.displayOf(kind, version.content)}
-      </Typography>
+      <WrittenText text={module.displayOf(kind, version.content)} variant="body1" lead={prefix ?? undefined} />
       {choices && <ChoiceChips kind={kind} version={version} />}
       {marks.map((mark) => (
         <Chip key={mark} size="small" color="warning" variant="outlined" label={mark} sx={{ alignSelf: "flex-start" }} />
@@ -385,9 +379,9 @@ function RuleList({ rules }: { rules: readonly string[] }) {
 /** One item of an example, as it is shown. */
 function ExampleText({ text }: { text: string }) {
   return (
-    <Typography variant="body2" sx={{ pl: 2, py: 0.5, borderLeft: 2, borderColor: "divider", whiteSpace: "pre-wrap" }}>
-      {text}
-    </Typography>
+    <Box sx={{ pl: 2, py: 0.5, borderLeft: 2, borderColor: "divider" }}>
+      <WrittenText text={text} />
+    </Box>
   );
 }
 

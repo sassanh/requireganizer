@@ -11,7 +11,7 @@ import { answeringSx } from "./answering";
 import { type MessagePlace, messageAttributes, messageElement, perform, useWorkflowView } from "./context";
 import { useItemName } from "./ItemChip";
 import MentionField, { type MessageDraft, messageText } from "./MentionField";
-import MessageText from "./MessageText";
+import WrittenText from "./WrittenText";
 
 /** A thread's messages, each one focusable, so the page can return to the one an item was opened from. */
 function Messages({ thread }: { thread: Thread }) {
@@ -29,7 +29,7 @@ function Messages({ thread }: { thread: Thread }) {
             {authorLabel(message.author)}{message.at == null ? "" : ` · ${new Date(message.at).toLocaleString()}`}
             {message.withChanges ? " · with changes" : ""}
           </Typography>
-          <MessageText text={message.text} />
+          <WrittenText text={message.text} />
         </Stack>
       ))}
     </Stack>
