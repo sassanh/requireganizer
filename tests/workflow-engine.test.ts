@@ -127,7 +127,7 @@ describe("workflow engine", () => {
     const capability = itemOf(store, "capabilities", "CAP-01");
     const thread = store.requestChange(itemOf(store, "features-and-target-users", "FEA-01"), "Name the stages.");
     assert.throws(
-      () => store.writeItems([{ type: "change", item: capability, content: { description: "Stages in a row." } }], [{ threadId: thread, text: "Renamed the capability." }]),
+      () => store.writeItems([{ type: "change", item: capability, content: { description: "Stages in a row." } }], { answers: [{ threadId: thread, text: "Renamed the capability." }], author: { kind: "agent", name: "test" } }),
       /This write closes Features and Target Users/,
     );
     assert.equal(store.textOf(capability), "Staging: Staged workflow.");

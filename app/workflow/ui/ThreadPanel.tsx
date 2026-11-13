@@ -9,7 +9,8 @@ import { autoScrollBehavior } from "lib/scroll";
 import { authorLabel, type Thread, waitsForSpecOwner } from "../threads";
 import { answeringSx } from "./answering";
 import { type MessagePlace, messageAttributes, messageElement, perform, useWorkflowView } from "./context";
-import MentionField from "./MentionField";
+import { useItemName } from "./ItemChip";
+import MentionField, { type MessageDraft, messageText } from "./MentionField";
 import MessageText from "./MessageText";
 
 /** A thread's messages, each one focusable, so the page can return to the one an item was opened from. */
@@ -36,7 +37,7 @@ function Messages({ thread }: { thread: Thread }) {
 }
 
 /** Unsent messages by unit or thread, kept while the page is open so closing a thread by accident loses nothing. */
-const drafts = new Map<string, string>();
+const drafts = new Map<string, MessageDraft | null>();
 
 /**
  * The threads on one unit: the resolved ones to read, the open one to
@@ -62,25 +63,27 @@ const ThreadPanel = observer(function ThreadPanel({
   onClose?: () => void;
 }) {
   const { module } = useWorkflowView();
+  const nameOf = useItemName();
   const open = threads.find(({ resolution }) => resolution == null) ?? null;
   const resolved = threads.filter(({ resolution }) => resolution != null);
   const answering = open != null && module.isBeingAnswered(open.id);
   const draftKey = unitId ?? open?.id ?? "";
-  const [text, setTextState] = useState(() => drafts.get(draftKey) ?? "");
-  const setText = (value: string) => {
+  const [draft, setDraftState] = useState(() => drafts.get(draftKey) ?? null);
+  const setDraft = (value: MessageDraft | null) => {
     drafts.set(draftKey, value);
-    setTextState(value);
+    setDraftState(value);
   };
   const [showResolved, setShowResolved] = useState(false);
 
+  // Each marked mention is sent by its item's name now, which the store checks against its id.
   const send = async () => {
-    const message = text.trim();
+    const message = messageText(draft, nameOf).trim();
     if (message.length === 0) return;
     const sent = await perform(
       () => (unitId == null ? module.replyAsSpecOwner(open!.id, message) : module.requestChange(unitId, message)),
       "The message could not be sent.",
     );
-    if (sent) setText("");
+    if (sent) setDraft(null);
   };
 
   // The latest message shows first: the history opens at its end, then follows new messages there smoothly.
@@ -131,12 +134,9 @@ const ThreadPanel = observer(function ThreadPanel({
         <Stack spacing={1} sx={{ flexShrink: 0, pt: 1 }}>
           <MentionField
             autoFocus={autoFocus}
-            multiline
-            minRows={2}
-            size="small"
             label={open == null ? "Request a change" : "Reply"}
-            value={text}
-            onChange={setText}
+            value={draft}
+            onChange={setDraft}
             onKeyDown={(event) => {
               if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
                 event.preventDefault();
@@ -149,7 +149,7 @@ const ThreadPanel = observer(function ThreadPanel({
             }}
           />
           <Stack direction="row" sx={{ gap: 1 }}>
-            <Button size="small" variant="contained" disabled={text.trim().length === 0} onClick={() => void send()}>
+            <Button size="small" variant="contained" disabled={messageText(draft, nameOf).trim().length === 0} onClick={() => void send()}>
               {open == null ? "Send change request" : "Send"}
             </Button>
             {open != null && (

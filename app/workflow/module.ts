@@ -34,7 +34,11 @@ import {
   type ThreadAnswer,
   type ThreadAuthor,
   type TurnInHand,
+  addedMentionsIn,
   keptMessageText,
+  mentionMarkup,
+  mentionsIn,
+  replaceAddedMentions,
   threadTurn,
   waitsForAnswerer,
   waitsForSpecOwner,
@@ -987,6 +991,24 @@ export function workflowModuleModel(workflow: Workflow) {
         get mentionableItems(): { id: string; name: string }[] {
           return mentionableItems();
         },
+        /**
+         * The item a written name names: a code or id of this module, or,
+         * with `otherModules`, "Module name/CODE" of another; or why it
+         * names none.
+         */
+        itemOfName(name: string, otherModules: boolean): { id: string } | { problem: string } {
+          const own = itemNamed(name);
+          if (own != null) return { id: own };
+          const separator = name.lastIndexOf("/");
+          if (otherModules && separator > 0) {
+            const [moduleName, code] = [name.slice(0, separator), name.slice(separator + 1)];
+            const linked = self.linkedModules.find((candidate) => candidate.name === moduleName);
+            if (linked == null) return { problem: `there is no other module named ${moduleName}.` };
+            const id = linked.lookup.itemNamed(code);
+            return id == null ? { problem: `${moduleName} has no item ${code}.` } : { id };
+          }
+          return { problem: `this module has no item ${name}.` };
+        },
         /** An item that an item, coverage or impact of this module, or a marked mention in its threads, names, of this module or another; null once it no longer exists. */
         namedItem(id: string): NamedItem | null {
           const linked = self.findLinked(id);
@@ -1008,6 +1030,28 @@ export function workflowModuleModel(workflow: Workflow) {
       };
     })
     .views((self) => ({
+      /**
+       * What is wrong with each marked mention a message holds, one line
+       * each; empty when each gives exactly the current code of the item its
+       * id names, and each mention of an added item, `[](change:N)`, names an
+       * add among `changes`, those sent with the message.
+       */
+      mentionProblems(text: string, changes: readonly ItemChange[] = []): string[] {
+        const ofItems = mentionsIn(text).flatMap(({ writtenAs, itemId }) => {
+          const meant = self.namedItem(itemId);
+          if (meant?.name === writtenAs) return [];
+          const markup = mentionMarkup(writtenAs, itemId);
+          if (writtenAs === "") return [`${markup}: it gives no code.`];
+          if (meant == null) return [`${markup}: ${itemId} names no item.`];
+          return [`${markup}: the code of ${itemId} is ${meant.name}, not ${writtenAs}.`];
+        });
+        const ofAdded = addedMentionsIn(text).flatMap(({ change }) => {
+          const markup = `[](change:${change})`;
+          if (change < 1 || change > changes.length) return [`${markup}: change ${change} is not among the item changes sent with this message.`];
+          return changes[change - 1]!.type === "add" ? [] : [`${markup}: change ${change} adds no item.`];
+        });
+        return [...ofItems, ...ofAdded];
+      },
       /** Why the answers cannot be given now, or null. */
       answerProblem(answers: readonly ThreadAnswer[]): string | null {
         for (const { threadId, text } of answers) {
@@ -1420,6 +1464,27 @@ export function workflowModuleModel(workflow: Workflow) {
         );
       }
 
+      /** Refuses a message, naming each one, when a marked mention is wrong; see mentionProblems. */
+      function checkMentions(text: string, changes: readonly ItemChange[] = []): void {
+        const problems = self.mentionProblems(text, changes);
+        if (problems.length > 0) throw new UserFacingError(problems.join("\n"));
+      }
+
+      /** A message's text as it is kept, once its marked mentions pass. */
+      function keptMessage(text: string): string {
+        checkMentions(text);
+        return keptMessageText(text);
+      }
+
+      /** Posts each answer, its marked mentions already checked, each mention of an added item tied to the item its change added. */
+      function postAnswers(answers: readonly ThreadAnswer[], author: ThreadAuthor, changes: readonly ItemChange[] = [], added: readonly string[] = []) {
+        const addedBy = (change: number) => added[changes.slice(0, change - 1).filter(({ type }) => type === "add").length]!;
+        for (const { threadId, text } of answers) {
+          const tied = replaceAddedMentions(text, ({ change }) => mentionMarkup("", addedBy(change)));
+          addMessage(threadId, { author, text: keptMessageText(tied), at: new Date().toISOString(), ...(changes.length > 0 ? { withChanges: true as const } : {}) });
+        }
+      }
+
       function openThread(threadId: string): Thread {
         const thread = self.threads.find(({ id }) => id === threadId);
         if (thread == null) throw new UserFacingError(`There is no thread ${threadId}.`);
@@ -1461,9 +1526,12 @@ export function workflowModuleModel(workflow: Workflow) {
          * was. Throws every problem at once. The threads it answers are
          * checked against the module as the write leaves it.
          */
-        writeItems(changes: ItemChange[], answering: readonly ThreadAnswer[] = []): ChangeOutcome {
+        writeItems(changes: ItemChange[], replies: { answers: readonly ThreadAnswer[]; author: ThreadAuthor } | null = null): ChangeOutcome {
+          const answering = replies?.answers ?? [];
           const answerProblem = self.answerProblem(answering);
           if (answerProblem != null) throw new UserFacingError(answerProblem);
+          // The answers' marked mentions name items as they are before the write.
+          for (const { text } of answering) checkMentions(text, changes);
           // A write never builds on what it changes itself: a stage and a stage building on it change in separate writes.
           const touched = [
             ...new Set(changes.flatMap((change) => {
@@ -1497,6 +1565,7 @@ export function workflowModuleModel(workflow: Workflow) {
           }
           const { outcome } = applyAll(changes);
           self.writingAsked = self.writingAsked.filter(({ stage }) => !touched.includes(stage));
+          if (replies != null) postAnswers(replies.answers, replies.author, changes, outcome.added);
           return outcome;
         },
         /** Apply changes as far as they go, returning their problems: for a trial copy only. */
@@ -1606,7 +1675,7 @@ export function workflowModuleModel(workflow: Workflow) {
           if (state == null) throw new UserFacingError("That no longer exists.");
           requireOpen(state.stage, "change requests");
           if (text.trim().length === 0) throw new UserFacingError("Write what should change.");
-          const message = { author: SPEC_OWNER, text: keptMessageText(text), at: new Date().toISOString() };
+          const message = { author: SPEC_OWNER, text: keptMessage(text), at: new Date().toISOString() };
           const open = self.openThreadOf(unitId);
           if (open != null) {
             addMessage(open.id, message);
@@ -1627,7 +1696,7 @@ export function workflowModuleModel(workflow: Workflow) {
           const thread = openThread(threadId);
           requireOpen(thread.stage, "thread replies");
           if (text.trim().length === 0) throw new UserFacingError("Write a reply.");
-          addMessage(threadId, { author: SPEC_OWNER, text: keptMessageText(text), at: new Date().toISOString() });
+          addMessage(threadId, { author: SPEC_OWNER, text: keptMessage(text), at: new Date().toISOString() });
         },
         /** The spec owner resolves a thread; only the spec owner does. */
         resolveThread(threadId: string) {
@@ -1637,13 +1706,12 @@ export function workflowModuleModel(workflow: Workflow) {
             candidate.id === threadId ? { ...candidate, resolution: { at: new Date().toISOString() } } : candidate,
           );
         },
-        /** The answerer replies, alone or together with the changes it made. */
-        answerThreads(answers: ThreadAnswer[], author: ThreadAuthor, withChanges = false) {
+        /** The answerer replies, with no changes; a reply with changes is part of writeItems. */
+        answerThreads(answers: ThreadAnswer[], author: ThreadAuthor) {
           const problem = self.answerProblem(answers);
           if (problem != null) throw new UserFacingError(problem);
-          for (const { threadId, text } of answers) {
-            addMessage(threadId, { author, text: keptMessageText(text), at: new Date().toISOString(), ...(withChanges ? { withChanges: true as const } : {}) });
-          }
+          for (const { text } of answers) checkMentions(text);
+          postAnswers(answers, author);
         },
         /** An answerer takes up the thread's current turn, which ends with the thread's next message. */
         takeUpThread(threadId: string, by: string) {

@@ -11,14 +11,11 @@ import {
   type ItemVersion,
   LINK_REASON_LABELS,
   mapItemsFields,
-  addedMentionsIn,
-  type Mention,
   mentionMarkup,
   mentionsIn,
   NOT_APPROVED_REASON_LABELS,
   parseUnitId,
   REMOVED_ITEM,
-  replaceAddedMentions,
   replaceMentions,
   replyRulesText,
   signerLabel,
@@ -224,18 +221,9 @@ function coverageAndImpactViews(store: Store, stage: string): Record<string, unk
 
 /** The item a code names in this module or, written "Module name/CODE", in another. */
 function resolveLink(store: Store, name: string, allowOtherModules: boolean, label: string): string {
-  const own = store.itemNamed(name);
-  if (own != null) return own;
-  const separator = name.lastIndexOf("/");
-  if (allowOtherModules && separator > 0) {
-    const moduleName = name.slice(0, separator);
-    const linked = store.linkedModules.find((candidate) => candidate.name === moduleName);
-    if (linked == null) throw new UserFacingError(`${label}: there is no other module named ${moduleName}.`);
-    const id = linked.lookup.itemNamed(name.slice(separator + 1));
-    if (id == null) throw new UserFacingError(`${label}: ${moduleName} has no item ${name.slice(separator + 1)}.`);
-    return id;
-  }
-  throw new UserFacingError(`${label}: this module has no item ${name}.`);
+  const named = store.itemOfName(name, allowOtherModules);
+  if ("problem" in named) throw new UserFacingError(`${label}: ${named.problem}`);
+  return named.id;
 }
 
 /** The fields an agent wrote, with the codes its items fields choose, at any depth, resolved to ids; the model checks the rest. */
@@ -292,45 +280,19 @@ function parseChanges(store: Store, value: unknown): ItemChange[] {
   return changes;
 }
 
-/** What is wrong with a marked mention an agent wrote, or null when its code names the item its id names. */
-function mentionProblem(store: Store, { writtenAs, itemId }: Mention): string | null {
-  const meant = store.namedItem(itemId);
-  if (meant?.name === writtenAs) return null;
-  let named: string | null;
-  try {
-    named = resolveLink(store, writtenAs, true, "");
-  } catch {
-    named = null;
-  }
-  const markup = mentionMarkup(writtenAs, itemId);
-  if (writtenAs === "") return `${markup}: it gives no code.`;
-  if (named == null) return `${markup}: ${writtenAs} names no item.`;
-  if (named === itemId) return null;
-  return `${markup}: ${writtenAs} names another item than ${itemId}, which ${meant == null ? "is removed" : `is ${meant.name} now`}.`;
-}
-
 /**
- * A reply as an agent sends it, refused, naming each one, when a marked
- * mention's code names no item or another item than its id: the codes
- * moved since `codesVersion`, the read they come from, or they were
- * miscopied; or when a marked mention of an added item names a change that
- * is not among `changes`, those sent with the reply, or adds no item. A
- * reply without marked mentions of existing items needs no codesVersion.
+ * A reply as an agent sends it. The store checks its marked mentions, as it
+ * checks every message; what is the agent interface's alone is checked here:
+ * a reply with a marked mention of an existing item names the codesVersion
+ * its codes come from, and, when those codes moved since, a refusal says so.
  */
 function parseReply(store: Store, threadId: string, text: string, codesVersion: unknown, changes: readonly ItemChange[]): ThreadAnswer {
-  const problems = addedMentionsIn(text).flatMap(({ change }) => {
-    const markup = `[](change:${change})`;
-    if (change < 1 || change > changes.length) return [`${markup}: change ${change} is not among the item changes sent with this reply.`];
-    return changes[change - 1]!.type === "add" ? [] : [`${markup}: change ${change} adds no item.`];
-  });
-  const mentions = mentionsIn(text);
-  if (mentions.length > 0 && typeof codesVersion !== "string") {
+  if (mentionsIn(text).length > 0 && typeof codesVersion !== "string") {
     throw new UserFacingError("A reply with a marked mention needs the codesVersion of the get_items or get_workflow_state read its codes come from.");
   }
-  const codeProblems = mentions.flatMap((mention) => mentionProblem(store, mention) ?? []);
-  problems.push(...codeProblems);
+  const problems = store.mentionProblems(text, changes);
   if (problems.length === 0) return { threadId, text };
-  if (codeProblems.length > 0 && codesVersion !== store.codesVersion) {
+  if (mentionsIn(text).length > 0 && codesVersion !== store.codesVersion) {
     problems.push(`The codes moved since codesVersion ${codesVersion}; it is ${store.codesVersion} now. Read get_items again and write each mention with the item's code and id from that read.`);
   }
   throw new UserFacingError(problems.join("\n"));
@@ -347,11 +309,6 @@ function parseAnswers(store: Store, value: unknown, codesVersion: unknown, chang
   return value.map(({ threadId, reply }: { threadId: string; reply: string }) => parseReply(store, threadId, reply, codesVersion, changes));
 }
 
-/** A reply with each marked mention of an added item tied to the item its change added, once the write is applied. */
-function withAddedItems(answer: ThreadAnswer, changes: readonly ItemChange[], added: readonly string[]): ThreadAnswer {
-  const addedBy = (change: number) => added[changes.slice(0, change - 1).filter(({ type }) => type === "add").length]!;
-  return { ...answer, text: replaceAddedMentions(answer.text, ({ change }) => mentionMarkup("", addedBy(change))) };
-}
 
 /** Every item's code, by id, as a write names them before it runs. */
 function codesNow(store: Store): Map<string, string> {
@@ -606,10 +563,7 @@ const writeTool: AgentTool = {
     const answers = parseAnswers(store, args.answers, args.codesVersion, changes);
     const versionBefore = store.codesVersion;
     const codesBefore = codesNow(store);
-    const outcome = store.writeItems(changes, answers);
-    if (answers.length > 0) {
-      store.answerThreads(answers.map((answer) => withAddedItems(answer, changes, outcome.added)), { kind: "agent", name: caller.name }, changes.length > 0);
-    }
+    const outcome = store.writeItems(changes, answers.length === 0 ? null : { answers, author: { kind: "agent", name: caller.name } });
     const lines = [
       ...outcomeLines(store, outcome, codesBefore),
       ...(answers.length > 0
