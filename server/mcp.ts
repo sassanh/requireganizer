@@ -68,7 +68,7 @@ function reachHost(client: ProjectClient, waitMs: number): Promise<void> {
 
 function instructionsFor(url: string | null): string {
   const where = url == null ? "in Requireganizer" : `at ${url}`;
-  return `Requireganizer holds the spec the spec owner signs for this project, stage by stage, each item traced to what it builds on. Read it before building: get_workflow_state shows which stages are open; get_stage_rules gives a stage's published rules, and get_items reads its items by code. Write, change and remove items with write_items; the spec owner signs them ${where}, and no tool signs. A channel event with a thread_id means a change request of the spec owner's waits for you: read it with get_thread and answer it with reply_to_thread, or with write_items and its answers. ${replyRulesText()}`;
+  return `Requireganizer holds the spec the spec owner signs for this project, stage by stage, each item traced to what it builds on. Read it before building: get_workflow_state shows which stages are open; get_stage_rules gives the published rules of each kind of item a stage holds, and get_items reads a stage's items by code. Write, change and remove items with write_items; the spec owner signs them ${where}, and no tool signs. A channel event with a thread_id means a change request of the spec owner's waits for you: read it with get_thread and answer it with reply_to_thread, or with write_items and its answers. A channel event with a stage means the spec owner asks you to write that stage: read the rules of its kinds of item with get_stage_rules and write it with write_items. ${replyRulesText()}`;
 }
 
 export interface McpService {

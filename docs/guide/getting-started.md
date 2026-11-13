@@ -39,7 +39,7 @@ claude plugin install requireganizer --marketplace sassanh/requireganizer
 
 Other agents run `npx -y requireganizer mcp` in the repository. The Skill is in `skills/requireganizer/`.
 
-The agent reads each stage's items and published rules, writes items, and answers your change requests. Only you sign, in the page.
+The agent reads each stage's items and each kind's published rules, writes items, and answers your change requests. Only you sign, in the page.
 
 When no other process serves the project, the agent's process serves it, page included, and prints the address to its log.
 

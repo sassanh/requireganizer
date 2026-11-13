@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { currentHrefOf, projectCodeHref, projectHref, projectPlaceHref, stepHref, unitHref } from "../app/lib/routes";
+import { currentHrefOf, projectCodeHref, projectHref, stepHref, unitHref } from "../app/lib/routes";
 
 describe("project routes", () => {
   it("names the project in the query, so one static page serves every project", () => {
@@ -22,16 +22,6 @@ describe("project routes", () => {
       unitHref("/project", "id=p&module=m&step=requirements&unit=u", { module: "n", step: "requirements", unit: "coverage:requirements:v" }),
       "/project?id=p&module=n&step=requirements&unit=coverage%3Arequirements%3Av",
     );
-  });
-
-  it("keeps the project when a link names a place in it", () => {
-    assert.equal(projectPlaceHref("p", "?step=user-stories#US-1"), "/project?id=p&step=user-stories#US-1");
-    assert.equal(
-      projectPlaceHref("p", "?module=m&step=requirements#R-2"),
-      "/project?id=p&module=m&step=requirements#R-2",
-    );
-    // A place never moves the link to another project.
-    assert.equal(projectPlaceHref("p", "?id=other&step=x"), "/project?id=p&step=x");
   });
 
   it("leads a link from before projects moved to the query to the same place", () => {

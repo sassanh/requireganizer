@@ -13,19 +13,6 @@ export function projectCodeHref(projectId: string, path: string | null = null): 
   return `/project/code?${query.toString()}`;
 }
 
-/**
- * A place in the open project, given as the store gives it: a query of the
- * project page and a fragment, such as `?step=user-stories#<item id>`.
- */
-export function projectPlaceHref(projectId: string, place: string): string {
-  const url = new URL(place, "http://place.invalid/project");
-  const query = new URLSearchParams({ id: projectId });
-  for (const [key, value] of url.searchParams) {
-    if (key !== "id") query.append(key, value);
-  }
-  return `/project?${query.toString()}${url.hash}`;
-}
-
 /** The page at `pathname` showing `step`, keeping the project, module and all else `search` names but the unit or thread message it focuses. */
 export function stepHref(pathname: string, search: string, step: string): string {
   const query = new URLSearchParams(search);
