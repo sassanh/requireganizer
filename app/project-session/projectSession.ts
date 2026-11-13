@@ -1429,6 +1429,9 @@ export class ProjectSession {
     });
   };
 
+  /** Another module of the open project, read-only, as dependencies on its items resolve it; null for one not shown in the registry. */
+  otherModuleStore = (id: string): Store | null => this.siblingStores.storeOf(id);
+
   switchModule = (id: string): boolean => {
     const state = this.readyState();
     if (state == null) return false;

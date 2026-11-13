@@ -102,8 +102,9 @@ tool signs.
 - Give an item's code in a reply only inside a marked mention of that item:
   `[CODE](item:ID)`, with the code and id `get_items` gives the item, or
   `[Module name/CODE](item:ID)` for an item of another module than the
-  thread's. Pass the `codesVersion` the codes come from; a reply whose
-  mention's code names no item, or another item than its id, is refused.
+  thread's, read with `get_items` and that `module`. Pass the
+  `codesVersion` of the thread's module; a reply whose mention's code names
+  no item, or another item than its id, is refused.
 - Mention an item that the changes sent with a reply add as
   `[](change:N)`, N being the place of its add change among the changes,
   counting from 1; it has no code or id before the write.

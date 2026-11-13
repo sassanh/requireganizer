@@ -168,16 +168,24 @@ export class ProjectHost implements HostEndpoint {
     const moduleName = activeModule(registry)?.name;
     if (moduleName == null) return {};
     const modules = visibleModules(registry);
+    const moduleNamed = (name: string) => {
+      const target = visibleModuleNamed(registry, name);
+      if (target != null) return target;
+      const names = modules.map((entry) => `“${entry.name}”`).join(", ");
+      throw new UserFacingError(`There is no module named “${name}”. The modules are ${names}.`);
+    };
     return {
       moduleName,
       ...(modules.length > 1
         ? {
+            readModule: (name: string) => {
+              const target = moduleNamed(name);
+              const store = this.session.otherModuleStore(target.id);
+              if (store == null) throw new UserFacingError(`“${target.name}” could not be read.`);
+              return store;
+            },
             switchModule: (name: string) => {
-              const target = visibleModuleNamed(registry, name);
-              if (target == null) {
-                const names = modules.map((entry) => `“${entry.name}”`).join(", ");
-                throw new UserFacingError(`There is no module named “${name}”. The modules are ${names}.`);
-              }
+              const target = moduleNamed(name);
               if (!this.session.switchModule(target.id)) {
                 throw new UserFacingError(`“${target.name}” could not be opened.`);
               }

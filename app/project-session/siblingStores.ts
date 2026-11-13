@@ -38,6 +38,11 @@ export class SiblingModuleStores {
     return created;
   }
 
+  /** The read-only store of another module of the open project, as last linked; null for one it holds none of. */
+  storeOf(moduleId: string): Store | null {
+    return this.cache.get(moduleId)?.store ?? null;
+  }
+
   /**
    * Link the shown store and every sibling store to the other modules of the
    * project, so a dependency on another module's item resolves, and judges

@@ -42,6 +42,8 @@ export interface AgentToolDescription {
  */
 export interface OpenModule {
   moduleName?: string;
+  /** Another module, read-only, without opening it. */
+  readModule?: (name: string) => Store;
   switchModule?: (name: string) => string;
   addModule?: (name: string) => void;
 }
@@ -440,22 +442,32 @@ const stageRulesTool: AgentTool = {
   },
 };
 
+/** The store a read names by `name`: the open module's when it names none or the open one, or another module's, read-only. */
+function readModule(store: Store, open: OpenModule, name: unknown): Store {
+  if (name == null || name === open.moduleName) return store;
+  if (typeof name !== "string") throw new UserFacingError("module must be a string.");
+  if (open.readModule == null) throw new UserFacingError("This project has no other module to read.");
+  return open.readModule(name);
+}
+
 const itemsTool: AgentTool = {
   description: {
     name: "get_items",
     description:
-      "List one stage's items in the order the page shows them, with the codesVersion a write naming them by code sends back: each with its code and id, kind, whether it is approved and if not why, its text as the spec owner reads it, its fields (an items field as codes), its references and dependencies by code (another module's as \"Module name/CODE\"), what makes it out of date, which items it makes out of date, who signed it, what its last signature covered where that differs from it now (sinceSigned), and its open thread. Read without items to also get the stage's coverages and impacts. Pass items, as codes or ids, to read only those.",
+      "List one stage's items in the order the page shows them, with the codesVersion a write naming them by code sends back: each with its code and id, kind, whether it is approved and if not why, its text as the spec owner reads it, its fields (an items field as codes), its references and dependencies by code (another module's as \"Module name/CODE\"), what makes it out of date, which items it makes out of date, who signed it, what its last signature covered where that differs from it now (sinceSigned), and its open thread. Read without items to also get the stage's coverages and impacts. Pass items, as codes or ids, to read only those. Pass module to read a stage of another module without opening it, such as to mention one of its items: the codes are then that module's, written \"Module name/CODE\" from the open module, and the codesVersion is that module's.",
     inputSchema: {
       type: "object",
       properties: {
         stage: STAGE_PROPERTY,
         items: { type: "array", items: { type: "string" }, description: "Codes or ids of the items to read; all of the stage's items when left out." },
+        module: { type: "string", description: "Another module to read, as get_workflow_state lists it under otherModules; the open module when left out." },
       },
       required: ["stage"],
       additionalProperties: false,
     },
   },
-  run: (store, args) => {
+  run: (shown, args, open) => {
+    const store = readModule(shown, open, args.module);
     const stage = stageNamed(store, args.stage);
     const all = store.itemsOf(stage).map(({ id }) => id);
     const wanted = optionalStrings(args, "items", "get_items");
