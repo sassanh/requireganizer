@@ -103,8 +103,10 @@ tool signs.
   `[Module name/CODE](item:ID)` for an item of another module than the
   thread's. Pass the `codesVersion` the codes come from; a reply whose
   mention's code names no item, or another item than its id, is refused.
-- Name each item that the changes sent with a reply add by the item's text,
-  not by a marked mention: it has no code before the write.
+- Mention an item that the changes sent with a reply add as
+  `[](change:N)`, N being the place of its add change among the changes,
+  counting from 1; it has no code or id before the write.
+- Name an item that no longer exists by what it said, never by a code.
 
 ## Where the person works
 

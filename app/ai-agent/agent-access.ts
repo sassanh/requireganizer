@@ -11,11 +11,14 @@ import {
   type ItemVersion,
   LINK_REASON_LABELS,
   mapItemsFields,
+  addedMentionsIn,
   type Mention,
   mentionMarkup,
   mentionsIn,
   NOT_APPROVED_REASON_LABELS,
   parseUnitId,
+  REMOVED_ITEM,
+  replaceAddedMentions,
   replaceMentions,
   replyRulesText,
   signerLabel,
@@ -166,14 +169,11 @@ function threadUnit(store: Store, thread: Thread): Record<string, unknown> {
 
 /**
  * A message's text as an agent reads it: each marked mention by its item's
- * code now and its id, as a reply writes it again, or by the code it was
- * written with, marked as removed, once its item no longer exists.
+ * code now and its id, as a reply writes it again, or as a removed item once
+ * its item no longer exists.
  */
 function messageText(store: Store, text: string): string {
-  return replaceMentions(text, ({ writtenAs, itemId }) => {
-    const named = store.namedItem(itemId);
-    return named == null ? `${mentionMarkup(writtenAs, itemId)} (removed)` : mentionMarkup(named.name, itemId);
-  });
+  return replaceMentions(text, ({ itemId }) => mentionMarkup(store.namedItem(itemId)?.name ?? REMOVED_ITEM, itemId));
 }
 
 function threadView(store: Store, thread: Thread): Record<string, unknown> {
@@ -303,6 +303,7 @@ function mentionProblem(store: Store, { writtenAs, itemId }: Mention): string | 
     named = null;
   }
   const markup = mentionMarkup(writtenAs, itemId);
+  if (writtenAs === "") return `${markup}: it gives no code.`;
   if (named == null) return `${markup}: ${writtenAs} names no item.`;
   if (named === itemId) return null;
   return `${markup}: ${writtenAs} names another item than ${itemId}, which ${meant == null ? "is removed" : `is ${meant.name} now`}.`;
@@ -312,23 +313,30 @@ function mentionProblem(store: Store, { writtenAs, itemId }: Mention): string | 
  * A reply as an agent sends it, refused, naming each one, when a marked
  * mention's code names no item or another item than its id: the codes
  * moved since `codesVersion`, the read they come from, or they were
- * miscopied. A reply without marked mentions needs no codesVersion.
+ * miscopied; or when a marked mention of an added item names a change that
+ * is not among `changes`, those sent with the reply, or adds no item. A
+ * reply without marked mentions of existing items needs no codesVersion.
  */
-function parseReply(store: Store, threadId: string, text: string, codesVersion: unknown): ThreadAnswer {
+function parseReply(store: Store, threadId: string, text: string, codesVersion: unknown, changes: readonly ItemChange[]): ThreadAnswer {
+  const problems = addedMentionsIn(text).flatMap(({ change }) => {
+    const markup = `[](change:${change})`;
+    if (change < 1 || change > changes.length) return [`${markup}: change ${change} is not among the item changes sent with this reply.`];
+    return changes[change - 1]!.type === "add" ? [] : [`${markup}: change ${change} adds no item.`];
+  });
   const mentions = mentionsIn(text);
-  if (mentions.length === 0) return { threadId, text };
-  if (typeof codesVersion !== "string") {
+  if (mentions.length > 0 && typeof codesVersion !== "string") {
     throw new UserFacingError("A reply with a marked mention needs the codesVersion of the get_items or get_workflow_state read its codes come from.");
   }
-  const problems = mentions.flatMap((mention) => mentionProblem(store, mention) ?? []);
+  const codeProblems = mentions.flatMap((mention) => mentionProblem(store, mention) ?? []);
+  problems.push(...codeProblems);
   if (problems.length === 0) return { threadId, text };
-  if (codesVersion !== store.codesVersion) {
+  if (codeProblems.length > 0 && codesVersion !== store.codesVersion) {
     problems.push(`The codes moved since codesVersion ${codesVersion}; it is ${store.codesVersion} now. Read get_items again and write each mention with the item's code and id from that read.`);
   }
   throw new UserFacingError(problems.join("\n"));
 }
 
-function parseAnswers(store: Store, value: unknown, codesVersion: unknown): ThreadAnswer[] {
+function parseAnswers(store: Store, value: unknown, codesVersion: unknown, changes: readonly ItemChange[]): ThreadAnswer[] {
   if (value == null) return [];
   if (
     !Array.isArray(value) ||
@@ -336,7 +344,13 @@ function parseAnswers(store: Store, value: unknown, codesVersion: unknown): Thre
   ) {
     throw new UserFacingError("answers must be a list of { threadId, reply }.");
   }
-  return value.map(({ threadId, reply }: { threadId: string; reply: string }) => parseReply(store, threadId, reply, codesVersion));
+  return value.map(({ threadId, reply }: { threadId: string; reply: string }) => parseReply(store, threadId, reply, codesVersion, changes));
+}
+
+/** A reply with each marked mention of an added item tied to the item its change added, once the write is applied. */
+function withAddedItems(answer: ThreadAnswer, changes: readonly ItemChange[], added: readonly string[]): ThreadAnswer {
+  const addedBy = (change: number) => added[changes.slice(0, change - 1).filter(({ type }) => type === "add").length]!;
+  return { ...answer, text: replaceAddedMentions(answer.text, ({ change }) => mentionMarkup("", addedBy(change))) };
 }
 
 /** Every item's code, by id, as a write names them before it runs. */
@@ -508,7 +522,7 @@ const threadTool: AgentTool = {
   description: {
     name: "get_thread",
     description:
-      "Read one thread, open or resolved: whom it waits for, every message, and its unit; for an item, the item as get_items gives it. A marked mention in a message reads [CODE](item:ID), by the item's code now, or by the code it was written with followed by (removed) once its item is gone; any other code in a message is plain text. A channel event about a change request names its thread. Reading a thread that waits for you shows the spec owner you are working on it, until you answer or they write again.",
+      "Read one thread, open or resolved: whom it waits for, every message, and its unit; for an item, the item as get_items gives it. A marked mention in a message reads [CODE](item:ID), by the item's code now, or as [removed item](item:ID) once its item is gone; any other code in a message is plain text. A channel event about a change request names its thread. Reading a thread that waits for you shows the spec owner you are working on it, until you answer or they write again.",
     inputSchema: {
       type: "object",
       properties: { threadId: { type: "string", description: "The thread to read." } },
@@ -588,12 +602,14 @@ const writeTool: AgentTool = {
   },
   run: (store, args, _open, caller) => {
     requireCodesVersion(store, args);
-    const answers = parseAnswers(store, args.answers, args.codesVersion);
     const changes = parseChanges(store, args.changes);
+    const answers = parseAnswers(store, args.answers, args.codesVersion, changes);
     const versionBefore = store.codesVersion;
     const codesBefore = codesNow(store);
     const outcome = store.writeItems(changes, answers);
-    if (answers.length > 0) store.answerThreads(answers, { kind: "agent", name: caller.name }, changes.length > 0);
+    if (answers.length > 0) {
+      store.answerThreads(answers.map((answer) => withAddedItems(answer, changes, outcome.added)), { kind: "agent", name: caller.name }, changes.length > 0);
+    }
     const lines = [
       ...outcomeLines(store, outcome, codesBefore),
       ...(answers.length > 0
@@ -685,7 +701,7 @@ const replyTool: AgentTool = {
     },
   },
   run: (store, args, _open, caller) => {
-    store.answerThreads([parseReply(store, stringArgument(args, "threadId"), stringArgument(args, "text"), args.codesVersion)], { kind: "agent", name: caller.name });
+    store.answerThreads([parseReply(store, stringArgument(args, "threadId"), stringArgument(args, "text"), args.codesVersion, [])], { kind: "agent", name: caller.name });
     return "Replied. The thread waits for the spec owner.";
   },
 };

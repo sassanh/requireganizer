@@ -5,11 +5,9 @@ import { observer } from "mobx-react-lite";
 import type { MouseEvent } from "react";
 
 import type { NamedItem, OutOfDateCause } from "../module";
-import { LINK_REASON_LABELS, type LinkReason } from "../units";
+import { LINK_REASON_LABELS, type LinkReason, REMOVED_ITEM } from "../units";
 import { placeOf, useWorkflowNavigation, useWorkflowView } from "./context";
 import VersionDiff from "./VersionDiff";
-
-const REMOVED_ITEM = "removed item";
 
 /** How the page names an item: its code, "Module/CODE" for an item of another module, or "removed item" once it no longer exists. */
 export function useItemName(): (id: string) => string {
@@ -64,7 +62,6 @@ const ItemChip = observer(function ItemChip({
   reasons = [],
   change = null,
   opens = true,
-  writtenAs,
   onDelete,
 }: {
   itemId: string;
@@ -73,8 +70,6 @@ const ItemChip = observer(function ItemChip({
   change?: OutOfDateCause["change"];
   /** False where opening the item would leave work behind, such as in an editor. */
   opens?: boolean;
-  /** The name a marked mention was written with, which it shows, marked as removed, once the item no longer exists. */
-  writtenAs?: string;
   onDelete?: (event: unknown) => void;
 }) {
   const { module } = useWorkflowView();
@@ -83,7 +78,7 @@ const ItemChip = observer(function ItemChip({
   const named = module.namedItem(itemId);
   const cause = reasons.length > 0;
   const look = { size: "small", variant: cause ? "filled" : "outlined", color: cause ? "warning" : "default" } as const;
-  if (named == null) return <Chip {...look} label={writtenAs == null ? label(itemId) : `${writtenAs} (removed)`} onDelete={onDelete} />;
+  if (named == null) return <Chip {...look} label={label(itemId)} onDelete={onDelete} />;
   const open = (event: MouseEvent<HTMLElement>) => {
     openUnit({ module: named.module?.id ?? null, stage: named.stage, unitId: named.id }, placeOf(event.currentTarget));
   };

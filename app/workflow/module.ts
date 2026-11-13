@@ -34,6 +34,7 @@ import {
   type ThreadAnswer,
   type ThreadAuthor,
   type TurnInHand,
+  keptMessageText,
   threadTurn,
   waitsForAnswerer,
   waitsForSpecOwner,
@@ -1605,7 +1606,7 @@ export function workflowModuleModel(workflow: Workflow) {
           if (state == null) throw new UserFacingError("That no longer exists.");
           requireOpen(state.stage, "change requests");
           if (text.trim().length === 0) throw new UserFacingError("Write what should change.");
-          const message = { author: SPEC_OWNER, text: text.trim(), at: new Date().toISOString() };
+          const message = { author: SPEC_OWNER, text: keptMessageText(text), at: new Date().toISOString() };
           const open = self.openThreadOf(unitId);
           if (open != null) {
             addMessage(open.id, message);
@@ -1626,7 +1627,7 @@ export function workflowModuleModel(workflow: Workflow) {
           const thread = openThread(threadId);
           requireOpen(thread.stage, "thread replies");
           if (text.trim().length === 0) throw new UserFacingError("Write a reply.");
-          addMessage(threadId, { author: SPEC_OWNER, text: text.trim(), at: new Date().toISOString() });
+          addMessage(threadId, { author: SPEC_OWNER, text: keptMessageText(text), at: new Date().toISOString() });
         },
         /** The spec owner resolves a thread; only the spec owner does. */
         resolveThread(threadId: string) {
@@ -1641,7 +1642,7 @@ export function workflowModuleModel(workflow: Workflow) {
           const problem = self.answerProblem(answers);
           if (problem != null) throw new UserFacingError(problem);
           for (const { threadId, text } of answers) {
-            addMessage(threadId, { author, text: text.trim(), at: new Date().toISOString(), ...(withChanges ? { withChanges: true as const } : {}) });
+            addMessage(threadId, { author, text: keptMessageText(text), at: new Date().toISOString(), ...(withChanges ? { withChanges: true as const } : {}) });
           }
         },
         /** An answerer takes up the thread's current turn, which ends with the thread's next message. */

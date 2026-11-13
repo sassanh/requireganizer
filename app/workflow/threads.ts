@@ -70,9 +70,10 @@ export interface TurnInHand {
 
 /**
  * A marked mention in a thread message's text: the part of it that names one
- * item, tied to the item by its id, with the item's name as the writer wrote
- * it. It is written as a Markdown link to `item:<id>`, so the text stays plain
- * and every reader of Markdown keeps it apart from the text around it.
+ * item, tied to the item by its id. It is written as a Markdown link to
+ * `item:<id>`, so the text stays plain and every reader of Markdown keeps it
+ * apart from the text around it. A writer gives the item's code as the link's
+ * text, to be checked against the id; a kept message holds the id alone.
  */
 export interface Mention {
   start: number;
@@ -82,7 +83,7 @@ export interface Mention {
 }
 
 const MENTION_SCHEME = "item:";
-const MENTION_PATTERN = /\[((?:\\.|[^\\\]\n])+)\]\(item:([^\s()]+)\)/g;
+const MENTION_PATTERN = /\[((?:\\.|[^\\\]\n])*)\]\(item:([^\s()]+)\)/g;
 
 /** A marked mention of an item, written as `[name](item:<id>)`. */
 export function mentionMarkup(name: string, itemId: string): string {
@@ -99,15 +100,51 @@ export function mentionsIn(text: string): Mention[] {
   }));
 }
 
-/** The text with each marked mention replaced as `replace` gives it. */
-export function replaceMentions(text: string, replace: (mention: Mention) => string): string {
+/**
+ * A marked mention, in a reply sent with item changes, of an item those
+ * changes add: it has no id before the write, so it names the add change by
+ * its place among the changes, counting from 1, written `[](change:<place>)`.
+ */
+export interface AddedMention {
+  start: number;
+  end: number;
+  change: number;
+}
+
+const ADDED_MENTION_PATTERN = /\[(?:\\.|[^\\\]\n])*\]\(change:(\d+)\)/g;
+
+/** Every marked mention of an added item a reply holds, in order. */
+export function addedMentionsIn(text: string): AddedMention[] {
+  return [...text.matchAll(ADDED_MENTION_PATTERN)].map((match) => ({ start: match.index, end: match.index + match[0].length, change: Number(match[1]) }));
+}
+
+function replaceEach<Found extends { start: number; end: number }>(text: string, found: readonly Found[], replace: (each: Found) => string): string {
   let result = "";
   let last = 0;
-  for (const mention of mentionsIn(text)) {
-    result += text.slice(last, mention.start) + replace(mention);
-    last = mention.end;
+  for (const each of found) {
+    result += text.slice(last, each.start) + replace(each);
+    last = each.end;
   }
   return result + text.slice(last);
+}
+
+/** The text with each marked mention replaced as `replace` gives it. */
+export function replaceMentions(text: string, replace: (mention: Mention) => string): string {
+  return replaceEach(text, mentionsIn(text), replace);
+}
+
+/** The text with each marked mention of an added item replaced as `replace` gives it. */
+export function replaceAddedMentions(text: string, replace: (mention: AddedMention) => string): string {
+  return replaceEach(text, addedMentionsIn(text), replace);
+}
+
+/**
+ * A message's text as it is kept: trimmed, with each marked mention by its
+ * item's id alone. The code a writer gave is never kept, since codes move;
+ * the item's code is read from the id each time the message shows.
+ */
+export function keptMessageText(text: string): string {
+  return replaceMentions(text.trim(), ({ itemId }) => mentionMarkup("", itemId));
 }
 
 /** The item a link's address marks as mentioned, or null for any other link. */
@@ -117,14 +154,14 @@ export function mentionedItem(href: string): string | null {
 
 /** How an answerer through the agent interface writes a marked mention, and what it is. */
 export const MENTION_MARKUP_TEXT =
-  "A marked mention ties a part of a reply to one item: write it [CODE](item:ID), with the item's code and id as get_items gives them, or [Module name/CODE](item:ID) for an item of another module than the thread's. The spec owner sees it by the item's code at the time they read it, with a preview and a way to open it; a code written outside a marked mention is plain text, tied to no item. A reply holding a marked mention whose code names no item, or another item than its id, is refused.";
+  "A marked mention ties a part of a reply to one item: write it [CODE](item:ID), with the item's code and id as get_items gives them, or [Module name/CODE](item:ID) for an item of another module than the thread's. The spec owner sees it by the item's code at the time they read it, with a preview and a way to open it; a code written outside a marked mention is plain text, tied to no item. A reply holding a marked mention whose code names no item, or another item than its id, is refused. In a reply sent with write_items, mark an item the write adds as [](change:N), N being the place of its add change among the changes, counting from 1; the spec owner sees it by the code the item gets. A reply is refused if N is not among its changes or that change adds no item.";
 
 /** The rules every reply of an answerer through the agent interface follows. */
 export const REPLY_RULES: readonly string[] = [
   "it speaks only to its thread's request;",
   "it makes sense read on its own;",
   "it gives an item's code only inside a marked mention of that item; and",
-  "it names each item that the item changes sent with it add by the item's text, not by a marked mention: such an item has no code before the write.",
+  "it names each item that no longer exists when the reply is sent by what the item said, never by a code.",
 ];
 
 /** The reply rules and the mention markup as one text, for an answerer through the agent interface. */

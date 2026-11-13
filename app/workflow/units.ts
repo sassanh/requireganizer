@@ -33,6 +33,9 @@ export const NOT_APPROVED_REASON_LABELS: Record<NotApprovedReason, string> = {
 /** Why an item an out-of-date item references or depends on makes it out of date. */
 export type LinkReason = "changed" | "removed" | "not-approved" | "out-of-date";
 
+/** How an item that no longer exists is named, wherever it was named. */
+export const REMOVED_ITEM = "removed item";
+
 export const LINK_REASON_LABELS: Record<LinkReason, string> = {
   changed: "changed",
   removed: "removed",
