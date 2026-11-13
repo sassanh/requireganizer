@@ -848,20 +848,6 @@ export function workflowModuleModel(workflow: Workflow) {
           .filter((stage) => self.coverageStates(stage).find(({ itemId }) => itemId === id)?.referencing.length === 0);
       }, comparer.structural);
 
-      /** A unit as the page names it: an item by its code, a coverage or an impact by the item it is on. */
-      function unitLabel(unitId: string): string {
-        const address = parseUnitId(unitId);
-        const itemName = self.codeOf(address.itemId) ?? self.threads.find((thread) => thread.unitId === unitId)?.removedUnit ?? "a removed item";
-        switch (address.kind) {
-          case "item":
-            return itemName;
-          case "coverage":
-            return `coverage of ${itemName}`;
-          case "impact":
-            return `impact of ${itemName}`;
-        }
-      }
-
       /** The item a code or id names in this module, if any. */
       function itemNamed(name: string): string | null {
         if (self.locate(name) != null) return name;
@@ -905,7 +891,6 @@ export function workflowModuleModel(workflow: Workflow) {
       return {
         stageProgress: progress,
         outOfDateBecauseOf,
-        unitLabel,
         itemNamed,
         /** Every item of this module or another that references or depends on `id` and is out of date because of it. */
         dependentsOutOfDate(id: string): { id: string; module: string | null; code: string }[] {
@@ -1030,6 +1015,19 @@ export function workflowModuleModel(workflow: Workflow) {
       };
     })
     .views((self) => ({
+      /** A unit as the page names it: an item by its name, a coverage or an impact by the item it is on. */
+      unitLabel(unitId: string): string {
+        const address = parseUnitId(unitId);
+        const itemName = self.namedItem(address.itemId)?.name ?? self.threads.find((thread) => thread.unitId === unitId)?.removedUnit ?? "a removed item";
+        switch (address.kind) {
+          case "item":
+            return itemName;
+          case "coverage":
+            return `coverage of ${itemName}`;
+          case "impact":
+            return `impact of ${itemName}`;
+        }
+      },
       /**
        * What is wrong with each marked mention a message holds, one line
        * each; empty when each gives exactly the current code of the item its

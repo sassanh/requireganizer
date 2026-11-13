@@ -64,7 +64,7 @@ export function placeOf(element: Element): RevealRequest | null {
   return card == null ? null : { unitId: card, message: null };
 }
 
-/** How the page moves between units: opening one where an item names it, and coming back by the browser's history. */
+/** How the page moves between units: opening one where an item names it, and coming back to where it was opened from. */
 export interface WorkflowNavigation {
   /**
    * Show a unit in its module and stage, focused, as a new history entry.
@@ -72,6 +72,14 @@ export interface WorkflowNavigation {
    * was opened from, so going back focuses it again.
    */
   openUnit(place: UnitPlace, from: RevealRequest | null): void;
+  /**
+   * Where the unit shown was opened from, while the page can go back there:
+   * the unit card or thread message, or null for elsewhere on the page; the
+   * whole is null when the shown entry was not opened from a named item.
+   */
+  opener: { place: RevealRequest | null } | null;
+  /** Go back to where the unit shown was opened from, as the browser's history holds it. */
+  returnToOpener(): void;
   /** The unit to reveal, until the page has revealed it. */
   revealRequest: RevealRequest | null;
   revealed(request: RevealRequest): void;

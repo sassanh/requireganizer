@@ -1,6 +1,6 @@
 "use client";
 
-import { Add, Delete, Edit, KeyboardArrowDown, KeyboardArrowUp, MenuBook, Restore, Send } from "@mui/icons-material";
+import { Add, ArrowBack, Delete, Edit, KeyboardArrowDown, KeyboardArrowUp, MenuBook, Restore, Send } from "@mui/icons-material";
 import {
   Alert,
   Autocomplete,
@@ -26,7 +26,8 @@ import {
 import { observer } from "mobx-react-lite";
 import { Fragment, type UIEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { signShortcut, threadShortcut } from "actions/actions";
+import { ActionTooltip } from "actions/ActionHint";
+import { returnShortcut, signShortcut, threadShortcut } from "actions/actions";
 import { autoScrollBehavior } from "lib/scroll";
 
 import { type FieldDefinition, itemsFields, type Workflow } from "../definition";
@@ -699,6 +700,12 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
           void sign(unit, event.shiftKey);
         }
         return;
+      case returnShortcut.key:
+        if (opener != null) {
+          event.preventDefault();
+          returnToOpener();
+        }
+        return;
       case threadShortcut.key:
         if (unit != null && module.unitState(unit) != null && (summary.open || module.threadsOf(unit).length > 0)) {
           event.preventDefault();
@@ -712,7 +719,7 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
   // An item opened where it is named, or a unit or thread message returned
   // to by the browser's history, is revealed once its card shows; a thread
   // message, in its thread, opened beside the card.
-  const { revealRequest, revealed } = useWorkflowNavigation();
+  const { opener, returnToOpener, revealRequest, revealed } = useWorkflowNavigation();
   // A unit to reveal in another tab shows once its tab does.
   useEffect(() => {
     if (revealRequest == null) return;
@@ -827,6 +834,8 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
     );
   };
 
+  const returnLabel = opener?.place == null ? "Back" : `Back to ${module.unitLabel(opener.place.unitId)}`;
+
   return (
     <Stack direction="row" sx={{ flexGrow: 1, minWidth: 0, minHeight: 0 }}>
       <Box ref={containerRef} onScroll={onScroll} onFocus={(event) => followFocus(event.target)} sx={{ flexGrow: 1, minWidth: 0, overflowY: "auto", p: 2, pt: 0 }}>
@@ -836,6 +845,13 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
           sx={{ position: "sticky", top: 0, zIndex: 2, bgcolor: "background.default", mx: -2, px: 2, pt: compact ? 1 : 2, pb: compact ? 1.5 : 2, mb: compact ? 1.5 : 0, borderBottom: 1, borderColor: compact ? "divider" : "transparent" }}
         >
           <Stack direction="row" sx={{ alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+            {opener != null && (
+              <ActionTooltip name={returnLabel} shortcut={returnShortcut}>
+                <Button size="small" startIcon={<ArrowBack />} onClick={returnToOpener}>
+                  {returnLabel}
+                </Button>
+              </ActionTooltip>
+            )}
             <Typography variant={compact ? "subtitle1" : "h5"} sx={{ flexGrow: compact ? 0 : 1 }}>{definition.label}</Typography>
             {compact && progressBar}
             <Chip size={compact ? "small" : "medium"} label={summary.open ? "Open" : "Closed"} color={summary.open ? "primary" : "default"} variant="outlined" />
