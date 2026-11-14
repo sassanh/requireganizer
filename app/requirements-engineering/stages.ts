@@ -1,4 +1,4 @@
-import { type FieldDefinition, type ItemContent, type ModuleReader, type StageDefinition, type TextFieldDefinition, textValue } from "workflow";
+import { type FieldDefinition, type StageDefinition, type TextFieldDefinition } from "workflow";
 
 export const MODULE_OVERVIEW = "module-overview";
 export const CAPABILITIES = "capabilities";
@@ -54,15 +54,6 @@ const ONE_SENTENCE_DESCRIPTION = "Its description is one sentence.";
 /** A rule of requirements and acceptance criteria. */
 const LIMITS_AS_VALUES =
   "An item states every limit it sets as a value that can be checked, such as a time or a count, and uses no word whose meaning depends on the reader, such as fast, easy, many or if possible.";
-
-/** A requirement of type constraint references a constraint of its module. */
-function checkRequirement(content: ItemContent, module: ModuleReader, itemId: string): string[] {
-  if (textValue(content.type) !== CONSTRAINT_TYPE) return [];
-  const references = module.item(itemId)?.references ?? [];
-  return references.some((id) => module.item(id)?.kind === CONSTRAINT)
-    ? []
-    : ["its type is constraint, so it references at least one constraint of this module."];
-}
 
 /** The stages of Requirements engineering, as the workflow engine takes them. */
 export const REQUIREMENTS_ENGINEERING_STAGES: readonly StageDefinition[] = [
@@ -177,7 +168,7 @@ export const REQUIREMENTS_ENGINEERING_STAGES: readonly StageDefinition[] = [
           PRIORITY,
         ],
         covers: [FEATURE],
-        mustReference: [FEATURE],
+        mustReference: [{ kinds: [FEATURE] }],
         display: (parts) => {
           const names = parts.names("targetUsers");
           const article = /^[aeiou]/i.test(names[0] ?? "") ? "an" : "a";
@@ -249,8 +240,7 @@ export const REQUIREMENTS_ENGINEERING_STAGES: readonly StageDefinition[] = [
           PRIORITY,
         ],
         covers: [USER_STORY, QUALITY_GOAL, CONSTRAINT],
-        mustReference: [USER_STORY, QUALITY_GOAL, CONSTRAINT],
-        check: checkRequirement,
+        mustReference: [{ kinds: [USER_STORY, QUALITY_GOAL, CONSTRAINT] }, { kinds: [CONSTRAINT], when: { field: "type", is: CONSTRAINT_TYPE } }],
         display: (parts) => [parts.text("obligation"), ...(parts.text("rationale") === "" ? [] : [`Rationale: ${parts.text("rationale")}`])].join("\n"),
       },
     ],
@@ -278,7 +268,7 @@ export const REQUIREMENTS_ENGINEERING_STAGES: readonly StageDefinition[] = [
           text("then", "Then", "The outcome anyone can check."),
         ],
         covers: [REQUIREMENT],
-        mustReference: [REQUIREMENT],
+        mustReference: [{ kinds: [REQUIREMENT] }],
         display: (parts) => [`Given ${parts.text("given")}`, ...(parts.text("when") === "" ? [] : [`When ${parts.text("when")}`]), `Then ${parts.text("then")}`].join("\n"),
       },
     ],

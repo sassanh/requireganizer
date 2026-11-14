@@ -1,6 +1,6 @@
 import { formatCode } from "lib/fragmentCodes";
 
-import { chosenItems, type FieldValue, type ItemContent, type RecordContent, recordsValue, recordValue } from "./records";
+import { chosenItems, type FieldValue, type ItemContent, type RecordContent, recordsValue, recordValue, textValue } from "./records";
 
 /** One item of the module, as a rule of a kind reads it. */
 export interface ReadItem {
@@ -196,6 +196,28 @@ export interface ShownParts {
   module: ModuleReader;
 }
 
+/**
+ * Kinds of a basis stage of which an item must reference at least one item,
+ * of any of them; with `when`, only an item whose choice field holds that
+ * option, such as a requirement whose type is constraint.
+ */
+export interface ReferenceRule {
+  kinds: readonly string[];
+  when?: { field: string; is: string };
+}
+
+/** Whether a reference rule applies to an item with this content. */
+export function referenceRuleApplies(rule: ReferenceRule, content: ItemContent): boolean {
+  return rule.when == null || textValue(content[rule.when.field]) === rule.when.is;
+}
+
+/** The items a reference rule applies to, as words after "whose", such as "type is constraint"; null for every item. */
+export function referenceRuleCondition(rule: ReferenceRule, fields: readonly FieldDefinition[]): string | null {
+  if (rule.when == null) return null;
+  const { field, is } = rule.when;
+  return `${(fields.find(({ name }) => name === field)?.label ?? field).toLowerCase()} is ${is}`;
+}
+
 /** One kind of item a stage holds, such as user stories. */
 export interface ItemKindDefinition {
   kind: string;
@@ -216,8 +238,8 @@ export interface ItemKindDefinition {
   fields: readonly FieldDefinition[];
   /** Kinds of a basis stage whose items' coverage its items give: the coverage of each such item is asked in its stage. */
   covers?: readonly string[];
-  /** Kinds of a basis stage of which an item must reference at least one item, of any of them, through its references or an items field. */
-  mustReference?: readonly string[];
+  /** What an item must reference, through its references or an items field: each entry that applies to it, at least one item of any of its kinds. */
+  mustReference?: readonly ReferenceRule[];
   /** Kinds of a basis stage whose items an item never references. */
   mayNotReference?: readonly string[];
   /** Single kinds of a basis stage whose item every item of this kind counts as referencing, without listing it. */
@@ -342,7 +364,16 @@ export function defineWorkflow(definition: WorkflowDefinition): WorkflowDefiniti
         if (other != null) throw new Error(`${kind.kind} and ${other} both cover ${covered}.`);
         coveredBy.set(covered, kind.kind);
       }
-      for (const linked of [...(kind.mustReference ?? []), ...(kind.mayNotReference ?? [])]) {
+      for (const rule of kind.mustReference ?? []) {
+        if (rule.kinds.length === 0) throw new Error(`${kind.kind} has a rule of what it must reference that names no kind.`);
+        if (rule.when == null) continue;
+        const { field, is } = rule.when;
+        const condition = kind.fields.find(({ name }) => name === field);
+        if (condition?.type !== "choice" || !condition.options.includes(is)) {
+          throw new Error(`${kind.kind} must reference ${rule.kinds.join(", ")} when ${field} is ${is}, which is not an option of a choice field of it.`);
+        }
+      }
+      for (const linked of [...(kind.mustReference ?? []).flatMap(({ kinds }) => kinds), ...(kind.mayNotReference ?? [])]) {
         if (!basisKinds.has(linked)) throw new Error(`${kind.kind} names ${linked} among what it references, which no stage ${stage.id} builds on holds.`);
       }
       for (const single of kind.referencesSingle ?? []) {

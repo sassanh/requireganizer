@@ -30,7 +30,7 @@ import { ActionTooltip } from "actions/ActionHint";
 import { returnShortcut, signShortcut, threadShortcut } from "actions/actions";
 import { autoScrollBehavior } from "lib/scroll";
 
-import { type FieldDefinition, itemsFields, type Workflow } from "../definition";
+import { type FieldDefinition, itemsFields, referenceRuleCondition, type Workflow } from "../definition";
 import type { CoverageState, ImpactState, ItemState, OutOfDateCause, UnitState, WorkflowModule } from "../module";
 import { revisionOf, textValue, type ItemVersion } from "../records";
 import { mentionMarkup } from "../threads";
@@ -406,7 +406,10 @@ function RulesDialog({ stage, kind, open, onClose }: { stage: string; kind: stri
   const plural = (name: string) => workflow.kind(name).plural.toLowerCase();
   const links = new Set([
     ...(definition.covers == null ? [] : [`Its items give the coverage of the ${namedKinds(definition.covers.map(plural), "and")}.`]),
-    ...(definition.mustReference == null ? [] : [`Each references at least one ${namedKinds(definition.mustReference.map(label), "or")}.`]),
+    ...(definition.mustReference ?? []).map((rule) => {
+      const condition = referenceRuleCondition(rule, definition.fields);
+      return `Each ${condition == null ? "" : `whose ${condition} `}references at least one ${namedKinds(rule.kinds.map(label), "or")}.`;
+    }),
     ...itemsFields(definition.fields).map(
       (field) => `Each counts as ${workflow.stageOfKind(field.of) === stage ? "depending on" : "referencing"} the ${plural(field.of)} its ${field.label} field chooses, without listing them.`,
     ),

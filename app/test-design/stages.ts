@@ -118,7 +118,7 @@ export const TEST_DESIGN_STAGES: readonly StageDefinition[] = [
           { name: "completesLater", label: "Completes later", description: "For an action or an observation: it completes some time after it is called.", type: "flag", required: false },
           text("reason", "Reason", "For a direct setup only, and required there: why the product's actions cannot build the state it puts in place.", false),
         ],
-        mustReference: [ACCEPTANCE_CRITERION],
+        mustReference: [{ kinds: [ACCEPTANCE_CRITERION] }],
         dependsOnSingle: [BOUNDARY_STATEMENT],
         check: checkOperation,
         display: displayOperation,

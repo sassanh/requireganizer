@@ -178,6 +178,48 @@ describe("workflow engine", () => {
     assert.deepEqual(store.dependenciesOf(store.locate(added)!.item), []);
   });
 
+  it("asks a reference rule only of the items it applies to, and counts no item whose removal is signed toward it", () => {
+    const store = Store.create({});
+    specified(store);
+    const feature = itemOf(store, "features-and-target-users", "FEA-01");
+    const targetUser = itemOf(store, "features-and-target-users", "USR-01");
+    store.writeItems([
+      { type: "add", stage: "needs", kind: "user-story", content: { targetUsers: [targetUser], outcome: "to sign stages in order", reason: "work rests on settled work", priority: "P1" }, references: [feature], dependencies: [] },
+      { type: "add", stage: "needs", kind: "constraint", content: { limit: "Runs in a browser", source: "the product's distribution" }, references: [], dependencies: [] },
+    ]);
+    signAll(store, "needs");
+    const story = itemOf(store, "needs", "US-01");
+    const constraint = itemOf(store, "needs", "CON-01");
+    const requirement = (type: string, references: string[]) => ({
+      type: "add" as const,
+      stage: "requirements",
+      kind: "requirement",
+      content: { obligation: "run in a browser.", type, priority: "P1" },
+      references,
+      dependencies: [],
+    });
+
+    store.writeItems([requirement("functional", [story])]);
+    assert.throws(
+      () => store.writeItems([requirement("constraint", [story])]),
+      /references no constraint of this module; reference at least one, since its type is constraint\./,
+    );
+    // Referencing a constraint meets both rules, so an item referencing nothing is refused for the narrower one alone.
+    assert.throws(
+      () => store.writeItems([requirement("constraint", [])]),
+      (error: Error) => !error.message.includes("user story") && error.message.includes("since its type is constraint"),
+    );
+    store.writeItems([requirement("constraint", [story, constraint])]);
+    const bound = itemOf(store, "requirements", "REQ-02");
+
+    store.writeItems([{ type: "remove", item: constraint }]);
+    signAll(store, "needs");
+    assert.throws(
+      () => store.writeItems([{ type: "change", item: bound, content: { obligation: "run in every browser." } }]),
+      /references no constraint of this module; reference at least one, since its type is constraint\./,
+    );
+  });
+
   it("counts each capability as referencing the purpose without listing it", () => {
     const store = Store.create({});
     overview(store);

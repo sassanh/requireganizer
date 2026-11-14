@@ -6,7 +6,7 @@ import { codesMatch } from "lib/fragmentCodes";
 import { uuid } from "utilities";
 
 import { cachedView, keyedView } from "./cachedViews";
-import { type FieldDefinition, itemsFields, type ModuleReader, placedFields, type ReadItem, type ShownParts, type Workflow } from "./definition";
+import { type FieldDefinition, itemsFields, type ModuleReader, placedFields, type ReadItem, referenceRuleApplies, referenceRuleCondition, type ShownParts, type Workflow } from "./definition";
 import { fingerprint } from "./hash";
 import {
   chosenItems,
@@ -1353,11 +1353,19 @@ export function workflowModuleModel(workflow: Workflow) {
             return located == null || phaseOf(located.item.removal) === "removed" ? [] : [located.item.kind];
           }),
         );
-        const required = definition.mustReference ?? [];
-        if (required.length > 0 && !required.some((candidate) => referencedKinds.has(candidate))) {
-          const labels = required.map((candidate) => workflow.kind(candidate).label.toLowerCase());
+        const broken = (definition.mustReference ?? []).filter(
+          (rule) => referenceRuleApplies(rule, content) && !rule.kinds.some((candidate) => referencedKinds.has(candidate)),
+        );
+        // A broken rule is met by meeting one whose fewer kinds all lie within its own, so only that one is reported.
+        const narrowest = broken.filter(
+          (rule) => !broken.some((other) => other.kinds.length < rule.kinds.length && other.kinds.every((candidate) => rule.kinds.includes(candidate))),
+        );
+        for (const rule of narrowest) {
+          const labels = rule.kinds.map((candidate) => workflow.kind(candidate).label.toLowerCase());
           const named = labels.length === 1 ? labels[0] : `${labels.slice(0, -1).join(", ")} or ${labels.at(-1)}`;
-          problems.push(`${name} references no ${named} of this module; reference at least one.`);
+          const condition = referenceRuleCondition(rule, definition.fields);
+          const because = condition == null ? "" : `, since its ${condition}`;
+          problems.push(`${name} references no ${named} of this module; reference at least one${because}.`);
         }
         for (const refused of definition.mayNotReference ?? []) {
           if (referencedKinds.has(refused)) {
