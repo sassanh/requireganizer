@@ -186,7 +186,7 @@ const ItemCard = observer(function ItemCard({ state, controls }: { state: ItemSt
       {removed && (
         <Alert severity="info" sx={{ mb: 1 }}>
           Removed. It leaves the stage once every impact on its removal is signed
-          {waitingImpacts.length > 0 ? `, in ${waitingImpacts.map((stage) => workflow.stage(stage).label).join(" and ")}` : ""}.
+          {waitingImpacts.length > 0 ? `, in ${wordList(waitingImpacts.map((stage) => workflow.stage(stage).label), "and")}` : ""}.
         </Alert>
       )}
       <Fields kind={state.itemKind} version={state.version} choices={false} />
@@ -391,8 +391,8 @@ function withArticle(name: string): string {
   return `${/^[aeiou]/i.test(name) ? "an" : "a"} ${name}`;
 }
 
-/** A list of kinds as a sentence names them, such as "user stories, quality goals or constraints". */
-function namedKinds(names: readonly string[], joiner: "and" | "or"): string {
+/** Names as a sentence lists them, such as "user stories, quality goals or constraints". */
+function wordList(names: readonly string[], joiner: "and" | "or"): string {
   return names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} ${joiner} ${names.at(-1)}`;
 }
 
@@ -405,10 +405,10 @@ function RulesDialog({ stage, kind, open, onClose }: { stage: string; kind: stri
   const label = (name: string) => workflow.kind(name).label.toLowerCase();
   const plural = (name: string) => workflow.kind(name).plural.toLowerCase();
   const links = new Set([
-    ...(definition.covers == null ? [] : [`Its items give the coverage of the ${namedKinds(definition.covers.map(plural), "and")}.`]),
+    ...(definition.covers == null ? [] : [`Its items give the coverage of the ${wordList(definition.covers.map(plural), "and")}.`]),
     ...(definition.mustReference ?? []).map((rule) => {
       const condition = referenceRuleCondition(rule, definition.fields);
-      return `Each ${condition == null ? "" : `whose ${condition} `}references at least one ${namedKinds(rule.kinds.map(label), "or")}.`;
+      return `Each ${condition == null ? "" : `whose ${condition} `}references at least one ${wordList(rule.kinds.map(label), "or")}.`;
     }),
     ...itemsFields(definition.fields).map(
       (field) => `Each counts as ${workflow.stageOfKind(field.of) === stage ? "depending on" : "referencing"} the ${plural(field.of)} its ${field.label} field chooses, without listing them.`,
@@ -426,7 +426,7 @@ function RulesDialog({ stage, kind, open, onClose }: { stage: string; kind: stri
         <Typography variant="body2" sx={{ mb: 1 }}>
           {stageDefinition.buildsOn.length === 0
             ? `${stageDefinition.label} builds on no stage.`
-            : `${stageDefinition.label} builds on ${namedKinds(stageDefinition.buildsOn.map((basis) => workflow.stage(basis).label), "and")}.`}
+            : `${stageDefinition.label} builds on ${wordList(stageDefinition.buildsOn.map((basis) => workflow.stage(basis).label), "and")}.`}
           {` Code ${definition.code}${definition.single ? ", one item only" : ""}.`}
         </Typography>
         {[...links].map((line) => (

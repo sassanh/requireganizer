@@ -220,6 +220,48 @@ describe("workflow engine", () => {
     );
   });
 
+  it("asks for no impact in a stage that holds no item, and takes items in afresh once it is written again", () => {
+    const store = Store.create({});
+    specified(store);
+    const capability = itemOf(store, "capabilities", "CAP-01");
+    const feature = itemOf(store, "features-and-target-users", "FEA-01");
+    const targetUser = itemOf(store, "features-and-target-users", "USR-01");
+    store.writeItems([
+      { type: "add", stage: "features-and-target-users", kind: "feature", content: { name: "Review", description: "Signing one by one.", capability: [capability] }, references: [], dependencies: [] },
+    ]);
+    signAll(store, "features-and-target-users");
+    const unreferenced = itemOf(store, "features-and-target-users", "FEA-02");
+    const story = (outcome: string) => ({
+      type: "add" as const,
+      stage: "needs",
+      kind: "user-story",
+      content: { targetUsers: [targetUser], outcome, reason: "work rests on settled work", priority: "P1" },
+      references: [feature],
+      dependencies: [],
+    });
+    store.writeItems([story("to sign stages in order")]);
+    signAll(store, "needs");
+    const impactsOf = (stage: string) => store.impactStates(stage).map(({ itemId }) => itemId);
+
+    // A removal signed while Needs holds an item waits for Needs' impact on it.
+    store.writeItems([{ type: "remove", item: unreferenced }]);
+    signAll(store, "features-and-target-users");
+    assert.deepEqual(impactsOf("needs"), [unreferenced]);
+
+    // Once Needs holds no item, it asks for no impact, and the removed feature leaves.
+    store.writeItems([{ type: "remove", item: itemOf(store, "needs", "US-01") }]);
+    signAll(store, "needs");
+    assert.equal(store.locate(unreferenced), null);
+    store.writeItems([{ type: "change", item: capability, content: { description: "Staged, signed workflow." } }]);
+    assert.deepEqual(impactsOf("needs"), []);
+
+    // Written again, Needs takes in the capability as it is now, so the change asks nothing of it.
+    signAll(store, "capabilities");
+    signAll(store, "features-and-target-users");
+    store.writeItems([story("to see what waits for me")]);
+    assert.deepEqual(impactsOf("needs"), []);
+  });
+
   it("counts each capability as referencing the purpose without listing it", () => {
     const store = Store.create({});
     overview(store);

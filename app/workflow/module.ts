@@ -592,8 +592,13 @@ export function workflowModuleModel(workflow: Workflow) {
       const coverageState = unitOf("coverage", derivedCoverages);
       const coverageStates = unitsOf(derivedCoverages, coverageState);
 
-      /** A stage's impacts, derived together from what it took in and the threads on it. */
+      /**
+       * A stage's impacts, derived together from what it took in and the
+       * threads on it. A stage holding no item that is not removed asks for
+       * none: nothing in it can rely on a change.
+       */
       const derivedImpacts = keyedView((stage: string): ImpactState[] => {
+        if (countedItems(stage).length === 0) return [];
         const stored = self.stages.get(stage);
         const intake = stored?.intake ?? {};
         const signatures = stored?.impacts ?? {};
@@ -796,6 +801,8 @@ export function workflowModuleModel(workflow: Workflow) {
         coverageStates,
         impactStates,
         stageUnits,
+        /** Whether a stage holds an item that is not removed: only then does what it took in count. */
+        holdsItems: (stage: string) => countedItems(stage).length > 0,
         stageComplete,
         stageOpen,
         unitState,
@@ -1162,11 +1169,15 @@ export function workflowModuleModel(workflow: Workflow) {
         }
       }
 
-      /** A write takes in every item of the stages it builds on that the stage has not taken in yet. */
-      function takeIn(stage: string): void {
+      /**
+       * A write takes in every item of the stages it builds on that the stage
+       * has not taken in yet; a write to a stage that held no item takes each
+       * in afresh, as it is now.
+       */
+      function takeIn(stage: string, afresh: boolean): void {
         const node = stageNode(stage);
-        const intake = { ...node.intake };
-        let changed = false;
+        const intake = afresh ? {} : { ...node.intake };
+        let changed = afresh;
         for (const upstream of workflow.upstreamStages(stage)) {
           for (const item of self.itemsOf(upstream)) {
             if (item.removal != null || intake[item.id] != null) continue;
@@ -1213,12 +1224,18 @@ export function workflowModuleModel(workflow: Workflow) {
         }
       }
 
-      /** An item whose removal is signed leaves its stage once no stage still asks for an impact on its removal. */
-      function deleteIfSettled(id: string): void {
-        const located = self.locate(id);
-        if (located == null || phaseOf(located.item.removal) !== "removed") return;
-        if (workflow.stageIds.some((stage) => self.stages.get(stage)?.intake[id] != null)) return;
-        deleteItem(id);
+      /**
+       * Every item whose removal is signed leaves its stage once no stage
+       * holding items still asks for an impact on its removal. Run after
+       * every write and signature, so an item also leaves once the last
+       * stage waiting on it empties.
+       */
+      function settleRemovals(): void {
+        const removed = [...self.stages.values()].flatMap((node) => node.items.filter((item) => phaseOf(item.removal) === "removed").map(({ id }) => id));
+        for (const id of removed) {
+          if (workflow.stageIds.some((stage) => self.holdsItems(stage) && self.stages.get(stage)?.intake[id] != null)) continue;
+          deleteItem(id);
+        }
       }
 
       /** A record's problems against its fields: unknown fields, values of the wrong shape, required fields left empty, a choice outside its options. */
@@ -1402,10 +1419,11 @@ export function workflowModuleModel(workflow: Workflow) {
             references: change.references,
             dependencies: change.dependencies,
           });
+          const afresh = !self.holdsItems(change.stage);
           stageNode(change.stage).items.push(item);
           const added = self.locate(item.id)!.item;
           added.basis = self.currentBasisOf(added);
-          takeIn(change.stage);
+          takeIn(change.stage, afresh);
           outcome.added.push(item.id);
           return [];
         }
@@ -1451,7 +1469,7 @@ export function workflowModuleModel(workflow: Workflow) {
         item.references = cast(references);
         item.dependencies = cast(dependencies);
         item.basis = self.currentBasisOf(item);
-        takeIn(stage);
+        takeIn(stage, false);
         outcome.changed.push(item.id);
         return [];
       }
@@ -1570,6 +1588,7 @@ export function workflowModuleModel(workflow: Workflow) {
             );
           }
           const { outcome } = applyAll(changes);
+          settleRemovals();
           self.writingAsked = self.writingAsked.filter(({ stage }) => !touched.includes(stage));
           if (replies != null) postAnswers(replies.answers, replies.author, changes, outcome.added);
           return outcome;
@@ -1634,12 +1653,11 @@ export function workflowModuleModel(workflow: Workflow) {
               const item = self.locate(state.itemId)!.item;
               if (state.phase === "proposed-removal") {
                 item.removal = { signature: { ...signatureRecord(signer, removalRevision(state.version)), version: state.version } };
-                deleteIfSettled(item.id);
-                return;
+                break;
               }
               item.signature = { ...signatureRecord(signer, state.revision), version: state.version, basis: state.currentBasis };
               item.basis = state.currentBasis;
-              return;
+              break;
             }
             case "coverage": {
               node.coverages = {
@@ -1650,16 +1668,16 @@ export function workflowModuleModel(workflow: Workflow) {
                   referencing: state.referencing.map((id) => ({ id, version: self.versionOf(id)! })),
                 },
               };
-              return;
+              break;
             }
             case "impact": {
               node.impacts = { ...node.impacts, [state.itemId]: { ...signatureRecord(signer, state.covers), before: state.before, after: state.after } };
               const { [state.itemId]: _taken, ...rest } = node.intake;
               node.intake = state.after == null ? rest : { ...rest, [state.itemId]: state.after };
-              deleteIfSettled(state.itemId);
-              return;
+              break;
             }
           }
+          settleRemovals();
         },
         /** Return an item changed since its last signature, or proposed for removal, to the version that signature covers. */
         restoreSigned(itemId: string) {
