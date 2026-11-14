@@ -4,7 +4,7 @@ A module's stages open in order: a stage opens once every stage it builds on is 
 
 ## Reviewing a stage
 
-A stage holding several kinds of item shows one tab per kind under its progress bar. A tab you are not on shows how many of its units are not approved, so you can see which tab keeps the stage from completing. **Rules** shows the shown kind's published rules: its question, its rules, the shared rules and its examples.
+A stage shows one tab per kind of item under its progress bar, and, whatever the number of kinds, to the right of them and apart from them, a tab for its coverages, a tab for its impacts and a tab for its threads on removed units, each while it holds any. A tab you are not on shows how many of its units are not approved, so you can see which tab keeps the stage from completing; the threads tab shows how many threads wait for you. **Rules** shows the shown kind's published rules: its question, its rules, the shared rules and its examples.
 
 Sign each item, coverage and impact on its own. An item changed since you signed it shows how it differs, and **Restore** returns it to the version you signed. An item that is not approved names every reason: no signature, an open thread, out of date, or proposed for removal.
 

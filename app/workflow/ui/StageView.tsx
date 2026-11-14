@@ -12,6 +12,7 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  Divider,
   IconButton,
   LinearProgress,
   Paper,
@@ -30,10 +31,10 @@ import { ActionTooltip } from "actions/ActionHint";
 import { returnShortcut, signShortcut, threadShortcut } from "actions/actions";
 import { autoScrollBehavior } from "lib/scroll";
 
-import { type FieldDefinition, itemsFields, referenceRuleCondition, type Workflow } from "../definition";
+import { type FieldDefinition, itemsFields, referenceRuleCondition } from "../definition";
 import type { CoverageState, ImpactState, ItemState, OutOfDateCause, UnitState, WorkflowModule } from "../module";
 import { revisionOf, textValue, type ItemVersion } from "../records";
-import { mentionMarkup } from "../threads";
+import { mentionMarkup, waitsForSpecOwner } from "../threads";
 import { STAGE_PROGRESS_LABELS, WAITING_CATEGORY_LABELS } from "../units";
 import { answeringSx } from "./answering";
 import { perform, type RevealRequest, useWorkflowNavigation, useWorkflowView } from "./context";
@@ -474,50 +475,83 @@ function isEditable(target: EventTarget | null): boolean {
 }
 
 /**
- * The kind whose tab shows a unit: an item's own kind, and a coverage's
- * covering kind. An impact belongs to the whole stage, so to no one tab.
+ * The keys of the tabs holding what belongs to the whole stage rather than
+ * to one kind: its coverages, its impacts, and the threads whose unit is
+ * gone. Their prefix keeps them apart from the kinds' own names.
  */
-function tabOf(module: WorkflowModule, workflow: Workflow, unit: UnitState): string | null {
+const COVERAGES_TAB = "whole-stage:coverages";
+const IMPACTS_TAB = "whole-stage:impacts";
+const THREADS_TAB = "whole-stage:threads";
+
+/** The tab that shows a unit: its own kind for an item, and the stage's coverages or impacts for those. */
+function tabOf(unit: UnitState): string {
   switch (unit.kind) {
     case "item":
       return unit.itemKind;
-    case "coverage": {
-      const covered = module.locate(unit.itemId)?.item.kind;
-      return covered == null ? null : workflow.coveringKind(unit.stage, covered);
-    }
+    case "coverage":
+      return COVERAGES_TAB;
     case "impact":
-      return null;
+      return IMPACTS_TAB;
   }
 }
 
 /**
- * One stage: its state, progress and what waits for a signature, and, for
- * a stage holding several kinds, one tab per kind under them that stays in
- * view. A tab shows its kind's published rules, its items and the
- * coverages they give; every tab shows the stage's impacts and the threads
- * whose unit is gone. j and k move between the units shown, Shift+J and
- * Shift+K between those that wait for a signature, g and Shift+G to the
- * first and last, s signs the focused one (Shift+S then moves to the next
- * unit that waits for a signature) and c opens its threads, where a change
- * request is written. An open thread shows beside its card, docked at the
- * right, where it follows the focused card, or full screen on a narrow
- * screen.
+ * One stage: its state, progress and what waits for a signature, then its
+ * tab bar. The kinds' tabs come first; to their right, apart from them, a
+ * tab holds the stage's coverages, one its impacts and one its threads on
+ * removed units, each while the stage has any. A kind's tab shows that
+ * kind's items, its add button and its published rules; a whole-stage tab
+ * shows what no one kind holds. j and k move between the units shown,
+ * Shift+J and Shift+K between those that wait for a signature, whatever tab
+ * they are in, g and Shift+G to the first and last, s signs the focused one
+ * (Shift+S then moves to the next unit that waits for a signature) and c
+ * opens its threads, where a change request is written. An open thread shows
+ * beside its card, docked at the right, where it follows the focused card,
+ * or full screen on a narrow screen.
  */
 const StageView = observer(function StageView({ stage }: { stage: string }) {
   const { module, workflow } = useWorkflowView();
   const definition = workflow.stage(stage);
   const summary = module.stageSummary(stage);
-  const tabbed = definition.kinds.length > 1;
-  const [shownKind, setShownKind] = useState(definition.kinds[0]!.kind);
-  /** Whether the shown tab holds a unit: every unit while the stage has no tabs. */
-  const inShownTab = (unit: UnitState) => {
-    const tab = tabOf(module, workflow, unit);
-    return tab == null || tab === shownKind;
-  };
+  const firstKind = definition.kinds[0]!.kind;
+  const [shownTab, setShownTab] = useState(firstKind);
   const allUnits = module.stageUnits(stage);
-  const units = allUnits.filter(inShownTab);
-  const removedItems = module.itemsOf(stage).filter((item) => item.kind === shownKind && module.itemState(item.id)?.phase === "removed");
+  const coverages = allUnits.filter((unit): unit is CoverageState => unit.kind === "coverage");
+  const impacts = allUnits.filter((unit): unit is ImpactState => unit.kind === "impact");
   const orphanThreads = module.threadsOfStage(stage).filter(({ unitId }) => module.unitState(unitId) == null);
+  const kindTabs = definition.kinds.map(({ kind }) => kind);
+  /** The tabs of what belongs to the whole stage, each while the stage holds any, after the kinds' tabs. */
+  const wholeTabs = [
+    ...(coverages.length > 0 ? [COVERAGES_TAB] : []),
+    ...(impacts.length > 0 ? [IMPACTS_TAB] : []),
+    ...(orphanThreads.length > 0 ? [THREADS_TAB] : []),
+  ];
+  /** The tab shown: one the stage still has, or else the first kind's, which every stage has. */
+  const activeTab = kindTabs.includes(shownTab) || wholeTabs.includes(shownTab) ? shownTab : firstKind;
+  const kindShown = kindTabs.includes(activeTab);
+  /** Whether the stage needs a tab bar: one kind and nothing whole-stage to show needs none. */
+  const tabbed = kindTabs.length + wholeTabs.length > 1;
+  const units = allUnits.filter((unit) => tabOf(unit) === activeTab);
+  /** Every removed item the stage still shows, its card at the end of its kind's tab. */
+  const removedStates = module.itemsOf(stage).flatMap((item) => {
+    const state = module.itemState(item.id);
+    return state?.phase === "removed" ? [state] : [];
+  });
+  const removedItems = removedStates.filter((state) => state.itemKind === activeTab);
+  /** Every unit the stage shows, in the order its tabs show them: each kind's items and removed items, then its coverages and impacts. */
+  const orderedUnits = (): UnitState[] => [
+    ...definition.kinds.flatMap(({ kind }) => [
+      ...allUnits.filter((unit) => unit.kind === "item" && unit.itemKind === kind),
+      ...removedStates.filter((state) => state.itemKind === kind),
+    ]),
+    ...coverages,
+    ...impacts,
+  ];
+  // A whole-stage tab whose units are gone gives way to the first kind's tab
+  // for good, so that it cannot take the view over when such a unit comes back.
+  useEffect(() => {
+    if (shownTab !== activeTab) setShownTab(activeTab);
+  }, [shownTab, activeTab]);
   /** The unit whose threads are open, where the overlay shows, and whether its box takes the focus. */
   const [thread, setThread] = useState<{ unitId: string; anchor: HTMLElement | null; autoFocus: boolean } | null>(null);
   const [chosenForm, setChosenForm] = useThreadForm();
@@ -607,22 +641,34 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
     return active?.dataset.unitCard ?? null;
   };
 
+  /** Show a unit's card, switching to its tab first when it shows in another one. */
+  const showUnit = (unitId: string, actionsAt?: number) => {
+    const state = module.unitState(unitId);
+    const tab = state == null ? null : tabOf(state);
+    if (tab != null && tab !== activeTab) {
+      setShownTab(tab);
+      // The card exists once the tab's content has drawn.
+      requestAnimationFrame(() => reveal(cards().find((card) => card.dataset.unitCard === unitId), actionsAt));
+      return;
+    }
+    reveal(cards().find((card) => card.dataset.unitCard === unitId), actionsAt);
+  };
+
   /** Sign a unit, then move to the next unit that is not approved, or with `toWaiting` the next that waits for a signature. */
   const sign = async (unitId: string, toWaiting = false) => {
     const actionsAt = actionsTopOf(unitId);
-    // The order the person saw: a signature can move its own unit, such as a removed item to the end of the list.
-    const orderBefore = cards().map((card) => card.dataset.unitCard!);
+    // The order the person saw, across the stage's tabs: a signature can move its own unit, such as a removed item to the end of its kind's tab.
+    const orderBefore = orderedUnits().map(({ unitId: id }) => id);
     if (!(await perform(() => module.sign(unitId), "The signature could not be given."))) return;
     // Find and measure the next card once the page has redrawn after the signature, so it is a card still on the page.
     requestAnimationFrame(() => {
-      const shown = new Map(cards().map((card) => [card.dataset.unitCard!, card]));
       const index = orderBefore.indexOf(unitId);
       const ordered = [...orderBefore.slice(index + 1), ...orderBefore.slice(0, Math.max(index, 0))];
-      const next = ordered.flatMap((id) => shown.get(id) ?? []).find((card) => {
-        const state = module.unitState(card.dataset.unitCard!);
+      const next = ordered.find((id) => {
+        const state = module.unitState(id);
         return state != null && (toWaiting ? module.waitsForSignature(state) : !state.approved);
       });
-      reveal(next, actionsAt);
+      if (next != null) showUnit(next, actionsAt);
     });
   };
 
@@ -634,16 +680,13 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
     reveal(next);
   };
 
-  /** Move to the next or previous unit that waits for a signature, wrapping around the stage. */
+  /** Move to the next or previous unit that waits for a signature, across the stage's tabs and wrapping around. */
   const moveToWaiting = (direction: 1 | -1) => {
-    const all = cards();
-    const index = all.findIndex((card) => card.dataset.unitCard === focusedUnit());
+    const all = orderedUnits();
+    const index = all.findIndex(({ unitId }) => unitId === focusedUnit());
     const ordered = direction === 1 ? [...all.slice(index + 1), ...all.slice(0, index + 1)] : [...all.slice(0, Math.max(index, 0)).reverse(), ...all.slice(Math.max(index, 0)).reverse()];
-    const next = ordered.find((card) => {
-      const state = module.unitState(card.dataset.unitCard!);
-      return state != null && module.waitsForSignature(state);
-    });
-    reveal(next);
+    const next = ordered.find((unit) => module.waitsForSignature(unit));
+    if (next != null) showUnit(next.unitId);
   };
 
   const openThread = (unitId: string, anchor: HTMLElement | null, autoFocus = true) => setThread({ unitId, anchor, autoFocus });
@@ -723,13 +766,19 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
   // to by the browser's history, is revealed once its card shows; a thread
   // message, in its thread, opened beside the card.
   const { opener, returnToOpener, revealRequest, revealed } = useWorkflowNavigation();
-  // A unit to reveal in another tab shows once its tab does.
+  // A unit to reveal in another tab shows once its tab does, as does a
+  // thread message whose unit is gone.
   useEffect(() => {
     if (revealRequest == null) return;
     const requested = module.unitState(revealRequest.unitId);
-    const tab = requested == null || requested.stage !== stage ? null : tabOf(module, workflow, requested);
-    if (tab != null) setShownKind(tab);
-  }, [revealRequest, module, stage, workflow]);
+    const threadId = revealRequest.message?.threadId ?? null;
+    const tab = requested != null && requested.stage === stage
+      ? tabOf(requested)
+      : threadId != null && module.threadsOfStage(stage).some((thread) => thread.id === threadId && module.unitState(thread.unitId) == null)
+        ? THREADS_TAB
+        : null;
+    if (tab != null) setShownTab(tab);
+  }, [revealRequest, module, stage]);
   // A thread message stays to reveal until its thread, once it shows, has given it the focus.
   const messageToFocus = revealRequest?.message ?? null;
   const messageFocused = useCallback(() => {
@@ -784,10 +833,8 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
     .map(([category, label]) => `${summary.waiting[category]} ${label}`);
   if (summary.waiting.coverages > 0) waitingParts.push(`${summary.waiting.coverages} ${summary.waiting.coverages === 1 ? "coverage" : "coverages"}`);
   if (summary.waiting.impacts > 0) waitingParts.push(`${summary.waiting.impacts} ${summary.waiting.impacts === 1 ? "impact" : "impacts"}`);
-  const coverages = units.filter((unit): unit is CoverageState => unit.kind === "coverage");
-  const impacts = units.filter((unit): unit is ImpactState => unit.kind === "impact");
   const items = units.filter((unit): unit is ItemState => unit.kind === "item");
-  const waitingShown = units.some((unit) => module.waitsForSignature(unit));
+  const waitingShown = orderedUnits().some((unit) => module.waitsForSignature(unit));
   // Besides the stages offered while empty, a sign that completes this stage offers writing the stages that build on it.
   const stagesOffered = new Set(module.stagesToWriteAfter(stage));
   if (justCompleted && summary.progress === "complete") {
@@ -815,27 +862,30 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
       </Tooltip>
     </Stack>
   );
+  /** The kind whose rules the Rules button shows: the shown one, or the first while a whole-stage tab is shown. */
+  const kindForRules = kindShown ? activeTab : firstKind;
   const rulesButton = (
     <Button size={compact || tabbed ? "small" : "medium"} startIcon={<MenuBook />} onClick={() => setRulesOpen(true)}>
-      {tabbed ? `Rules of ${workflow.kind(shownKind).plural.toLowerCase()}` : "Rules"}
+      {definition.kinds.length > 1 ? `Rules of ${workflow.kind(kindForRules).plural.toLowerCase()}` : "Rules"}
     </Button>
   );
-  /** Each tab's label: its kind, and, on a tab not shown, a badge counting its units not approved, which keep the stage from completing. */
-  const tabLabel = (kind: string) => {
-    const notApproved = allUnits.filter((unit) => tabOf(module, workflow, unit) === kind && !unit.approved).length;
-    const plural = workflow.kind(kind).plural;
-    return (
-      <Badge
-        color="warning"
-        badgeContent={notApproved}
-        invisible={kind === shownKind || notApproved === 0}
-        aria-label={kind !== shownKind && notApproved > 0 ? `${plural}, ${notApproved} not approved` : plural}
-        sx={{ pr: kind !== shownKind && notApproved > 0 ? 2 : 0, "& .MuiBadge-badge": { right: 0, top: "50%", transform: "translateY(-50%)" } }}
-      >
-        {plural}
-      </Badge>
-    );
-  };
+  /**
+   * Each tab's label, with, on a tab not shown, a badge counting what keeps
+   * the stage from completing: the tab's units not approved, or its threads
+   * waiting for the spec owner.
+   */
+  const tabLabel = (tab: string, label: string, count: number, counting: string) => (
+    <Badge
+      color="warning"
+      badgeContent={count}
+      invisible={tab === activeTab || count === 0}
+      aria-label={tab !== activeTab && count > 0 ? `${label}, ${count} ${counting}` : label}
+      sx={{ pr: tab !== activeTab && count > 0 ? 2 : 0, "& .MuiBadge-badge": { right: 0, top: "50%", transform: "translateY(-50%)" } }}
+    >
+      {label}
+    </Badge>
+  );
+  const notApprovedIn = (tab: string) => allUnits.filter((unit) => tabOf(unit) === tab && !unit.approved).length;
 
   const returnLabel = opener?.place == null ? "Back" : `Back to ${module.unitLabel(opener.place.unitId)}`;
 
@@ -893,23 +943,62 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
           )}
           {tabbed && (
             <Stack direction="row" sx={{ alignItems: "center", gap: 1, borderBottom: 1, borderColor: "divider" }}>
-              <Tabs value={shownKind} onChange={(_event, kind: string) => setShownKind(kind)} variant="scrollable" scrollButtons="auto" sx={{ flexGrow: 1, minHeight: 40 }}>
+              <Tabs
+                value={kindShown ? activeTab : false}
+                onChange={(_event, tab: string) => setShownTab(tab)}
+                variant="scrollable"
+                scrollButtons="auto"
+                aria-label="Kinds of item"
+                sx={{ flexGrow: 1, minWidth: 0, minHeight: 40 }}
+              >
                 {definition.kinds.map((kind) => (
-                  <Tab key={kind.kind} value={kind.kind} label={tabLabel(kind.kind)} sx={{ minHeight: 40, textTransform: "none" }} />
+                  <Tab
+                    key={kind.kind}
+                    value={kind.kind}
+                    label={tabLabel(kind.kind, kind.plural, notApprovedIn(kind.kind), "not approved")}
+                    sx={{ minHeight: 40, textTransform: "none" }}
+                  />
                 ))}
               </Tabs>
-              {rulesButton}
+              {kindShown && rulesButton}
+              {wholeTabs.length > 0 && (
+                <>
+                  <Divider orientation="vertical" flexItem sx={{ my: 1 }} />
+                  <Tabs
+                    value={kindShown ? false : activeTab}
+                    onChange={(_event, tab: string) => setShownTab(tab)}
+                    variant="scrollable"
+                    scrollButtons={false}
+                    aria-label="The whole stage"
+                    sx={{ flexShrink: 1, minWidth: 0, minHeight: 40 }}
+                  >
+                    {coverages.length > 0 && (
+                      <Tab value={COVERAGES_TAB} label={tabLabel(COVERAGES_TAB, "Coverages", notApprovedIn(COVERAGES_TAB), "not approved")} sx={{ minHeight: 40, textTransform: "none" }} />
+                    )}
+                    {impacts.length > 0 && (
+                      <Tab value={IMPACTS_TAB} label={tabLabel(IMPACTS_TAB, "Impacts", notApprovedIn(IMPACTS_TAB), "not approved")} sx={{ minHeight: 40, textTransform: "none" }} />
+                    )}
+                    {orphanThreads.length > 0 && (
+                      <Tab
+                        value={THREADS_TAB}
+                        label={tabLabel(THREADS_TAB, "Threads on removed units", orphanThreads.filter(waitsForSpecOwner).length, "waiting for you")}
+                        sx={{ minHeight: 40, textTransform: "none" }}
+                      />
+                    )}
+                  </Tabs>
+                </>
+              )}
             </Stack>
           )}
         </Stack>
 
         <Stack spacing={1.5}>
           {items.map((state) => <ItemCard key={state.unitId} state={state} controls={controls} />)}
-          {removedItems.map((item) => <ItemCard key={item.id} state={module.itemState(item.id)!} controls={controls} />)}
-          {summary.open && (
+          {removedItems.map((state) => <ItemCard key={state.unitId} state={state} controls={controls} />)}
+          {summary.open && kindShown && (
             <Stack direction="row" sx={{ gap: 1, flexWrap: "wrap" }}>
               {definition.kinds
-                .filter((kind) => kind.kind === shownKind && (!kind.single || !module.itemsOf(stage).some((item) => item.kind === kind.kind && item.removal == null)))
+                .filter((kind) => kind.kind === activeTab && (!kind.single || !module.itemsOf(stage).some((item) => item.kind === kind.kind && item.removal == null)))
                 .map((kind) => (
                   <Button key={kind.kind} startIcon={<Add />} variant={editor?.itemId == null && editor?.kind === kind.kind ? "contained" : "outlined"} onClick={() => requestEditor({ stage, kind: kind.kind, itemId: null })}>
                     Add {kind.label.toLowerCase()}
@@ -918,14 +1007,9 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
             </Stack>
           )}
 
-          {coverages.length > 0 && <Typography variant="h6" sx={{ pt: 2 }}>Coverage</Typography>}
-          {coverages.map((state) => <CoverageCard key={state.unitId} state={state} controls={controls} />)}
-
-          {impacts.length > 0 && <Typography variant="h6" sx={{ pt: 2 }}>Impacts</Typography>}
-          {impacts.map((state) => <ImpactCard key={state.unitId} state={state} controls={controls} />)}
-
-          {orphanThreads.length > 0 && <Typography variant="h6" sx={{ pt: 2 }}>Threads on removed units</Typography>}
-          {orphanThreads.map((orphan) => (
+          {activeTab === COVERAGES_TAB && coverages.map((state) => <CoverageCard key={state.unitId} state={state} controls={controls} />)}
+          {activeTab === IMPACTS_TAB && impacts.map((state) => <ImpactCard key={state.unitId} state={state} controls={controls} />)}
+          {activeTab === THREADS_TAB && orphanThreads.map((orphan) => (
             <Box key={orphan.id}>
               <Typography variant="subtitle2">{orphan.removedUnit ?? module.unitLabel(orphan.unitId)}</Typography>
               <Paper variant="outlined" sx={{ p: 1.5, mt: 1 }}>
@@ -943,7 +1027,7 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
         <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 3 }}>
           Keyboard: j or ↓ next, k or ↑ previous, Shift+J or Shift+K next or previous waiting for a signature, g first, Shift+G last, s sign, Shift+S sign and go to the next waiting for a signature, c open the thread or request a change, Esc close it.
         </Typography>
-        <RulesDialog stage={stage} kind={shownKind} open={rulesOpen} onClose={() => setRulesOpen(false)} />
+        <RulesDialog stage={stage} kind={kindForRules} open={rulesOpen} onClose={() => setRulesOpen(false)} />
       </Box>
       {thread != null && module.unitState(thread.unitId) != null && (
         <ThreadView
