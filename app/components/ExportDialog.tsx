@@ -20,7 +20,7 @@ import { useState } from "react";
 
 import { getUserFacingErrorMessage } from "lib/errors";
 import { useProject } from "projectContext";
-import { DEFAULT_EXPORT_OPTIONS, type ExportOptions, type ListedRestorePoint } from "storage-and-recovery";
+import { DEFAULT_EXPORT_OPTIONS, type ExportOptions, type ListedRestorePoint } from "storage";
 
 type ThreadsChoice = "all" | "open" | "none";
 

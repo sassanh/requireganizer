@@ -1,4 +1,4 @@
-import type { Address, OutsideChange, ProjectHistory, ProjectState } from "storage-and-recovery";
+import type { Address, OutsideChange, ProjectHistory, ProjectState } from "storage";
 
 import type { ProjectIdentity, ProjectMeta } from "../lib/projectStorage";
 

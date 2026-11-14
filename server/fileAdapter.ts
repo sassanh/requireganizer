@@ -40,7 +40,7 @@ import {
   serializeCanonical,
   type StoredProject,
   storedProjectChange,
-} from "storage-and-recovery";
+} from "storage";
 
 /** The id of a project file that names none, such as an export placed by hand. */
 export const DEFAULT_FILE_PROJECT_ID = "project";

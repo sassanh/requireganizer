@@ -10,7 +10,7 @@ import type {
   ListedRestorePoint,
   ListedStep,
   OutsideChange,
-} from "storage-and-recovery";
+} from "storage";
 
 /**
  * The open project as the interface sees it. Every operation is a request to

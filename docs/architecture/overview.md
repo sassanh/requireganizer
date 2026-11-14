@@ -11,7 +11,7 @@ Requireganizer is a Next.js application with a MobX State Tree project model. Th
 | Project client (`app/project-client/`) | The replica the interface renders. Store actions called on it are forwarded to the host. |
 | Connection (`app/connection/`) | The versioned JSON messages between host and client, and the in-process and WebSocket links that carry them. |
 | Project session (`app/project-session/`) | The open project: its modules, saving, outside changes, undo history and restore points. |
-| Storage and recovery (`app/storage-and-recovery/`) | The project's stored shape, its parser, export and import, the undo history and restore points, and the content-addressed pieces they share. |
+| Storage (`app/storage/`) | The project's stored shape, its parser, export and import, the undo history and restore points, and the content-addressed pieces they share. |
 | Persistence adapter (`app/persistence/`) | Store projects and their histories behind one asynchronous interface, in the browser or, through the project server, in files. |
 | Workflow (`app/workflow/`) | The engine every module runs on: stages, kinds of item, references and dependencies, signatures, coverage, impacts, out of date, threads, and the rules every kind shares. It names no stage. |
 | Requirements engineering (`app/requirements-engineering/`) | The stages from Module Overview to Acceptance Criteria, their kinds, questions and rules. |
@@ -35,7 +35,7 @@ app/workflow/                  the engine: definitions, module state, records, t
 app/requirements-engineering/  stage definitions from Module Overview to Acceptance Criteria
 app/test-design/               Boundary and Abstract tests stage definitions
 app/store/                     the composed workflow and the examples of every kind
-app/storage-and-recovery/      stored shape, parser, export, history, restore points, pieces
+app/storage/                   stored shape, parser, export, history, restore points, pieces
 app/project-session/           the open project
 app/project-host/              the project authority that clients connect to
 app/project-client/            the replica the interface renders

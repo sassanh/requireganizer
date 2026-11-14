@@ -19,7 +19,7 @@ import { redoAlternateShortcut, redoShortcut, undoShortcut } from "actions/actio
 import { isEditableTarget, type ShortcutBinding, useShortcut } from "hooks/shortcuts";
 import { getUserFacingErrorMessage } from "lib/errors";
 import { useProject } from "projectContext";
-import type { ListedStep, StageDifference, StepPlace } from "storage-and-recovery";
+import type { ListedStep, StageDifference, StepPlace } from "storage";
 
 import { notify } from "./notices";
 

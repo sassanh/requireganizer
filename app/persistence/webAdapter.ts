@@ -1,4 +1,4 @@
-import { parseHistory, serializeCanonical, serializeProject } from "storage-and-recovery";
+import { parseHistory, serializeCanonical, serializeProject } from "storage";
 
 import type { HistoryPersistence, PersistenceAdapter, ProjectPersistence, ProjectWrite } from "./adapter";
 import {

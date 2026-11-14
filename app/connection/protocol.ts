@@ -11,7 +11,7 @@ import type {
   ModuleContent,
   ModuleRegistry,
   ModuleState,
-} from "storage-and-recovery";
+} from "storage";
 import type { ReplicatedVolatileState } from "store";
 
 /**

@@ -4,7 +4,7 @@ import type { Instance, SnapshotIn } from "mobx-state-tree";
 import { createContext, useContext } from "react";
 
 import { REQUIREMENTS_ENGINEERING_STAGES } from "requirements-engineering";
-import type { ModuleContent } from "storage-and-recovery";
+import type { ModuleContent } from "storage";
 import { TEST_DESIGN_STAGES } from "test-design";
 import { type TurnInHand, Workflow, workflowModuleModel } from "workflow";
 

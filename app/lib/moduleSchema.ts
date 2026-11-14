@@ -1,4 +1,4 @@
-import type { ModuleRegistry, ModuleState } from "storage-and-recovery";
+import type { ModuleRegistry, ModuleState } from "storage";
 
 import { InvalidJsonError } from "./json";
 

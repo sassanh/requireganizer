@@ -17,7 +17,7 @@ import { webPersistence } from "persistence";
 import { type ConnectionStatus, ProjectClient } from "project-client";
 import { ProjectHost } from "project-host";
 import { moduleSummaries, ProjectSession } from "project-session";
-import { type ExportOptions, type ListedRestorePoint, webProjectAuthority } from "storage-and-recovery";
+import { type ExportOptions, type ListedRestorePoint, webProjectAuthority } from "storage";
 import { storeContext } from "store";
 
 import { projectContext, type ProjectContextValue } from "./projectContext";

@@ -31,7 +31,7 @@ import { UserFacingError } from "lib/errors";
 import { activeModule, visibleModuleNamed, visibleModules } from "lib/moduleSchema";
 import type { StorageTraits } from "persistence";
 import type { ProjectSession, ProjectSessionSnapshot } from "project-session";
-import type { ChangeKind, ModuleContent, ModuleRegistry } from "storage-and-recovery";
+import type { ChangeKind, ModuleContent, ModuleRegistry } from "storage";
 import {
   replicatedVolatileState,
   type ReplicatedVolatileState,

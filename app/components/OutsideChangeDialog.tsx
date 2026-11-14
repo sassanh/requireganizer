@@ -4,7 +4,7 @@ import { useState } from "react";
 
 import { getUserFacingErrorMessage } from "lib/errors";
 import { useProject } from "projectContext";
-import type { OutsideChange } from "storage-and-recovery";
+import type { OutsideChange } from "storage";
 
 /**
  * Shown while the stored project differs from the one Requireganizer last

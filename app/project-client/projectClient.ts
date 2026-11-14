@@ -30,7 +30,7 @@ import { UserFacingError } from "lib/errors";
 import type { ProjectIdentity } from "lib/projectStorage";
 import type { ClientPersistence } from "persistence";
 import { type ProjectSessionSnapshot, SiblingModuleStores } from "project-session";
-import { type ExportOptions, type ListedRestorePoint, type ListedStep, type ModuleRegistry, type ModuleState, sharedWith } from "storage-and-recovery";
+import { type ExportOptions, type ListedRestorePoint, type ListedStep, type ModuleRegistry, type ModuleState, sharedWith } from "storage";
 import { type ReplicatedVolatileState, Store } from "store";
 
 type Result<Name extends RequestName> = Awaited<ReturnType<HostApi[Name]>>;

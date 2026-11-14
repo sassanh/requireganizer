@@ -1,5 +1,5 @@
 import { siblingModuleEntries } from "lib/moduleSchema";
-import type { ModuleContent, ModuleRegistry, ModuleState } from "storage-and-recovery";
+import type { ModuleContent, ModuleRegistry, ModuleState } from "storage";
 import { createModuleStore, type Store } from "store";
 import type { LinkedModule } from "workflow";
 

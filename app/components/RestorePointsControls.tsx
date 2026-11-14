@@ -29,7 +29,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ActionTooltip } from "actions/ActionHint";
 import { getUserFacingErrorMessage } from "lib/errors";
 import { useProject } from "projectContext";
-import type { ListedRestorePoint } from "storage-and-recovery";
+import type { ListedRestorePoint } from "storage";
 
 import ExportDialog from "./ExportDialog";
 import { notify } from "./notices";

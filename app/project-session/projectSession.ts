@@ -58,7 +58,7 @@ import {
   withRestorePoint,
   withRestorePointPinned,
   withStep,
-} from "storage-and-recovery";
+} from "storage";
 import { createModuleStore, Store } from "store";
 import { uuid } from "utilities";
 
