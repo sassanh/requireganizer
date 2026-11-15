@@ -118,14 +118,9 @@ const UnitFrame = observer(function UnitFrame({
         )}
       </Stack>
       <Box sx={{ mt: 1 }}>{children}</Box>
-      <Stack data-unit-actions direction="row" sx={{ alignItems: "center", gap: 1, mt: 1, flexWrap: "wrap" }}>
-        {signable && preview == null && (
-          <ActionTooltip name={signLabel} shortcut={signShortcut}>
-            <Button size="small" variant="contained" startIcon={<Check />} onClick={onSign}>
-              {signLabel}
-            </Button>
-          </ActionTooltip>
-        )}
+      {/* The actions keep a line of their own, right-aligned just under the content, so the text keeps the full width. */}
+      <Stack data-unit-actions direction="row" sx={{ alignItems: "center", gap: 0.5, justifyContent: "flex-end", mt: 0.5 }}>
+        {actions}
         {(stageOpen || threads.length > 0) && (
           <ActionTooltip name={threadTitle === "" ? threadLabel : threadTitle} shortcut={threadShortcut}>
             <Button
@@ -141,7 +136,13 @@ const UnitFrame = observer(function UnitFrame({
             </Button>
           </ActionTooltip>
         )}
-        {actions}
+        {signable && preview == null && (
+          <ActionTooltip name={signLabel} shortcut={signShortcut}>
+            <Button size="small" variant="contained" startIcon={<Check />} onClick={onSign}>
+              {signLabel}
+            </Button>
+          </ActionTooltip>
+        )}
       </Stack>
     </Paper>
   );

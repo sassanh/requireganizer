@@ -166,14 +166,18 @@ const ItemCard = observer(function ItemCard({ state, controls }: { state: ItemSt
         controls.stageOpen && !removed && (
           <>
             {state.phase === "active" && (
-              <Button size="small" startIcon={<Edit />} onClick={() => controls.edit(state.itemId)}>
-                Edit
-              </Button>
+              <ActionTooltip name="Edit">
+                <Button size="small" startIcon={<Edit />} onClick={() => controls.edit(state.itemId)}>
+                  Edit
+                </Button>
+              </ActionTooltip>
             )}
             {state.phase === "active" && (
-              <Button size="small" startIcon={<Delete />} onClick={() => void perform(() => module.writeItems([{ type: "remove", item: state.itemId }]), "The item could not be removed.")}>
-                Remove
-              </Button>
+              <ActionTooltip name="Remove">
+                <Button size="small" startIcon={<Delete />} onClick={() => void perform(() => module.writeItems([{ type: "remove", item: state.itemId }]), "The item could not be removed.")}>
+                  Remove
+                </Button>
+              </ActionTooltip>
             )}
             {state.signature != null && (changedSinceSigned || state.phase === "proposed-removal") && (
               <Button size="small" startIcon={<Restore />} onClick={() => void perform(() => module.restoreSigned(state.itemId), "The signed version could not be restored.")}>
