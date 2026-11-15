@@ -7,7 +7,7 @@ export type ShortcutSpec = Pick<
 >;
 
 /** Single home for the send key: the field behavior and the send hints. */
-export const SEND_SHORTCUT_SPEC: ShortcutSpec = { key: "Enter" };
+export const SEND_SHORTCUT_SPEC: ShortcutSpec = { key: "Enter", mod: true };
 
 function displayKey(key: string): string {
   if (key.length === 1) return key.toUpperCase();

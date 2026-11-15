@@ -1,9 +1,13 @@
 "use client";
 
-import { Button, Divider, Stack, Typography } from "@mui/material";
+import { DoneAll, Send } from "@mui/icons-material";
+import { Button, Divider, IconButton, Stack, Typography } from "@mui/material";
 import { observer } from "mobx-react-lite";
 import { useEffect, useRef, useState } from "react";
 
+import { ActionTooltip } from "actions/ActionHint";
+import { resolveShortcut } from "actions/actions";
+import { SEND_SHORTCUT_SPEC } from "actions/shortcutText";
 import { autoScrollBehavior } from "lib/scroll";
 
 import { authorLabel, type Thread, waitsForSpecOwner } from "../threads";
@@ -74,6 +78,7 @@ const ThreadPanel = observer(function ThreadPanel({
     setDraftState(value);
   };
   const [showResolved, setShowResolved] = useState(false);
+  const sendLabel = open == null ? "Send change request" : "Send";
 
   // Each marked mention is sent by its item's name now, which the store checks against its id.
   const send = async () => {
@@ -84,6 +89,11 @@ const ThreadPanel = observer(function ThreadPanel({
       "The message could not be sent.",
     );
     if (sent) setDraft(null);
+  };
+
+  const resolve = async () => {
+    if (open == null) return;
+    await perform(() => module.resolveThread(open.id), "The thread could not be resolved.");
   };
 
   // The latest message shows first: the history opens at its end, then follows new messages there smoothly.
@@ -110,7 +120,17 @@ const ThreadPanel = observer(function ThreadPanel({
   }, [messageToFocus, focusInResolved, onMessageFocused]);
 
   return (
-    <Stack spacing={1.5} sx={{ minHeight: 0, flexGrow: 1 }}>
+    <Stack
+      spacing={1.5}
+      sx={{ minHeight: 0, flexGrow: 1 }}
+      // The send and resolve shortcuts work from anywhere in the panel, the message field included.
+      onKeyDown={(event) => {
+        if (event.key !== SEND_SHORTCUT_SPEC.key || (!event.metaKey && !event.ctrlKey)) return;
+        event.preventDefault();
+        if (event.shiftKey) void resolve();
+        else void send();
+      }}
+    >
       {open != null && (
         <Typography
           variant="overline"
@@ -138,25 +158,27 @@ const ThreadPanel = observer(function ThreadPanel({
             value={draft}
             onChange={setDraft}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-                event.preventDefault();
-                void send();
-              }
               if (event.key === "Escape" && onClose != null) {
                 event.stopPropagation();
                 onClose();
               }
             }}
           />
-          <Stack direction="row" sx={{ gap: 1 }}>
-            <Button size="small" variant="contained" disabled={messageText(draft, nameOf).trim().length === 0} onClick={() => void send()}>
-              {open == null ? "Send change request" : "Send"}
-            </Button>
+          <Stack direction="row" sx={{ alignItems: "center", gap: 1, justifyContent: "flex-end" }}>
             {open != null && (
-              <Button size="small" onClick={() => void perform(() => module.resolveThread(open.id), "The thread could not be resolved.")}>
-                Resolve
-              </Button>
+              <ActionTooltip name="Resolve" shortcut={resolveShortcut}>
+                <IconButton size="small" color="success" aria-label="Resolve" onClick={() => void resolve()}>
+                  <DoneAll fontSize="small" />
+                </IconButton>
+              </ActionTooltip>
             )}
+            <ActionTooltip name={sendLabel} shortcut={SEND_SHORTCUT_SPEC}>
+              <span>
+                <IconButton size="small" color="primary" aria-label={sendLabel} disabled={messageText(draft, nameOf).trim().length === 0} onClick={() => void send()}>
+                  <Send fontSize="small" />
+                </IconButton>
+              </span>
+            </ActionTooltip>
           </Stack>
         </Stack>
       )}
