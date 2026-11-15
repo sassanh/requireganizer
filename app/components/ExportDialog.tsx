@@ -18,9 +18,10 @@ import {
 } from "@mui/material";
 import { useState } from "react";
 
+import type { ListedRestorePoint } from "history";
 import { getUserFacingErrorMessage } from "lib/errors";
 import { useProject } from "projectContext";
-import { DEFAULT_EXPORT_OPTIONS, type ExportOptions, type ListedRestorePoint } from "storage";
+import { DEFAULT_EXPORT_OPTIONS, type ExportOptions } from "storage";
 
 type ThreadsChoice = "all" | "open" | "none";
 

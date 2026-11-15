@@ -35,9 +35,9 @@ import { type FieldDefinition, itemsFields, referenceRuleCondition } from "../de
 import type { CoverageState, ImpactState, ItemState, OutOfDateCause, UnitState, WorkflowModule } from "../module";
 import { revisionOf, textValue, type ItemVersion } from "../records";
 import { mentionMarkup, waitsForSpecOwner } from "../threads";
-import { STAGE_PROGRESS_LABELS, WAITING_CATEGORY_LABELS } from "../units";
+import { STAGE_PROGRESS_LABELS, unitInPlaceOf, WAITING_CATEGORY_LABELS } from "../units";
 import { answeringSx } from "./answering";
-import { perform, type RevealRequest, useWorkflowNavigation, useWorkflowView } from "./context";
+import { perform, type RemovedUnitMark, type RevealRequest, shownWithRemoved, type ThreadMark, useWorkflowNavigation, useWorkflowView } from "./context";
 import ItemChip, { ItemOption, useItemLabel } from "./ItemChip";
 import ItemEditor, { type EditorTarget } from "./ItemEditor";
 import ThreadPanel from "./ThreadPanel";
@@ -133,7 +133,8 @@ function CauseLines({ causes }: { causes: readonly OutOfDateCause[] }) {
 }
 
 const ItemCard = observer(function ItemCard({ state, controls }: { state: ItemState; controls: CardControls }) {
-  const { module, workflow } = useWorkflowView();
+  const { module, workflow, preview } = useWorkflowView();
+  const mark = preview?.of(state.unitId) ?? null;
   const definition = workflow.kind(state.itemKind);
   const dependents = module.dependentsOutOfDate(state.itemId);
   const unreferenced = module.stagesNotReferencing(state.itemId);
@@ -191,6 +192,11 @@ const ItemCard = observer(function ItemCard({ state, controls }: { state: ItemSt
         </Alert>
       )}
       <Fields kind={state.itemKind} version={state.version} choices={false} />
+      {mark?.change === "change" && mark.versionNow != null && (
+        <Box sx={{ my: 1 }}>
+          <VersionDiff kind={state.itemKind} signed={mark.versionNow} current={state.version} caption="From the project now to this state" />
+        </Box>
+      )}
       <Links kind={state.itemKind} itemId={state.itemId} version={state.version} causes={state.outOfDateCauses} />
       {dependents.length > 0 && (
         <Stack direction="row" sx={{ gap: 0.5, flexWrap: "wrap", mt: 1, alignItems: "center" }}>
@@ -218,6 +224,32 @@ const ItemCard = observer(function ItemCard({ state, controls }: { state: ItemSt
     </UnitFrame>
   );
 });
+
+/** A unit bringing a previewed state back would remove: the state lacks it, so it shows as the project holds it now. */
+function RemovedCard({ mark }: { mark: RemovedUnitMark }) {
+  return (
+    <Paper
+      variant="outlined"
+      tabIndex={0}
+      data-unit-card={mark.unitId}
+      sx={{
+        p: 1.5,
+        borderStyle: "dashed",
+        borderLeft: 4,
+        borderLeftColor: "error.main",
+        opacity: 0.8,
+        outline: "none",
+        "&:focus-visible, &:focus-within": { boxShadow: (theme) => `0 0 0 2px ${theme.vars.palette.primary.main}` },
+      }}
+    >
+      <Stack direction="row" sx={{ alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+        <Typography variant="subtitle1" sx={{ fontWeight: 700, flexGrow: 1, "&::first-letter": { textTransform: "uppercase" } }}>{mark.label}</Typography>
+        <Chip size="small" color="error" variant="outlined" label="Would be removed" />
+      </Stack>
+      <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>{mark.textNow}</Typography>
+    </Paper>
+  );
+}
 
 const CoverageCard = observer(function CoverageCard({ state, controls }: { state: CoverageState; controls: CardControls }) {
   const { module, workflow } = useWorkflowView();
@@ -470,6 +502,16 @@ function RulesDialog({ stage, kind, open, onClose }: { stage: string; kind: stri
   );
 }
 
+/** The cards of a tab's units, with the units a preview would remove placed after the units they follow. */
+function cardsOf<State extends UnitState>(units: readonly State[], removed: readonly RemovedUnitMark[], card: (state: State) => React.ReactNode): React.ReactNode[] {
+  const byId = new Map(units.map((state) => [state.unitId, state]));
+  const marks = new Map(removed.map((mark) => [mark.unitId, mark]));
+  return shownWithRemoved(units.map(({ unitId }) => unitId), removed).map((unitId) => {
+    const state = byId.get(unitId);
+    return state == null ? <RemovedCard key={unitId} mark={marks.get(unitId)!} /> : card(state);
+  });
+}
+
 function isEditable(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName));
 }
@@ -483,11 +525,29 @@ const COVERAGES_TAB = "whole-stage:coverages";
 const IMPACTS_TAB = "whole-stage:impacts";
 const THREADS_TAB = "whole-stage:threads";
 
+/** What bringing a previewed state back would do to a thread on a unit neither state holds. */
+function ThreadMarkNote({ mark }: { mark: ThreadMark | null }) {
+  if (mark == null) return null;
+  const quoted = (texts: readonly string[]) => texts.map((text) => `“${text.length > 80 ? `${text.slice(0, 80)}…` : text}”`).join(", ");
+  return (
+    <Stack sx={{ mt: 0.5, gap: 0.25 }}>
+      {mark.onlyNow && <Typography variant="caption" sx={{ color: "error.main" }}>Bringing this back would remove this thread.</Typography>}
+      {!mark.onlyNow && mark.messagesAdded.length > 0 && (
+        <Typography variant="caption" sx={{ color: "success.main" }}>Would add: {quoted(mark.messagesAdded)}</Typography>
+      )}
+      {!mark.onlyNow && mark.messagesRemoved.length > 0 && (
+        <Typography variant="caption" sx={{ color: "error.main" }}>Would remove: {quoted(mark.messagesRemoved)}</Typography>
+      )}
+      {mark.resolutionDiffers && <Typography variant="caption" sx={{ color: "warning.main" }}>Would change whether it is resolved.</Typography>}
+    </Stack>
+  );
+}
+
 /** The tab that shows a unit: its own kind for an item, and the stage's coverages or impacts for those. */
-function tabOf(unit: UnitState): string {
+function tabOf(unit: { kind: UnitState["kind"]; itemKind?: string | null }): string {
   switch (unit.kind) {
     case "item":
-      return unit.itemKind;
+      return unit.itemKind!;
     case "coverage":
       return COVERAGES_TAB;
     case "impact":
@@ -510,21 +570,29 @@ function tabOf(unit: UnitState): string {
  * or full screen on a narrow screen.
  */
 const StageView = observer(function StageView({ stage }: { stage: string }) {
-  const { module, workflow } = useWorkflowView();
+  const { module, workflow, preview } = useWorkflowView();
   const definition = workflow.stage(stage);
   const summary = module.stageSummary(stage);
+  /** Whether the stage's work can be changed: it is open, and not an earlier state of it a preview shows. */
+  const editable = summary.open && preview == null;
+  /** The units a preview would remove, which its state lacks, each with the tab it shows in. */
+  const removedMarks = (preview?.removed(stage) ?? []).map((mark) => ({ mark, tab: tabOf({ kind: mark.unitKind, itemKind: mark.itemKind }) }));
   const firstKind = definition.kinds[0]!.kind;
   const [shownTab, setShownTab] = useState(firstKind);
   const allUnits = module.stageUnits(stage);
   const coverages = allUnits.filter((unit): unit is CoverageState => unit.kind === "coverage");
   const impacts = allUnits.filter((unit): unit is ImpactState => unit.kind === "impact");
   const orphanThreads = module.threadsOfStage(stage).filter(({ unitId }) => module.unitState(unitId) == null);
+  /** The threads on units neither state holds that a preview would change, and of those the ones its state lacks. */
+  const threadMarks = preview?.threads(stage) ?? [];
+  const threadsOnlyNow = threadMarks.filter(({ onlyNow }) => onlyNow);
   const kindTabs = definition.kinds.map(({ kind }) => kind);
   /** The tabs of what belongs to the whole stage, each while the stage holds any, after the kinds' tabs. */
+  const marksIn = (tab: string) => removedMarks.filter((entry) => entry.tab === tab).map(({ mark }) => mark);
   const wholeTabs = [
-    ...(coverages.length > 0 ? [COVERAGES_TAB] : []),
-    ...(impacts.length > 0 ? [IMPACTS_TAB] : []),
-    ...(orphanThreads.length > 0 ? [THREADS_TAB] : []),
+    ...(coverages.length > 0 || marksIn(COVERAGES_TAB).length > 0 ? [COVERAGES_TAB] : []),
+    ...(impacts.length > 0 || marksIn(IMPACTS_TAB).length > 0 ? [IMPACTS_TAB] : []),
+    ...(orphanThreads.length > 0 || threadsOnlyNow.length > 0 ? [THREADS_TAB] : []),
   ];
   /** The tab shown: one the stage still has, or else the first kind's, which every stage has. */
   const activeTab = kindTabs.includes(shownTab) || wholeTabs.includes(shownTab) ? shownTab : firstKind;
@@ -539,14 +607,7 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
   });
   const removedItems = removedStates.filter((state) => state.itemKind === activeTab);
   /** Every unit the stage shows, in the order its tabs show them: each kind's items and removed items, then its coverages and impacts. */
-  const orderedUnits = (): UnitState[] => [
-    ...definition.kinds.flatMap(({ kind }) => [
-      ...allUnits.filter((unit) => unit.kind === "item" && unit.itemKind === kind),
-      ...removedStates.filter((state) => state.itemKind === kind),
-    ]),
-    ...coverages,
-    ...impacts,
-  ];
+  const orderedUnits = (): UnitState[] => module.unitsInShownOrder(stage);
   // A whole-stage tab whose units are gone gives way to the first kind's tab
   // for good, so that it cannot take the view over when such a unit comes back.
   useEffect(() => {
@@ -654,20 +715,21 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
     reveal(cards().find((card) => card.dataset.unitCard === unitId), actionsAt);
   };
 
+  const { focused, withFocusMove } = useWorkflowNavigation();
+
   /** Sign a unit, then move to the next unit that is not approved, or with `toWaiting` the next that waits for a signature. */
   const sign = async (unitId: string, toWaiting = false) => {
     const actionsAt = actionsTopOf(unitId);
     // The order the person saw, across the stage's tabs: a signature can move its own unit, such as a removed item to the end of its kind's tab.
-    const orderBefore = orderedUnits().map(({ unitId: id }) => id);
-    if (!(await perform(() => module.sign(unitId), "The signature could not be given."))) return;
+    // The move goes with the signature: the project works out once where it moves the focus, the step records that for redo, and the page goes there.
+    const focusMove = { from: unitId, shownBefore: orderedUnits().map(({ unitId: id }) => id), toWaiting };
+    let next: string | null = null;
+    const signed = await perform(async () => {
+      next = await withFocusMove(focusMove, () => module.sign(unitId));
+    }, "The signature could not be given.");
+    if (!signed) return;
     // Find and measure the next card once the page has redrawn after the signature, so it is a card still on the page.
     requestAnimationFrame(() => {
-      const index = orderBefore.indexOf(unitId);
-      const ordered = [...orderBefore.slice(index + 1), ...orderBefore.slice(0, Math.max(index, 0))];
-      const next = ordered.find((id) => {
-        const state = module.unitState(id);
-        return state != null && (toWaiting ? module.waitsForSignature(state) : !state.approved);
-      });
       if (next != null) showUnit(next, actionsAt);
     });
   };
@@ -698,10 +760,20 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
     cards().find((card) => card.dataset.unitCard === unitId)?.focus({ preventScroll: true });
   };
 
-  /** A docked thread follows the card that takes the focus; a thread shown over the stage closes, as it does on a click away. */
+  /** The unit with the focus, as the stage last saw it, so the focus can go to the one in its place should it go. */
+  const focusedUnitRef = useRef<string | null>(null);
+
+  /**
+   * The project hears where the focus is. A docked thread follows the card
+   * that takes the focus; a thread shown over the stage closes, as it does
+   * on a click away.
+   */
   const followFocus = (target: EventTarget) => {
-    if (thread == null || !(target instanceof HTMLElement)) return;
-    const unitId = target.closest<HTMLElement>("[data-unit-card]")?.dataset.unitCard;
+    if (!(target instanceof HTMLElement)) return;
+    const unitId = target.closest<HTMLElement>("[data-unit-card]")?.dataset.unitCard ?? null;
+    focusedUnitRef.current = unitId;
+    focused(unitId);
+    if (thread == null) return;
     if (unitId == null || unitId === thread.unitId) return;
     setThread(threadForm === "docked" ? { unitId, anchor: null, autoFocus: false } : null);
   };
@@ -741,7 +813,7 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
         return;
       case signShortcut.key:
       case signShortcut.key.toUpperCase():
-        if (unit != null && module.isSignable(unit)) {
+        if (unit != null && preview == null && module.isSignable(unit)) {
           event.preventDefault();
           void sign(unit, event.shiftKey);
         }
@@ -753,7 +825,7 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
         }
         return;
       case threadShortcut.key:
-        if (unit != null && module.unitState(unit) != null && (summary.open || module.threadsOf(unit).length > 0)) {
+        if (unit != null && module.unitState(unit) != null && (editable || module.threadsOf(unit).length > 0)) {
           event.preventDefault();
           const card = cards().find((candidate) => candidate.dataset.unitCard === unit);
           openThread(unit, card?.querySelector<HTMLElement>("[data-unit-actions]") ?? card ?? null);
@@ -772,13 +844,52 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
     if (revealRequest == null) return;
     const requested = module.unitState(revealRequest.unitId);
     const threadId = revealRequest.message?.threadId ?? null;
+    const removedMark = preview?.removed(stage).find(({ unitId }) => unitId === revealRequest.unitId);
+    const onOrphan = (thread: { id: string; unitId: string }) =>
+      threadId == null ? thread.unitId === revealRequest.unitId : thread.id === threadId;
     const tab = requested != null && requested.stage === stage
       ? tabOf(requested)
-      : threadId != null && module.threadsOfStage(stage).some((thread) => thread.id === threadId && module.unitState(thread.unitId) == null)
+      : orphanThreads.some(onOrphan) || threadsOnlyNow.some(({ threadId: id, unitId }) => onOrphan({ id, unitId }))
         ? THREADS_TAB
-        : null;
+        : removedMark == null
+          ? null
+          : tabOf({ kind: removedMark.unitKind, itemKind: removedMark.itemKind });
     if (tab != null) setShownTab(tab);
-  }, [revealRequest, module, stage]);
+  }, [revealRequest, module, stage, preview, orphanThreads, threadsOnlyNow]);
+
+  // The stage itself takes the focus when asked to, such as when undo puts it there.
+  const { stageFocusRequest, stageFocused } = useWorkflowNavigation();
+  useEffect(() => {
+    if (stageFocusRequest == null) return;
+    stageFocused(stageFocusRequest);
+    containerRef.current?.focus({ preventScroll: true });
+  }, [stageFocusRequest, stageFocused]);
+
+  // The focus is on the stage until a unit takes it.
+  useEffect(() => {
+    if (focusedUnitRef.current == null) focused(null);
+  }, [focused]);
+
+  // When the unit with the focus is gone, such as removed by the coding
+  // agent, the focus goes to the unit now in its place, else to the stage.
+  const shownBefore = useRef<{ module: WorkflowModule; units: string[] } | null>(null);
+  useEffect(() => {
+    const units = orderedUnits().map(({ unitId }) => unitId);
+    const previous = shownBefore.current;
+    shownBefore.current = { module, units };
+    const unitId = focusedUnitRef.current;
+    if (previous == null || previous.module !== module || unitId == null || module.unitState(unitId) != null) return;
+    if (!previous.units.includes(unitId)) return;
+    focusedUnitRef.current = null;
+    const next = unitInPlaceOf(unitId, previous.units, (candidate) => module.unitState(candidate) != null);
+    if (next == null) {
+      containerRef.current?.focus({ preventScroll: true });
+      focused(null);
+    } else {
+      showUnit(next);
+      focused(next);
+    }
+  });
   // A thread message stays to reveal until its thread, once it shows, has given it the focus.
   const messageToFocus = revealRequest?.message ?? null;
   const messageFocused = useCallback(() => {
@@ -818,7 +929,7 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
   // a change renders only the cards it changes; the handlers are the latest.
   const handlers = useRef({ openThread, requestEditor, sign });
   handlers.current = { openThread, requestEditor, sign };
-  const stageOpen = summary.open;
+  const stageOpen = editable;
   const controls = useMemo<CardControls>(
     () => ({
       openThread: (unitId, anchor) => handlers.current.openThread(unitId, anchor),
@@ -842,7 +953,7 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
       if (module.stageOpen(later) && !module.stageComplete(later)) stagesOffered.add(later);
     }
   }
-  const stagesToWrite = workflow.stageIds.filter((later) => stagesOffered.has(later));
+  const stagesToWrite = preview == null ? workflow.stageIds.filter((later) => stagesOffered.has(later)) : [];
   const progressBar = (
     <Stack direction="row" sx={{ alignItems: "center", gap: 1, flexGrow: 1 }}>
       <LinearProgress
@@ -891,7 +1002,7 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
 
   return (
     <Stack direction="row" sx={{ flexGrow: 1, minWidth: 0, minHeight: 0 }}>
-      <Box ref={containerRef} onScroll={onScroll} onFocus={(event) => followFocus(event.target)} sx={{ flexGrow: 1, minWidth: 0, overflowY: "auto", p: 2, pt: 0 }}>
+      <Box ref={containerRef} tabIndex={-1} aria-label={definition.label} onScroll={onScroll} onFocus={(event) => followFocus(event.target)} sx={{ flexGrow: 1, minWidth: 0, overflowY: "auto", p: 2, pt: 0, outline: "none" }}>
         <Stack
           ref={headerRef}
           spacing={compact ? 0.5 : 1}
@@ -972,10 +1083,10 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
                     aria-label="The whole stage"
                     sx={{ flexShrink: 1, minWidth: 0, minHeight: 40 }}
                   >
-                    {coverages.length > 0 && (
+                    {wholeTabs.includes(COVERAGES_TAB) && (
                       <Tab value={COVERAGES_TAB} label={tabLabel(COVERAGES_TAB, "Coverages", notApprovedIn(COVERAGES_TAB), "not approved")} sx={{ minHeight: 40, textTransform: "none" }} />
                     )}
-                    {impacts.length > 0 && (
+                    {wholeTabs.includes(IMPACTS_TAB) && (
                       <Tab value={IMPACTS_TAB} label={tabLabel(IMPACTS_TAB, "Impacts", notApprovedIn(IMPACTS_TAB), "not approved")} sx={{ minHeight: 40, textTransform: "none" }} />
                     )}
                     {orphanThreads.length > 0 && (
@@ -993,9 +1104,8 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
         </Stack>
 
         <Stack spacing={1.5}>
-          {items.map((state) => <ItemCard key={state.unitId} state={state} controls={controls} />)}
-          {removedItems.map((state) => <ItemCard key={state.unitId} state={state} controls={controls} />)}
-          {summary.open && kindShown && (
+          {cardsOf([...items, ...removedItems], marksIn(activeTab), (state) => <ItemCard key={state.unitId} state={state} controls={controls} />)}
+          {editable && kindShown && (
             <Stack direction="row" sx={{ gap: 1, flexWrap: "wrap" }}>
               {definition.kinds
                 .filter((kind) => kind.kind === activeTab && (!kind.single || !module.itemsOf(stage).some((item) => item.kind === kind.kind && item.removal == null)))
@@ -1007,20 +1117,40 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
             </Stack>
           )}
 
-          {activeTab === COVERAGES_TAB && coverages.map((state) => <CoverageCard key={state.unitId} state={state} controls={controls} />)}
-          {activeTab === IMPACTS_TAB && impacts.map((state) => <ImpactCard key={state.unitId} state={state} controls={controls} />)}
+          {activeTab === COVERAGES_TAB && cardsOf(coverages, marksIn(COVERAGES_TAB), (state) => <CoverageCard key={state.unitId} state={state} controls={controls} />)}
+          {activeTab === IMPACTS_TAB && cardsOf(impacts, marksIn(IMPACTS_TAB), (state) => <ImpactCard key={state.unitId} state={state} controls={controls} />)}
           {activeTab === THREADS_TAB && orphanThreads.map((orphan) => (
-            <Box key={orphan.id}>
-              <Typography variant="subtitle2">{orphan.removedUnit ?? module.unitLabel(orphan.unitId)}</Typography>
+            <Box key={orphan.id} data-unit-card={orphan.unitId} tabIndex={0} sx={{ outline: "none", "&:focus-visible": { boxShadow: (theme) => `0 0 0 2px ${theme.vars.palette.primary.main}` } }}>
+              <Typography variant="subtitle2">{orphan.removedUnit?.name ?? module.unitLabel(orphan.unitId)}, removed</Typography>
+              {orphan.removedUnit != null && (
+                <Typography variant="body2" sx={{ color: "text.secondary", whiteSpace: "pre-wrap" }}>
+                  {orphan.removedUnit.text}
+                </Typography>
+              )}
+              <ThreadMarkNote mark={threadMarks.find(({ threadId }) => threadId === orphan.id) ?? null} />
               <Paper variant="outlined" sx={{ p: 1.5, mt: 1 }}>
                 <ThreadPanel
                   unitId={null}
                   threads={[orphan]}
-                  stageOpen={summary.open}
+                  stageOpen={editable}
                   focusMessage={messageToFocus}
                   onMessageFocused={messageFocused}
                 />
               </Paper>
+            </Box>
+          ))}
+          {activeTab === THREADS_TAB && threadsOnlyNow.map((mark) => (
+            <Box
+              key={mark.threadId}
+              data-unit-card={mark.unitId}
+              tabIndex={0}
+              sx={{ p: 1.5, border: 1, borderStyle: "dashed", borderColor: "error.main", borderRadius: 1, outline: "none", "&:focus-visible": { boxShadow: (theme) => `0 0 0 2px ${theme.vars.palette.primary.main}` } }}
+            >
+              <Typography variant="subtitle2">{mark.label}, removed</Typography>
+              <Typography variant="body2" sx={{ color: "text.secondary", whiteSpace: "pre-wrap" }}>
+                {mark.text}
+              </Typography>
+              <ThreadMarkNote mark={mark} />
             </Box>
           ))}
         </Stack>
@@ -1034,7 +1164,7 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
           unitId={thread.unitId}
           form={threadForm}
           anchor={thread.anchor}
-          stageOpen={summary.open}
+          stageOpen={editable}
           autoFocus={thread.autoFocus}
           focusMessage={messageToFocus}
           onMessageFocused={messageFocused}

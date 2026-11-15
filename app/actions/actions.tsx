@@ -31,6 +31,12 @@ export const redoShortcut: ShortcutSpec = { key: "z", mod: true, shift: true };
 /** Redo as Windows and Linux programs also take it. */
 export const redoAlternateShortcut: ShortcutSpec = { key: "y", ctrl: true };
 
+/** Open the list of steps. */
+export const stepsShortcut: ShortcutSpec = { key: "h" };
+
+/** Open the list of restore points. */
+export const restorePointsShortcut: ShortcutSpec = { key: "r" };
+
 /** Sign the focused unit; with Shift, focus then moves to the next one waiting for a signature. */
 export const signShortcut: ShortcutSpec = { key: "s" };
 
@@ -39,3 +45,18 @@ export const threadShortcut: ShortcutSpec = { key: "c" };
 
 /** Go back to where the item shown was opened from. */
 export const returnShortcut: ShortcutSpec = { key: "b" };
+
+/** In a preview, move to the next difference it marks, across stages and modules. */
+export const nextMarkShortcut: ShortcutSpec = { key: "n" };
+
+/** In a preview, move to the previous difference it marks. */
+export const previousMarkShortcut: ShortcutSpec = { key: "n", shift: true };
+
+/** Close a preview, showing the project now. */
+export const closePreviewShortcut: ShortcutSpec = { key: "Escape", shift: true };
+
+/** Go to what the coding agent named last for the spec owner's attention. */
+export const takeOfferShortcut: ShortcutSpec = { key: "o" };
+
+/** Dismiss what the coding agent named last for the spec owner's attention. */
+export const dismissOfferShortcut: ShortcutSpec = { key: "o", shift: true };

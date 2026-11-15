@@ -19,12 +19,18 @@ export interface ThreadMessage {
  * the spec owner resolves it. It keeps its stage, and once its unit is gone
  * the unit's last name, so it stays readable from the stage.
  */
+/** A unit that is gone, as its threads keep it: its name and what it said when it was removed. */
+export interface RemovedUnit {
+  name: string;
+  text: string;
+}
+
 export interface Thread {
   id: string;
   unitId: string;
   stage: string;
-  /** The unit's name when it was removed; null while the unit exists. */
-  removedUnit: string | null;
+  /** The unit as it was when it was removed; null while the unit exists. */
+  removedUnit: RemovedUnit | null;
   messages: ThreadMessage[];
   /** Set once the spec owner resolved it; its time is null in an export made without thread times. */
   resolution: { at: string | null } | null;
@@ -201,14 +207,15 @@ export function parseThreads(value: unknown): Thread[] {
     if (resolution != null && (!isRecord(resolution) || (resolution.at !== null && typeof resolution.at !== "string"))) {
       throw new InvalidJsonError(`${label} resolution must have a time or null.`);
     }
-    if (entry.removedUnit != null && typeof entry.removedUnit !== "string") {
-      throw new InvalidJsonError(`${label} removed unit must be a string.`);
+    const removedUnit = entry.removedUnit ?? null;
+    if (removedUnit != null && (!isRecord(removedUnit) || typeof removedUnit.name !== "string" || typeof removedUnit.text !== "string")) {
+      throw new InvalidJsonError(`${label} removed unit must have a name and a text.`);
     }
     return {
       id: entry.id,
       unitId: entry.unitId,
       stage: entry.stage,
-      removedUnit: entry.removedUnit ?? null,
+      removedUnit: removedUnit == null ? null : { name: removedUnit.name as string, text: removedUnit.text as string },
       resolution: resolution == null ? null : { at: resolution.at as string | null },
       messages: entry.messages.map((message, messageIndex) => {
         const messageLabel = `${label} message ${messageIndex + 1}`;

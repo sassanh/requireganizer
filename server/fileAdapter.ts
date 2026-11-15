@@ -22,20 +22,20 @@ import {
   ProjectStorageError,
 } from "lib/projectStorage";
 import type {
-  HistoryPersistence,
   OutsideChanges,
   PersistenceAdapter,
   ProjectPersistence,
   ProjectWrite,
+  RecordPersistence,
   StorageTraits,
 } from "persistence";
 import {
   type Address,
   type OutsideChange,
-  parseHistory,
   parseProject,
+  parseProjectRecord,
   PieceStore,
-  type ProjectHistory,
+  type ProjectRecord,
   projectDocument,
   serializeCanonical,
   type StoredProject,
@@ -59,7 +59,7 @@ interface ProjectFile {
 export interface FilePersistenceAdapterOptions {
   /** The project file, usually inside the repository it describes. */
   projectFile: string;
-  /** Where the project's history and pieces live. */
+  /** Where the project's record and pieces live. */
   stateDirectory: string;
   now?: () => Date;
 }
@@ -98,21 +98,21 @@ function messageOf(error: unknown): string {
  * diff, and commit: the project's id and name beside its document, written
  * by the one canonical serializer, so a change touches only the lines that
  * hold it. A file without an id or name, such as an export placed by hand,
- * opens too. The project's history and its pieces live in a separate state
- * directory, since they are local work rather than part of the project,
- * with the identity of the project last written, so a project file removed
- * outside Requireganizer still opens, from its history, for the spec owner
- * to write back or leave removed.
+ * opens too. The project's record, which holds its history, and its pieces
+ * live in a separate state directory, since they are local work rather than
+ * part of the project, with the identity of the project last written, so a
+ * project file removed outside Requireganizer still opens, from its
+ * history, for the spec owner to write back or leave removed.
  *
  * Writes are issued synchronously and replace files atomically, so they are
- * never reordered: the pieces first, then the history naming the state being
- * written, then the project file, then the history naming it as written.
+ * never reordered: the pieces first, then the record naming the state being
+ * written, then the project file, then the record naming it as written.
  * Whether the project file changed outside Requireganizer, such as by a
  * checkout, is decided by `storedProjectChange` from the file and the
- * history in the state directory: `outsideChanges` reports such a change as
+ * record in the state directory: `outsideChanges` reports such a change as
  * it happens, and a write over one is refused unless the spec owner chose it.
  * Requireganizer never removes the project file: deleting the project
- * forgets its history and pieces once the file is gone.
+ * forgets its record and pieces once the file is gone.
  */
 export class FilePersistenceAdapter implements PersistenceAdapter {
   readonly traits: StorageTraits;
@@ -195,22 +195,22 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
     return { kind: "readable", address: file.address };
   }
 
-  /** The history in the state directory; null when there is none or it cannot be read, so there is nothing to compare with. */
-  private storedHistory(): ProjectHistory | null {
+  /** The record in the state directory; null when there is none or it cannot be read, so there is nothing to compare with. */
+  private storedRecord(): ProjectRecord | null {
     try {
-      const source = readIfPresent(this.historyPath());
-      return source == null ? null : parseHistory(JSON.parse(source));
+      const source = readIfPresent(this.recordPath());
+      return source == null ? null : parseProjectRecord(JSON.parse(source));
     } catch {
       return null;
     }
   }
 
   private currentOutsideChange(): OutsideChange | null {
-    return storedProjectChange(this.storedProject(), this.storedHistory());
+    return storedProjectChange(this.storedProject(), this.storedRecord());
   }
 
-  private historyPath(): string {
-    return join(this.stateDirectory, "history.json");
+  private recordPath(): string {
+    return join(this.stateDirectory, "record.json");
   }
 
   private identityPath(): string {
@@ -223,8 +223,7 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
 
   /**
    * The identity of the project last written; the one a file that names
-   * none has when there is no record of it, as for a history written before
-   * the record was kept.
+   * none has when no identity was kept for it.
    */
   private writtenIdentity(): ProjectIdentity {
     const fallback = { id: DEFAULT_FILE_PROJECT_ID, name: this.defaultName() };
@@ -244,12 +243,12 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
     return join(this.objectsPath(), address.slice(0, 2), address.slice(2));
   }
 
-  private writeHistory(history: ProjectHistory): void {
-    writeAtomically(this.historyPath(), serializeCanonical(history));
+  private writeRecord(record: ProjectRecord): void {
+    writeAtomically(this.recordPath(), serializeCanonical(record));
   }
 
   /**
-   * Write a project, its pieces and its history, in the order that never
+   * Write a project, its pieces and its record, in the order that never
    * leaves a record naming what is not stored. A project file changed
    * outside Requireganizer is replaced only when the spec owner chose it,
    * or when it already holds the state written, which loses nothing.
@@ -257,7 +256,7 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
   private store(write: ProjectWrite): void {
     const stored = this.storedProject();
     const holdsWritten = stored.kind === "readable" && stored.address === write.address;
-    if (!write.overOutsideChange && !holdsWritten && storedProjectChange(stored, this.storedHistory()) != null) {
+    if (!write.overOutsideChange && !holdsWritten && storedProjectChange(stored, this.storedRecord()) != null) {
       this.checkOutsideChange();
       throw new UserFacingError(
         `${this.traits.name} changed outside Requireganizer, so it was not overwritten. Choose in Requireganizer which project to keep.`,
@@ -268,7 +267,7 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
         const path = this.piecePath(address);
         if (!existsSync(path)) writeAtomically(path, bytes);
       }
-      this.writeHistory(write.writing);
+      this.writeRecord(write.writing);
       const document = projectDocument(write.state);
       const contents = serializeCanonical({ ...document, ...write.project });
       writeAtomically(this.projectFile, contents);
@@ -278,7 +277,7 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
         source: contents,
         file: { identity: write.project, document: { ...document }, address: write.address },
       };
-      this.writeHistory(write.written);
+      this.writeRecord(write.written);
     } catch (error) {
       throw new ProjectStorageError(PROJECT_SAVE_ERROR_MESSAGE, error);
     } finally {
@@ -365,7 +364,7 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
       if (stored != null) return [this.metaOf(stored.identity)];
       // A project file removed outside Requireganizer still opens, from its
       // history, so the spec owner chooses what becomes of it.
-      return storedProjectChange({ kind: "missing" }, this.storedHistory()) == null
+      return storedProjectChange({ kind: "missing" }, this.storedRecord()) == null
         ? []
         : [this.metaOf(this.writtenIdentity())];
     },
@@ -392,8 +391,8 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
         throw new ProjectStorageError(`${PROJECT_DELETE_ERROR_MESSAGE} Delete ${this.traits.name} yourself to remove it.`);
       }
       try {
-        // The history first: once it is gone, nothing reports the removal again.
-        rmSync(this.historyPath(), { force: true });
+        // The record first: once it is gone, nothing reports the removal again.
+        rmSync(this.recordPath(), { force: true });
         rmSync(this.identityPath(), { force: true });
         rmSync(this.objectsPath(), { recursive: true, force: true });
       } catch (error) {
@@ -406,10 +405,10 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
     },
   };
 
-  readonly history: HistoryPersistence = {
+  readonly record: RecordPersistence = {
     load: async () => {
-      const source = readIfPresent(this.historyPath());
-      return source == null ? null : parseHistory(JSON.parse(source));
+      const source = readIfPresent(this.recordPath());
+      return source == null ? null : parseProjectRecord(JSON.parse(source));
     },
     pieceAddresses: async () => {
       const objects = this.objectsPath();

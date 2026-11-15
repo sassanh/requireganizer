@@ -7,7 +7,7 @@ import {
   onSnapshot,
 } from "mobx-state-tree";
 
-import { agentToolDescriptions, callAgentTool, type OpenModule, readToolDescriptions } from "ai-agent/agent-access";
+import { type AgentCaller, agentToolDescriptions, callAgentTool, type OpenModule, readToolDescriptions } from "ai-agent/agent-access";
 import { aiSettings } from "ai-agent/settings";
 import {
   type ClientMessage,
@@ -27,11 +27,12 @@ import {
   type StoreImage,
   type WireError,
 } from "connection";
+import type { ChangeKind, FocusPlace } from "history";
 import { UserFacingError } from "lib/errors";
 import { activeModule, visibleModuleNamed, visibleModules } from "lib/moduleSchema";
 import type { StorageTraits } from "persistence";
 import type { ProjectSession, ProjectSessionSnapshot } from "project-session";
-import type { ChangeKind, ModuleContent, ModuleRegistry } from "storage";
+import type { ModuleContent, ModuleRegistry } from "storage";
 import {
   replicatedVolatileState,
   type ReplicatedVolatileState,
@@ -75,8 +76,16 @@ function storeActionKind(name: string): ChangeKind {
   return Object.hasOwn(STORE_ACTION_KINDS, name) ? STORE_ACTION_KINDS[name]! : "edit";
 }
 
-/** The agent tools that change the project's modules rather than write its spec. */
-const MODULE_TOOLS: ReadonlySet<string> = new Set(["create_module", "switch_module"]);
+/** The kind of change each agent tool makes that is not a write of items. */
+const AGENT_TOOL_KINDS: Readonly<Record<string, ChangeKind>> = {
+  create_module: "module change",
+  switch_module: "module change",
+  reply_to_thread: "thread message",
+};
+
+function agentToolKind(name: string): ChangeKind {
+  return Object.hasOwn(AGENT_TOOL_KINDS, name) ? AGENT_TOOL_KINDS[name]! : "write of items";
+}
 
 function sessionView(snapshot: ProjectSessionSnapshot) {
   const { store: _store, registry: _registry, ...view } = snapshot;
@@ -132,8 +141,12 @@ export class ProjectHost implements HostEndpoint {
       undo: () => session.undo(),
       redo: () => session.redo(),
       listSteps: () => session.listSteps(),
-      bringBackStep: (stepId) => session.change("restore", () => session.bringBackStep(stepId)),
+      goTo: (target) => session.goTo(target),
       listRestorePoints: () => session.listRestorePoints(),
+      differenceFromNow: (target) => session.differenceFromNow(target),
+      preview: (target) => session.preview(target),
+      reportFocus: (place) => session.reportFocus(place),
+      dismissOffer: (offerId) => session.dismissOffer(offerId),
       makeRestorePoint: (name) => session.makeRestorePoint(name),
       restoreToRestorePoint: (restorePointId) => session.restoreToRestorePoint(restorePointId),
       pinRestorePoint: (restorePointId) => session.pinRestorePoint(restorePointId),
@@ -141,7 +154,16 @@ export class ProjectHost implements HostEndpoint {
       deleteRestorePoint: (restorePointId) => session.deleteRestorePoint(restorePointId),
       reportTimeZone: (timeZone) => session.reportTimeZone(timeZone),
       deleteProject: (projectId) => session.deleteProject(projectId),
-      runStoreAction: (call) => session.change(storeActionKind(call.name), () => this.runStoreAction(call)),
+      runStoreAction: (call) => {
+        // The stage is read before the action, which may remove the unit it starts from, such as a signed removal.
+        const stage = call.focusMove == null ? null : (this.shown?.store.unitState(call.focusMove.from)?.stage ?? null);
+        let focusMovedTo: FocusPlace | null = null;
+        const result = session.change(storeActionKind(call.name), () => this.runStoreAction(call), "spec owner", () => {
+          focusMovedTo = this.focusAfter(call, stage);
+          return focusMovedTo;
+        });
+        return { result, focusMovedTo };
+      },
       runPersistence: (call) => this.runPersistence(call),
       listAgentTools: async () => {
         // Without an open project the read tools are still listed: calling
@@ -154,19 +176,23 @@ export class ProjectHost implements HostEndpoint {
         // One call is one change, though a write with answers takes two store
         // actions. Reading goes through the gate too: while an outside change
         // waits, either version may be the one kept, so neither is read.
-        return session.change(MODULE_TOOLS.has(name) ? "module change" : "coding agent write", () =>
-          callAgentTool(store, name, args, this.openModule(), caller),
-        );
+        return session.change(agentToolKind(name), () => callAgentTool(store, name, args, this.openModule(caller), caller), "coding agent");
       },
     };
   }
 
   /** The module an outside agent works on: the one the page shows. */
-  private openModule(): OpenModule {
+  private openModule(caller: AgentCaller = { name: "The coding agent" }): OpenModule {
     const { registry } = this.session.getSnapshot();
-    if (registry == null || !registry.modulesEnabled) return {};
+    if (registry == null) return {};
+    const pointOut: OpenModule["pointOut"] = (unit, text) => {
+      const moduleId = unit.module == null ? registry.activeModuleId : visibleModuleNamed(registry, unit.module)?.id;
+      if (moduleId == null) throw new UserFacingError(`There is no module named “${unit.module}”.`);
+      this.session.pointOut({ moduleId, stage: unit.stage, unitId: unit.unitId }, text, caller.name);
+    };
+    if (!registry.modulesEnabled) return { pointOut };
     const moduleName = activeModule(registry)?.name;
-    if (moduleName == null) return {};
+    if (moduleName == null) return { pointOut };
     const modules = visibleModules(registry);
     const moduleNamed = (name: string) => {
       const target = visibleModuleNamed(registry, name);
@@ -194,6 +220,7 @@ export class ProjectHost implements HostEndpoint {
           }
         : {}),
       addModule: (name) => this.session.addModule(name),
+      pointOut,
     };
   }
 
@@ -341,6 +368,16 @@ export class ProjectHost implements HostEndpoint {
       call.name
     ];
     return action(...call.args);
+  }
+
+  /** Where a store action that moves the focus within `stage` moved it, read once it ran; null for one that does not. */
+  private focusAfter(call: StoreActionCall, stage: string | null): FocusPlace | null {
+    const { focusMove } = call;
+    const shown = this.shown;
+    const { registry } = this.session.getSnapshot();
+    if (focusMove == null || shown == null || registry == null) return null;
+    const unitId = shown.store.unitAfterSigning(focusMove);
+    return stage == null || unitId == null ? null : { moduleId: registry.activeModuleId, stage, unitId };
   }
 
   private runPersistence(call: PersistenceCall): unknown {

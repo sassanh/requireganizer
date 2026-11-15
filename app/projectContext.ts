@@ -1,16 +1,22 @@
 "use client";
 import { createContext, useContext } from "react";
 
-import type { ProjectIdentity } from "lib/projectStorage";
-import type { ClientPersistence, StorageTraits } from "persistence";
-import type { ModuleSummary, ProjectSessionStatus } from "project-session";
 import type {
-  ExportOptions,
+  FocusPlace,
   HistoryPosition,
   ListedRestorePoint,
-  ListedStep,
-  OutsideChange,
-} from "storage";
+  ListedSteps,
+  PreviewTarget,
+  StateDifference,
+  StepListTarget,
+} from "history";
+import type { ProjectIdentity } from "lib/projectStorage";
+import type { ClientPersistence, StorageTraits } from "persistence";
+import type { ShownPreview } from "project-client";
+import type { AttentionOffer, ModuleSummary, ProjectSessionStatus } from "project-session";
+import type { ExportOptions, OutsideChange } from "storage";
+import type { Store } from "store";
+import type { SignatureFocusMove } from "workflow";
 
 /**
  * The open project as the interface sees it. Every operation is a request to
@@ -29,16 +35,34 @@ export interface ProjectContextValue {
   keepShownProject: () => Promise<void>;
   /** Close the project removed outside Requireganizer and forget its history, writing nothing where it was. */
   leaveProjectRemoved: () => Promise<void>;
-  /** Where the open project is in its history; null while no project is open. */
+  /** Where the open project is in its history; null while no project is open or an earlier state is previewed. */
   history: HistoryPosition | null;
-  undo: () => Promise<void>;
-  redo: () => Promise<void>;
-  /** Every kept step, newest first. */
-  listSteps: () => Promise<ListedStep[]>;
-  /** Bring the project back as it was after a step; itself a step undo takes back. */
-  bringBackStep: (stepId: string) => Promise<void>;
+  /** Resolves to where the focus goes, or null to leave it where it is. */
+  undo: () => Promise<FocusPlace | null>;
+  redo: () => Promise<FocusPlace | null>;
+  /** Every kept step, newest first, with what it added, changed or removed, then the start, before the oldest of them. */
+  listSteps: () => Promise<ListedSteps>;
+  /** Go to how the project was after a step or before the oldest of them, recording no step. */
+  goTo: (target: StepListTarget) => Promise<void>;
   /** The kept restore points, newest first. */
   listRestorePoints: () => Promise<ListedRestorePoint[]>;
+  /** What bringing back the project as it was after a kept step or at a restore point would add, change or remove. */
+  differenceFromNow: (target: PreviewTarget) => Promise<StateDifference>;
+  /** The earlier state the page shows, read only, in place of the project now; null while it shows the project now. */
+  preview: ShownPreview | null;
+  /** Show an earlier state in place of the project now; rejects, showing the project now, when it is no longer kept. */
+  openPreview: (target: PreviewTarget) => Promise<void>;
+  closePreview: () => void;
+  /** What the coding agent named for the spec owner's attention, oldest first. */
+  offers: AttentionOffer[];
+  /** Take away an offer, once taken or dismissed. */
+  dismissOffer: (offerId: string) => Promise<void>;
+  /** Tell the project where the spec owner's focus is. */
+  reportFocus: (place: FocusPlace | null) => void;
+  /** Make a change that sends `move` with it; resolves to the unit the change moved the spec owner's focus to, null for none. */
+  withFocusMove: (move: SignatureFocusMove, run: () => unknown) => Promise<string | null>;
+  /** The model of a module of what the page shows; null for one it holds none of. */
+  moduleStore: (moduleId: string) => Store | null;
   /** Rejects when the name is empty. */
   makeRestorePoint: (name: string) => Promise<void>;
   /** Restore the project to a restore point; itself a step undo takes back. */

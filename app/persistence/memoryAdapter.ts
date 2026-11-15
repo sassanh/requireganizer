@@ -1,12 +1,12 @@
-import { type Address, parseHistory, type ProjectHistory, serializeCanonical, serializeProject } from "storage";
+import { type Address, parseProjectRecord, type ProjectRecord, serializeCanonical, serializeProject } from "storage";
 
-import type { HistoryPersistence, PersistenceAdapter, ProjectPersistence, ProjectWrite } from "./adapter";
+import type { PersistenceAdapter, ProjectPersistence, ProjectWrite, RecordPersistence } from "./adapter";
 import { type ProjectMeta, ProjectStorageError } from "../lib/projectStorage";
 
 interface MemoryProject {
   meta: ProjectMeta;
   source: string;
-  history: string;
+  record: string;
   pieces: Map<Address, string>;
 }
 
@@ -14,7 +14,7 @@ interface MemoryProject {
  * A `PersistenceAdapter` that keeps projects in memory, for steps that need
  * a storage without a browser or files. It stores the bytes the other
  * storages store, so what it returns is a copy, as theirs is, and a write
- * stores the project, its pieces and its history together, as browser
+ * stores the project, its pieces and its record together, as browser
  * storage does.
  */
 export class MemoryPersistenceAdapter implements PersistenceAdapter {
@@ -32,7 +32,7 @@ export class MemoryPersistenceAdapter implements PersistenceAdapter {
     this.stored.set(write.project.id, {
       meta: { ...write.project, updatedAt: this.now().toISOString() },
       source: serializeProject(write.state),
-      history: serializeCanonical(write.written),
+      record: serializeCanonical(write.written),
       pieces,
     });
   }
@@ -55,10 +55,10 @@ export class MemoryPersistenceAdapter implements PersistenceAdapter {
     },
   };
 
-  readonly history: HistoryPersistence = {
-    load: async (projectId): Promise<ProjectHistory | null> => {
+  readonly record: RecordPersistence = {
+    load: async (projectId): Promise<ProjectRecord | null> => {
       const project = this.stored.get(projectId);
-      return project == null ? null : parseHistory(JSON.parse(project.history));
+      return project == null ? null : parseProjectRecord(JSON.parse(project.record));
     },
     pieceAddresses: async (projectId) => [...(this.stored.get(projectId)?.pieces.keys() ?? [])],
     readPiece: async (projectId, address) => this.stored.get(projectId)?.pieces.get(address) ?? null,

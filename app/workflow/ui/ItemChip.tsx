@@ -79,7 +79,15 @@ const ItemChip = observer(function ItemChip({
   const named = module.namedItem(itemId);
   const cause = reasons.length > 0;
   const look = { size: "small", variant: cause ? "filled" : "outlined", color: cause ? "warning" : "default" } as const;
-  if (named == null) return <Chip {...look} label={label(itemId)} onDelete={onDelete} />;
+  if (named == null) {
+    const removedText = module.removedItemText(itemId);
+    const chip = <Chip {...look} label={label(itemId)} onDelete={onDelete} />;
+    return removedText == null ? chip : (
+      <Tooltip title={<WrittenText text={removedText} />} describeChild disableInteractive slotProps={{ tooltip: { sx: { maxWidth: 440 } } }}>
+        {chip}
+      </Tooltip>
+    );
+  }
   const open = (event: MouseEvent<HTMLElement>) => {
     openUnit({ module: named.module?.id ?? null, stage: named.stage, unitId: named.id }, placeOf(event.currentTarget));
   };

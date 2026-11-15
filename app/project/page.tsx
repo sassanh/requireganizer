@@ -17,19 +17,24 @@ import { Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState
 
 import { switchModuleShortcut } from "actions/actions";
 import {
+  AttentionOffers,
   HistoryControls,
+  PreviewControls,
   RestorePointsControls,
   ModuleSwitcherDialog,
   ProjectActionsMenu,
   OutsideChangeDialog,
   PersistentAlert,
 } from "components";
+import { notify } from "components/notices";
 import {
   isEditableTarget,
   isOverlayTarget,
   useShortcut,
   type ShortcutBinding,
 } from "hooks/shortcuts";
+import { getUserFacingErrorMessage } from "lib/errors";
+import { previewHref, previewOf } from "lib/routes";
 import { rememberedModule, rememberModule } from "lib/viewState";
 import { usePersistence, useProject } from "projectContext";
 import { Factory } from "screens";
@@ -50,6 +55,9 @@ function Home() {
     activeModuleId,
     switchModule,
     storage,
+    preview,
+    openPreview,
+    closePreview,
   } = useProject();
   const activeModuleName = modules.find(({ id }) => id === activeModuleId)?.name ?? null;
   const persistence = usePersistence();
@@ -168,6 +176,24 @@ function Home() {
     router.replace(`${pathname}?${next.toString()}`);
   }, [activeProject, projectId, modulesEnabled, searchParams, activeModuleId, router, pathname, refusedUrlModules]);
 
+  // `?preview=` names the earlier state the page shows in place of the
+  // project now, so a preview survives a reload and the browser's back and
+  // forward reach it. One that is no longer kept shows the project now.
+  const previewParam = searchParams.get("preview");
+  useEffect(() => {
+    if (activeProject?.id !== projectId || status !== "ready") return;
+    const target = previewOf(previewParam);
+    if (target == null) {
+      closePreview();
+      return;
+    }
+    if (preview?.target.kind === target.kind && preview.target.id === target.id) return;
+    openPreview(target).catch((error: unknown) => {
+      notify(getUserFacingErrorMessage(error, "That earlier state could not be shown, so the project shows as it is now."), "error");
+      router.replace(previewHref(pathname, window.location.search, null));
+    });
+  }, [activeProject, projectId, status, previewParam, preview, openPreview, closePreview, router, pathname]);
+
   // For easier debugging store is saved under window.store variable in development environment
   useEffect(() => {
     if (process.env.NODE_ENV !== "production") {
@@ -247,7 +273,7 @@ function Home() {
         position="fixed"
         elevation={0}
         color="inherit"
-        sx={{ borderBottom: 1, borderColor: "divider" }}
+        sx={preview == null ? { borderBottom: 1, borderColor: "divider" } : { borderBottom: 3, borderColor: "warning.main" }}
       >
         <Toolbar disableGutters sx={{ px: { xs: 2, md: 3 }, gap: 1.5 }}>
           {!storage.singleProject && (
@@ -274,6 +300,7 @@ function Home() {
             </Button>
           ) : null}
         </Stack>
+        <PreviewControls />
         <HistoryControls />
         <RestorePointsControls />
         </Toolbar>
@@ -308,6 +335,7 @@ function Home() {
           </Box>
         </Box>
       </Stack>
+      <AttentionOffers />
       <OutsideChangeDialog />
       <ModuleSwitcherDialog open={modulesOpen} onClose={closeModules} />
     </>

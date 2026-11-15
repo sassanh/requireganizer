@@ -157,7 +157,11 @@ function checkThread(value: unknown, label: string): void {
   checkText(thread.id, `${label} id`);
   checkText(thread.unitId, `${label} unit id`);
   if (!WORKFLOW.isStage(thread.stage)) throw new InvalidJsonError(`${label} is in ${JSON.stringify(thread.stage)}, which is no stage.`);
-  if (thread.removedUnit !== null) checkText(thread.removedUnit, `${label} removed unit`);
+  if (thread.removedUnit !== null) {
+    const removed = exactRecord(thread.removedUnit, `${label} removed unit`, ["name", "text"]);
+    checkText(removed.name, `${label} removed unit name`);
+    checkText(removed.text, `${label} removed unit text`);
+  }
   if (!Array.isArray(thread.messages) || thread.messages.length === 0) {
     throw new InvalidJsonError(`${label} must have at least one message.`);
   }

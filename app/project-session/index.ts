@@ -1,4 +1,5 @@
 export {
+  type AttentionOffer,
   PROJECT_SAVE_DEBOUNCE_MS,
   ProjectSession,
   moduleSummaries,

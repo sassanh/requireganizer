@@ -65,6 +65,16 @@ export function childrenOf(level: PieceLevel, bytes: string): (readonly [Address
   }
 }
 
+/** A module of a state as its pieces name it: its identity, and the addresses of its piece, its stages and its threads. */
+export interface ModulePieces {
+  id: string;
+  name: string;
+  archivedAt: string | null;
+  address: Address;
+  stages: Record<string, Address>;
+  threads: Address[];
+}
+
 /**
  * The pieces of the states a session keeps, by address. A state's address
  * is its project piece's. Equal values make equal pieces, so a state shares
@@ -149,36 +159,79 @@ export class PieceStore {
     }
   }
 
+  /** The held piece at an address, read; throws when it is not held. */
+  private read(address: Address): Record<string, unknown> {
+    const piece = this.pieces.get(address);
+    if (piece == null) throw new Error(`The piece ${address} is missing.`);
+    return parseJson(piece.bytes, "A stored piece") as Record<string, unknown>;
+  }
+
+  /**
+   * The modules of the state at an address, in its order, each with the
+   * addresses of its pieces, read without putting any module together.
+   */
+  modulesAt(address: Address): ModulePieces[] {
+    return textsOf(this.read(address).modules).map((moduleAddress) => {
+      const node = this.read(moduleAddress);
+      const content = node.content as Record<string, unknown>;
+      return {
+        id: node.id as string,
+        name: node.name as string,
+        archivedAt: (node.archivedAt as string | null) ?? null,
+        address: moduleAddress,
+        stages: content.stages as Record<string, Address>,
+        threads: textsOf(content.threads),
+      };
+    });
+  }
+
+  /** The address of a module's piece, holding its pieces. */
+  moduleAddressOf(module: ModuleState): Address {
+    return this.moduleAddress(module);
+  }
+
+  /** A module's piece put together, unchecked: only for a module of a state the parser read. */
+  private moduleNode(moduleAddress: Address): Record<string, unknown> {
+    const recognised = (pieceAddress: Address, value: object): object => {
+      this.addresses.set(value, pieceAddress);
+      return value;
+    };
+    const leaf = (pieceAddress: Address): object => recognised(pieceAddress, this.read(pieceAddress));
+    const moduleNode = this.read(moduleAddress);
+    const node = moduleNode.content as Record<string, unknown>;
+    const stages = Object.fromEntries(
+      Object.entries(node.stages as Record<string, Address>).map(([stage, stageAddress]) => {
+        const stored = this.read(stageAddress);
+        return [stage, recognised(stageAddress, { ...stored, items: textsOf(stored.items).map(leaf) })];
+      }),
+    );
+    return { ...moduleNode, content: { ...node, stages, threads: textsOf(node.threads).map(leaf) } };
+  }
+
+  /** One module of a held state, put together from its pieces and read by the one project parser. */
+  moduleAt(moduleAddress: Address): ModuleState {
+    const node = this.moduleNode(moduleAddress);
+    // A project holds a module that is not archived, so the module is read as one.
+    const [parsed] = parseProject({ schemaVersion: PROJECT_SCHEMA_VERSION, modulesEnabled: true, modules: [{ ...node, archivedAt: null }] }).modules;
+    const read = { ...parsed!, archivedAt: node.archivedAt as string | null };
+    this.modules.set(read.content, { id: read.id, name: read.name, archivedAt: read.archivedAt, address: moduleAddress });
+    return read;
+  }
+
+  /** A thread's piece, read. */
+  threadAt(address: Address): Thread {
+    return this.read(address) as unknown as Thread;
+  }
+
   /**
    * The state at an address, put together from its pieces and read by the
    * one project parser. Each part is recognised by its address from then
    * on, so a state brought back is not hashed again.
    */
   stateAt(address: Address): ProjectState {
-    const read = (pieceAddress: Address): Record<string, unknown> => {
-      const piece = this.pieces.get(pieceAddress);
-      if (piece == null) throw new Error(`The piece ${pieceAddress} is missing.`);
-      return parseJson(piece.bytes, "A stored piece") as Record<string, unknown>;
-    };
-    const recognised = (pieceAddress: Address, value: object): object => {
-      this.addresses.set(value, pieceAddress);
-      return value;
-    };
-    const leaf = (pieceAddress: Address): object => recognised(pieceAddress, read(pieceAddress));
-    const project = read(address);
+    const project = this.read(address);
     const moduleAddresses = textsOf(project.modules);
-    const modules = moduleAddresses.map((moduleAddress) => {
-      const moduleNode = read(moduleAddress);
-      const node = moduleNode.content as Record<string, unknown>;
-      const stages = Object.fromEntries(
-        Object.entries(node.stages as Record<string, Address>).map(([stage, stageAddress]) => {
-          const stored = read(stageAddress);
-          return [stage, recognised(stageAddress, { ...stored, items: textsOf(stored.items).map(leaf) })];
-        }),
-      );
-      return { ...moduleNode, content: { ...node, stages, threads: textsOf(node.threads).map(leaf) } };
-    });
-    const state = parseProject({ ...project, modules });
+    const state = parseProject({ ...project, modules: moduleAddresses.map((moduleAddress) => this.moduleNode(moduleAddress)) });
     state.modules.forEach(({ id, name, archivedAt, content }, index) =>
       this.modules.set(content, { id, name, archivedAt, address: moduleAddresses[index]! }),
     );

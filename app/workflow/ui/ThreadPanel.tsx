@@ -62,7 +62,7 @@ const ThreadPanel = observer(function ThreadPanel({
   onMessageFocused?: () => void;
   onClose?: () => void;
 }) {
-  const { module } = useWorkflowView();
+  const { module, preview } = useWorkflowView();
   const nameOf = useItemName();
   const open = threads.find(({ resolution }) => resolution == null) ?? null;
   const resolved = threads.filter(({ resolution }) => resolution != null);
@@ -160,7 +160,7 @@ const ThreadPanel = observer(function ThreadPanel({
           </Stack>
         </Stack>
       )}
-      {!stageOpen && open != null && (
+      {!stageOpen && preview == null && open != null && (
         <Typography variant="caption" color="text.secondary">
           The stage is closed: the thread takes replies again once the stages it builds on are complete.
         </Typography>

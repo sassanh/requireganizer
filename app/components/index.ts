@@ -1,4 +1,6 @@
+export { default as AttentionOffers } from "./AttentionOffers";
 export { default as HistoryControls } from "./HistoryControls";
+export { default as PreviewControls } from "./PreviewControls";
 export { default as RestorePointsControls } from "./RestorePointsControls";
 export { default as PersistentAlert } from "./PersistentAlert";
 export { default as OutsideChangeDialog } from "./OutsideChangeDialog";

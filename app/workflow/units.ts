@@ -20,6 +20,35 @@ export function parseUnitId(unitId: string): UnitAddress {
   return { kind: "item", itemId: unitId };
 }
 
+/**
+ * Where signing a unit moves the focus: from `from`, among the units its
+ * stage showed before the signature, in `shownBefore`, to the next one,
+ * wrapping around, that is not approved, or with `toWaiting` that waits for
+ * a signature. The page sends it with the signature, so the step records
+ * the move with the change.
+ */
+export interface SignatureFocusMove {
+  from: string;
+  shownBefore: string[];
+  toWaiting: boolean;
+}
+
+/**
+ * The unit now in the place of one that is gone: of the units its stage
+ * showed around it, in `shownBefore`, the next that still exists, else the
+ * nearest before it that does; null for the stage itself, when none does or
+ * the unit was not shown there.
+ */
+export function unitInPlaceOf(unitId: string, shownBefore: readonly string[], exists: (unitId: string) => boolean): string | null {
+  const index = shownBefore.indexOf(unitId);
+  if (index === -1) return null;
+  return (
+    shownBefore.slice(index + 1).find(exists) ??
+    shownBefore.slice(0, index).reverse().find(exists) ??
+    null
+  );
+}
+
 /** Why a unit is not approved, each reason the spec owner is shown. */
 export type NotApprovedReason = "no-signature" | "open-thread" | "out-of-date" | "proposed-removal";
 

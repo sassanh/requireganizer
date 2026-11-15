@@ -3,13 +3,16 @@
 import { Divider, Stack } from "@mui/material";
 import { observer } from "mobx-react-lite";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
+import { noteShownFocus, subscribePlaceRequests } from "lib/placeRequests";
 import { stepHref, unitHref } from "lib/routes";
 import { rememberedStage, rememberStage } from "lib/viewState";
 import { useProject } from "projectContext";
 import { useStore } from "store";
 import { currentEntryKey, currentOpener, type RevealRequest, recordOpener, returnToOpener, StageNavigation, StageView, subscribeToEntries, type WorkflowNavigation, workflowNavigationContext, workflowViewContext } from "workflow/ui";
+
+import { previewMarksOf } from "./previewMarks";
 
 /** The unit or thread message an address focuses, to reveal once it shows. */
 function revealRequestOf(search: URLSearchParams): RevealRequest | null {
@@ -23,7 +26,7 @@ function revealRequestOf(search: URLSearchParams): RevealRequest | null {
 /** The open module: its stages beside the one the page shows. */
 const Factory = observer(function Factory() {
   const store = useStore();
-  const { activeProject, modulesEnabled, activeModuleId } = useProject();
+  const { activeProject, modulesEnabled, activeModuleId, preview, reportFocus, withFocusMove } = useProject();
   const projectId = activeProject?.id ?? "";
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -57,6 +60,40 @@ const Factory = observer(function Factory() {
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
+  // A place asked for from elsewhere on the page, such as after undo, shows in its module and stage, focused.
+  const [stageFocusRequest, setStageFocusRequest] = useState<object | null>(null);
+  useEffect(
+    () =>
+      subscribePlaceRequests(({ place, leavePreview }) => {
+        const query = new URLSearchParams(window.location.search);
+        if (leavePreview) query.delete("preview");
+        if (modulesEnabled) query.set("module", place.moduleId);
+        if (place.unitId == null) {
+          router.push(stepHref(pathname, query.toString(), place.stage), { scroll: false });
+          setRevealRequest(null);
+          setStageFocusRequest({});
+        } else {
+          router.push(unitHref(pathname, query.toString(), { step: place.stage, unit: place.unitId }), { scroll: false });
+          setRevealRequest({ unitId: place.unitId, message: null });
+        }
+      }),
+    [modulesEnabled, pathname, router],
+  );
+
+  // Where the focus is, told to the project once each time it moves.
+  const reported = useRef<string | null>(null);
+  const focused = useMemo(
+    () => (unitId: string | null) => {
+      const place = { moduleId: activeModuleId, stage, unitId };
+      noteShownFocus(place);
+      const key = JSON.stringify(place);
+      if (key === reported.current) return;
+      reported.current = key;
+      reportFocus(place);
+    },
+    [activeModuleId, stage, reportFocus],
+  );
+
   // The entry shown, so the way back to where it was opened from follows the browser's history.
   const entryKey = useSyncExternalStore(subscribeToEntries, currentEntryKey, () => null);
   const opener = useMemo(() => (entryKey == null ? null : currentOpener()), [entryKey]);
@@ -75,11 +112,16 @@ const Factory = observer(function Factory() {
       returnToOpener,
       revealRequest,
       revealed: (request) => setRevealRequest((current) => (current === request ? null : current)),
+      stageFocusRequest,
+      stageFocused: (request) => setStageFocusRequest((current) => (current === request ? null : current)),
+      focused,
+      withFocusMove,
     }),
-    [searchParams, pathname, stage, router, revealRequest, opener],
+    [searchParams, pathname, stage, router, revealRequest, opener, stageFocusRequest, focused, withFocusMove],
   );
 
-  const view = useMemo(() => ({ module: store, workflow }), [store, workflow]);
+  const previewMarks = useMemo(() => (preview == null ? null : previewMarksOf(preview.difference, activeModuleId)), [preview, activeModuleId]);
+  const view = useMemo(() => ({ module: store, workflow, preview: previewMarks }), [store, workflow, previewMarks]);
   return (
     <workflowViewContext.Provider value={view}>
       <workflowNavigationContext.Provider value={navigation}>

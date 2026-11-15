@@ -1,6 +1,6 @@
-import { parseHistory, serializeCanonical, serializeProject } from "storage";
+import { parseProjectRecord, serializeCanonical, serializeProject } from "storage";
 
-import type { HistoryPersistence, PersistenceAdapter, ProjectPersistence, ProjectWrite } from "./adapter";
+import type { PersistenceAdapter, ProjectPersistence, ProjectWrite, RecordPersistence } from "./adapter";
 import {
   PROJECT_DELETE_ERROR_MESSAGE,
   PROJECT_SAVE_ERROR_MESSAGE,
@@ -14,11 +14,11 @@ const DATABASE_VERSION = 1;
 const PROJECTS = "projects";
 /** Each project's bytes, keyed by its id. */
 const DOCUMENTS = "documents";
-/** Each project's history, keyed by its id. */
-const HISTORIES = "histories";
+/** Each project's record, keyed by its id. */
+const RECORDS = "histories";
 /** Each project's pieces, keyed by its id and the piece's address. */
 const PIECES = "pieces";
-const ALL_STORES = [PROJECTS, DOCUMENTS, HISTORIES, PIECES];
+const ALL_STORES = [PROJECTS, DOCUMENTS, RECORDS, PIECES];
 
 interface ProjectRecord extends ProjectMeta {
   createdAt: string;
@@ -46,7 +46,7 @@ function piecesOf(projectId: string): IDBKeyRange {
 
 /**
  * A `PersistenceAdapter` over the browser's IndexedDB. A write stores the
- * project, its pieces, its history and its entry in the project list in one
+ * project, its pieces, its record and its entry in the project list in one
  * transaction, so storage never holds one without the others.
  */
 export class WebPersistenceAdapter implements PersistenceAdapter {
@@ -115,7 +115,7 @@ export class WebPersistenceAdapter implements PersistenceAdapter {
         projects.put(record);
       };
       transaction.objectStore(DOCUMENTS).put(serializeProject(write.state), write.project.id);
-      transaction.objectStore(HISTORIES).put(serializeCanonical(write.written), write.project.id);
+      transaction.objectStore(RECORDS).put(serializeCanonical(write.written), write.project.id);
       const pieces = transaction.objectStore(PIECES);
       for (const [address, bytes] of write.pieces) pieces.put(bytes, [write.project.id, address]);
     });
@@ -156,7 +156,7 @@ export class WebPersistenceAdapter implements PersistenceAdapter {
         await this.transact(ALL_STORES, "readwrite", (transaction) => {
           transaction.objectStore(PROJECTS).delete(projectId);
           transaction.objectStore(DOCUMENTS).delete(projectId);
-          transaction.objectStore(HISTORIES).delete(projectId);
+          transaction.objectStore(RECORDS).delete(projectId);
           transaction.objectStore(PIECES).delete(piecesOf(projectId));
         });
       } catch (error) {
@@ -165,12 +165,12 @@ export class WebPersistenceAdapter implements PersistenceAdapter {
     },
   };
 
-  readonly history: HistoryPersistence = {
+  readonly record: RecordPersistence = {
     load: async (projectId) => {
-      const source = await this.transact([HISTORIES], "readonly", (transaction) =>
-        requestResult(transaction.objectStore(HISTORIES).get(projectId) as IDBRequest<string | undefined>),
+      const source = await this.transact([RECORDS], "readonly", (transaction) =>
+        requestResult(transaction.objectStore(RECORDS).get(projectId) as IDBRequest<string | undefined>),
       );
-      return source == null ? null : parseHistory(JSON.parse(source));
+      return source == null ? null : parseProjectRecord(JSON.parse(source));
     },
     pieceAddresses: async (projectId) => {
       const keys = await this.transact([PIECES], "readonly", (transaction) =>

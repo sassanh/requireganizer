@@ -1,4 +1,5 @@
 import { InvalidJsonError, isRecord } from "lib/json";
+import { type Address, isAddress } from "storage";
 
 import {
   calendarTimeOf,
@@ -10,7 +11,6 @@ import {
   monthsBefore,
   yearKey,
 } from "./calendar";
-import { type Address, isAddress } from "./pieces";
 
 /** A saved state of the project that it can be brought back to. */
 export interface RestorePoint {

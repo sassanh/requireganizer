@@ -28,7 +28,7 @@ const StageNavigation = observer(function StageNavigation({
   selected: string;
   onSelect: (stage: string) => void;
 }) {
-  const { module, workflow } = useWorkflowView();
+  const { module, workflow, preview } = useWorkflowView();
   const summaries = workflow.stageIds.map((stage) => module.stageSummary(stage));
   const needsAttention = summaries.filter(({ open, progress }) => open && progress !== "complete");
   return (
@@ -49,6 +49,7 @@ const StageNavigation = observer(function StageNavigation({
         {summaries.map((summary) => {
           const ProgressIcon = PROGRESS_ICONS[summary.progress];
           const isSelected = summary.stage === selected;
+          const marked = preview?.count(summary.stage) ?? 0;
           const percent = summary.total === 0 ? 0 : (summary.approved / summary.total) * 100;
           return (
             <ListItemButton
@@ -69,6 +70,17 @@ const StageNavigation = observer(function StageNavigation({
                       sx={{ minWidth: 20, px: 0.75, borderRadius: 10, bgcolor: "warning.main", color: "warning.contrastText", fontSize: 12, lineHeight: "20px", textAlign: "center" }}
                     >
                       {summary.threadsWaitingForSpecOwner}
+                    </Box>
+                  </Tooltip>
+                )}
+                {marked > 0 && (
+                  <Tooltip title="What bringing this state back would add, change or remove here">
+                    <Box
+                      component="span"
+                      aria-label={`${marked} marked`}
+                      sx={{ minWidth: 20, px: 0.75, borderRadius: 10, bgcolor: "info.main", color: "info.contrastText", fontSize: 12, lineHeight: "20px", textAlign: "center" }}
+                    >
+                      {marked}
                     </Box>
                   </Tooltip>
                 )}

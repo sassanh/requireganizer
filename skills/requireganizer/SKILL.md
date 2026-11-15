@@ -110,6 +110,18 @@ tool signs.
   counting from 1; it has no code or id before the write.
 - Name an item that no longer exists by what it said, never by a code.
 
+## Pointing the person to a unit
+
+- When one item, coverage or impact needs the person's attention, pass
+  `pointTo` with `write_items` or `reply_to_thread`: `item` as its code, or
+  `Module name/CODE` for another module's; for its coverage or impact, add
+  `unit` and the `stage` that holds it; for an item the same write adds,
+  `change` instead of `item`, the place of its add change among the
+  changes, counting from 1. Give `text`, at most 80 characters, saying why.
+- The person is offered a way to go there; their focus stays where it is.
+- A pointer that names nothing, names a change that adds no item, or has no
+  text or a longer one refuses the whole call, which changes nothing.
+
 ## Where the person works
 
 The server instructions give the page's address. Point the person there to

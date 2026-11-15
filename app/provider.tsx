@@ -12,12 +12,13 @@ import { NoticeHost } from "components/NoticeHost";
 import PersistentAlert from "components/PersistentAlert";
 import { connectWebSocket, linkInProcess, linkUrlFor } from "connection";
 import { PROJECT_HOST_LOCATION } from "deployment";
+import type { ListedRestorePoint } from "history";
 import { browserAiSettings } from "lib/aiSettingsStorage";
 import { webPersistence } from "persistence";
 import { type ConnectionStatus, ProjectClient } from "project-client";
 import { ProjectHost } from "project-host";
-import { moduleSummaries, ProjectSession } from "project-session";
-import { type ExportOptions, type ListedRestorePoint, webProjectAuthority } from "storage";
+import { type AttentionOffer, moduleSummaries, ProjectSession } from "project-session";
+import { type ExportOptions, webProjectAuthority } from "storage";
 import { storeContext } from "store";
 
 import { projectContext, type ProjectContextValue } from "./projectContext";
@@ -68,6 +69,8 @@ function exportFileName(projectName: string, restorePoint?: ListedRestorePoint):
 }
 
 let isStoreReloadNeeded = true;
+
+const NO_OFFERS: AttentionOffer[] = [];
 
 /**
  * Values the providers below hand to every component that reads them, made
@@ -128,7 +131,10 @@ export default function Providers({ children }: { children: React.ReactNode }) {
   const { status, activeProject, persistenceError, outsideChange, registry, store } =
     sessionState;
   const projectName = activeProject?.name ?? null;
-  const history = sessionState.status === "ready" ? sessionState.history : null;
+  const preview = useSyncExternalStore(client.subscribe, client.getPreview, client.getPreview);
+  // A preview is no place in the history, so it has nothing to undo or redo.
+  const history = sessionState.status === "ready" && preview == null ? sessionState.history : null;
+  const offers = sessionState.status === "ready" ? sessionState.offers : NO_OFFERS;
   const { storage } = useSyncExternalStore(
     client.subscribe,
     client.getHostInfo,
@@ -189,8 +195,17 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     undo: client.undo,
     redo: client.redo,
     listSteps: client.listSteps,
-    bringBackStep: client.bringBackStep,
+    goTo: client.goTo,
     listRestorePoints: client.listRestorePoints,
+    differenceFromNow: client.differenceFromNow,
+    preview,
+    openPreview: client.openPreview,
+    closePreview: client.closePreview,
+    offers,
+    dismissOffer: client.dismissOffer,
+    reportFocus: client.reportFocus,
+    withFocusMove: client.withFocusMove,
+    moduleStore: client.moduleStore,
     makeRestorePoint: client.makeRestorePoint,
     restoreToRestorePoint: client.restoreToRestorePoint,
     pinRestorePoint: client.pinRestorePoint,
@@ -216,7 +231,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     importNewProject: client.importNewProject,
     importProjectFile: client.importProjectFile,
     exportProject,
-  }), [client, status, activeProject, persistenceError, outsideChange, history, storage, registry, exportProject]);
+  }), [client, status, activeProject, persistenceError, outsideChange, history, preview, offers, storage, registry, exportProject]);
 
   return (
     <projectContext.Provider value={contextValue}>

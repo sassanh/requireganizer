@@ -6,12 +6,82 @@ import { notify } from "components/notices";
 import { getUserFacingErrorMessage } from "lib/errors";
 
 import type { Workflow } from "../definition";
-import type { WorkflowModule } from "../module";
+import type { UnitState, WorkflowModule } from "../module";
+import type { ItemVersion } from "../records";
+import type { SignatureFocusMove } from "../units";
 
-/** The module the page shows and the workflow it follows. */
+/** How bringing an earlier state back would change a unit it shows. */
+export type UnitMark =
+  | { change: "add" }
+  | {
+      change: "change";
+      content: boolean;
+      signature: boolean;
+      threads: boolean;
+      /** For an item in another place in its stage: its label there and now. */
+      place: { then: string; now: string } | null;
+      versionNow: ItemVersion | null;
+    };
+
+/** How bringing an earlier state back would change a thread on a unit neither state holds. */
+export interface ThreadMark {
+  /** The unit it was on. */
+  unitId: string;
+  /** The name its unit had when it was removed. */
+  label: string;
+  /** What its unit said when it was removed. */
+  text: string;
+  messagesAdded: readonly string[];
+  messagesRemoved: readonly string[];
+  resolutionDiffers: boolean;
+  /** Whether the earlier state lacks the thread, which bringing it back would remove. */
+  onlyNow: boolean;
+}
+
+/** A unit bringing an earlier state back would remove, which the earlier state lacks: shown where the project shows it now. */
+export interface RemovedUnitMark {
+  unitId: string;
+  unitKind: UnitState["kind"];
+  itemKind: string | null;
+  label: string;
+  textNow: string;
+  /** The unit it follows; null at the start of its stage. */
+  after: string | null;
+}
+
+/** What a preview of an earlier state marks in the module it shows. */
+export interface PreviewMarks {
+  /** How bringing the state back would change a unit it shows; null for one it leaves as it is. */
+  of(unitId: string): UnitMark | null;
+  /** The units of a stage it would remove. */
+  removed(stage: string): readonly RemovedUnitMark[];
+  /** The threads of a stage on units neither state holds that it would change, in order. */
+  threads(stage: string): readonly (ThreadMark & { threadId: string })[];
+  /** How many units and threads of a stage are marked. */
+  count(stage: string): number;
+}
+
+/** A stage's units as a preview shows them: those of its state, with each one it would remove after the unit it follows. */
+export function shownWithRemoved(shown: readonly string[], removed: readonly RemovedUnitMark[]): string[] {
+  const placed = [...shown];
+  for (const mark of removed) {
+    const index = mark.after == null ? -1 : placed.indexOf(mark.after);
+    let at = index + 1;
+    while (at < placed.length && removed.some((other) => other.unitId === placed[at] && other.after === mark.after)) at += 1;
+    placed.splice(at, 0, mark.unitId);
+  }
+  return placed;
+}
+
+/**
+ * The module the page shows and the workflow it follows. With `preview`,
+ * the module is an earlier state of itself: nothing in it can be changed,
+ * and what bringing it back would add, change or remove is marked.
+ */
 export interface WorkflowView {
   module: WorkflowModule;
   workflow: Workflow;
+  preview: PreviewMarks | null;
 }
 
 export const workflowViewContext = createContext<WorkflowView | null>(null);
@@ -83,6 +153,13 @@ export interface WorkflowNavigation {
   /** The unit to reveal, until the page has revealed it. */
   revealRequest: RevealRequest | null;
   revealed(request: RevealRequest): void;
+  /** A request to give the stage itself the focus, until the page has. */
+  stageFocusRequest: object | null;
+  stageFocused(request: object): void;
+  /** The focus moved to a unit of the stage shown, or to the stage itself for null. */
+  focused(unitId: string | null): void;
+  /** Make a change that sends `move` with it; resolves to the unit the change moved the focus to, null for none. */
+  withFocusMove(move: SignatureFocusMove, run: () => unknown): Promise<string | null>;
 }
 
 export const workflowNavigationContext = createContext<WorkflowNavigation | null>(null);

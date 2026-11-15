@@ -1,18 +1,22 @@
 import { UserFacingError } from "lib/errors";
 import { InvalidJsonError, isRecord } from "lib/json";
+import { type Address, isAddress } from "storage";
 
 import { isTimeZone } from "./calendar";
 import type { StateDifference } from "./difference";
-import { type Address, isAddress } from "./pieces";
+import { type FocusPlace, isFocusPlace } from "./focus";
 import { AUTOMATIC_RESTORE_POINT_INTERVAL_MS, parseRestorePoint, type RestorePoint } from "./restorePoints";
 
-/** What a change to the project was, as its step names it. */
+/**
+ * What a change to the project was, as its step names it. The first five
+ * are made on items, coverages and impacts; the rest on the whole project.
+ */
 export type ChangeKind =
   | "edit"
   | "signature"
   | "thread message"
   | "thread resolution"
-  | "coding agent write"
+  | "write of items"
   | "restore"
   | "import"
   | "opening a changed project"
@@ -23,17 +27,40 @@ const CHANGE_KINDS: readonly ChangeKind[] = [
   "signature",
   "thread message",
   "thread resolution",
-  "coding agent write",
+  "write of items",
   "restore",
   "import",
   "opening a changed project",
   "module change",
 ];
 
+const WHOLE_PROJECT_KINDS: ReadonlySet<ChangeKind> = new Set<ChangeKind>([
+  "restore",
+  "import",
+  "opening a changed project",
+  "module change",
+]);
+
+/** Whether a change of this kind is made on the whole project rather than on its items, coverages and impacts. */
+export function changesWholeProject(kind: ChangeKind): boolean {
+  return WHOLE_PROJECT_KINDS.has(kind);
+}
+
 /**
- * One change to the project: the states before and after it, and where it
- * sits in the undo tree. A change made after an undo is a new child of the
- * step undo went back to, so the undone branch stays.
+ * Who made a change, with where it sent the spec owner: the spec owner,
+ * with where the change moved their focus, or null when it did not move
+ * it; or the coding agent, with what it named for the spec owner's
+ * attention, or null when it named nothing.
+ */
+export type StepAuthor =
+  | { kind: "spec owner"; movedFocusTo: FocusPlace | null }
+  | { kind: "coding agent"; named: FocusPlace | null };
+
+/**
+ * One change to the project: the states before and after it, who made it,
+ * where the spec owner's focus was when it was made, and where it sits in
+ * the undo tree. A change made after an undo, or after going to a step, is
+ * a new child of the step the project is at, so the branch it left stays.
  */
 export interface HistoryStep {
   id: string;
@@ -41,29 +68,28 @@ export interface HistoryStep {
   sequence: number;
   /** The step the project was at when this one was made; null for none, or once that step gave way. */
   parent: string | null;
-  /** The child undo last left this step from, which redo follows; null while undo never did. */
+  /** The child toward the step after this one the project was most recently at, which redo follows; null while none is known. */
   redoChild: string | null;
   before: Address;
   after: Address;
   at: string;
   kind: ChangeKind;
+  by: StepAuthor;
+  /** Where the spec owner's focus was when the change was made; null when no page had reported it. */
+  focus: FocusPlace | null;
 }
 
-/**
- * What a project keeps beside itself: its undo tree and the state it is at,
- * its restore points, the state storage last held for certain, and the
- * state being written while a write is under way.
- */
+/** What a project keeps of its past: its undo tree, the state it is at, and its restore points. */
 export interface ProjectHistory {
   /** Oldest first. */
   steps: HistoryStep[];
   /** The step the project is at; null when it is at the state before every kept step. */
   current: string | null;
-  /** The step undo last left the start from, which redo follows from there; null while undo never did. */
+  /** The first step toward the step the project was most recently at, which redo follows from the start; null while none is known. */
   redoFromStart: string | null;
   /**
-   * The state the project is at: set by every change, undo, redo and
-   * opening, so it is the state shown even where a step's `before` differs
+   * The state the project is at: set by every change, undo, redo, going
+   * to a step and opening, so it is the state shown even where a step's `before` differs
    * from its parent's `after`. Null before the project was first opened.
    */
   currentState: Address | null;
@@ -73,8 +99,6 @@ export interface ProjectHistory {
   newestRestorePointAt: string | null;
   /** The IANA time zone the keeping rule reads calendar periods in; null until a page reported one. */
   timeZone: string | null;
-  lastWritten: Address | null;
-  writing: Address | null;
 }
 
 /** The newest steps kept; older ones give way. */
@@ -88,19 +112,16 @@ export const EMPTY_HISTORY: ProjectHistory = {
   restorePoints: [],
   newestRestorePointAt: null,
   timeZone: null,
-  lastWritten: null,
-  writing: null,
 };
 
 /**
- * The states undo, redo and bringing back a step reach, and those storage
- * holds or is being given: a session holds their pieces in memory, so these
- * moves are synchronous.
+ * The states undo, redo and going to a step reach: a session holds
+ * their pieces in memory, so these moves are synchronous.
  */
 export function heldStates(history: ProjectHistory): Address[] {
   return [
     ...history.steps.flatMap(({ before, after }) => [before, after]),
-    ...[history.currentState, history.lastWritten, history.writing].filter((address) => address != null),
+    ...(history.currentState == null ? [] : [history.currentState]),
   ];
 }
 
@@ -169,10 +190,42 @@ export function withStep(
   });
 }
 
-/** Where undo or redo moves: the history after it, and the state it brings back. */
-export interface HistoryMove {
-  history: ProjectHistory;
-  state: Address;
+/**
+ * Where undo, redo or going to a step moves: for undo and redo, the step it
+ * takes back or makes again; the history after it, and the state it brings
+ * back. None of them records a step.
+ */
+export type HistoryMove = { history: ProjectHistory; state: Address } & (
+  | { direction: "undo" | "redo"; step: HistoryStep }
+  | { direction: "go to" }
+);
+
+/**
+ * A state the list of steps goes to: after a kept step, or at the start,
+ * before the oldest kept step, which `id` names, so the start it names is
+ * no longer kept once that step gives way.
+ */
+export type StepListTarget = { kind: "step"; id: string } | { kind: "start"; id: string };
+
+/**
+ * The history once the project was at a step: each step before it, and the
+ * start, lead redo toward it, as the steps after them the project was most
+ * recently at. The same history for none.
+ */
+function withVisited(history: ProjectHistory, id: string | null): ProjectHistory {
+  const byId = new Map(history.steps.map((step) => [step.id, step]));
+  const redoChildren = new Map<string, string>();
+  let redoFromStart = history.redoFromStart;
+  for (let step = id == null ? undefined : byId.get(id); step != null; step = step.parent == null ? undefined : byId.get(step.parent)) {
+    if (step.parent == null) redoFromStart = step.id;
+    else redoChildren.set(step.parent, step.id);
+  }
+  if (redoChildren.size === 0 && redoFromStart === history.redoFromStart) return history;
+  return {
+    ...history,
+    steps: history.steps.map((step) => (redoChildren.has(step.id) ? { ...step, redoChild: redoChildren.get(step.id)! } : step)),
+    redoFromStart,
+  };
 }
 
 /** Undo the current step: back to its `before`, at its parent. Null with nothing to undo. */
@@ -180,31 +233,49 @@ export function undoMove(history: ProjectHistory): HistoryMove | null {
   const step = stepNamed(history, history.current);
   if (step == null) return null;
   return {
-    history: {
-      ...history,
-      steps:
-        step.parent == null
-          ? history.steps
-          : history.steps.map((entry) => (entry.id === step.parent ? { ...entry, redoChild: step.id } : entry)),
-      current: step.parent,
-      redoFromStart: step.parent == null ? step.id : history.redoFromStart,
-      currentState: step.before,
-    },
+    direction: "undo",
+    step,
+    history: { ...withVisited(history, step.id), current: step.parent, currentState: step.before },
     state: step.before,
   };
 }
 
-/** The step redo would bring back: the child undo last left the current step, or the start, from. */
+/**
+ * Go to a kept step, on any branch, to its `after`, at it; or to the start,
+ * before the oldest kept step, at none. Redo then leads from each step
+ * before it toward it, and from it toward where the project was before
+ * going. Throws when that state is no longer kept.
+ */
+export function goToMove(history: ProjectHistory, target: StepListTarget): HistoryMove {
+  const left = withVisited(history, history.current);
+  if (target.kind === "start") {
+    const state = startState(history, target.id);
+    return { direction: "go to", history: { ...left, current: null, currentState: state }, state };
+  }
+  const step = keptStep(history, target.id);
+  return { direction: "go to", history: { ...withVisited(left, step.id), current: step.id, currentState: step.after }, state: step.after };
+}
+
+/** The state before the oldest kept step, while `oldestStep` names it; throws once that step gave way. */
+export function startState(history: ProjectHistory, oldestStep: string): Address {
+  const oldest = history.steps[0];
+  if (oldest?.id !== oldestStep) throw new UserFacingError("That earlier state is no longer kept. Open the history again.");
+  return oldest.before;
+}
+
+/** The step redo would bring back: the child of the current step, or of the start, toward where the project was most recently. */
 function redoTarget(history: ProjectHistory): HistoryStep | null {
   const from = history.current == null ? history.redoFromStart : stepNamed(history, history.current)?.redoChild;
   const step = stepNamed(history, from ?? null);
   return step != null && step.parent === history.current ? step : null;
 }
 
-/** Redo the step undo last left: forward to its `after`. Null with nothing to redo. */
+/** Redo the step after the current one the project was most recently at: forward to its `after`. Null with nothing to redo. */
 export function redoMove(history: ProjectHistory): HistoryMove | null {
   const step = redoTarget(history);
-  return step == null ? null : { history: { ...history, current: step.id, currentState: step.after }, state: step.after };
+  return step == null
+    ? null
+    : { direction: "redo", step, history: { ...history, current: step.id, currentState: step.after }, state: step.after };
 }
 
 /** What the interface shows of where the project is in its history. */
@@ -213,16 +284,23 @@ export interface HistoryPosition {
   canRedo: boolean;
   /** Changes whenever the listed steps do. */
   currentStep: string | null;
+  /** The restore points kept, by id; changes whenever one is made or let go of. */
+  restorePoints: string;
 }
 
 export function historyPosition(history: ProjectHistory): HistoryPosition {
-  return { canUndo: history.current != null, canRedo: redoTarget(history) != null, currentStep: history.current };
+  return {
+    canUndo: history.current != null,
+    canRedo: redoTarget(history) != null,
+    currentStep: history.current,
+    restorePoints: history.restorePoints.map(({ id }) => id).join(" "),
+  };
 }
 
 /**
- * Where a step stands: the current one, one undo went back over (redo
- * brings these back, oldest first), one before the current step, or one on
- * another branch, which only bringing it back reaches.
+ * Where a step stands: the current one, one redo brings back (oldest
+ * first), one before the current step, or one on another branch, which
+ * only going to it reaches.
  */
 export type StepPlace = "current" | "done" | "undone" | "other branch";
 
@@ -230,13 +308,22 @@ export interface ListedStep {
   id: string;
   at: string;
   kind: ChangeKind;
+  by: StepAuthor["kind"];
   place: StepPlace;
-  /** How the project as it was after the step differs from the project now; null when that state cannot be read. */
-  difference: StateDifference | null;
+  /** What the step added, changed or removed; null when its states cannot be read. */
+  change: StateDifference | null;
 }
 
-/** Every kept step, newest first, with where it stands and how the project after it differs from now. */
-export function listedSteps(history: ProjectHistory, differenceFromNow: (state: Address) => StateDifference | null): ListedStep[] {
+/** The list of steps: every kept step, and after them the start, how the project was before the oldest of them. */
+export interface ListedSteps {
+  /** Newest first. */
+  steps: ListedStep[];
+  /** The oldest kept step's id, naming the start, and whether the project is there; null while no step is kept. */
+  start: { id: string; current: boolean } | null;
+}
+
+/** Every kept step, newest first, with where it stands and what it changed, then the start. */
+export function listedSteps(history: ProjectHistory, changeOf: (step: HistoryStep) => StateDifference | null): ListedSteps {
   const places = new Map<string, StepPlace>();
   for (let step = stepNamed(history, history.current); step != null; step = stepNamed(history, step.parent)) {
     places.set(step.id, step.id === history.current ? "current" : "done");
@@ -247,13 +334,17 @@ export function listedSteps(history: ProjectHistory, differenceFromNow: (state: 
     places.set(redo.history.current!, "undone");
     moved = redo.history;
   }
-  return [...history.steps]
-    .reverse()
-    .map(({ id, at, kind, after }) => ({ id, at, kind, place: places.get(id) ?? "other branch", difference: differenceFromNow(after) }));
+  const oldest = history.steps[0];
+  return {
+    steps: [...history.steps]
+      .reverse()
+      .map((step) => ({ id: step.id, at: step.at, kind: step.kind, by: step.by.kind, place: places.get(step.id) ?? "other branch", change: changeOf(step) })),
+    start: oldest == null ? null : { id: oldest.id, current: history.current == null },
+  };
 }
 
 /** The kept step with this id; throws when there is none, such as one that gave way. */
-export function stepToBringBack(history: ProjectHistory, id: string): HistoryStep {
+export function keptStep(history: ProjectHistory, id: string): HistoryStep {
   const step = stepNamed(history, id);
   if (step == null) throw new UserFacingError("That step is no longer kept. Open the history again.");
   return step;
@@ -261,6 +352,22 @@ export function stepToBringBack(history: ProjectHistory, id: string): HistorySte
 
 function isStepId(value: unknown): value is string | null {
   return value === null || typeof value === "string";
+}
+
+function isFocusPlaceOrNull(value: unknown): value is FocusPlace | null {
+  return value === null || isFocusPlace(value);
+}
+
+function isStepAuthor(value: unknown): value is StepAuthor {
+  if (!isRecord(value) || Object.keys(value).length !== 2) return false;
+  switch (value.kind) {
+    case "spec owner":
+      return isFocusPlaceOrNull(value.movedFocusTo);
+    case "coding agent":
+      return isFocusPlaceOrNull(value.named);
+    default:
+      return false;
+  }
 }
 
 function parseStep(value: unknown, index: number): HistoryStep {
@@ -274,7 +381,9 @@ function parseStep(value: unknown, index: number): HistoryStep {
     !isAddress(value.before) ||
     !isAddress(value.after) ||
     typeof value.at !== "string" ||
-    !CHANGE_KINDS.includes(value.kind as ChangeKind)
+    !CHANGE_KINDS.includes(value.kind as ChangeKind) ||
+    !isStepAuthor(value.by) ||
+    !isFocusPlaceOrNull(value.focus)
   ) {
     throw new InvalidJsonError(`${label} of the history is not one Requireganizer records.`);
   }
@@ -287,6 +396,8 @@ function parseStep(value: unknown, index: number): HistoryStep {
     after: value.after,
     at: value.at,
     kind: value.kind as ChangeKind,
+    by: value.by,
+    focus: value.focus,
   };
 }
 
@@ -299,12 +410,8 @@ function parseStep(value: unknown, index: number): HistoryStep {
 export function parseHistory(value: unknown): ProjectHistory {
   if (!isRecord(value) || !Array.isArray(value.steps)) throw new InvalidJsonError("The history must list its steps.");
   if (!Array.isArray(value.restorePoints)) throw new InvalidJsonError("The history must list its restore points.");
-  const address = (key: "currentState" | "lastWritten" | "writing"): Address | null => {
-    const entry = value[key];
-    if (entry === null) return null;
-    if (!isAddress(entry)) throw new InvalidJsonError(`The history's ${key} must be an address or null.`);
-    return entry;
-  };
+  const { currentState } = value;
+  if (!(currentState === null || isAddress(currentState))) throw new InvalidJsonError("The history's currentState must be an address or null.");
   const steps = value.steps.map(parseStep);
   const byId = new Map(steps.map((step) => [step.id, step]));
   if (byId.size !== steps.length) throw new InvalidJsonError("Two steps of the history have one id.");
@@ -350,11 +457,9 @@ export function parseHistory(value: unknown): ProjectHistory {
     steps,
     current: pointer("current"),
     redoFromStart,
-    currentState: address("currentState"),
+    currentState,
     restorePoints,
     newestRestorePointAt,
     timeZone,
-    lastWritten: address("lastWritten"),
-    writing: address("writing"),
   };
 }

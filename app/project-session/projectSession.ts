@@ -1,7 +1,25 @@
 import { applySnapshot, getSnapshot, onSnapshot } from "mobx-state-tree";
 
+import {
+  type ChangeKind,
+  EMPTY_HISTORY,
+  type FocusPlace,
+  HistoryKeeper,
+  isFocusPlace,
+  type HistoryMove,
+  type HistoryPosition,
+  isTimeZone,
+  type ListedRestorePoint,
+  type ListedSteps,
+  type LiveStoreOf,
+  parseHistory,
+  type PreviewTarget,
+  type ProjectHistory,
+  type StateDifference,
+  type StepListTarget,
+} from "history";
 import { getUserFacingErrorMessage, UserFacingError } from "lib/errors";
-import { parseJson } from "lib/json";
+import { InvalidJsonError, parseJson } from "lib/json";
 import {
   assertModuleNameAvailable,
   LEGACY_MODULE_ID,
@@ -14,50 +32,25 @@ import {
   type Address,
   addressOfBytes,
   type AuthorityClaim,
-  automaticRestorePointDue,
-  automaticRestorePointsToDelete,
   type ProjectAuthority,
   buildExport,
-  type ChangeKind,
   childrenOf,
-  EMPTY_HISTORY,
   type ExportOptions,
-  heldStates,
-  type HistoryMove,
-  type HistoryPosition,
-  differenceReader,
-  historyPosition,
-  historyRoots,
-  isTimeZone,
-  keptRestorePoints,
-  listedRestorePoints,
-  type ListedRestorePoint,
-  listedSteps,
-  type ListedStep,
   moduleContentOf,
   type ModuleRegistry,
   type ModuleState,
   type Opening,
   openingOf,
   type OutsideChange,
-  ownTimeZone,
   parseProject,
   type PieceLevel,
   PieceStore,
-  type ProjectHistory,
+  type ProjectRecord,
   projectState,
   type ProjectState,
-  redoMove,
-  type RestorePoint,
   sharedWith,
   type StoredProject,
   storedProjectChange,
-  stepToBringBack,
-  undoMove,
-  withoutRestorePoints,
-  withRestorePoint,
-  withRestorePointPinned,
-  withStep,
 } from "storage";
 import { createModuleStore, Store } from "store";
 import { uuid } from "utilities";
@@ -66,6 +59,19 @@ import { SiblingModuleStores } from "./siblingStores";
 
 /** Streaming mutates the store every ~80ms; coalesce writes behind this delay. */
 export const PROJECT_SAVE_DEBOUNCE_MS = 800;
+
+/**
+ * An item, coverage or impact the coding agent named for the spec owner's
+ * attention, with the text it gave, offered until the spec owner takes or
+ * dismisses it.
+ */
+export interface AttentionOffer {
+  id: string;
+  place: FocusPlace & { unitId: string };
+  text: string;
+  /** The name the coding agent gave. */
+  from: string;
+}
 
 /** One visible module as the interface sees it. */
 export interface ModuleSummary {
@@ -117,6 +123,8 @@ export type ProjectSessionSnapshot =
       persistenceError: string | null;
       outsideChange: OutsideChange | null;
       history: HistoryPosition;
+      /** Oldest first. */
+      offers: AttentionOffer[];
       registry: ModuleRegistry;
       store: Store;
     };
@@ -227,7 +235,8 @@ function importedProject(text: string, fileName: string): ProjectState {
 function snapshotOf(
   state: SessionState,
   outsideChange: OutsideChange | null,
-  history: ProjectHistory,
+  history: HistoryPosition,
+  offers: AttentionOffer[],
 ): ProjectSessionSnapshot {
   switch (state.status) {
     case "idle":
@@ -264,7 +273,8 @@ function snapshotOf(
         activeProject: state.project,
         persistenceError: shownNotice(state.persistenceNotices),
         outsideChange,
-        history: historyPosition(history),
+        history,
+        offers,
         registry: state.registry,
         store: state.store,
       };
@@ -274,24 +284,63 @@ function snapshotOf(
 /**
  * What the last write issued held, so an unchanged project is not written
  * again. Every change to the history replaces one of its fields, so they say
- * whether it changed; which state is written or being written is no change
- * to it.
+ * whether it changed.
  */
 interface IssuedWrite {
   address: Address;
   history: ProjectHistory;
+  offers: readonly AttentionOffer[];
   name: string;
 }
 
-function issuedWriteOf(address: Address, history: ProjectHistory, project: ProjectIdentity): IssuedWrite {
-  return { address, history, name: project.name };
+function issuedWriteOf(address: Address, history: ProjectHistory, offers: readonly AttentionOffer[], project: ProjectIdentity): IssuedWrite {
+  return { address, history, offers, name: project.name };
 }
 
 function sameIssuedWrite(left: IssuedWrite | null, right: IssuedWrite): boolean {
-  if (left == null || left.address !== right.address || left.name !== right.name) return false;
-  return (Object.keys(right.history) as (keyof ProjectHistory)[]).every(
-    (key) => key === "lastWritten" || key === "writing" || left.history[key] === right.history[key],
-  );
+  if (left == null || left.address !== right.address || left.name !== right.name || left.offers !== right.offers) return false;
+  return (Object.keys(right.history) as (keyof ProjectHistory)[]).every((key) => left.history[key] === right.history[key]);
+}
+
+/** Which state storage last held for certain, and the one being written while a write is under way. */
+interface WrittenStates {
+  lastWritten: Address | null;
+  writing: Address | null;
+}
+
+const NOTHING_WRITTEN: WrittenStates = { lastWritten: null, writing: null };
+
+/** The project's history as its record keeps it; null, so the history starts again, when there is none or it cannot be read. */
+function historyOf(record: ProjectRecord | null): ProjectHistory | null {
+  if (record?.history == null) return null;
+  try {
+    return parseHistory(record.history);
+  } catch (error) {
+    console.error("The project's history could not be read; it starts again.", error);
+    return null;
+  }
+}
+
+function isAttentionOffer(value: unknown): value is AttentionOffer {
+  if (value == null || typeof value !== "object") return false;
+  const { id, place, text, from } = value as Record<string, unknown>;
+  return typeof id === "string" && isFocusPlace(place) && place.unitId != null && typeof text === "string" && typeof from === "string";
+}
+
+/** The offers the record keeps, oldest first; none when it keeps none or they cannot be read. */
+function offersOf(record: ProjectRecord | null): AttentionOffer[] {
+  const offers = record?.offers;
+  if (offers == null) return [];
+  if (Array.isArray(offers) && offers.every(isAttentionOffer)) return offers;
+  console.error("The offers of what the coding agent named could not be read; they are dropped.");
+  return [];
+}
+
+/** What the coding agent named for the spec owner's attention within the change running. */
+interface Pointed {
+  place: FocusPlace & { unitId: string };
+  text: string;
+  from: string;
 }
 
 /** The pieces storage keeps for restore points, and the restore points' states they were found from. */
@@ -344,8 +393,8 @@ export class ProjectSession {
   private storedPieces = new Set<Address>();
   /** The last clean-up's finding of what restore points keep, so the next one reads only new restore points' pieces. */
   private restorePointPieces: RestorePointPieces | null = null;
-  private history: ProjectHistory = EMPTY_HISTORY;
-  private nextSequence = 1;
+  private keeper = new HistoryKeeper(this.pieces);
+  private written: WrittenStates = NOTHING_WRITTEN;
   /** Steps or restore points gave way since storage was last cleaned up. */
   private cleanUpDue = false;
   /** The time zone the page last reported, which the history of every project opened takes. */
@@ -353,6 +402,11 @@ export class ProjectSession {
   /** A change is running in the gate; writes it asks for wait until its step is recorded. */
   private changing = false;
   private writeAfterChange = false;
+  /** Where the spec owner's focus is, as their page last reported it; null until it did. */
+  private focus: FocusPlace | null = null;
+  /** What the coding agent named for the spec owner's attention in the change running. */
+  private pointed: Pointed | null = null;
+  private offers: AttentionOffer[] = [];
 
   private unsubscribeStore: (() => void) | null = null;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -383,7 +437,7 @@ export class ProjectSession {
     this.outsideChanges = options.outsideChanges ?? null;
     this.authority = options.authority ?? null;
     this.state = { status: "idle", store: blankStore() };
-    this.snapshot = snapshotOf(this.state, this.outsideChange, this.history);
+    this.snapshot = snapshotOf(this.state, this.outsideChange, this.keeper.position, this.offers);
   }
 
   // Public operations are arrow properties: React context passes them to
@@ -407,7 +461,7 @@ export class ProjectSession {
   }
 
   private publish(): void {
-    this.snapshot = snapshotOf(this.state, this.outsideChange, this.history);
+    this.snapshot = snapshotOf(this.state, this.outsideChange, this.keeper.position, this.offers);
     this.listeners.forEach((listener) => listener());
   }
 
@@ -458,76 +512,104 @@ export class ProjectSession {
 
   /**
    * Run one change to the open project, synchronously, and record it as one
-   * step when the project's state differs afterwards, preceded by an
-   * automatic restore point of the state before it when none was made in
-   * the hour before. Every request that changes the project comes through
-   * here. A change inside another is part of it.
+   * step when the project's state differs afterwards, with who made it and
+   * where the spec owner's focus was. Every request that changes the
+   * project comes through here. A change inside another is part of it.
+   * `movesFocusTo`, read once the change ran, is where a change of the spec
+   * owner's moves their focus, such as a signature to the next unit; the
+   * step records it with the change. What the coding agent names for the
+   * spec owner's attention within its change is offered once it is made.
    */
-  change = <Result>(kind: ChangeKind, run: () => Result): Result => {
+  change = <Result>(
+    kind: ChangeKind,
+    run: () => Result,
+    author: "spec owner" | "coding agent" = "spec owner",
+    movesFocusTo: () => FocusPlace | null = () => null,
+  ): Result => {
     if (this.changing) return run();
     const state = this.changeableState();
     const project = state.project.id;
     const before = this.addressOf(state);
     const startedAt = new Date();
+    const focus = this.focus;
     this.changing = true;
-    let result: Result;
+    this.pointed = null;
+    let made = false;
     try {
-      result = run();
+      const result = run();
+      made = true;
+      return result;
     } finally {
       this.changing = false;
+      const pointed = this.pointed as Pointed | null;
+      this.pointed = null;
       const after = this.readyState();
       if (after != null && after.project.id === project) {
         const address = this.addressOf(after);
+        const movedFocusTo = made && author === "spec owner" ? movesFocusTo() : null;
+        if (movedFocusTo != null) this.focus = movedFocusTo;
         if (address !== before) {
-          if (automaticRestorePointDue(this.history, startedAt)) {
-            this.history = withRestorePoint(this.history, {
-              id: uuid(),
-              state: before,
-              at: startedAt.toISOString(),
-              name: null,
-              pinned: false,
-            });
-            this.applyKeepingRule();
-          }
-          this.recordStep(kind, before, address);
+          this.keeper.record({
+            kind,
+            by: author === "spec owner" ? { kind: "spec owner", movedFocusTo } : { kind: "coding agent", named: made ? (pointed?.place ?? null) : null },
+            focus,
+            before,
+            after: address,
+            startedAt,
+          }, this.liveStores());
+          this.cleanUpDue ||= this.keeper.takeGaveWay();
+          this.scheduleWrite();
         }
+        if (made && pointed != null) {
+          this.offers = [...this.offers, { id: uuid(), ...pointed }];
+          this.scheduleWrite();
+        }
+        if (address !== before || (made && pointed != null)) this.publish();
       }
       if (this.writeAfterChange) {
         this.writeAfterChange = false;
         this.persistProject();
       }
     }
-    return result;
   };
 
-  private recordStep(kind: ChangeKind, before: Address, after: Address): void {
-    const history = withStep(this.history, {
-      id: uuid(),
-      sequence: this.nextSequence,
-      before,
-      after,
-      at: new Date().toISOString(),
-      kind,
-    });
-    this.nextSequence += 1;
-    // Older steps gave way.
-    if (history.steps.length <= this.history.steps.length) this.cleanUpDue = true;
-    this.history = history;
-    this.scheduleWrite();
+  /**
+   * Name an item, coverage or impact for the spec owner's attention, with
+   * the coding agent's text; offered once the coding agent's change running
+   * now is made.
+   */
+  pointOut = (place: FocusPlace & { unitId: string }, text: string, from: string): void => {
+    if (!this.changing) throw new Error("Something is named for the spec owner's attention only within a change.");
+    this.pointed = { place, text, from };
+  };
+
+  /** Take an offer away, once the spec owner took or dismissed it. */
+  dismissOffer = (id: string): void => {
+    if (!this.offers.some((offer) => offer.id === id)) return;
+    this.offers = this.offers.filter((offer) => offer.id !== id);
+    this.persistProject();
     this.publish();
-  }
+  };
 
-  /** The time zone the keeping rule reads calendar periods in: the one a page reported, else this machine's. */
-  private timeZone(): string {
-    return this.history.timeZone ?? ownTimeZone();
-  }
+  /** Where the spec owner's focus is now, as their page reports it. */
+  reportFocus = (place: FocusPlace | null): void => {
+    this.focus = place;
+  };
 
-  /** Let go of the automatic restore points the keeping rule no longer keeps. */
-  private applyKeepingRule(): void {
-    const deleted = automaticRestorePointsToDelete(this.history.restorePoints, new Date(), this.timeZone());
-    if (deleted.size === 0) return;
-    this.history = withoutRestorePoints(this.history, deleted);
-    this.cleanUpDue = true;
+  /** The models the session shows of the open project, for the module versions they hold. */
+  private liveStores(): LiveStoreOf {
+    const state = this.readyState();
+    if (state == null) return () => null;
+    const { registry, store } = state;
+    return (module) => {
+      const entry = registry.modules.find(({ id }) => id === module.id);
+      if (entry == null) return null;
+      if (entry.id === registry.activeModuleId) {
+        return this.pieces.moduleAddressOf({ ...entry, content: moduleContentOf(store) }) === module.address ? store : null;
+      }
+      const sibling = this.siblingStores.storeOf(entry.id);
+      return sibling != null && this.pieces.moduleAddressOf(entry) === module.address ? sibling : null;
+    };
   }
 
   /**
@@ -552,15 +634,17 @@ export class ProjectSession {
     }
     const current = projectState(state.registry, state.store);
     const address = this.pieces.addressOf(current);
-    const history = this.history;
-    const issued = issuedWriteOf(address, history, state.project);
+    const history = this.keeper.history;
+    const offers = this.offers;
+    const issued = issuedWriteOf(address, history, offers, state.project);
     if (sameIssuedWrite(this.issued, issued)) return;
     this.issued = issued;
-    const pieces = [...this.pieces.reachable([address, ...historyRoots(history)])]
+    const pieces = [...this.pieces.reachable([address, ...this.keeper.roots()])]
       .filter((piece) => !this.storedPieces.has(piece))
       .map((piece) => [piece, this.pieces.get(piece)!.bytes] as const);
     for (const [piece] of pieces) this.storedPieces.add(piece);
-    this.history = { ...history, writing: address };
+    const { lastWritten } = this.written;
+    this.written = { ...this.written, writing: address };
     const sequence = ++this.projectWriteSequence;
     const isLatest = (): boolean => sequence === this.projectWriteSequence;
     const generation = this.operationGeneration;
@@ -572,14 +656,14 @@ export class ProjectSession {
         state: current,
         address,
         pieces,
-        writing: { ...history, writing: address },
-        written: { ...history, lastWritten: address, writing: null },
+        writing: { lastWritten, writing: address, history, offers },
+        written: { lastWritten: address, writing: null, history, offers },
         overOutsideChange: over != null,
       })
       .then(
         () => {
           if (this.readyState()?.project.id !== projectId) return;
-          this.history = { ...this.history, lastWritten: address, writing: this.history.writing === address ? null : this.history.writing };
+          this.written = { lastWritten: address, writing: this.written.writing === address ? null : this.written.writing };
           if (!isLatest()) return;
           this.setPersistenceNotice("write", null);
           if (this.cleanUpDue) void this.cleanUp(projectId, generation);
@@ -669,7 +753,7 @@ export class ProjectSession {
             pending.push(...held.children);
             return;
           }
-          const bytes = await this.persistence.history.readPiece(projectId, address);
+          const bytes = await this.persistence.record.readPiece(projectId, address);
           if (bytes == null || (options.hold ? !this.pieces.adopt(address, bytes, level) : addressOfBytes(bytes) !== address)) {
             console.error(`The piece ${address} of the project's history is missing or damaged.`);
             reached.delete(address);
@@ -690,7 +774,7 @@ export class ProjectSession {
    * since are walked.
    */
   private async storedRestorePointPieces(projectId: string, wanted: () => boolean): Promise<ReadonlySet<Address>> {
-    const states = new Set(this.history.restorePoints.map(({ state }) => state));
+    const states = new Set(this.keeper.restorePointStates());
     const known = this.restorePointPieces;
     const found =
       known != null && [...known.states].every((state) => states.has(state))
@@ -715,25 +799,27 @@ export class ProjectSession {
     this.cleanUpDue = false;
     const wanted = (): boolean => this.isOperationCurrent(generation);
     try {
-      await this.walkPieces(projectId, heldStates(this.history), { hold: true, wanted });
+      await this.walkPieces(projectId, this.heldStates(), { hold: true, wanted });
       const stored = await this.storedRestorePointPieces(projectId, wanted);
       const state = this.readyState();
       if (!wanted() || state == null || state.project.id !== projectId) return;
-      const held = this.pieces.reachable([this.addressOf(state), ...heldStates(this.history)]);
+      const held = this.pieces.reachable([this.addressOf(state), ...this.heldStates()]);
       // Restore points made since the walk are held whole.
-      const restorePoints = new Set([
-        ...stored,
-        ...this.pieces.reachable(this.history.restorePoints.map(({ state: address }) => address)),
-      ]);
+      const restorePoints = new Set([...stored, ...this.pieces.reachable(this.keeper.restorePointStates())]);
       const unneeded = [...this.storedPieces].filter((address) => !held.has(address) && !restorePoints.has(address));
       this.pieces.retainOnly(
         new Set([...held, ...[...restorePoints].filter((address) => this.pieces.has(address) && !this.storedPieces.has(address))]),
       );
       for (const address of unneeded) this.storedPieces.delete(address);
-      if (unneeded.length > 0) await this.persistence.history.deletePieces(projectId, unneeded);
+      if (unneeded.length > 0) await this.persistence.record.deletePieces(projectId, unneeded);
     } catch (error) {
       console.error("Could not clean up the project's history.", error);
     }
+  }
+
+  /** The states whose pieces the session holds: those the history moves between, and those storage holds or is being given. */
+  private heldStates(): Address[] {
+    return [...this.keeper.heldStates(), ...[this.written.lastWritten, this.written.writing].filter((address) => address != null)];
   }
 
   /** Hold the project for this session, when sessions share its storage. False while another holds it. */
@@ -870,7 +956,7 @@ export class ProjectSession {
    * Show a state of a project and write it like any other change. The shown
    * module stays shown while the state still has it visible; otherwise, and
    * when the project was not shown yet, its first visible module shows.
-   * Opening, importing, undo, redo and bringing back a step all show a state
+   * Opening, importing, undo, redo and going to a step all show a state
    * this way.
    */
   private showState(project: ProjectIdentity, shown: ProjectState): void {
@@ -950,13 +1036,26 @@ export class ProjectSession {
    * history: the stored state, the state the history is at, or that state
    * with the outside change waiting for the spec owner's choice.
    */
-  private openStored(project: ProjectIdentity, stored: ReadStoredProject, loaded: ProjectHistory | null): void {
+  /** The state at an address the pieces hold whole and today's parser reads; null for one they do not. */
+  private readableState(address: Address): ProjectState | null {
+    if (!this.pieces.holdsWhole(address)) return null;
+    try {
+      return this.pieces.stateAt(address);
+    } catch (error) {
+      if (error instanceof InvalidJsonError) return null;
+      throw error;
+    }
+  }
+
+  private openStored(project: ProjectIdentity, stored: ReadStoredProject, record: ProjectRecord | null, loaded: ProjectHistory | null): void {
     let history = loaded;
-    let opening: Opening<Extract<ReadStoredProject, { kind: "readable" }>> = openingOf(stored, history);
-    if ("current" in opening && !this.pieces.holdsWhole(opening.current)) {
-      console.error("The project's history names a state that is no longer stored; it starts again.");
+    let opening: Opening<Extract<ReadStoredProject, { kind: "readable" }>> = openingOf(stored, record, history?.currentState ?? null);
+    // The state the project was at, as the history keeps it; one no longer stored whole, or not readable, is none.
+    const current = "current" in opening ? this.readableState(opening.current) : null;
+    if ("current" in opening && current == null) {
+      console.error("The project's history names a state that is no longer stored or readable; it starts again.");
       history = null;
-      opening = openingOf(stored, history);
+      opening = openingOf(stored, record, null);
     }
     let shown: ProjectState;
     let shownAddress: Address;
@@ -970,25 +1069,24 @@ export class ProjectSession {
         break;
       case "write current":
       case "outside change":
-        shown = this.pieces.stateAt(opening.current);
+        shown = current!;
         shownAddress = opening.current;
     }
     // Starting, the stored project becomes the one last written, with no steps.
     const kept = opening.kind === "start" || history == null ? EMPTY_HISTORY : history;
-    this.nextSequence = Math.max(0, ...kept.steps.map(({ sequence }) => sequence)) + 1;
+    this.offers = opening.kind === "start" ? [] : offersOf(record);
+    this.written = opening.kind === "start" || record == null ? NOTHING_WRITTEN : { lastWritten: record.lastWritten, writing: record.writing };
     this.outsideChange = opening.kind === "outside change" ? opening.change : null;
-    // A project stored as its history last wrote it is not written again on
+    this.keeper = new HistoryKeeper(this.pieces, { ...kept, currentState: shownAddress, timeZone: this.reportedTimeZone ?? kept.timeZone });
+    this.keeper.applyKeepingRule();
+    this.cleanUpDue ||= this.keeper.takeGaveWay();
+    // A project stored as its record last wrote it is not written again on
     // opening, unless opening changes its history.
     this.issued =
-      opening.kind === "open stored" && kept.writing == null && kept.lastWritten != null
-        ? issuedWriteOf(kept.lastWritten, kept, project)
+      opening.kind === "open stored" && this.written.writing == null && this.written.lastWritten != null
+        ? issuedWriteOf(this.written.lastWritten, kept, this.offers, project)
         : null;
-    this.history = {
-      ...kept,
-      currentState: shownAddress,
-      timeZone: this.reportedTimeZone ?? kept.timeZone,
-    };
-    this.applyKeepingRule();
+    this.focus = null;
     this.showState(project, shown);
   }
 
@@ -1032,17 +1130,19 @@ export class ProjectSession {
       this.pieces = new PieceStore();
       this.restorePointPieces = null;
       const stored = await this.readStoredProject(project);
-      const history = await this.persistence.history.load(project.id).catch((error: unknown) => {
-        console.error("The project's history could not be read; it starts again.", error);
+      const record = await this.persistence.record.load(project.id).catch((error: unknown) => {
+        console.error("The project's record could not be read; its history starts again.", error);
         return null;
       });
-      const storedPieces = await this.persistence.history.pieceAddresses(project.id);
+      const history = historyOf(record);
+      const storedPieces = await this.persistence.record.pieceAddresses(project.id);
       if (!this.isOperationCurrent(generation)) return;
       this.storedPieces = new Set(storedPieces);
-      // Undo, redo and bringing back a step are synchronous, so every held
+      // Undo, redo and going to a step are synchronous, so every held
       // state is held first; restore points are read when restored.
-      this.history = history ?? EMPTY_HISTORY;
-      await this.walkPieces(project.id, heldStates(this.history), {
+      this.keeper = new HistoryKeeper(this.pieces, history ?? EMPTY_HISTORY);
+      this.written = record == null ? NOTHING_WRITTEN : { lastWritten: record.lastWritten, writing: record.writing };
+      await this.walkPieces(project.id, this.heldStates(), {
         hold: true,
         wanted: () => this.isOperationCurrent(generation),
       }).catch((error: unknown) => {
@@ -1050,7 +1150,7 @@ export class ProjectSession {
         console.error("Some pieces of the project's history could not be read.", error);
       });
       if (!this.isOperationCurrent(generation)) return;
-      this.openStored(project, stored, history);
+      this.openStored(project, stored, record, history);
       void this.cleanUp(project.id, this.operationGeneration);
     } catch (error) {
       if (!this.isOperationCurrent(generation)) return;
@@ -1174,7 +1274,7 @@ export class ProjectSession {
     }
     if (stored.kind !== "readable") {
       // It changed again meanwhile, into one that cannot be opened.
-      this.outsideChange = storedProjectChange(stored, this.history);
+      this.outsideChange = storedProjectChange(stored, { ...this.written, history: null, offers: null });
       this.publish();
       throw new UserFacingError(stored.kind === "missing" ? `${this.persistence.traits.name} was removed.` : stored.problem);
     }
@@ -1219,8 +1319,10 @@ export class ProjectSession {
     if (this.readyState()?.project.id !== state.project.id) return;
     this.outsideChange = null;
     this.issued = null;
-    this.history = EMPTY_HISTORY;
     this.pieces = new PieceStore();
+    this.keeper = new HistoryKeeper(this.pieces);
+    this.written = NOTHING_WRITTEN;
+    this.offers = [];
     this.storedPieces = new Set();
     this.restorePointPieces = null;
     this.closeProject({ write: false });
@@ -1235,53 +1337,85 @@ export class ProjectSession {
     return state;
   }
 
-  /** Undo the current step, bringing back the project as it was before it. Undo is not itself a step. */
-  undo = (): void => {
-    this.move(undoMove(this.history));
-  };
+  /**
+   * Undo the current step, bringing back the project as it was before it.
+   * Undo is not itself a step. Resolves to where the focus goes, or null to
+   * leave it where it is.
+   */
+  undo = (): FocusPlace | null => this.move(this.keeper.undo());
 
-  /** Redo the step undo last left, bringing back the project as it was after it. */
-  redo = (): void => {
-    this.move(redoMove(this.history));
-  };
+  /** Redo the step after the current one the project was most recently at, bringing back the project as it was after it; resolves as undo does. */
+  redo = (): FocusPlace | null => this.move(this.keeper.redo());
 
-  private move(move: HistoryMove | null): void {
+  private move(move: HistoryMove | null): FocusPlace | null {
     const state = this.changeableState();
-    if (move == null) return;
+    if (move == null) return null;
     const shown = this.keptState(move.state);
     // What waits for the debounce is the project as it was before the move, which the move's own write replaces.
     this.dropPendingWrite();
-    this.history = move.history;
+    this.keeper.prepareMove(move, this.liveStores());
     this.showState(state.project, shown);
+    const focus = this.keeper.commitMove(move, this.liveStores());
+    this.focus = focus ?? this.focus;
+    this.scheduleWrite();
+    this.publish();
+    return focus;
   }
 
-  /** Every kept step, newest first, with where each stands and how the project after it differs from now. */
-  listSteps = (): ListedStep[] => {
-    const { currentState } = this.history;
-    if (this.readyState() == null || currentState == null) return [];
-    return listedSteps(this.history, differenceReader(this.pieces, currentState));
-  };
+  /** Every kept step, newest first, with where each stands and what it added, changed or removed, then the start. */
+  listSteps = (): ListedSteps => (this.readyState() == null ? { steps: [], start: null } : this.keeper.listSteps(this.liveStores()));
 
   /**
-   * Bring the project back as it was after a kept step, on any branch. Run
-   * inside the gate as a restore, it is itself a step undo takes back.
+   * Go to how the project was after a kept step, on any branch, or before
+   * the oldest of them. Like undo and redo it moves within the history and
+   * is not itself a step; it leaves the focus where it is.
    */
-  bringBackStep = (stepId: string): void => {
-    const state = this.changeableState();
-    this.showState(state.project, this.keptState(stepToBringBack(this.history, stepId).after));
+  goTo = (target: StepListTarget): void => {
+    this.move(this.keeper.goTo(target));
   };
 
   /** The restore points the keeping rule keeps now, newest first. */
-  listRestorePoints = (): ListedRestorePoint[] =>
-    this.readyState() == null ? [] : listedRestorePoints(this.history.restorePoints, new Date(), this.timeZone());
+  listRestorePoints = (): ListedRestorePoint[] => (this.readyState() == null ? [] : this.keeper.listRestorePoints());
 
-  /** A restore point the keeping rule keeps now; throws when there is none, such as one deleted meanwhile. */
-  private keptRestorePoint(id: string): RestorePoint {
-    const point = keptRestorePoints(this.history.restorePoints, new Date(), this.timeZone()).find(
-      (entry) => entry.id === id,
-    );
-    if (point == null) throw new UserFacingError("That restore point is no longer kept. Open the list again.");
-    return point;
+  /**
+   * The project as it was after a kept step or at a restore point, with what
+   * bringing it back would add, change or remove, changing nothing. Throws
+   * for the spec owner when that state is no longer kept.
+   */
+  preview = async (target: PreviewTarget): Promise<{ state: ProjectState; difference: StateDifference }> => {
+    const address = await this.earlierState(target, "shown", "That earlier state is no longer kept, so the project shows as it is now.");
+    return { state: this.keptState(address), difference: this.differenceFromNowOf(address, "shown") };
+  };
+
+  /** What bringing back the project as it was after a kept step or at a restore point would add, change or remove, changing nothing. */
+  differenceFromNow = async (target: PreviewTarget): Promise<StateDifference> =>
+    this.differenceFromNowOf(await this.earlierState(target, "compared"), "compared");
+
+  /**
+   * The state after a kept step, before the oldest of them, or at a kept
+   * restore point, with all its
+   * pieces held. Throws for the spec owner when the project is not open,
+   * and when the state is no longer kept, saying so with `noLongerKept`
+   * where given; `doing` names what cannot be done.
+   */
+  private async earlierState(target: PreviewTarget, doing: string, noLongerKept: string | null = null): Promise<Address> {
+    const state = this.readyState();
+    if (state == null) throw new UserFacingError("The project is not open yet. Try again in a moment.");
+    let address: Address | null;
+    try {
+      address = target.kind === "restore point" ? await this.heldRestorePoint(state.project.id, target.id, doing) : this.keeper.previewState(target);
+    } catch (error) {
+      if (noLongerKept == null) throw error;
+      throw new UserFacingError(noLongerKept, error);
+    }
+    if (address == null) throw new UserFacingError(`The project was closed before the earlier state could be ${doing}.`);
+    return address;
+  }
+
+  private differenceFromNowOf(address: Address, doing: string): StateDifference {
+    const difference = this.keeper.differenceFromNow(address, this.liveStores());
+    if (difference == null) throw new UserFacingError(`That earlier state is no longer stored, so it cannot be ${doing}.`);
+    return difference;
   }
 
   /**
@@ -1290,7 +1424,7 @@ export class ProjectSession {
    * names what cannot be done when storage lost one of them.
    */
   private async heldRestorePoint(projectId: string, id: string, doing: string): Promise<Address | null> {
-    const { state: address } = this.keptRestorePoint(id);
+    const { state: address } = this.keeper.restorePoint(id);
     const wanted = (): boolean => this.readyState()?.project.id === projectId;
     // A clean-up meanwhile may let go of pieces only restore points keep, so they are read until all are held at once.
     while (!this.pieces.holdsWhole(address)) {
@@ -1302,8 +1436,8 @@ export class ProjectSession {
   }
 
   /** Change the history beside the project, not the project itself, and write it. */
-  private changeHistory(history: ProjectHistory): void {
-    this.history = history;
+  private historyChanged(): void {
+    this.cleanUpDue ||= this.keeper.takeGaveWay();
     this.persistProject();
     this.publish();
   }
@@ -1313,15 +1447,8 @@ export class ProjectSession {
     const state = this.changeableState();
     const trimmed = name.trim();
     if (trimmed.length === 0) throw new UserFacingError("Name the restore point.");
-    this.changeHistory(
-      withRestorePoint(this.history, {
-        id: uuid(),
-        state: this.addressOf(state),
-        at: new Date().toISOString(),
-        name: trimmed,
-        pinned: false,
-      }),
-    );
+    this.keeper.makeRestorePoint({ id: uuid(), state: this.addressOf(state), at: new Date().toISOString(), name: trimmed, pinned: false });
+    this.historyChanged();
   };
 
   /**
@@ -1335,31 +1462,28 @@ export class ProjectSession {
     if (address == null) return;
     this.change("restore", () => {
       const current = this.changeableState();
-      this.keptRestorePoint(id);
+      this.keeper.restorePoint(id);
       this.showState(current.project, this.keptState(address));
     });
   };
 
   pinRestorePoint = (id: string): void => {
     this.changeableState();
-    this.keptRestorePoint(id);
-    this.changeHistory(withRestorePointPinned(this.history, id, true));
+    this.keeper.pinRestorePoint(id);
+    this.historyChanged();
   };
 
   /** Unpinned, an automatic restore point is kept by the keeping rule again, which may let go of it at once. */
   unpinRestorePoint = (id: string): void => {
     this.changeableState();
-    this.keptRestorePoint(id);
-    this.history = withRestorePointPinned(this.history, id, false);
-    this.applyKeepingRule();
-    this.changeHistory(this.history);
+    this.keeper.unpinRestorePoint(id);
+    this.historyChanged();
   };
 
   deleteRestorePoint = (id: string): void => {
     this.changeableState();
-    this.keptRestorePoint(id);
-    this.cleanUpDue = true;
-    this.changeHistory(withoutRestorePoints(this.history, new Set([id])));
+    this.keeper.deleteRestorePoint(id);
+    this.historyChanged();
   };
 
   /**
@@ -1370,8 +1494,8 @@ export class ProjectSession {
   reportTimeZone = (timeZone: string): void => {
     if (!isTimeZone(timeZone)) throw new UserFacingError(`${timeZone} is not a time zone.`);
     this.reportedTimeZone = timeZone;
-    if (this.readyState() == null || this.history.timeZone === timeZone) return;
-    this.changeHistory({ ...this.history, timeZone });
+    if (this.readyState() == null || !this.keeper.takeTimeZone(timeZone)) return;
+    this.historyChanged();
   };
 
   /**
@@ -1557,7 +1681,7 @@ export class ProjectSession {
     return project;
   };
 
-  /** Store a project storage does not hold yet, with a history that names it as written. */
+  /** Store a project storage does not hold yet, with a record that names it as written. */
   private storeNewProject(project: ProjectIdentity, state: ProjectState): Promise<void> {
     const pieces = new PieceStore();
     const address = pieces.addressOf(state);
@@ -1567,8 +1691,8 @@ export class ProjectSession {
       state,
       address,
       pieces: [...pieces.reachable([address])].map((piece) => [piece, pieces.get(piece)!.bytes] as const),
-      writing: { ...history, writing: address },
-      written: { ...history, lastWritten: address },
+      writing: { lastWritten: null, writing: address, history, offers: [] },
+      written: { lastWritten: address, writing: null, history, offers: [] },
       overOutsideChange: false,
     });
   }

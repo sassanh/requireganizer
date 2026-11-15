@@ -1,5 +1,5 @@
-import type { ProjectHistory } from "./history";
 import type { Address } from "./pieces";
+import type { ProjectRecord } from "./record";
 
 /** The stored project as read: missing, unreadable with the reason, or a state with its address. */
 export type StoredProject =
@@ -20,18 +20,18 @@ export type OutsideChange = { kind: "changed"; problem: string | null } | { kind
  * Requireganizer. It is unchanged while its state is the one last written or
  * the one being written, however its bytes are laid out. One that cannot be
  * read is a change, with the reason; a missing one is a removal once
- * Requireganizer wrote it. Without a history there is nothing it could have
+ * Requireganizer wrote it. Without a record there is nothing it could have
  * changed from.
  */
-export function storedProjectChange(stored: StoredProject, history: ProjectHistory | null): OutsideChange | null {
-  if (history == null) return null;
+export function storedProjectChange(stored: StoredProject, record: ProjectRecord | null): OutsideChange | null {
+  if (record == null) return null;
   switch (stored.kind) {
     case "missing":
-      return history.lastWritten == null ? null : { kind: "removed" };
+      return record.lastWritten == null ? null : { kind: "removed" };
     case "unreadable":
       return { kind: "changed", problem: stored.problem };
     case "readable":
-      return stored.address === history.lastWritten || stored.address === history.writing
+      return stored.address === record.lastWritten || stored.address === record.writing
         ? null
         : { kind: "changed", problem: null };
   }
@@ -39,16 +39,17 @@ export function storedProjectChange(stored: StoredProject, history: ProjectHisto
 
 /**
  * What opening a project shows and writes, from the stored project S, the
- * state last written W and the state the history is at C.
+ * state last written W and the state the project was at C, which the
+ * project's history keeps.
  * - `open stored`: S is W or the one being written, and is C.
  * - `write current`: S is W or the one being written but not C, so
  *   Requireganizer's own change was not written, as after a crash. C shows
  *   and is written.
  * - `outside change`: S changed or was removed outside Requireganizer. C
  *   shows, and nothing is written until the spec owner chooses.
- * - `start`: there is no history, so S becomes W, with no steps.
- * - `cannot open`: there is no history to show instead of a stored project
- *   that cannot be opened.
+ * - `start`: there is no record or no C, so S becomes W, with no steps.
+ * - `cannot open`: there is no C to show instead of a stored project that
+ *   cannot be opened.
  */
 export type Opening<Readable> =
   | { kind: "open stored"; stored: Readable }
@@ -65,14 +66,14 @@ function isReadable<Stored extends StoredProject>(stored: Stored): stored is Rea
 
 export function openingOf<Stored extends StoredProject>(
   stored: Stored,
-  history: ProjectHistory | null,
+  record: ProjectRecord | null,
+  current: Address | null,
 ): Opening<ReadableOf<Stored>> {
-  const current = history?.currentState ?? null;
-  if (history == null || current == null) {
+  if (record == null || current == null) {
     if (isReadable(stored)) return { kind: "start", stored };
     return { kind: "cannot open", problem: stored.kind === "unreadable" ? stored.problem : null };
   }
-  const change = storedProjectChange(stored, history);
+  const change = storedProjectChange(stored, record);
   if (change != null) return { kind: "outside change", change, current };
   return isReadable(stored) && stored.address === current
     ? { kind: "open stored", stored }

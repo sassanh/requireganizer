@@ -2,10 +2,13 @@ import { UserFacingError } from "lib/errors";
 import { isRecord } from "lib/json";
 import type { Store } from "store";
 import {
+  addedByChange,
   authorLabel,
   type ChangeOutcome,
   chosenItems,
+  coverageUnitId,
   type FieldDefinition,
+  impactUnitId,
   type ItemChange,
   type ItemContent,
   type ItemVersion,
@@ -46,6 +49,11 @@ export interface OpenModule {
   readModule?: (name: string) => Store;
   switchModule?: (name: string) => string;
   addModule?: (name: string) => void;
+  /**
+   * Name an item, coverage or impact for the spec owner's attention, of the
+   * open module or, by its name, another, with the agent's text.
+   */
+  pointOut?: (unit: { module: string | null; stage: string; unitId: string }, text: string) => void;
 }
 
 /** The outside agent calling: the name it gave when it connected. */
@@ -158,12 +166,13 @@ function itemView(store: Store, id: string): Record<string, unknown> {
 
 /**
  * The unit a thread is on. A removed unit keeps the code it had then, which
- * another item may hold now, so it is named as removed.
+ * another item may hold now, so it is named as removed, with what it said,
+ * by which a reply names it.
  */
 function threadUnit(store: Store, thread: Thread): Record<string, unknown> {
   return thread.removedUnit == null
     ? { unit: store.unitLabel(thread.unitId) }
-    : { unit: `${thread.removedUnit} (removed)`, unitRemoved: true };
+    : { unit: `${thread.removedUnit.name} (removed)`, unitRemoved: true, removedUnitText: thread.removedUnit.text };
 }
 
 /**
@@ -311,6 +320,88 @@ function parseAnswers(store: Store, value: unknown, codesVersion: unknown, chang
   return value.map(({ threadId, reply }: { threadId: string; reply: string }) => parseReply(store, threadId, reply, codesVersion, changes));
 }
 
+
+/** The longest text a pointer may give with what it names. */
+const POINTER_TEXT_LIMIT = 80;
+
+/** What a pointer names, before the write it comes with runs: a unit by its code, or an item the write adds by its change. */
+type PointerTarget =
+  | { kind: "unit"; module: string | null; stage: string; unitId: string; name: string }
+  | { kind: "change"; change: number };
+
+interface Pointer {
+  target: PointerTarget;
+  text: string;
+}
+
+const POINTER_PROPERTY = {
+  type: "object",
+  description: `One item, coverage or impact, of this module or another, to point the spec owner to, with why it needs them. The spec owner is offered a way to go to it; nothing moves their focus. Name it by item, the item's code or "Module name/CODE" from get_items, with unit and stage for its coverage or impact; or, for an item this write adds, by change instead of item. A pointer that names nothing, or a change that adds no item, or a text missing or longer than ${POINTER_TEXT_LIMIT} characters, refuses the whole call and changes nothing.`,
+  properties: {
+    item: { type: "string", description: "The item's code, or \"Module name/CODE\" for an item of another module." },
+    unit: { type: "string", enum: ["item", "coverage", "impact"], description: "The item itself, the default, or its coverage or impact in stage." },
+    stage: { type: "string", description: "For a coverage or an impact: the stage that holds it." },
+    change: { type: "integer", minimum: 1, description: "For an item this write adds, in place of item: the place of its add change among the changes, counting from 1." },
+    text: { type: "string", description: `Why it needs the spec owner, at most ${POINTER_TEXT_LIMIT} characters, such as "Answers your question".` },
+  },
+  required: ["text"],
+  additionalProperties: false,
+};
+
+/**
+ * The pointer an agent sent, checked against the module as it is before
+ * the write and the changes it sends; null when it sent none. Throws what
+ * is wrong with it, so the call changes nothing.
+ */
+function parsePointer(store: Store, open: OpenModule, value: unknown, changes: readonly ItemChange[]): Pointer | null {
+  if (value == null) return null;
+  if (!isRecord(value)) throw new UserFacingError("pointTo must be an object with the item to point to and a text.");
+  const text = typeof value.text === "string" ? value.text.trim() : "";
+  if (text.length === 0) throw new UserFacingError(`pointTo gives no text. Say in at most ${POINTER_TEXT_LIMIT} characters why it needs the spec owner.`);
+  if (text.length > POINTER_TEXT_LIMIT) {
+    throw new UserFacingError(`pointTo's text is ${text.length} characters long. Shorten it to at most ${POINTER_TEXT_LIMIT}.`);
+  }
+  const unit = value.unit ?? "item";
+  if (unit !== "item" && unit !== "coverage" && unit !== "impact") throw new UserFacingError("pointTo's unit must be item, coverage or impact.");
+  if (value.change != null) {
+    if (value.item != null) throw new UserFacingError("pointTo names an item by item or by change, not both.");
+    if (unit !== "item") throw new UserFacingError("pointTo's change names the item it adds; name a coverage or an impact by item and stage.");
+    const change = value.change;
+    if (typeof change !== "number" || !Number.isInteger(change) || changes[change - 1]?.type !== "add") {
+      throw new UserFacingError(`pointTo's change ${String(change)} adds no item. Give the place of an add change among the changes, counting from 1.`);
+    }
+    return { target: { kind: "change", change }, text };
+  }
+  if (typeof value.item !== "string") throw new UserFacingError("pointTo names nothing. Give item, the code of what to point to, or change.");
+  const name = value.item;
+  const nothing = () =>
+    new UserFacingError(`pointTo's ${name}${unit === "item" ? "" : ` ${unit}`} names no item, coverage or impact. Name one as get_items gives it, or "Module name/CODE" for another module's.`);
+  const named = store.itemOfName(name, true);
+  if ("problem" in named) throw nothing();
+  const own = store.locate(named.id);
+  const linked = own == null ? store.linkedModules.find((other) => other.lookup.locateItem(named.id) != null) : undefined;
+  const moduleName = own == null ? (linked?.name ?? null) : null;
+  const itemStage = own?.stage ?? linked?.lookup.locateItem(named.id)?.stage;
+  if (itemStage == null) throw nothing();
+  if (unit === "item") return { target: { kind: "unit", module: moduleName, stage: itemStage, unitId: named.id, name }, text };
+  if (!store.workflow.isStage(value.stage)) throw nothing();
+  const unitId = unit === "coverage" ? coverageUnitId(value.stage, named.id) : impactUnitId(value.stage, named.id);
+  const holder = moduleName == null ? store : open.readModule?.(moduleName);
+  if (holder?.unitState(unitId) == null) throw nothing();
+  return { target: { kind: "unit", module: moduleName, stage: value.stage, unitId, name }, text };
+}
+
+/** Point the spec owner to what a pointer names, once its write ran; the line the reply says it with. */
+function pointOut(store: Store, open: OpenModule, pointer: Pointer, changes: readonly ItemChange[], added: readonly string[]): string {
+  const { target, text } = pointer;
+  if (target.kind === "unit") {
+    open.pointOut?.({ module: target.module, stage: target.stage, unitId: target.unitId }, text);
+    return `The spec owner is offered a way to go to ${target.name}.`;
+  }
+  const itemId = addedByChange(changes, added, target.change)!;
+  open.pointOut?.({ module: null, stage: store.locate(itemId)!.stage, unitId: itemId }, text);
+  return `The spec owner is offered a way to go to ${store.codeOf(itemId)}.`;
+}
 
 /** Every item's code, by id, as a write names them before it runs. */
 function codesNow(store: Store): Map<string, string> {
@@ -493,7 +584,7 @@ const threadTool: AgentTool = {
   description: {
     name: "get_thread",
     description:
-      "Read one thread, open or resolved: whom it waits for, every message, and its unit; for an item, the item as get_items gives it. A marked mention in a message reads [CODE](item:ID), by the item's code now, or as [removed item](item:ID) once its item is gone; any other code in a message is plain text. A channel event about a change request names its thread. Reading a thread that waits for you shows the spec owner you are working on it, until you answer or they write again.",
+      "Read one thread, open or resolved: whom it waits for, every message, and its unit; for an item, the item as get_items gives it; for a removed unit, what it said when it was removed (removedUnitText), by which a reply names it. A marked mention in a message reads [CODE](item:ID), by the item's code now, or as [removed item](item:ID) once its item is gone; any other code in a message is plain text. A channel event about a change request names its thread. Reading a thread that waits for you shows the spec owner you are working on it, until you answer or they write again.",
     inputSchema: {
       type: "object",
       properties: { threadId: { type: "string", description: "The thread to read." } },
@@ -540,7 +631,7 @@ const writeTool: AgentTool = {
   description: {
     name: "write_items",
     description:
-      "Write, change and remove items of any open stages, all or none, following the published rules of each kind of item, from get_stage_rules. Name items by the codes of the codesVersion you send. An item missing a required field, referencing none of a kind it must reference, or breaking a rule of its kind (such as a name another item already has, a value of the wrong type, or an operation a step does not offer), is refused with each problem; the rules are checked once all the changes are applied, so their order does not matter. One write never changes a stage together with a stage that builds on it: change the earlier stage, and the later one once the earlier is complete again. Items added in one write cannot name each other by code: write an item, then those that choose it. An added or changed item rests on the current versions of what it references and depends on; an item changed to exactly what it was stays as it was. Removing a signed item proposes its removal, which the spec owner signs; an item never signed is removed at once. Changing an item proposed for removal withdraws the removal, even when the change leaves it exactly as it was. A reference links to an item of a stage this stage builds on; a dependency links to an item of the same stage, or of another module as \"Module name/CODE\" in the same stage or one it builds on. The reply names each item by the code you named it by, with its new code where that moved, and an added item by its new code. Pass answers to reply to the threads these changes answer. Only the spec owner signs and resolves threads.",
+      "Write, change and remove items of any open stages, all or none, following the published rules of each kind of item, from get_stage_rules. Name items by the codes of the codesVersion you send. An item missing a required field, referencing none of a kind it must reference, or breaking a rule of its kind (such as a name another item already has, a value of the wrong type, or an operation a step does not offer), is refused with each problem; the rules are checked once all the changes are applied, so their order does not matter. One write never changes a stage together with a stage that builds on it: change the earlier stage, and the later one once the earlier is complete again. Items added in one write cannot name each other by code: write an item, then those that choose it. An added or changed item rests on the current versions of what it references and depends on; an item changed to exactly what it was stays as it was. Removing a signed item proposes its removal, which the spec owner signs; an item never signed is removed at once. Changing an item proposed for removal withdraws the removal, even when the change leaves it exactly as it was. A reference links to an item of a stage this stage builds on; a dependency links to an item of the same stage, or of another module as \"Module name/CODE\" in the same stage or one it builds on. The reply names each item by the code you named it by, with its new code where that moved, and an added item by its new code. Pass answers to reply to the threads these changes answer, and pointTo to point the spec owner to one item, coverage or impact that needs them. Only the spec owner signs and resolves threads.",
     inputSchema: {
       type: "object",
       properties: {
@@ -566,15 +657,17 @@ const writeTool: AgentTool = {
           },
         },
         answers: ANSWERS_PROPERTY,
+        pointTo: POINTER_PROPERTY,
       },
       required: ["codesVersion", "changes"],
       additionalProperties: false,
     },
   },
-  run: (store, args, _open, caller) => {
+  run: (store, args, open, caller) => {
     requireCodesVersion(store, args);
     const changes = parseChanges(store, args.changes);
     const answers = parseAnswers(store, args.answers, args.codesVersion, changes);
+    const pointer = parsePointer(store, open, args.pointTo, changes);
     const versionBefore = store.codesVersion;
     const codesBefore = codesNow(store);
     const outcome = store.writeItems(changes, answers.length === 0 ? null : { answers, author: { kind: "agent", name: caller.name } });
@@ -583,6 +676,7 @@ const writeTool: AgentTool = {
       ...(answers.length > 0
         ? [`Replied to ${answers.length === 1 ? "one thread" : `${answers.length} threads`}; the spec owner reads the replies and resolves the threads.`]
         : []),
+      ...(pointer == null ? [] : [pointOut(store, open, pointer, changes, outcome.added)]),
       "The spec owner signs these in Requireganizer; get_workflow_state shows what waits for a signature.",
     ];
     if (store.codesVersion !== versionBefore) lines.push(`Codes may have moved (codesVersion ${store.codesVersion}): read get_items again before naming items.`);
@@ -656,21 +750,24 @@ const replyTool: AgentTool = {
   description: {
     name: "reply_to_thread",
     description:
-      `Reply to an open thread without changing items, such as to ask what the spec owner means or to say why the unit should stay as it is. To answer with changes, use write_items with answers. Only the spec owner resolves a thread. ${replyRulesText()}`,
+      `Reply to an open thread without changing items, such as to ask what the spec owner means or to say why the unit should stay as it is. To answer with changes, use write_items with answers. Pass pointTo to point the spec owner to one item, coverage or impact that needs them. Only the spec owner resolves a thread. ${replyRulesText()}`,
     inputSchema: {
       type: "object",
       properties: {
         threadId: { type: "string", description: "The thread to reply to, from get_workflow_state or get_thread." },
         text: { type: "string", minLength: 1, description: "The reply the spec owner reads." },
         codesVersion: { type: "string", description: "The codesVersion of the get_items or get_workflow_state read the codes of the reply's marked mentions come from; needed when it holds one." },
+        pointTo: POINTER_PROPERTY,
       },
       required: ["threadId", "text"],
       additionalProperties: false,
     },
   },
-  run: (store, args, _open, caller) => {
-    store.answerThreads([parseReply(store, stringArgument(args, "threadId"), stringArgument(args, "text"), args.codesVersion, [])], { kind: "agent", name: caller.name });
-    return "Replied. The thread waits for the spec owner.";
+  run: (store, args, open, caller) => {
+    const reply = parseReply(store, stringArgument(args, "threadId"), stringArgument(args, "text"), args.codesVersion, []);
+    const pointer = parsePointer(store, open, args.pointTo, []);
+    store.answerThreads([reply], { kind: "agent", name: caller.name });
+    return ["Replied. The thread waits for the spec owner.", ...(pointer == null ? [] : [pointOut(store, open, pointer, [], [])])].join("\n");
   },
 };
 

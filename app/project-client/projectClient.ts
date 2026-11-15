@@ -26,12 +26,14 @@ import {
   type WireError,
   wireArguments,
 } from "connection";
+import type { FocusPlace, ListedRestorePoint, ListedSteps, PreviewTarget, StateDifference, StepListTarget } from "history";
 import { UserFacingError } from "lib/errors";
 import type { ProjectIdentity } from "lib/projectStorage";
 import type { ClientPersistence } from "persistence";
 import { type ProjectSessionSnapshot, SiblingModuleStores } from "project-session";
-import { type ExportOptions, type ListedRestorePoint, type ListedStep, type ModuleRegistry, type ModuleState, sharedWith } from "storage";
-import { type ReplicatedVolatileState, Store } from "store";
+import { type ExportOptions, type ModuleRegistry, type ModuleState, type ProjectState, sharedWith } from "storage";
+import { createModuleStore, type ReplicatedVolatileState, Store } from "store";
+import type { SignatureFocusMove } from "workflow";
 
 type Result<Name extends RequestName> = Awaited<ReturnType<HostApi[Name]>>;
 
@@ -96,6 +98,36 @@ function snapshotFrom(
   return { ...view, registry, store };
 }
 
+/** An earlier state of the project a client shows in place of the project now, and how it differs from now. */
+export interface ShownPreview {
+  target: PreviewTarget;
+  difference: StateDifference;
+}
+
+/** An earlier state as a client shows it, read only, with the module looked at. */
+interface Preview extends ShownPreview {
+  state: ProjectState;
+  registry: ModuleRegistry;
+  store: Store;
+  siblingStores: SiblingModuleStores;
+}
+
+const PREVIEW_REFUSAL = "This is a preview of an earlier state. Close it to change the project.";
+
+/** The requests that change the project or what it shows, which a client refuses while it shows a preview. */
+const REFUSED_DURING_PREVIEW: ReadonlySet<RequestName> = new Set<RequestName>([
+  "runStoreAction",
+  "undo",
+  "redo",
+  "goTo",
+  "restoreToRestorePoint",
+  "importProjectFile",
+  "enableModules",
+  "addModule",
+  "archiveModule",
+  "renameModule",
+]);
+
 /**
  * A request whose answer was lost with the connection: the host may or may
  * not have carried it out.
@@ -148,6 +180,14 @@ export class ProjectClient {
   };
   private registry: ModuleRegistry | null = null;
   private replica: Store;
+  /** The earlier state shown in place of the project now; null while the project now is shown. */
+  private preview: Preview | null = null;
+  /** Counts the opens and closes of a preview, so only the latest one's reply shows. */
+  private previewRequest = 0;
+  /** Where the store actions forwarded now move the spec owner's focus, and where the host answers that each moved it. */
+  private focusMove: { move: SignatureFocusMove; movedTo: Promise<FocusPlace | null>[] } | null = null;
+  /** What `getPreview` hands out, the same object until the preview changes. */
+  private shownPreview: ShownPreview | null = null;
   private snapshot: ProjectSessionSnapshot;
   private applyingLocally = false;
 
@@ -294,8 +334,14 @@ export class ProjectClient {
 
   addModule = (name: string): Promise<void> => this.request("addModule", name);
 
-  switchModule = (id: string): Promise<boolean> =>
-    this.request("switchModule", id);
+  /** While a preview is shown, the module looked at changes in the preview alone. */
+  switchModule = (id: string): Promise<boolean> => {
+    const preview = this.preview;
+    if (preview == null) return this.request("switchModule", id);
+    const openable = preview.state.modules.some((module) => module.id === id && module.archivedAt == null);
+    if (openable) this.showPreview(preview.target, preview.state, preview.difference, id);
+    return Promise.resolve(openable);
+  };
 
   archiveModule = (id: string): Promise<void> =>
     this.request("archiveModule", id);
@@ -325,15 +371,84 @@ export class ProjectClient {
 
   leaveProjectRemoved = (): Promise<void> => this.request("leaveProjectRemoved");
 
-  undo = (): Promise<void> => this.request("undo");
+  /** Resolves to where the focus goes, or null to leave it where it is. */
+  undo = (): Promise<FocusPlace | null> => this.request("undo");
 
-  redo = (): Promise<void> => this.request("redo");
+  redo = (): Promise<FocusPlace | null> => this.request("redo");
 
-  listSteps = (): Promise<ListedStep[]> => this.request("listSteps");
+  listSteps = (): Promise<ListedSteps> => this.request("listSteps");
 
-  bringBackStep = (stepId: string): Promise<void> => this.request("bringBackStep", stepId);
+  goTo = (target: StepListTarget): Promise<void> => this.request("goTo", target);
 
   listRestorePoints = (): Promise<ListedRestorePoint[]> => this.request("listRestorePoints");
+
+  differenceFromNow = (target: PreviewTarget): Promise<StateDifference> => this.request("differenceFromNow", target);
+
+  /** Where the spec owner's focus is now; a preview's focus is not the project's, so it is not reported. */
+  reportFocus = (place: FocusPlace | null): void => {
+    if (this.preview != null) return;
+    this.request("reportFocus", place).catch((error: unknown) => console.error("Could not report the focus.", error));
+  };
+
+  /**
+   * Run a store action that sends `move` with it, as where it moves the spec
+   * owner's focus. Resolves, once the action is done, to the unit the host
+   * moved the focus to, the one the step records; null for none.
+   */
+  withFocusMove = async (move: SignatureFocusMove, run: () => unknown): Promise<string | null> => {
+    const previous = this.focusMove;
+    const collected = { move, movedTo: [] as Promise<FocusPlace | null>[] };
+    this.focusMove = collected;
+    let done: unknown;
+    try {
+      done = run();
+    } finally {
+      this.focusMove = previous;
+    }
+    await done;
+    const moves = await Promise.all(collected.movedTo);
+    return moves.findLast((place) => place != null)?.unitId ?? null;
+  };
+
+  dismissOffer = (offerId: string): Promise<void> => this.request("dismissOffer", offerId);
+
+  /** The earlier state shown in place of the project now; notified through `subscribe`. */
+  getPreview = (): ShownPreview | null => this.shownPreview;
+
+  /**
+   * Show an earlier state in place of the project now, read only, looking at
+   * the module looked at now. The project now keeps following its host.
+   * Rejects, showing the project now, when the state is no longer kept.
+   */
+  openPreview = async (target: PreviewTarget): Promise<void> => {
+    const request = ++this.previewRequest;
+    try {
+      const { state, difference } = await this.request("preview", target);
+      // A later open or close wins over this one.
+      if (request !== this.previewRequest) return;
+      this.showPreview(target, state, difference, (this.preview?.registry ?? this.registry)?.activeModuleId);
+    } catch (error) {
+      if (request !== this.previewRequest) return;
+      this.closePreview();
+      throw error;
+    }
+  };
+
+  /** Show the project now again, and drop the reply of any open still under way. */
+  closePreview = (): void => {
+    this.previewRequest += 1;
+    if (this.preview == null) return;
+    this.preview = null;
+    this.shownPreview = null;
+    this.publishSnapshot();
+  };
+
+  /** The model of a module of what the client shows, the shown one included; null for one it holds none of. */
+  moduleStore = (moduleId: string): Store | null => {
+    const registry = this.preview?.registry ?? this.registry;
+    if (registry?.activeModuleId === moduleId) return this.preview?.store ?? this.replica;
+    return (this.preview?.siblingStores ?? this.siblingStores).storeOf(moduleId);
+  };
 
   makeRestorePoint = (name: string): Promise<void> => this.request("makeRestorePoint", name);
 
@@ -374,6 +489,9 @@ export class ProjectClient {
     if (this.connectionStatus.state === "failed") {
       return Promise.reject(new UserFacingError(this.connectionStatus.message));
     }
+    if (this.preview != null && REFUSED_DURING_PREVIEW.has(name)) {
+      return Promise.reject(new UserFacingError(PREVIEW_REFUSAL));
+    }
     return new Promise<Result<Name>>((resolve, reject) => {
       const request: QueuedRequest = {
         message,
@@ -410,12 +528,15 @@ export class ProjectClient {
     } catch (error) {
       return Promise.reject(error);
     }
-    return this.request("runStoreAction", {
+    const outcome = this.request("runStoreAction", {
       store,
       address: addressOf(call.context),
       name: call.name,
       args,
+      ...(this.focusMove == null ? {} : { focusMove: this.focusMove.move }),
     });
+    this.focusMove?.movedTo.push(outcome.then(({ focusMovedTo }) => focusMovedTo));
+    return outcome.then(({ result }) => result);
   }
 
   private remotePersistence(): ClientPersistence {
@@ -457,6 +578,37 @@ export class ProjectClient {
     } finally {
       this.applyingLocally = previous;
     }
+  }
+
+  /** Show an earlier state with one of its modules looked at: the one asked for, or its first that is not archived. */
+  private showPreview(target: PreviewTarget, state: ProjectState, difference: StateDifference, moduleId: string | undefined): void {
+    const openable = state.modules.filter((module) => module.archivedAt == null);
+    const shown = openable.find((module) => module.id === moduleId) ?? openable[0]!;
+    const registry: ModuleRegistry = { ...state, activeModuleId: shown.id };
+    const store = createModuleStore(shown.content);
+    addMiddleware(
+      store,
+      (call, next, abort) => {
+        if (this.applyingLocally) next(call);
+        else abort(Promise.reject(new UserFacingError(PREVIEW_REFUSAL)));
+      },
+      false,
+    );
+    const siblingStores = this.preview?.siblingStores ?? new SiblingModuleStores();
+    this.local(() => siblingStores.applyModuleContext(store, registry));
+    const kept = this.preview;
+    this.preview = { target, difference, state, registry, store, siblingStores };
+    if (kept?.target !== target || kept.difference !== difference) this.shownPreview = { target, difference };
+    this.publishSnapshot();
+  }
+
+  /** Work out what the client shows, an earlier state in place of the project now while one is previewed, and tell every listener. */
+  private publishSnapshot(): void {
+    this.snapshot =
+      this.preview != null && this.view.status === "ready"
+        ? { ...this.view, registry: this.preview.registry, store: this.preview.store }
+        : snapshotFrom(this.view, this.registry, this.replica);
+    for (const listener of this.listeners) listener();
   }
 
   private createReplica(
@@ -525,9 +677,28 @@ export class ProjectClient {
       this.local(() => this.siblingStores.applyModuleContext(this.replica, this.registry));
     }
     // An event holds copies; a part left as it was stays the one held, so what reads it sees no change.
+    const previousHistory = this.view.status === "ready" ? this.view.history : null;
     this.view = sharedWith(this.view, event.session);
-    this.snapshot = snapshotFrom(this.view, this.registry, this.replica);
-    for (const listener of this.listeners) listener();
+    const preview = this.preview;
+    if (this.view.status !== "ready") {
+      // A preview is of the open project's history, so it ends when no project is open.
+      this.preview = null;
+      this.shownPreview = null;
+    } else if (
+      preview != null &&
+      (this.view.history.currentStep !== previousHistory?.currentStep || this.view.history.restorePoints !== previousHistory.restorePoints)
+    ) {
+      // The project now moved, or the restore points changed: what the preview marks is read again, and a state no longer kept ends it.
+      this.request("preview", preview.target).then(
+        ({ state, difference }) => {
+          if (this.preview?.target === preview.target) this.showPreview(preview.target, state, difference, this.preview.registry.activeModuleId);
+        },
+        () => {
+          if (this.preview?.target === preview.target) this.closePreview();
+        },
+      );
+    }
+    this.publishSnapshot();
   }
 
   /** Apply one host update whole, so store observers see it at once. */

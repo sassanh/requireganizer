@@ -33,7 +33,9 @@ export function SignatureLine({ signature, counts, what = "Signed" }: { signatur
  * it is not approved, its signature, and the sign and thread actions,
  * reachable from the keyboard while the frame has focus. The thread opens
  * outside the frame, so new messages never change the frame's height.
- * A reason with a note shows it on hover and on keyboard focus.
+ * A reason with a note shows it on hover and on keyboard focus. In a
+ * preview, the frame says what bringing its state back would do to the
+ * unit, and offers no signing.
  */
 const UnitFrame = observer(function UnitFrame({
   unitId,
@@ -66,7 +68,8 @@ const UnitFrame = observer(function UnitFrame({
   actions?: ReactNode;
   children: ReactNode;
 }) {
-  const { module } = useWorkflowView();
+  const { module, preview } = useWorkflowView();
+  const mark = preview?.of(unitId) ?? null;
   const threads = module.threadsOf(unitId);
   const open = threads.find(({ resolution }) => resolution == null);
   const waitsForYou = open != null && waitsForSpecOwner(open);
@@ -88,6 +91,22 @@ const UnitFrame = observer(function UnitFrame({
     >
       <Stack direction="row" sx={{ alignItems: "center", gap: 1, flexWrap: "wrap" }}>
         <Box sx={{ flexGrow: 1, minWidth: 0 }}>{title}</Box>
+        {mark?.change === "add" && <Chip size="small" color="success" variant="outlined" label="Would be added" />}
+        {mark?.change === "change" && (
+          <Chip
+            size="small"
+            color="warning"
+            variant="outlined"
+            label={`Would change: ${[
+              mark.content ? "text" : null,
+              mark.signature ? "signature" : null,
+              mark.threads ? "threads" : null,
+              mark.place == null ? null : `place, ${mark.place.now} now`,
+            ]
+              .filter((part) => part != null)
+              .join(", ")}`}
+          />
+        )}
         {labels}
         {approved ? (
           <Chip size="small" color="success" icon={<Check />} label="Approved" />
@@ -100,7 +119,7 @@ const UnitFrame = observer(function UnitFrame({
       </Stack>
       <Box sx={{ mt: 1 }}>{children}</Box>
       <Stack data-unit-actions direction="row" sx={{ alignItems: "center", gap: 1, mt: 1, flexWrap: "wrap" }}>
-        {signable && (
+        {signable && preview == null && (
           <ActionTooltip name={signLabel} shortcut={signShortcut}>
             <Button size="small" variant="contained" startIcon={<Check />} onClick={onSign}>
               {signLabel}

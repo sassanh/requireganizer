@@ -50,6 +50,7 @@ import {
   type LinkReason,
   type NotApprovedReason,
   parseUnitId,
+  type SignatureFocusMove,
   type StageProgress,
   type WaitingCategory,
 } from "./units";
@@ -247,6 +248,16 @@ export interface ChangeOutcome {
 export interface ReorderOutcome {
   reordered: boolean;
   recoded: { id: string; before: string; after: string }[];
+}
+
+/**
+ * The item a write added by its change number `change`, counting its
+ * changes from 1, given the items it added in the order of their changes;
+ * undefined when that change adds no item.
+ */
+export function addedByChange(changes: readonly ItemChange[], added: readonly string[], change: number): string | undefined {
+  if (!Number.isInteger(change) || changes[change - 1]?.type !== "add") return undefined;
+  return added[changes.slice(0, change - 1).filter(({ type }) => type === "add").length];
 }
 
 /** The revision a basis records for an item that no longer exists. */
@@ -895,8 +906,40 @@ export function workflowModuleModel(workflow: Workflow) {
       /** The stages the spec owner asked the coding agent to write that are still open and not complete. */
       const writingAskedOfAnswerer = (): WritingAsk[] => self.writingAsked.filter(({ stage }) => self.stageOpen(stage) && !self.stageComplete(stage));
 
+      /**
+       * Every unit a stage shows, in the order its tabs show them: each
+       * kind's items, its removed items after them, then the stage's
+       * coverages and impacts.
+       */
+      const unitsInShownOrder = keyedView((stage: string): UnitState[] => {
+        const units = self.stageUnits(stage);
+        const removed = self.itemsOf(stage).flatMap((item) => {
+          const state = self.itemState(item.id);
+          return state?.phase === "removed" ? [state] : [];
+        });
+        return [
+          ...workflow.stage(stage).kinds.flatMap(({ kind }) => [
+            ...units.filter((unit) => unit.kind === "item" && unit.itemKind === kind),
+            ...removed.filter((state) => state.itemKind === kind),
+          ]),
+          ...units.filter((unit) => unit.kind === "coverage"),
+          ...units.filter((unit) => unit.kind === "impact"),
+        ];
+      }, comparer.shallow);
+
       return {
         stageProgress: progress,
+        unitsInShownOrder,
+        /** The unit a signature moves the focus to, once given; null when no unit is left to move to. */
+        unitAfterSigning({ from, shownBefore, toWaiting }: SignatureFocusMove): string | null {
+          const index = shownBefore.indexOf(from);
+          return (
+            [...shownBefore.slice(index + 1), ...shownBefore.slice(0, Math.max(index, 0))].find((unitId) => {
+              const state = self.unitState(unitId);
+              return state != null && (toWaiting ? waitsForSignature(state) : !state.approved);
+            }) ?? null
+          );
+        },
         outOfDateBecauseOf,
         itemNamed,
         /** Every item of this module or another that references or depends on `id` and is out of date because of it. */
@@ -1022,10 +1065,15 @@ export function workflowModuleModel(workflow: Workflow) {
       };
     })
     .views((self) => ({
+      /** What a removed item said when it was removed, as a thread on it keeps it; null for none. */
+      removedItemText(itemId: string): string | null {
+        return self.threads.find((thread) => thread.removedUnit != null && parseUnitId(thread.unitId).itemId === itemId)?.removedUnit?.text ?? null;
+      },
       /** A unit as the page names it: an item by its name, a coverage or an impact by the item it is on. */
       unitLabel(unitId: string): string {
         const address = parseUnitId(unitId);
-        const itemName = self.namedItem(address.itemId)?.name ?? self.threads.find((thread) => thread.unitId === unitId)?.removedUnit ?? "a removed item";
+        const itemName =
+          self.namedItem(address.itemId)?.name ?? self.threads.find((thread) => thread.unitId === unitId)?.removedUnit?.name ?? "a removed item";
         switch (address.kind) {
           case "item":
             return itemName;
@@ -1191,7 +1239,9 @@ export function workflowModuleModel(workflow: Workflow) {
       function markThreadsRemoved(unitIds: ReadonlySet<string>): void {
         if (!self.threads.some(({ unitId }) => unitIds.has(unitId))) return;
         self.threads = self.threads.map((thread) =>
-          unitIds.has(thread.unitId) && thread.removedUnit == null ? { ...thread, removedUnit: self.unitLabel(thread.unitId) } : thread,
+          unitIds.has(thread.unitId) && thread.removedUnit == null
+            ? { ...thread, removedUnit: { name: self.unitLabel(thread.unitId), text: self.textOf(parseUnitId(thread.unitId).itemId) } }
+            : thread,
         );
       }
 
@@ -1502,9 +1552,8 @@ export function workflowModuleModel(workflow: Workflow) {
 
       /** Posts each answer, its marked mentions already checked, each mention of an added item tied to the item its change added. */
       function postAnswers(answers: readonly ThreadAnswer[], author: ThreadAuthor, changes: readonly ItemChange[] = [], added: readonly string[] = []) {
-        const addedBy = (change: number) => added[changes.slice(0, change - 1).filter(({ type }) => type === "add").length]!;
         for (const { threadId, text } of answers) {
-          const tied = replaceAddedMentions(text, ({ change }) => mentionMarkup("", addedBy(change)));
+          const tied = replaceAddedMentions(text, ({ change }) => mentionMarkup("", addedByChange(changes, added, change)!));
           addMessage(threadId, { author, text: keptMessageText(tied), at: new Date().toISOString(), ...(changes.length > 0 ? { withChanges: true as const } : {}) });
         }
       }

@@ -1,18 +1,13 @@
 import type { IJsonPatch } from "mobx-state-tree";
 
 import type { AgentCaller, AgentToolDescription } from "ai-agent/agent-access";
+import type { FocusPlace, ListedRestorePoint, ListedSteps, PreviewTarget, StateDifference, StepListTarget } from "history";
 import type { ProjectIdentity } from "lib/projectStorage";
 import type { ClientPersistence, StorageTraits } from "persistence";
 import type { ProjectSessionSnapshot } from "project-session";
-import type {
-  ExportOptions,
-  ListedRestorePoint,
-  ListedStep,
-  ModuleContent,
-  ModuleRegistry,
-  ModuleState,
-} from "storage";
+import type { ExportOptions, ModuleContent, ModuleRegistry, ModuleState, ProjectState } from "storage";
 import type { ReplicatedVolatileState } from "store";
+import type { SignatureFocusMove } from "workflow";
 
 /**
  * The messages between a project host (the authority) and its clients
@@ -25,7 +20,7 @@ import type { ReplicatedVolatileState } from "store";
  * different builds checks it before any message is exchanged; change it
  * whenever a message changes shape.
  */
-export const PROTOCOL_VERSION = 11;
+export const PROTOCOL_VERSION = 15;
 
 /**
  * WebSocket close codes a host server ends a connection with when connecting
@@ -58,6 +53,14 @@ export interface StoreActionCall {
   address: AddressStep[];
   name: string;
   args: unknown[];
+  /** Where the action moves the spec owner's focus, for one that does, such as a signature. */
+  focusMove?: SignatureFocusMove;
+}
+
+/** What a store action returned, and where it moved the spec owner's focus, as the step records it. */
+export interface StoreActionOutcome {
+  result: unknown;
+  focusMovedTo: FocusPlace | null;
 }
 
 /** The groups of storage operations a client may call. */
@@ -114,16 +117,24 @@ export interface HostApi {
   keepShownProject(): void;
   /** Leave the stored project removed outside the host: close it and forget its history, writing nothing where it was. */
   leaveProjectRemoved(): Promise<void>;
-  /** Undo the current step; not itself a step. */
-  undo(): void;
-  /** Redo the step undo last left. */
-  redo(): void;
-  /** Every kept step, newest first. */
-  listSteps(): ListedStep[];
-  /** Bring the project back as it was after a kept step, as a step of kind restore. */
-  bringBackStep(stepId: string): void;
+  /** Undo the current step; not itself a step. Resolves to where the focus goes, or null to leave it. */
+  undo(): FocusPlace | null;
+  /** Redo the step undo last left; resolves as undo does. */
+  redo(): FocusPlace | null;
+  /** Every kept step, newest first, with what it added, changed or removed, then the start, before the oldest of them. */
+  listSteps(): ListedSteps;
+  /** Go to how the project was after a kept step or before the oldest of them, as undo and redo move, recording no step. */
+  goTo(target: StepListTarget): void;
   /** The kept restore points, newest first. */
   listRestorePoints(): ListedRestorePoint[];
+  /** What bringing back the project as it was after a kept step or at a restore point would add, change or remove; changes nothing. */
+  differenceFromNow(target: PreviewTarget): Promise<StateDifference>;
+  /** The project as it was after a kept step or at a restore point, with how it differs from now; changes nothing. */
+  preview(target: PreviewTarget): Promise<{ state: ProjectState; difference: StateDifference }>;
+  /** Where the spec owner's focus is now. */
+  reportFocus(place: FocusPlace | null): void;
+  /** Take away an offer to go to what the coding agent named, once taken or dismissed. */
+  dismissOffer(offerId: string): void;
   /** Make a restore point of the shown project under a name. */
   makeRestorePoint(name: string): void;
   /** Restore the project to a restore point, as a step of kind restore. */
@@ -135,7 +146,7 @@ export interface HostApi {
   reportTimeZone(timeZone: string): void;
   /** Remove a project that is not open; refused while another tab holds it. */
   deleteProject(projectId: string): Promise<void>;
-  runStoreAction(call: StoreActionCall): unknown;
+  runStoreAction(call: StoreActionCall): StoreActionOutcome;
   runPersistence(call: PersistenceCall): unknown;
   /** The tools an outside agent can call on the open project now. */
   listAgentTools(): Promise<AgentToolDescription[]>;

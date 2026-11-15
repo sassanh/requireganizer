@@ -27,7 +27,8 @@ export default defineConfig({
         items: [
           { text: "System overview", link: "/architecture/overview" },
           { text: "Engineering workflow", link: "/architecture/workflow" },
-          { text: "Storage and recovery", link: "/architecture/storage-and-recovery" },
+          { text: "Storage", link: "/architecture/storage" },
+          { text: "History", link: "/architecture/history" },
         ],
       },
       {

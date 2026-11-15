@@ -24,22 +24,37 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { useCallback, useEffect, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { ActionTooltip } from "actions/ActionHint";
+import { restorePointsShortcut } from "actions/actions";
+import type { ListedRestorePoint } from "history";
+import { isEditableTarget, isOverlayTarget, type ShortcutBinding, useShortcut } from "hooks/shortcuts";
 import { getUserFacingErrorMessage } from "lib/errors";
+import { previewHref } from "lib/routes";
 import { useProject } from "projectContext";
-import type { ListedRestorePoint } from "storage";
 
+import { DifferenceFromNowOverlay } from "./DifferenceList";
 import ExportDialog from "./ExportDialog";
 import { notify } from "./notices";
 
-/** The Restore points button of the open project, opening its panel. */
+/** The Restore points button of the open project, opening its panel, with its key outside text fields. */
 export default function RestorePointsControls() {
   const [panelOpen, setPanelOpen] = useState(false);
+  const binding = useMemo<ShortcutBinding>(
+    () => ({
+      id: "open-restore-points",
+      ...restorePointsShortcut,
+      when: (event) => !isEditableTarget(event.target) && !isOverlayTarget(event.target),
+      action: () => setPanelOpen(true),
+    }),
+    [],
+  );
+  useShortcut(binding);
   return (
     <>
-      <ActionTooltip name="Restore points">
+      <ActionTooltip name="Restore points" shortcut={restorePointsShortcut}>
         <IconButton aria-label="Restore points" onClick={() => setPanelOpen(true)}>
           <BookmarksOutlined />
         </IconButton>
@@ -62,6 +77,13 @@ function RestorePointsPanel({ onClose }: { onClose: () => void }) {
     unpinRestorePoint,
     deleteRestorePoint,
   } = useProject();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const preview = (pointId: string) => {
+    onClose();
+    router.push(previewHref(pathname, searchParams.toString(), { kind: "restore point", id: pointId }), { scroll: false });
+  };
   const [points, setPoints] = useState<ListedRestorePoint[] | null>(null);
   const [name, setName] = useState("");
   const [pointToDelete, setPointToDelete] = useState<ListedRestorePoint | null>(null);
@@ -138,12 +160,17 @@ function RestorePointsPanel({ onClose }: { onClose: () => void }) {
             key={point.id}
             secondaryAction={
               <Stack direction="row" sx={{ alignItems: "center" }}>
-                <Button
-                  size="small"
-                  onClick={() => void attempt(() => restoreToRestorePoint(point.id), "Could not restore it.")}
-                >
-                  Restore
+                <Button size="small" onClick={() => preview(point.id)}>
+                  Preview
                 </Button>
+                <DifferenceFromNowOverlay target={{ kind: "restore point", id: point.id }}>
+                  <Button
+                    size="small"
+                    onClick={() => void attempt(() => restoreToRestorePoint(point.id), "Could not restore it.")}
+                  >
+                    Restore
+                  </Button>
+                </DifferenceFromNowOverlay>
                 <ActionTooltip name="Export">
                   <IconButton size="small" aria-label="Export" onClick={() => setPointToExport(point)}>
                     <FileDownloadOutlined fontSize="small" />
@@ -170,7 +197,7 @@ function RestorePointsPanel({ onClose }: { onClose: () => void }) {
                 </ActionTooltip>
               </Stack>
             }
-            sx={{ pr: 24 }}
+            sx={{ pr: 32 }}
           >
             <ListItemText
               primary={

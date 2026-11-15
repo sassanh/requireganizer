@@ -1,10 +1,10 @@
-import type { Address, OutsideChange, ProjectHistory, ProjectState } from "storage";
+import type { Address, OutsideChange, ProjectRecord, ProjectState } from "storage";
 
 import type { ProjectIdentity, ProjectMeta } from "../lib/projectStorage";
 
 /**
  * Everything one write of a project stores: the project, the pieces its
- * history names that storage does not hold yet, and the history.
+ * record names that storage does not hold yet, and the record.
  */
 export interface ProjectWrite {
   project: ProjectIdentity;
@@ -12,10 +12,10 @@ export interface ProjectWrite {
   /** The state's address. */
   address: Address;
   pieces: readonly (readonly [Address, string])[];
-  /** The history while the project is written: it names the state as being written. */
-  writing: ProjectHistory;
-  /** The history once the project is written: it names the state as last written. */
-  written: ProjectHistory;
+  /** The record while the project is written: it names the state as being written. */
+  writing: ProjectRecord;
+  /** The record once the project is written: it names the state as last written. */
+  written: ProjectRecord;
   /**
    * The spec owner chose to write this over a stored project changed
    * outside Requireganizer. Without it, a storage that has outside changes
@@ -62,21 +62,21 @@ export interface ProjectPersistence {
   write(write: ProjectWrite): Promise<void>;
 
   /**
-   * Remove everything stored for the project: itself, its history and its
+   * Remove everything stored for the project: itself, its record and its
    * pieces. A storage whose project is a file a person keeps, such as one in
    * a repository, never removes that file: it rejects while the file is
-   * there, and once the file is gone it removes the history and pieces.
+   * there, and once the file is gone it removes the record and pieces.
    */
   delete(projectId: string): Promise<void>;
 }
 
 /**
- * The history and pieces stored beside each project. Only the project's
+ * The record and pieces stored beside each project. Only the project's
  * authority reads them; no client reaches them.
  */
-export interface HistoryPersistence {
-  /** The project's stored history; null when it has none. Rejects when it cannot be read. */
-  load(projectId: string): Promise<ProjectHistory | null>;
+export interface RecordPersistence {
+  /** The project's stored record; null when it has none. Rejects when it cannot be read. */
+  load(projectId: string): Promise<ProjectRecord | null>;
   /** The address of every piece stored for the project. */
   pieceAddresses(projectId: string): Promise<Address[]>;
   /** One stored piece's bytes; null when it is not stored. */
@@ -94,7 +94,7 @@ export interface StorageTraits {
 
 /**
  * Changes made to the stored project outside Requireganizer, by the one
- * rule `storedProjectChange` applies to the stored project and its history.
+ * rule `storedProjectChange` applies to the stored project and its record.
  * While one stands, the adapter refuses to write over it, so neither project
  * is lost.
  */
@@ -115,7 +115,7 @@ export interface OutsideChanges {
 export interface PersistenceAdapter {
   readonly traits: StorageTraits;
   readonly projects: ProjectPersistence;
-  readonly history: HistoryPersistence;
+  readonly record: RecordPersistence;
 }
 
 /** The storage operations a client may ask the host for. */

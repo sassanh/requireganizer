@@ -1,7 +1,12 @@
 export {
   type MessagePlace,
   perform,
+  type PreviewMarks,
+  type RemovedUnitMark,
   type RevealRequest,
+  shownWithRemoved,
+  type ThreadMark,
+  type UnitMark,
   type UnitPlace,
   useWorkflowNavigation,
   useWorkflowView,

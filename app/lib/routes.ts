@@ -1,3 +1,5 @@
+import type { PreviewTarget } from "history";
+
 /**
  * The addresses of the project pages. Projects are named in the query, not
  * the path, so one static export of the interface serves every project.
@@ -43,6 +45,25 @@ export function unitHref(
     query.set("thread", place.message.threadId);
     query.set("message", String(place.message.index));
   }
+  return `${pathname}?${query.toString()}`;
+}
+
+const PREVIEW_PREFIXES = { step: "step:", start: "start:", "restore point": "restore-point:" } as const;
+
+/** The earlier state an address's `preview` value shows; null for none, which shows the project now. */
+export function previewOf(value: string | null): PreviewTarget | null {
+  if (value == null) return null;
+  for (const kind of ["step", "start", "restore point"] as const) {
+    if (value.startsWith(PREVIEW_PREFIXES[kind])) return { kind, id: value.slice(PREVIEW_PREFIXES[kind].length) };
+  }
+  return null;
+}
+
+/** The page at `pathname` showing `preview`, or the project now for null, keeping all else `search` names. */
+export function previewHref(pathname: string, search: string, preview: PreviewTarget | null): string {
+  const query = new URLSearchParams(search);
+  if (preview == null) query.delete("preview");
+  else query.set("preview", `${PREVIEW_PREFIXES[preview.kind]}${preview.id}`);
   return `${pathname}?${query.toString()}`;
 }
 
