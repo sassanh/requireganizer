@@ -986,17 +986,17 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
     </Button>
   );
   /**
-   * Each tab's label, with, on a tab not shown, a badge counting what keeps
-   * the stage from completing: the tab's units not approved, or its threads
-   * waiting for the spec owner.
+   * Each tab's label, with a badge counting what keeps the stage from
+   * completing: the tab's units not approved, or its threads waiting for the
+   * spec owner.
    */
-  const tabLabel = (tab: string, label: string, count: number, counting: string) => (
+  const tabLabel = (label: string, count: number, counting: string) => (
     <Badge
       color="warning"
       badgeContent={count}
-      invisible={tab === activeTab || count === 0}
-      aria-label={tab !== activeTab && count > 0 ? `${label}, ${count} ${counting}` : label}
-      sx={{ pr: tab !== activeTab && count > 0 ? 2 : 0, "& .MuiBadge-badge": { right: 0, top: "50%", transform: "translateY(-50%)" } }}
+      invisible={count === 0}
+      aria-label={count > 0 ? `${label}, ${count} ${counting}` : label}
+      sx={{ pr: count > 0 ? 2 : 0, "& .MuiBadge-badge": { right: 0, top: "50%", transform: "translateY(-50%)" } }}
     >
       {label}
     </Badge>
@@ -1071,7 +1071,7 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
                   <Tab
                     key={kind.kind}
                     value={kind.kind}
-                    label={tabLabel(kind.kind, kind.plural, notApprovedIn(kind.kind), "not approved")}
+                    label={tabLabel(kind.plural, notApprovedIn(kind.kind), "not approved")}
                     sx={{ minHeight: 40, textTransform: "none" }}
                   />
                 ))}
@@ -1089,15 +1089,15 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
                     sx={{ flexShrink: 1, minWidth: 0, minHeight: 40 }}
                   >
                     {wholeTabs.includes(COVERAGES_TAB) && (
-                      <Tab value={COVERAGES_TAB} label={tabLabel(COVERAGES_TAB, "Coverages", notApprovedIn(COVERAGES_TAB), "not approved")} sx={{ minHeight: 40, textTransform: "none" }} />
+                      <Tab value={COVERAGES_TAB} label={tabLabel("Coverages", notApprovedIn(COVERAGES_TAB), "not approved")} sx={{ minHeight: 40, textTransform: "none" }} />
                     )}
                     {wholeTabs.includes(IMPACTS_TAB) && (
-                      <Tab value={IMPACTS_TAB} label={tabLabel(IMPACTS_TAB, "Impacts", notApprovedIn(IMPACTS_TAB), "not approved")} sx={{ minHeight: 40, textTransform: "none" }} />
+                      <Tab value={IMPACTS_TAB} label={tabLabel("Impacts", notApprovedIn(IMPACTS_TAB), "not approved")} sx={{ minHeight: 40, textTransform: "none" }} />
                     )}
                     {orphanThreads.length > 0 && (
                       <Tab
                         value={THREADS_TAB}
-                        label={tabLabel(THREADS_TAB, "Threads on removed units", orphanThreads.filter(waitsForSpecOwner).length, "waiting for you")}
+                        label={tabLabel("Threads on removed units", orphanThreads.filter(waitsForSpecOwner).length, "waiting for you")}
                         sx={{ minHeight: 40, textTransform: "none" }}
                       />
                     )}
