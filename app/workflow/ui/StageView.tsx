@@ -717,16 +717,21 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
 
   const { focused, withFocusMove } = useWorkflowNavigation();
 
+  /** The units whose signature is on its way: a held key or a double click asks to sign one again before the first answer. */
+  const signing = useRef(new Set<string>());
+
   /** Sign a unit, then move to the next unit that is not approved, or with `toWaiting` the next that waits for a signature. */
   const sign = async (unitId: string, toWaiting = false) => {
+    if (signing.current.has(unitId)) return;
     const actionsAt = actionsTopOf(unitId);
     // The order the person saw, across the stage's tabs: a signature can move its own unit, such as a removed item to the end of its kind's tab.
     // The move goes with the signature: the project works out once where it moves the focus, the step records that for redo, and the page goes there.
     const focusMove = { from: unitId, shownBefore: orderedUnits().map(({ unitId: id }) => id), toWaiting };
     let next: string | null = null;
+    signing.current.add(unitId);
     const signed = await perform(async () => {
-      next = await withFocusMove(focusMove, () => module.sign(unitId));
-    }, "The signature could not be given.");
+      next = await withFocusMove(focusMove, () => module.sign(unitId, module.signingCovers(unitId) ?? ""));
+    }, "The signature could not be given.").finally(() => signing.current.delete(unitId));
     if (!signed) return;
     // Find and measure the next card once the page has redrawn after the signature, so it is a card still on the page.
     requestAnimationFrame(() => {

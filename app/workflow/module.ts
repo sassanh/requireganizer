@@ -706,6 +706,25 @@ export function workflowModuleModel(workflow: Workflow) {
         }
       }
 
+      /**
+       * What a signature given now on a unit would cover, as one text: what
+       * the signer is shown. The page sends the one it showed with a
+       * signature, so a signature never covers what the signer did not see.
+       */
+      function signingCovers(unitId: string): string | null {
+        const state = unitState(unitId);
+        if (state == null) return null;
+        switch (state.kind) {
+          case "item":
+            return state.phase === "proposed-removal"
+              ? removalRevision(state.version)
+              : `${state.revision} ${JSON.stringify(Object.entries(state.currentBasis).sort(([left], [right]) => left.localeCompare(right)))}`;
+          case "coverage":
+          case "impact":
+            return state.covers;
+        }
+      }
+
       /** The module as a kind's rules and displays read it. */
       const reader: ModuleReader = {
         item: (id) => {
@@ -818,6 +837,7 @@ export function workflowModuleModel(workflow: Workflow) {
         stageOpen,
         unitState,
         isSignable,
+        signingCovers,
         openThreadOf,
         currentBasisOf,
         threadsOf,
@@ -1690,12 +1710,20 @@ export function workflowModuleModel(workflow: Workflow) {
               .filter(({ before: was, after }) => was !== after),
           };
         },
-        /** Sign a unit, as only an explicit act of signing does. */
-        sign(unitId: string, signer: Signer = SPEC_OWNER) {
+        /**
+         * Sign a unit as the signer was shown it, `shown` being what a
+         * signature covered then, as only an explicit act of signing does.
+         * Signing what is already signed as shown, such as twice in a row,
+         * changes nothing.
+         */
+        sign(unitId: string, shown: string, signer: Signer = SPEC_OWNER) {
           const state = self.unitState(unitId);
           if (state == null) throw new UserFacingError("That no longer exists.");
           requireOpen(state.stage, "signing");
-          if (!self.isSignable(unitId)) throw new UserFacingError(`${self.unitLabel(unitId)} has nothing to sign.`);
+          if (self.signingCovers(unitId) !== shown) {
+            throw new UserFacingError(`${self.unitLabel(unitId)} changed since it was shown, so it was not signed. Read it again, then sign.`);
+          }
+          if (!self.isSignable(unitId)) return;
           const node = stageNode(state.stage);
           switch (state.kind) {
             case "item": {
@@ -1735,7 +1763,8 @@ export function workflowModuleModel(workflow: Workflow) {
           requireOpen(state.stage, "writing");
           const item = self.locate(itemId)!.item;
           const signed = state.signature.version;
-          if (state.phase === "active" && revisionOf(signed) === state.revision) throw new UserFacingError(`${state.code} is as signed.`);
+          // Returning an item already as signed, such as twice in a row, changes nothing.
+          if (state.phase === "active" && revisionOf(signed) === state.revision) return;
           item.removal = null;
           item.content = signed.content;
           item.references = cast([...signed.references]);
