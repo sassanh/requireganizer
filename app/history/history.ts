@@ -8,14 +8,15 @@ import { type FocusPlace, isFocusPlace } from "./focus";
 import { AUTOMATIC_RESTORE_POINT_INTERVAL_MS, parseRestorePoint, type RestorePoint } from "./restorePoints";
 
 /**
- * What a change to the project was, as its step names it. The first five
- * are made on items, coverages and impacts; the rest on the whole project.
+ * What a change to the project was, as its step names it. The first six
+ * are made within a module; the rest on the whole project.
  */
 export type ChangeKind =
   | "edit"
   | "signature"
   | "thread message"
   | "thread resolution"
+  | "request to write a stage"
   | "write of items"
   | "restore"
   | "import"
@@ -27,6 +28,7 @@ const CHANGE_KINDS: readonly ChangeKind[] = [
   "signature",
   "thread message",
   "thread resolution",
+  "request to write a stage",
   "write of items",
   "restore",
   "import",

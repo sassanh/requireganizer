@@ -1,3 +1,4 @@
+import type { ChangeKind } from "history";
 import { UserFacingError } from "lib/errors";
 import { isRecord } from "lib/json";
 import type { Store } from "store";
@@ -67,6 +68,8 @@ type Arguments = Record<string, unknown>;
 
 interface AgentTool {
   description: AgentToolDescription;
+  /** The kind of change a call makes, as its step names it; null for a tool that only reads. */
+  makes: ChangeKind | null;
   run(store: Store, args: Arguments, open: OpenModule, caller: AgentCaller): string;
 }
 
@@ -440,6 +443,7 @@ function outcomeLines(store: Store, outcome: ChangeOutcome, codesBefore: Readonl
 const STAGE_PROPERTY = { type: "string", description: "A stage id, as get_workflow_state lists them." };
 
 const workflowStateTool: AgentTool = {
+  makes: null,
   description: {
     name: "get_workflow_state",
     description:
@@ -493,6 +497,7 @@ function fieldView(field: FieldDefinition): Record<string, unknown> {
 }
 
 const stageRulesTool: AgentTool = {
+  makes: null,
   description: {
     name: "get_stage_rules",
     description:
@@ -544,6 +549,7 @@ function readModule(store: Store, open: OpenModule, name: unknown): Store {
 }
 
 const itemsTool: AgentTool = {
+  makes: null,
   description: {
     name: "get_items",
     description:
@@ -581,6 +587,7 @@ const itemsTool: AgentTool = {
 };
 
 const threadTool: AgentTool = {
+  makes: null,
   description: {
     name: "get_thread",
     description:
@@ -603,6 +610,7 @@ const threadTool: AgentTool = {
 };
 
 const threadsTool: AgentTool = {
+  makes: null,
   description: {
     name: "get_threads",
     description:
@@ -628,6 +636,7 @@ const ANSWERS_PROPERTY = {
 };
 
 const writeTool: AgentTool = {
+  makes: "write of items",
   description: {
     name: "write_items",
     description:
@@ -685,6 +694,7 @@ const writeTool: AgentTool = {
 };
 
 const reorderTool: AgentTool = {
+  makes: "write of items",
   description: {
     name: "reorder_items",
     description:
@@ -725,6 +735,7 @@ const reorderTool: AgentTool = {
 };
 
 const switchModuleTool: AgentTool = {
+  makes: "module change",
   description: {
     name: "switch_module",
     description:
@@ -747,6 +758,7 @@ const switchModuleTool: AgentTool = {
 };
 
 const replyTool: AgentTool = {
+  makes: "thread message",
   description: {
     name: "reply_to_thread",
     description:
@@ -772,6 +784,7 @@ const replyTool: AgentTool = {
 };
 
 const createModuleTool: AgentTool = {
+  makes: "module change",
   description: {
     name: "create_module",
     description:
@@ -802,6 +815,17 @@ function toolsFor(open: OpenModule): AgentTool[] {
   ];
 }
 
+function toolNamed(name: string, open: OpenModule): AgentTool {
+  const tool = toolsFor(open).find(({ description }) => description.name === name);
+  if (tool == null) throw new UserFacingError(`No tool named ${name} is available now.`);
+  return tool;
+}
+
+/** The kind of change a call of the tool makes, as its step names it; null for a tool that only reads. */
+export function agentToolChange(name: string, open: OpenModule = {}): ChangeKind | null {
+  return toolNamed(name, open).makes;
+}
+
 /** The read tools, which an outside agent can call in every state of the project. */
 export function readToolDescriptions(): AgentToolDescription[] {
   return READ_TOOLS.map(({ description }) => description);
@@ -827,7 +851,5 @@ export function callAgentTool(
   open: OpenModule = {},
   caller: AgentCaller = { name: "The coding agent" },
 ): string {
-  const tool = toolsFor(open).find(({ description }) => description.name === name);
-  if (tool == null) throw new UserFacingError(`No tool named ${name} is available now.`);
-  return tool.run(store, args, open, caller);
+  return toolNamed(name, open).run(store, args, open, caller);
 }

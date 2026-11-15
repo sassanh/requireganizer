@@ -574,6 +574,21 @@ export class ProjectSession {
   };
 
   /**
+   * Run a read of the open project, through the same gate as a change. A
+   * read that changes the project throws, since no step records it.
+   */
+  read = <Result>(run: () => Result): Result => {
+    const state = this.changeableState();
+    const before = this.addressOf(state);
+    const result = run();
+    const after = this.readyState();
+    if (after != null && after.project.id === state.project.id && this.addressOf(after) !== before) {
+      throw new Error("A read changed the project, and no step records it.");
+    }
+    return result;
+  };
+
+  /**
    * Name an item, coverage or impact for the spec owner's attention, with
    * the coding agent's text; offered once the coding agent's change running
    * now is made.

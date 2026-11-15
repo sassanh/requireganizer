@@ -7,7 +7,7 @@ import {
   onSnapshot,
 } from "mobx-state-tree";
 
-import { type AgentCaller, agentToolDescriptions, callAgentTool, type OpenModule, readToolDescriptions } from "ai-agent/agent-access";
+import { type AgentCaller, agentToolChange, agentToolDescriptions, callAgentTool, type OpenModule, readToolDescriptions } from "ai-agent/agent-access";
 import { aiSettings } from "ai-agent/settings";
 import {
   type ClientMessage,
@@ -63,28 +63,24 @@ function contentsOf(registry: ModuleRegistry | null): Map<string, ModuleContent>
   return new Map((registry?.modules ?? []).map((entry) => [entry.id, entry.content]));
 }
 
-/** The store actions that are not edits, by the kind of change they make. */
-const STORE_ACTION_KINDS: Readonly<Record<string, ChangeKind>> = {
+/**
+ * The store actions the page may take, each with the kind of change its
+ * step names. The page takes no other: one missing here is refused, so
+ * none is recorded under a kind it was not given.
+ */
+const PAGE_ACTION_KINDS = {
+  writeItems: "edit",
+  restoreSigned: "edit",
   sign: "signature",
   requestChange: "thread message",
   replyAsSpecOwner: "thread message",
-  answerThreads: "thread message",
   resolveThread: "thread resolution",
-};
+  askToWrite: "request to write a stage",
+} as const satisfies { readonly [Name in keyof Store]?: ChangeKind };
 
-function storeActionKind(name: string): ChangeKind {
-  return Object.hasOwn(STORE_ACTION_KINDS, name) ? STORE_ACTION_KINDS[name]! : "edit";
-}
-
-/** The kind of change each agent tool makes that is not a write of items. */
-const AGENT_TOOL_KINDS: Readonly<Record<string, ChangeKind>> = {
-  create_module: "module change",
-  switch_module: "module change",
-  reply_to_thread: "thread message",
-};
-
-function agentToolKind(name: string): ChangeKind {
-  return Object.hasOwn(AGENT_TOOL_KINDS, name) ? AGENT_TOOL_KINDS[name]! : "write of items";
+function pageActionKind(name: string): ChangeKind {
+  if (!Object.hasOwn(PAGE_ACTION_KINDS, name)) throw new Error(`${name} is not an action the page takes.`);
+  return PAGE_ACTION_KINDS[name as keyof typeof PAGE_ACTION_KINDS];
 }
 
 function sessionView(snapshot: ProjectSessionSnapshot) {
@@ -158,7 +154,7 @@ export class ProjectHost implements HostEndpoint {
         // The stage is read before the action, which may remove the unit it starts from, such as a signed removal.
         const stage = call.focusMove == null ? null : (this.shown?.store.unitState(call.focusMove.from)?.stage ?? null);
         let focusMovedTo: FocusPlace | null = null;
-        const result = session.change(storeActionKind(call.name), () => this.runStoreAction(call), "spec owner", () => {
+        const result = session.change(pageActionKind(call.name), () => this.runStoreAction(call), "spec owner", () => {
           focusMovedTo = this.focusAfter(call, stage);
           return focusMovedTo;
         });
@@ -176,7 +172,10 @@ export class ProjectHost implements HostEndpoint {
         // One call is one change, though a write with answers takes two store
         // actions. Reading goes through the gate too: while an outside change
         // waits, either version may be the one kept, so neither is read.
-        return session.change(agentToolKind(name), () => callAgentTool(store, name, args, this.openModule(caller), caller), "coding agent");
+        const open = this.openModule(caller);
+        const makes = agentToolChange(name, open);
+        const run = () => callAgentTool(store, name, args, open, caller);
+        return makes == null ? session.read(run) : session.change(makes, run, "coding agent");
       },
     };
   }
