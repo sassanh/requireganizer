@@ -137,14 +137,14 @@ const ItemCard = observer(function ItemCard({ state, controls }: { state: ItemSt
   const { module, workflow, preview } = useWorkflowView();
   const mark = preview?.of(state.unitId) ?? null;
   const definition = workflow.kind(state.itemKind);
-  const dependents = module.dependentsOutOfDate(state.itemId);
-  const unreferenced = module.stagesNotReferencing(state.itemId);
+  // What the item causes for other units shows only outside a preview, which shows what an earlier state holds.
+  const dependents = preview == null ? module.dependentsOutOfDate(state.itemId) : [];
+  const unreferenced = preview == null ? module.stagesNotReferencing(state.itemId) : [];
   const signed = state.signature?.version ?? null;
   const changedSinceSigned = signed != null && revisionOf(signed) !== state.revision;
   const removed = state.phase === "removed";
-  const waitingImpacts = removed
-    ? workflow.stageIds.filter((stage) => module.impactStates(stage).some(({ itemId }) => itemId === state.itemId))
-    : [];
+  const waitingImpacts =
+    removed && preview == null ? workflow.stageIds.filter((stage) => module.impactStates(stage).some(({ itemId }) => itemId === state.itemId)) : [];
   return (
     <UnitFrame
       unitId={state.unitId}
