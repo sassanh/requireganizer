@@ -1410,10 +1410,19 @@ export class ProjectSession {
    * bringing it back would add, change or remove, changing nothing. Throws
    * for the spec owner when that state is no longer kept.
    */
-  preview = async (target: PreviewTarget): Promise<{ state: ProjectState; difference: StateDifference }> => {
+  preview = async (target: PreviewTarget): Promise<{ state: ProjectState; difference: StateDifference; heldNow: ReadonlySet<string> }> => {
     const address = await this.earlierState(target, "shown", "That earlier state is no longer kept, so the project shows as it is now.");
-    return { state: this.keptState(address), difference: this.differenceFromNowOf(address, "shown") };
+    const state = this.keptState(address);
+    return { state, difference: this.differenceFromNowOf(address, "shown"), heldNow: this.modulesHeldNow(state) };
   };
+
+  /** The modules of a state that are, by id, exactly as the project holds them now. */
+  private modulesHeldNow(state: ProjectState): ReadonlySet<string> {
+    const ready = this.readyState();
+    if (ready == null) return new Set();
+    const now = new Map(projectState(ready.registry, ready.store).modules.map((module) => [module.id, this.pieces.moduleAddressOf(module)]));
+    return new Set(state.modules.filter((module) => now.get(module.id) === this.pieces.moduleAddressOf(module)).map(({ id }) => id));
+  }
 
   /** What bringing back the project as it was after a kept step or at a restore point would add, change or remove, changing nothing. */
   differenceFromNow = async (target: PreviewTarget): Promise<StateDifference> =>

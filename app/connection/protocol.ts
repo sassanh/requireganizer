@@ -130,7 +130,7 @@ export interface HostApi {
   /** What bringing back the project as it was after a kept step or at a restore point would add, change or remove; changes nothing. */
   differenceFromNow(target: PreviewTarget): Promise<StateDifference>;
   /** The project as it was after a kept step or at a restore point, with how it differs from now; changes nothing. */
-  preview(target: PreviewTarget): Promise<{ state: ProjectState; difference: StateDifference }>;
+  preview(target: PreviewTarget): Promise<{ state: SentPreviewState; difference: StateDifference }>;
   /** Where the spec owner's focus is now. */
   reportFocus(place: FocusPlace | null): void;
   /** Take away an offer to go to what the coding agent named, once taken or dismissed. */
@@ -201,6 +201,15 @@ export type SentModuleEntry = Omit<ModuleState, "content"> & {
 };
 
 export interface SentRegistry extends Omit<ModuleRegistry, "modules"> {
+  modules: SentModuleEntry[];
+}
+
+/**
+ * An earlier state as sent. A module's content is left out when it is the
+ * content the client holds of that module now, the host's changes before the
+ * answer included.
+ */
+export interface SentPreviewState extends Omit<ProjectState, "modules"> {
   modules: SentModuleEntry[];
 }
 

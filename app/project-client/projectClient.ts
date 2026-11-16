@@ -20,6 +20,8 @@ import {
   type RequestMessage,
   type RequestName,
   type ResponseMessage,
+  type SentModuleEntry,
+  type SentPreviewState,
   type SentRegistry,
   type SessionView,
   type StoreUpdate,
@@ -31,7 +33,7 @@ import { UserFacingError } from "lib/errors";
 import type { ProjectIdentity } from "lib/projectStorage";
 import type { ClientPersistence } from "persistence";
 import { type ProjectSessionSnapshot, SiblingModuleStores } from "project-session";
-import { type ExportOptions, type ModuleRegistry, type ModuleState, type ProjectState, sharedWith } from "storage";
+import { type ExportOptions, type ModuleContent, moduleContentOf, type ModuleRegistry, type ModuleState, type ProjectState, sharedWith } from "storage";
 import { createModuleStore, type ReplicatedVolatileState, Store } from "store";
 import type { SignatureFocusMove } from "workflow";
 
@@ -68,6 +70,18 @@ export type ConnectionStatus =
   | { state: "failed"; message: string };
 
 /** The registry a sent one describes, with left-out contents taken from the one held before. */
+/** Modules as sent, each left out content taken from what the client holds, `heldContent`. */
+function receivedModules(sent: readonly SentModuleEntry[], heldContent: (moduleId: string) => ModuleContent | null): ModuleState[] {
+  return sent.map((entry): ModuleState => {
+    if (entry.content != null) return { ...entry, content: entry.content };
+    const content = heldContent(entry.id);
+    if (content == null) {
+      throw new Error(`The project host left out module ${entry.id}, which this client never received.`);
+    }
+    return { ...entry, content };
+  });
+}
+
 function receivedRegistry(
   sent: SentRegistry | null,
   held: ModuleRegistry | null,
@@ -75,14 +89,7 @@ function receivedRegistry(
   if (sent == null) return null;
   return {
     ...sent,
-    modules: sent.modules.map((entry): ModuleState => {
-      if (entry.content != null) return { ...entry, content: entry.content };
-      const content = held?.modules.find((module) => module.id === entry.id)?.content;
-      if (content == null) {
-        throw new Error(`The project host left out module ${entry.id}, which this client never received.`);
-      }
-      return { ...entry, content };
-    }),
+    modules: receivedModules(sent.modules, (moduleId) => held?.modules.find((module) => module.id === moduleId)?.content ?? null),
   };
 }
 
@@ -426,7 +433,7 @@ export class ProjectClient {
       const { state, difference } = await this.request("preview", target);
       // A later open or close wins over this one.
       if (request !== this.previewRequest) return;
-      this.showPreview(target, state, difference, (this.preview?.registry ?? this.registry)?.activeModuleId);
+      this.showPreview(target, this.receivedPreviewState(state), difference, (this.preview?.registry ?? this.registry)?.activeModuleId);
     } catch (error) {
       if (request !== this.previewRequest) return;
       this.closePreview();
@@ -580,6 +587,17 @@ export class ProjectClient {
     }
   }
 
+  /** An earlier state as sent, each module left out taken from the project now as the client holds it: the shown module from its replica. */
+  private receivedPreviewState(sent: SentPreviewState): ProjectState {
+    const registry = this.registry;
+    return {
+      ...sent,
+      modules: receivedModules(sent.modules, (moduleId) =>
+        moduleId === registry?.activeModuleId ? moduleContentOf(this.replica) : (registry?.modules.find((module) => module.id === moduleId)?.content ?? null),
+      ),
+    };
+  }
+
   /** Show an earlier state with one of its modules looked at: the one asked for, or its first that is not archived. */
   private showPreview(target: PreviewTarget, state: ProjectState, difference: StateDifference, moduleId: string | undefined): void {
     const openable = state.modules.filter((module) => module.archivedAt == null);
@@ -691,7 +709,7 @@ export class ProjectClient {
       // The project now moved, or the restore points changed: what the preview marks is read again, and a state no longer kept ends it.
       this.request("preview", preview.target).then(
         ({ state, difference }) => {
-          if (this.preview?.target === preview.target) this.showPreview(preview.target, state, difference, this.preview.registry.activeModuleId);
+          if (this.preview?.target === preview.target) this.showPreview(preview.target, this.receivedPreviewState(state), difference, this.preview.registry.activeModuleId);
         },
         () => {
           if (this.preview?.target === preview.target) this.closePreview();

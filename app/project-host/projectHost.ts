@@ -140,7 +140,16 @@ export class ProjectHost implements HostEndpoint {
       goTo: (target) => session.goTo(target),
       listRestorePoints: () => session.listRestorePoints(),
       differenceFromNow: (target) => session.differenceFromNow(target),
-      preview: (target) => session.preview(target),
+      preview: async (target) => {
+        const { state, difference, heldNow } = await session.preview(target);
+        // The client holds the content of every module the project now shares with that state, as the changes before this answer reach it first.
+        const modules = state.modules.map((entry) => {
+          if (!heldNow.has(entry.id)) return entry;
+          const { content: _held, ...rest } = entry;
+          return rest;
+        });
+        return { state: { ...state, modules }, difference };
+      },
       reportFocus: (place) => session.reportFocus(place),
       dismissOffer: (offerId) => session.dismissOffer(offerId),
       makeRestorePoint: (name) => session.makeRestorePoint(name),
