@@ -263,12 +263,24 @@ export function addedByChange(changes: readonly ItemChange[], added: readonly st
 /** The revision a basis records for an item that no longer exists. */
 const MISSING_REVISION = "missing";
 
+/**
+ * A stage's items in the order the page shows them: each of its kinds'
+ * items in the order the stage holds them, those not removed first, then
+ * the removed ones.
+ */
+export function shownItemOrder<Item extends { kind: string; removal: Removal | null }>(kinds: readonly { kind: string }[], items: readonly Item[]): Item[] {
+  return kinds.flatMap(({ kind }) => [
+    ...items.filter((item) => item.kind === kind && phaseOf(item.removal) !== "removed"),
+    ...items.filter((item) => item.kind === kind && phaseOf(item.removal) === "removed"),
+  ]);
+}
+
 /** An item's version: what it holds, apart from its kind, signature and removal. */
 export function versionOf(item: ItemVersion): ItemVersion {
   return { content: item.content, references: [...item.references], dependencies: [...item.dependencies] };
 }
 
-function phaseOf(removal: Removal | null): ItemPhase {
+export function phaseOf(removal: Removal | null): ItemPhase {
   if (removal == null) return "active";
   return removal.signature == null ? "proposed-removal" : "removed";
 }
@@ -445,6 +457,17 @@ export function workflowModuleModel(workflow: Workflow) {
       function linksOf(item: Item): string[] {
         return [...new Set([...referencesOf(item), ...dependenciesOf(item)])];
       }
+
+      /** For every item the items of this module link to, those items, in module order, from what each item holds: no item's state is derived. */
+      const linkingItems = cachedView((): ReadonlyMap<string, string[]> => {
+        const linking = new Map<string, string[]>();
+        for (const stage of workflow.stageIds) {
+          for (const item of itemsOf(stage)) {
+            for (const link of new Set(linksOf(item))) linking.set(link, [...(linking.get(link) ?? []), item.id]);
+          }
+        }
+        return linking;
+      });
 
       function currentBasisOf(item: Item): Record<string, string> {
         return Object.fromEntries(
@@ -847,6 +870,7 @@ export function workflowModuleModel(workflow: Workflow) {
         openThreadOf,
         currentBasisOf,
         threadsOf,
+        linkingItems,
         /** Every item of the module, in stage order. */
         get allItems(): Item[] {
           return workflow.stageIds.flatMap((stage) => [...itemsOf(stage)]);
@@ -863,23 +887,15 @@ export function workflowModuleModel(workflow: Workflow) {
         return self.stageComplete(stage) ? "complete" : "in-progress";
       };
 
-      /** For every item that makes items of this module out of date, those items, in module order, from one pass over the items. */
-      const outOfDateDependents = cachedView((): ReadonlyMap<string, string[]> => {
-        const dependents = new Map<string, string[]>();
-        for (const item of self.allItems) {
-          const causes = new Set((self.itemState(item.id)?.outOfDateCauses ?? []).map((cause) => cause.id));
-          for (const cause of causes) dependents.set(cause, [...(dependents.get(cause) ?? []), item.id]);
-        }
-        return dependents;
-      });
-
       /**
        * The items of this module out of date because of `id`, which may be of
-       * another module. Compared by content, so a change elsewhere in the
+       * another module: of the items linking to it, those whose state names
+       * it as a cause. Compared by content, so a change elsewhere in the
        * module that leaves this list as it was renders nothing that shows it.
        */
       const outOfDateBecauseOf = keyedView(
-        (id: string): string[] => outOfDateDependents().get(id) ?? [],
+        (id: string): string[] =>
+          (self.linkingItems().get(id) ?? []).filter((dependent) => self.itemState(dependent)?.outOfDateCauses.some((cause) => cause.id === id) === true),
         comparer.structural,
       );
 
@@ -933,24 +949,13 @@ export function workflowModuleModel(workflow: Workflow) {
       const writingAskedOfAnswerer = (): WritingAsk[] => self.writingAsked.filter(({ stage }) => self.stageOpen(stage) && !self.stageComplete(stage));
 
       /**
-       * Every unit a stage shows, in the order its tabs show them: each
-       * kind's items, its removed items after them, then the stage's
-       * coverages and impacts.
+       * Every unit a stage shows, in the order its tabs show them: its items
+       * as `shownItemOrder` orders them, then the stage's coverages and
+       * impacts.
        */
       const unitsInShownOrder = keyedView((stage: string): UnitState[] => {
-        const units = self.stageUnits(stage);
-        const removed = self.itemsOf(stage).flatMap((item) => {
-          const state = self.itemState(item.id);
-          return state?.phase === "removed" ? [state] : [];
-        });
-        return [
-          ...workflow.stage(stage).kinds.flatMap(({ kind }) => [
-            ...units.filter((unit) => unit.kind === "item" && unit.itemKind === kind),
-            ...removed.filter((state) => state.itemKind === kind),
-          ]),
-          ...units.filter((unit) => unit.kind === "coverage"),
-          ...units.filter((unit) => unit.kind === "impact"),
-        ];
+        const items = shownItemOrder(workflow.stage(stage).kinds, self.itemsOf(stage)).map(({ id }) => self.itemState(id)!);
+        return [...items, ...self.coverageStates(stage), ...self.impactStates(stage)];
       }, comparer.shallow);
 
       return {

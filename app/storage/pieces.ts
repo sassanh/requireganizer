@@ -246,9 +246,10 @@ export class PieceStore {
     return this.read(address) as unknown as StoredItem;
   }
 
-  /** The addresses of the items a stage's piece holds, in its order. */
-  stageItemsAt(address: Address): Address[] {
-    return textsOf(this.read(address).items);
+  /** A stage's piece, read: its content, with the addresses of its items' pieces, in its order, in place of its items. */
+  stageAt(address: Address): Omit<StageContent, "items"> & { items: Address[] } {
+    const node = this.read(address);
+    return { ...(node as unknown as Omit<StageContent, "items">), items: textsOf(node.items) };
   }
 
   /**

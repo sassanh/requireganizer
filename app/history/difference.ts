@@ -1,75 +1,7 @@
 import { exactRecord, InvalidJsonError, isRecord, readFlag, readText } from "lib/json";
-import { type Address, isAddress, type ModulePieces, type PieceStore, serializeCanonical } from "storage";
+import { type Address, isAddress, type ModulePieces, type PieceStore, serializeCanonical, type StoredItem } from "storage";
 import { createModuleStore, type Store, WORKFLOW } from "store";
-import { type ItemVersion, type Thread, type UnitState, versionOf } from "workflow";
-
-/** One item, coverage or impact of a stage as a comparison of two states reads it. */
-interface UnitPrint {
-  unitId: string;
-  unitKind: UnitState["kind"];
-  /** The item it is or is on. */
-  itemId: string;
-  /** The kind of the item it is, or null for a coverage or an impact. */
-  itemKind: string | null;
-  /** As the page names it, such as "REQ-03" or "coverage of REQ-03". */
-  label: string;
-  /** What it holds apart from its signatures and threads. */
-  content: string;
-  signature: string;
-  threads: string;
-  waits: boolean;
-}
-
-function printsOf(store: Store, stage: string): UnitPrint[] {
-  return store.unitsInShownOrder(stage).map((unit): UnitPrint => {
-    const common = {
-      unitId: unit.unitId,
-      unitKind: unit.kind,
-      itemId: unit.itemId,
-      label: store.unitLabel(unit.unitId),
-      threads: serializeCanonical(store.threadsOf(unit.unitId)),
-      waits: store.waitsForSignature(unit),
-    };
-    switch (unit.kind) {
-      case "item":
-        return {
-          ...common,
-          itemKind: unit.itemKind,
-          content: serializeCanonical({ kind: unit.itemKind, version: unit.version, phase: unit.phase }),
-          signature: serializeCanonical({ signature: unit.signature, removal: store.locate(unit.itemId)?.item.removal ?? null }),
-        };
-      case "coverage":
-        return { ...common, itemKind: null, content: "", signature: serializeCanonical(unit.signature) };
-      case "impact":
-        return {
-          ...common,
-          itemKind: null,
-          content: serializeCanonical({ before: unit.before, after: unit.after }),
-          signature: serializeCanonical(unit.signature),
-        };
-    }
-  });
-}
-
-/** A thread of a stage on a unit gone from it, as a comparison of two states reads it. */
-interface OrphanThreadPrint {
-  threadId: string;
-  unitId: string;
-  messages: string[];
-  resolution: string;
-}
-
-function orphanThreadsOf(store: Store, stage: string): OrphanThreadPrint[] {
-  return store
-    .threadsOfStage(stage)
-    .filter(({ unitId }) => store.unitState(unitId) == null)
-    .map((thread: Thread) => ({
-      threadId: thread.id,
-      unitId: thread.unitId,
-      messages: thread.messages.map((message) => serializeCanonical(message)),
-      resolution: serializeCanonical(thread.resolution),
-    }));
-}
+import { coverageUnitId, impactUnitId, type ItemVersion, parseUnitId, phaseOf, shownItemOrder, type Thread, type UnitState, versionOf } from "workflow";
 
 /** What bringing an earlier state back would do to one item, coverage or impact. */
 export type UnitChange =
@@ -80,7 +12,7 @@ export type UnitChange =
       content: boolean;
       signature: boolean;
       threads: boolean;
-      /** For an item in another place in its stage: its label there and now. */
+      /** For an item in another place in its stage: its code there and now. */
       place: { then: string; now: string } | null;
       /** For an item whose content differs, its version now, to show how the earlier one differs. */
       versionNow: ItemVersion | null;
@@ -89,13 +21,15 @@ export type UnitChange =
       change: "remove";
       /** Its text now, which the earlier state lacks. */
       textNow: string;
-      /** The unit of the earlier state that comes before it now; null at the start of its stage. */
+      /** The item of both states that comes before it now; null at the start of its stage. */
       after: string | null;
     };
 
 /**
- * One item, coverage or impact that bringing an earlier state back would
- * add, change or remove, named by its module, its stage and its label, as
+ * One item that bringing an earlier state back would add or remove, or one
+ * item, coverage or impact it would change, by what each state stores of it:
+ * a coverage's or impact's signature and threads, never its coming or going
+ * with the items it is on. Named by its module, its stage and its label, as
  * the project names it now: "a removed item" for one it no longer holds.
  */
 export type UnitDifference = UnitChange & {
@@ -107,21 +41,18 @@ export type UnitDifference = UnitChange & {
   unitKind: UnitState["kind"];
   itemKind: string | null;
   label: string;
-  /** Its place among the units the earlier state's stage shows, with those it would remove where the project shows them now. */
-  position: number;
 };
 
 /**
- * A thread on a unit that neither an earlier state nor the project now
- * holds, whose messages or resolution bringing that state back would
- * change: the messages only one of the two holds.
+ * A thread on a removed unit whose messages or resolution bringing an
+ * earlier state back would change: the messages only one of the two holds.
  */
 export interface ThreadDifference {
   moduleId: string;
   module: string;
   stage: string;
   threadId: string;
-  /** The unit it was on, which neither state holds. */
+  /** The unit it was on. */
   unitId: string;
   /** The name its unit had when it was removed. */
   label: string;
@@ -138,9 +69,9 @@ export interface ThreadDifference {
 
 /**
  * How an earlier state differs from the project now, unit by unit and then
- * thread by thread on units neither holds, in the order the modules and
- * stages show them. `same` is false also for a difference neither shows,
- * such as a module's name.
+ * thread by thread on removed units, in the order the modules and stages
+ * show them. `same` is false also for a difference neither shows, such as
+ * a module's name.
  */
 export interface StateDifference {
   same: boolean;
@@ -166,7 +97,7 @@ export type StoredUnitDifference = (
     }
   | {
       change: "remove";
-      /** The piece of the item it is or is on, as it is now. */
+      /** The piece of the item as it is now. */
       itemNow: Address;
       after: string | null;
     }
@@ -176,7 +107,6 @@ export type StoredUnitDifference = (
   unitId: string;
   unitKind: UnitState["kind"];
   itemKind: string | null;
-  position: number;
 };
 
 /** A `ThreadDifference` as a step keeps it, naming the thread's pieces. */
@@ -224,20 +154,18 @@ function places(value: unknown, label: string): number[] {
 }
 
 function parseUnitDifference(value: unknown, label: string): StoredUnitDifference {
-  const shared = ["moduleId", "stage", "unitId", "unitKind", "itemKind", "position"];
+  const shared = ["moduleId", "stage", "unitId", "unitKind", "itemKind"];
   if (!isRecord(value)) throw new InvalidJsonError(`${label} must be an object.`);
   const keys = value.change === "add" ? [] : value.change === "change" ? ["content", "signature", "threads", "place", "itemNow"] : value.change === "remove" ? ["itemNow", "after"] : null;
   if (keys == null) throw new InvalidJsonError(`${label} must be an add, a change or a remove.`);
   const fields = exactRecord(value, label, ["change", ...shared, ...keys]);
   if (!UNIT_KINDS.includes(fields.unitKind as UnitState["kind"])) throw new InvalidJsonError(`${label} unitKind must be item, coverage or impact.`);
-  if (typeof fields.position !== "number") throw new InvalidJsonError(`${label} position must be a number.`);
   const base = {
     moduleId: readText(fields.moduleId, `${label} moduleId`),
     stage: readText(fields.stage, `${label} stage`),
     unitId: readText(fields.unitId, `${label} unitId`),
     unitKind: fields.unitKind as UnitState["kind"],
     itemKind: textOrNull(fields.itemKind, `${label} itemKind`),
-    position: fields.position,
   };
   switch (fields.change) {
     case "add":
@@ -300,67 +228,8 @@ function kept<Value>(values: Map<string, Value>, key: string, limit: number, mak
   return value;
 }
 
-/** How one unit compares between two states, `from` and `to`. */
-interface UnitComparison {
-  moduleId: string;
-  module: string;
-  stage: string;
-  from: UnitPrint | null;
-  to: UnitPrint | null;
-  /** Shown in another order among the units both states show. */
-  moved: boolean;
-  /** Its place among the units `to` shows, with those only `from` shows where `from` shows them. */
-  position: number;
-  /** For a unit only `from` shows: the unit both show that comes before it in `from`. */
-  after: string | null;
-}
-
-/** The ids of the given prints that the other list holds too, in order. */
-function sharedIds(prints: readonly UnitPrint[], others: ReadonlySet<string>): string[] {
-  return prints.map(({ unitId }) => unitId).filter((unitId) => others.has(unitId));
-}
-
-function compareStage(moduleId: string, module: string, stage: string, from: readonly UnitPrint[], to: readonly UnitPrint[]): UnitComparison[] {
-  const fromById = new Map(from.map((print) => [print.unitId, print]));
-  const toById = new Map(to.map((print) => [print.unitId, print]));
-  const fromShared = sharedIds(from, new Set(toById.keys()));
-  const toShared = sharedIds(to, new Set(fromById.keys()));
-  const fromIndex = new Map(fromShared.map((unitId, index) => [unitId, index]));
-  const sharedIndex = new Map(toShared.map((unitId, index) => [unitId, index]));
-  // The units of `to`, with each unit only `from` shows after the unit both show that it follows in `from`.
-  const placed: { unitId: string; after: string | null }[] = to.map(({ unitId }) => ({ unitId, after: null }));
-  let previous: string | null = null;
-  const onlyFrom: { unitId: string; after: string | null }[] = [];
-  for (const { unitId } of from) {
-    if (toById.has(unitId)) previous = unitId;
-    else onlyFrom.push({ unitId, after: previous });
-  }
-  for (const entry of onlyFrom) {
-    const index = entry.after == null ? -1 : placed.findIndex(({ unitId }) => unitId === entry.after);
-    // After the unit it follows and after any other unit placed there before it.
-    let at = index + 1;
-    while (at < placed.length && !toById.has(placed[at]!.unitId) && placed[at]!.after === entry.after) at += 1;
-    placed.splice(at, 0, entry);
-  }
-  return placed.map(({ unitId, after }, position) => ({
-    moduleId,
-    module,
-    stage,
-    from: fromById.get(unitId) ?? null,
-    to: toById.get(unitId) ?? null,
-    moved: fromIndex.has(unitId) && sharedIndex.has(unitId) && fromIndex.get(unitId) !== sharedIndex.get(unitId),
-    position,
-    after,
-  }));
-}
-
-function differs(comparison: UnitComparison): boolean {
-  const { from, to } = comparison;
-  return from == null || to == null || from.content !== to.content || from.signature !== to.signature || from.threads !== to.threads;
-}
-
-/** The stages whose prints are kept at most, across the states a session compares. */
-const KEPT_PRINTS = 2_000;
+/** The stages and modules whose pieces a comparer keeps read at most, across the states it compares. */
+const KEPT_READS = 2_000;
 
 /** The models of modules no session shows that are kept at most, for the stages of one module version read one after another. */
 const KEPT_STORES = 8;
@@ -371,27 +240,98 @@ export type LiveStoreOf = (module: ModulePieces) => Store | null;
 /** The model of a module of the project now; null for a module it no longer holds. */
 export type ModelNowOf = (moduleId: string) => Store | null;
 
+/** One item of a stage's piece, read, with its piece's address. */
+interface ItemRead {
+  id: string;
+  address: Address;
+  item: StoredItem;
+}
+
+/** A stage's piece, read: its items in the order the stage holds them and in the order the page shows them, and the signatures on its coverages and impacts. */
+interface StageRead {
+  held: ItemRead[];
+  shown: ItemRead[];
+  coverages: Record<string, unknown>;
+  impacts: Record<string, unknown>;
+}
+
+const NO_STAGE: StageRead = { held: [], shown: [], coverages: {}, impacts: {} };
+
+/** A thread of a module version, read, with its piece's address. */
+interface ThreadRead {
+  address: Address;
+  thread: Thread;
+}
+
 /**
- * Compares states of the project kept as pieces, unit by unit, with the
- * one model that derives units. A module or a stage held at one address in
- * both states is the same and is not read; a stage is read only where it,
- * a stage it builds on or its threads differ. What a module version's
- * stage holds is read once and kept by its address.
+ * A module version's threads, read: those on units by unit, in the order
+ * the module holds them, and those on removed units by thread.
+ */
+interface ThreadsRead {
+  byUnit: Map<string, ThreadRead[]>;
+  removed: Map<string, ThreadRead>;
+  /** The addresses of each stage's threads, joined, by stage. */
+  stages: Map<string, string>;
+}
+
+/** What a comparison reads of an item as its content and as its signature: what differs for it to change. */
+function contentOf(item: StoredItem): string {
+  return serializeCanonical({ kind: item.kind, version: versionOf(item), phase: phaseOf(item.removal) });
+}
+
+function signatureOf(item: StoredItem): string {
+  return serializeCanonical({ signature: item.signature, removal: item.removal });
+}
+
+function addressesOf(threads: readonly ThreadRead[] | undefined): string {
+  return (threads ?? []).map(({ address }) => address).join(" ");
+}
+
+/**
+ * The ids of `then`, with each id only `now` holds placed after the id both
+ * hold that it follows in `now`, and after any placed there before it; each
+ * with that id, null at the start.
+ */
+function placed(then: readonly string[], now: readonly string[]): { id: string; after: string | null }[] {
+  const inThen = new Set(then);
+  const order: { id: string; after: string | null }[] = then.map((id) => ({ id, after: null }));
+  let previous: string | null = null;
+  for (const id of now) {
+    if (inThen.has(id)) {
+      previous = id;
+      continue;
+    }
+    const after = previous;
+    const index = after == null ? -1 : order.findIndex((entry) => entry.id === after);
+    let at = index + 1;
+    while (at < order.length && !inThen.has(order[at]!.id) && order[at]!.after === after) at += 1;
+    order.splice(at, 0, { id, after });
+  }
+  return order;
+}
+
+/**
+ * Compares states of the project kept as pieces by what each stores, with
+ * no model: a module or a stage held at one address in both states is the
+ * same and is not read, and what a stage's piece or a module's threads hold
+ * is read once and kept by its address. Undo and redo also read, from the
+ * models that derive units, which units a change made wait for a signature
+ * and which a stage shows, to place the focus.
  */
 export class StateComparer {
-  private readonly prints = new Map<string, UnitPrint[]>();
-  private readonly orphanPrints = new Map<string, OrphanThreadPrint[]>();
   private readonly stores = new Map<Address, Store>();
   private readonly modules = new Map<Address, ModulePieces[]>();
-  private readonly threadStages = new Map<Address, string>();
-  private readonly itemPieces = new Map<Address, Map<string, Address>>();
-  private readonly threadPieces = new Map<Address, Map<string, Address>>();
+  private readonly stages = new Map<string, StageRead>();
+  private readonly threads = new Map<Address, ThreadsRead>();
+  private readonly places = new Map<Address, Map<string, number>>();
+  private readonly shown = new Map<string, string[]>();
+  private readonly waiting = new Map<string, Set<string>>();
 
   constructor(private readonly pieces: PieceStore) {}
 
   /** The modules the page shows of the state at an address, archived ones left out, in order. */
   private modulesAt(address: Address): ModulePieces[] {
-    return kept(this.modules, address, KEPT_PRINTS, () => this.pieces.modulesAt(address).filter(({ archivedAt }) => archivedAt == null));
+    return kept(this.modules, address, KEPT_READS, () => this.pieces.modulesAt(address).filter(({ archivedAt }) => archivedAt == null));
   }
 
   /** A module version's model: the one a session shows, or one read from its pieces. */
@@ -401,76 +341,54 @@ export class StateComparer {
     return kept(this.stores, module.address, KEPT_STORES, () => createModuleStore(this.pieces.moduleAt(module.address).content));
   }
 
-  private stagePrints(module: ModulePieces, stage: string, live: LiveStoreOf): UnitPrint[] {
-    return kept(this.prints, `${module.address} ${stage}`, KEPT_PRINTS, () => printsOf(this.storeOf(module, live), stage));
-  }
-
-  private stageOrphanThreads(module: ModulePieces, stage: string, live: LiveStoreOf): OrphanThreadPrint[] {
-    return kept(this.orphanPrints, `${module.address} ${stage}`, KEPT_PRINTS, () => orphanThreadsOf(this.storeOf(module, live), stage));
-  }
-
-  private threadStage(address: Address): string {
-    let stage = this.threadStages.get(address);
-    if (stage == null) {
-      stage = this.pieces.threadAt(address).stage;
-      this.threadStages.set(address, stage);
-    }
-    return stage;
-  }
-
-  /** The piece of an item a stage's piece holds, by the item's id. */
-  private itemPiece(stageAddress: Address, itemId: string): Address | null {
-    const byId = kept(this.itemPieces, stageAddress, KEPT_PRINTS, () => {
-      const addresses = this.pieces.stageItemsAt(stageAddress);
-      return new Map(addresses.map((address) => [this.pieces.itemAt(address).id, address]));
+  /** A module version's stage, read from its piece; an empty one for a module the state lacks, or a stage the module holds none of. */
+  private stageOf(module: ModulePieces | null, stage: string): StageRead {
+    const address = module?.stages[stage];
+    if (address == null) return NO_STAGE;
+    return kept(this.stages, `${address} ${stage}`, KEPT_READS, () => {
+      const read = this.pieces.stageAt(address);
+      const held = read.items.map((itemAddress) => {
+        const item = this.pieces.itemAt(itemAddress);
+        return { id: item.id, address: itemAddress, item };
+      });
+      const shown = shownItemOrder(WORKFLOW.stage(stage).kinds, held.map(({ item }) => item)).map((item) => held.find(({ id }) => id === item.id)!);
+      return { held, shown, coverages: read.coverages, impacts: read.impacts };
     });
-    return byId.get(itemId) ?? null;
   }
 
-  /** The piece of an item a module version holds, by the item's id, in whichever stage holds it. */
-  private itemPieceIn(module: ModulePieces, itemId: string): Address | null {
-    for (const stageAddress of Object.values(module.stages)) {
-      const found = this.itemPiece(stageAddress, itemId);
-      if (found != null) return found;
-    }
-    return null;
+  private threadsOf(module: ModulePieces | null): ThreadsRead {
+    if (module == null) return { byUnit: new Map(), removed: new Map(), stages: new Map() };
+    return kept(this.threads, module.address, KEPT_READS, () => {
+      const read: ThreadsRead = { byUnit: new Map(), removed: new Map(), stages: new Map() };
+      for (const address of module.threads) {
+        const thread = this.pieces.threadAt(address);
+        if (thread.removedUnit == null) read.byUnit.set(thread.unitId, [...(read.byUnit.get(thread.unitId) ?? []), { address, thread }]);
+        else read.removed.set(thread.id, { address, thread });
+        read.stages.set(thread.stage, `${read.stages.get(thread.stage) ?? ""} ${address}`);
+      }
+      return read;
+    });
   }
 
-  /** The piece of a thread a module version holds, by the thread's id. */
-  private threadPiece(module: ModulePieces | null, threadId: string): Address | null {
-    if (module == null) return null;
-    const byId = kept(this.threadPieces, module.address, KEPT_PRINTS, () => new Map(module.threads.map((address) => [this.pieces.threadAt(address).id, address])));
-    return byId.get(threadId) ?? null;
+  /** Each item's place among a module version's items: by stage, then as its stage holds it. */
+  private placesOf(module: ModulePieces): Map<string, number> {
+    return kept(this.places, module.address, KEPT_READS, () => {
+      const ids = WORKFLOW.stageIds.flatMap((stage) => this.stageOf(module, stage).held.map(({ id }) => id));
+      return new Map(ids.map((id, place) => [id, place]));
+    });
   }
 
-  /** The stages of two versions of a module whose units may differ. */
+  /** The stages of two versions of a module whose stored content or threads differ. */
   private stagesToCompare(from: ModulePieces | null, to: ModulePieces | null): string[] {
     if (from == null || to == null) return WORKFLOW.stageIds;
-    const threadsOf = (module: ModulePieces, stage: string) =>
-      module.threads.filter((address) => this.threadStage(address) === stage).sort().join(" ");
-    const contentChanged = new Set(WORKFLOW.stageIds.filter((stage) => from.stages[stage] !== to.stages[stage]));
-    return WORKFLOW.stageIds.filter(
-      (stage) =>
-        contentChanged.has(stage) ||
-        WORKFLOW.upstreamStages(stage).some((upstream) => contentChanged.has(upstream)) ||
-        threadsOf(from, stage) !== threadsOf(to, stage),
-    );
+    const fromThreads = this.threadsOf(from).stages;
+    const toThreads = this.threadsOf(to).stages;
+    return WORKFLOW.stageIds.filter((stage) => from.stages[stage] !== to.stages[stage] || fromThreads.get(stage) !== toThreads.get(stage));
   }
 
   /**
-   * How each unit compares between the states at two addresses, in the
-   * order `to` shows its modules, then those only `from` holds.
-   */
-  private compare(from: Address, to: Address, live: LiveStoreOf): UnitComparison[] {
-    const prints = (module: ModulePieces | null, stage: string) => (module == null ? [] : this.stagePrints(module, stage, live));
-    return this.stagePairs(from, to).flatMap(({ moduleId, module, stage, fromModule, toModule }) =>
-      compareStage(moduleId, module, stage, prints(fromModule, stage), prints(toModule, stage)),
-    );
-  }
-
-  /**
-   * The stages whose units may differ between the states at two addresses,
-   * each with its module in both, in the order `to` shows its modules, then
+   * The stages that may differ between the states at two addresses, each
+   * with its module in both, in the order `to` shows its modules, then
    * those only `from` holds.
    */
   private stagePairs(from: Address, to: Address): StagePair[] {
@@ -483,107 +401,108 @@ export class StateComparer {
       const fromModule = fromById.get(shown.id) ?? null;
       const toModule = toModules.find(({ id }) => id === shown.id) ?? null;
       if (fromModule?.address === toModule?.address) return [];
-      return this.stagesToCompare(fromModule, toModule).map((stage) => ({ moduleId: shown.id, module: shown.name, stage, fromModule, toModule }));
+      return this.stagesToCompare(fromModule, toModule).map((stage) => ({ moduleId: shown.id, stage, fromModule, toModule }));
     });
   }
 
-  /** The threads on units neither the state at `here` nor the one at `there` holds that differ between them. */
-  private threadDifferences(here: Address, there: Address, live: LiveStoreOf): StoredThreadDifference[] {
-    return this.stagePairs(here, there).flatMap(({ moduleId, stage, fromModule: nowModule, toModule: earlierModule }) => {
-      const orphans = (pieces: ModulePieces | null) => (pieces == null ? [] : this.stageOrphanThreads(pieces, stage, live));
-      const holds = (pieces: ModulePieces | null, unitId: string) => pieces != null && this.storeOf(pieces, live).unitState(unitId) != null;
-      const now = new Map(orphans(nowModule).map((print) => [print.threadId, print]));
-      const earlier = new Map(orphans(earlierModule).map((print) => [print.threadId, print]));
-      return [...new Set([...earlier.keys(), ...now.keys()])].flatMap((threadId): StoredThreadDifference[] => {
-        const then = earlier.get(threadId) ?? null;
-        const current = now.get(threadId) ?? null;
-        const shown = (then ?? current)!;
-        if (holds(nowModule, shown.unitId) || holds(earlierModule, shown.unitId)) return [];
-        const only = (print: OrphanThreadPrint | null, other: OrphanThreadPrint | null) =>
-          print == null ? [] : print.messages.flatMap((message, index) => (other?.messages.includes(message) ?? false ? [] : [index]));
-        const messagesAdded = only(then, current);
-        const messagesRemoved = only(current, then);
-        const resolutionDiffers = (then?.resolution ?? null) !== (current?.resolution ?? null);
-        if (messagesAdded.length === 0 && messagesRemoved.length === 0 && !resolutionDiffers) return [];
-        return [
-          {
-            moduleId,
-            stage,
-            threadId,
-            earlier: then == null ? null : this.threadPiece(earlierModule, threadId),
-            now: current == null ? null : this.threadPiece(nowModule, threadId),
-            messagesAdded,
-            messagesRemoved,
-            resolutionDiffers,
-          },
-        ];
+  /** What going from `now` to `then` adds, changes or removes in one stage, items first, in the order `then` shows them, then coverages and impacts. */
+  private stageDifference({ moduleId, stage, fromModule: nowModule, toModule: thenModule }: StagePair): StoredUnitDifference[] {
+    const now = this.stageOf(nowModule, stage);
+    const then = this.stageOf(thenModule, stage);
+    const threadsNow = this.threadsOf(nowModule).byUnit;
+    const threadsThen = this.threadsOf(thenModule).byUnit;
+    const threadsDiffer = (unitId: string) => addressesOf(threadsNow.get(unitId)) !== addressesOf(threadsThen.get(unitId));
+    const nowById = new Map(now.shown.map((read) => [read.id, read]));
+    const thenById = new Map(then.shown.map((read) => [read.id, read]));
+    const sharedThen = then.shown.filter(({ id }) => nowById.has(id)).map(({ id }) => id);
+    const sharedNow = now.shown.filter(({ id }) => thenById.has(id)).map(({ id }) => id);
+    const codeIn = (stageRead: StageRead, read: ItemRead) => WORKFLOW.codeOf(read.item, stageRead.held.map(({ item }) => item));
+    const items = placed(
+      then.shown.map(({ id }) => id),
+      now.shown.map(({ id }) => id),
+    ).flatMap(({ id, after }): StoredUnitDifference[] => {
+      const inNow = nowById.get(id);
+      const inThen = thenById.get(id);
+      const base = { moduleId, stage, unitId: id, unitKind: "item" as const, itemKind: (inThen ?? inNow)!.item.kind };
+      if (inNow == null) return [{ ...base, change: "add" }];
+      if (inThen == null) return [{ ...base, change: "remove", itemNow: inNow.address, after }];
+      const moved = sharedThen.indexOf(id) !== sharedNow.indexOf(id);
+      const content = contentOf(inNow.item) !== contentOf(inThen.item);
+      const signature = signatureOf(inNow.item) !== signatureOf(inThen.item);
+      const threads = threadsDiffer(id);
+      if (!moved && !content && !signature && !threads) return [];
+      return [
+        {
+          ...base,
+          change: "change",
+          content,
+          signature,
+          threads,
+          place: moved ? { then: codeIn(then, inThen), now: codeIn(now, inNow) } : null,
+          itemNow: content ? inNow.address : null,
+        },
+      ];
+    });
+    const placeOf = (itemId: string) =>
+      (thenModule == null ? undefined : this.placesOf(thenModule).get(itemId)) ?? (nowModule == null ? undefined : this.placesOf(nowModule).get(itemId)) ?? Number.POSITIVE_INFINITY;
+    const signed = (kind: "coverage" | "impact", unitIdOf: (stage: string, itemId: string) => string): StoredUnitDifference[] => {
+      const signatures = (read: StageRead) => (kind === "coverage" ? read.coverages : read.impacts);
+      const onThreads = [...threadsNow.keys(), ...threadsThen.keys()].flatMap((unitId) => {
+        const address = parseUnitId(unitId);
+        return address.kind === kind && address.stage === stage ? [address.itemId] : [];
       });
+      const itemIds = [...new Set([...Object.keys(signatures(now)), ...Object.keys(signatures(then)), ...onThreads])];
+      return itemIds
+        .sort((left, right) => placeOf(left) - placeOf(right) || left.localeCompare(right))
+        .flatMap((itemId): StoredUnitDifference[] => {
+          const unitId = unitIdOf(stage, itemId);
+          const signature = serializeCanonical(signatures(now)[itemId] ?? null) !== serializeCanonical(signatures(then)[itemId] ?? null);
+          const threads = threadsDiffer(unitId);
+          if (!signature && !threads) return [];
+          return [{ moduleId, stage, unitId, unitKind: kind, itemKind: null, change: "change", content: false, signature, threads, place: null, itemNow: null }];
+        });
+    };
+    return [...items, ...signed("coverage", coverageUnitId), ...signed("impact", impactUnitId)];
+  }
+
+  /** The threads on removed units of one stage whose messages or resolution differ between `now` and `then`. */
+  private threadDifferences({ moduleId, stage, fromModule: nowModule, toModule: thenModule }: StagePair): StoredThreadDifference[] {
+    const now = this.threadsOf(nowModule).removed;
+    const then = this.threadsOf(thenModule).removed;
+    // A thread on an item either state holds is that item's.
+    const holds = (unitId: string) => [nowModule, thenModule].some((module) => this.stageOf(module, stage).held.some(({ id }) => id === unitId));
+    return [...new Set([...then.keys(), ...now.keys()])].flatMap((threadId): StoredThreadDifference[] => {
+      const inThen = then.get(threadId) ?? null;
+      const inNow = now.get(threadId) ?? null;
+      const shown = (inThen ?? inNow)!.thread;
+      if (shown.stage !== stage || holds(shown.unitId)) return [];
+      const messages = (read: ThreadRead | null) => read?.thread.messages.map((message) => serializeCanonical(message)) ?? [];
+      const only = (read: ThreadRead | null, other: ThreadRead | null) => {
+        const others = messages(other);
+        return messages(read).flatMap((message, index) => (others.includes(message) ? [] : [index]));
+      };
+      const messagesAdded = only(inThen, inNow);
+      const messagesRemoved = only(inNow, inThen);
+      const resolutionDiffers = serializeCanonical(inThen?.thread.resolution ?? null) !== serializeCanonical(inNow?.thread.resolution ?? null);
+      if (messagesAdded.length === 0 && messagesRemoved.length === 0 && !resolutionDiffers) return [];
+      return [{ moduleId, stage, threadId, earlier: inThen?.address ?? null, now: inNow?.address ?? null, messagesAdded, messagesRemoved, resolutionDiffers }];
     });
-  }
-
-  /**
-   * Read what a comparison of `from` with `to` reads of `from`, while
-   * `live` still shows `from`, so that it is not read again from pieces
-   * once `live` shows `to`.
-   */
-  prepare(from: Address, to: Address, live: LiveStoreOf): void {
-    if (from === to) return;
-    const toModules = new Map(this.modulesAt(to).map((pieces) => [pieces.id, pieces]));
-    for (const pieces of this.modulesAt(from)) {
-      const other = toModules.get(pieces.id) ?? null;
-      if (other?.address === pieces.address) continue;
-      for (const stage of this.stagesToCompare(pieces, other)) {
-        this.stagePrints(pieces, stage, live);
-        this.stageOrphanThreads(pieces, stage, live);
-      }
-    }
-  }
-
-  /** The units a module's stage shows in the state at an address, in order; null when that state shows no such module or stage. */
-  shownUnits(address: Address, moduleId: string, stage: string, live: LiveStoreOf): string[] | null {
-    const pieces = this.modulesAt(address).find(({ id }) => id === moduleId);
-    if (pieces == null || !WORKFLOW.isStage(stage)) return null;
-    return this.stagePrints(pieces, stage, live).map(({ unitId }) => unitId);
-  }
-
-  /** How each unit that differs between the states at two addresses compares, in the order `to` shows them. */
-  private changes(from: Address, to: Address, live: LiveStoreOf): UnitComparison[] {
-    return this.compare(from, to, live).filter((comparison) => comparison.moved || differs(comparison));
   }
 
   /**
    * How the state at `there` differs from the one at `here`: what going
-   * from `here` to `there` adds, changes or removes. Its names read for an
-   * earlier state, at `there`, and the project now, at `here`; what a step
-   * changed is the same comparison from its state before to its state after.
+   * from `here` to `there` adds, changes or removes. Its names read as the
+   * project names its items now, `now`; what a step changed is the same
+   * comparison from its state before to its state after.
    */
-  difference(here: Address, there: Address, live: LiveStoreOf, now: ModelNowOf): StateDifference {
-    return this.described(here, there, this.stored(here, there, live), now);
+  difference(here: Address, there: Address, now: ModelNowOf): StateDifference {
+    return this.described(here, there, this.stored(here, there), now);
   }
 
   /** `difference`, as a step keeps it. */
-  stored(here: Address, there: Address, live: LiveStoreOf): StoredDifference {
-    const modulesNow = new Map(this.modulesAt(here).map((pieces) => [pieces.id, pieces]));
-    const units = this.changes(here, there, live).map((comparison): StoredUnitDifference => {
-      const { from: now, to: earlier, moduleId, stage, position } = comparison;
-      const shown = (earlier ?? now)!;
-      const base = { moduleId, stage, unitId: shown.unitId, unitKind: shown.unitKind, itemKind: shown.itemKind, position };
-      if (now == null) return { ...base, change: "add" };
-      const moduleNow = modulesNow.get(moduleId)!;
-      if (earlier == null) return { ...base, change: "remove", itemNow: this.itemPieceIn(moduleNow, now.itemId)!, after: comparison.after };
-      const content = now.content !== earlier.content;
-      const stageNow = moduleNow.stages[stage]!;
-      return {
-        ...base,
-        change: "change",
-        content,
-        signature: now.signature !== earlier.signature,
-        threads: now.threads !== earlier.threads,
-        place: comparison.moved ? { then: earlier.label, now: now.label } : null,
-        itemNow: content && now.unitKind === "item" ? this.itemPiece(stageNow, now.itemId) : null,
-      };
-    });
-    return { units, threads: this.threadDifferences(here, there, live) };
+  stored(here: Address, there: Address): StoredDifference {
+    const pairs = this.stagePairs(here, there);
+    return { units: pairs.flatMap((pair) => this.stageDifference(pair)), threads: pairs.flatMap((pair) => this.threadDifferences(pair)) };
   }
 
   /**
@@ -617,8 +536,8 @@ export class StateComparer {
     });
     const threads = stored.threads.map((thread): ThreadDifference => {
       const earlier = thread.earlier == null ? null : this.pieces.threadAt(thread.earlier);
-      const now = thread.now == null ? null : this.pieces.threadAt(thread.now);
-      const shown = (earlier ?? now)!;
+      const current = thread.now == null ? null : this.pieces.threadAt(thread.now);
+      const shown = (earlier ?? current)!;
       const texts = (of: Thread | null, places: readonly number[]) => places.map((place) => of!.messages[place]!.text);
       return {
         moduleId: thread.moduleId,
@@ -629,7 +548,7 @@ export class StateComparer {
         label: shown.removedUnit?.name ?? "a removed item",
         text: shown.removedUnit?.text ?? "",
         messagesAdded: texts(earlier, thread.messagesAdded),
-        messagesRemoved: texts(now, thread.messagesRemoved),
+        messagesRemoved: texts(current, thread.messagesRemoved),
         resolutionDiffers: thread.resolutionDiffers,
         onlyNow: earlier == null,
       };
@@ -637,26 +556,58 @@ export class StateComparer {
     return { same: here === there, units, threads };
   }
 
+  /** The units a module version's stage shows, in order, and those of them that wait for a signature, read once by the version's address. */
+  private shownOf(module: ModulePieces, stage: string, live: LiveStoreOf): { shown: string[]; waiting: Set<string> } {
+    const key = `${module.address} ${stage}`;
+    const known = this.shown.get(key);
+    if (known != null) return { shown: known, waiting: this.waiting.get(key)! };
+    const store = this.storeOf(module, live);
+    const units = store.unitsInShownOrder(stage);
+    const shown = kept(this.shown, key, KEPT_READS, () => units.map(({ unitId }) => unitId));
+    const waiting = kept(this.waiting, key, KEPT_READS, () => new Set(units.filter((unit) => store.waitsForSignature(unit)).map(({ unitId }) => unitId)));
+    return { shown, waiting };
+  }
+
+  /**
+   * Read what a move from `from` to `to` needs of `from`, while `live`
+   * still shows `from`, so that it is not read again from pieces once
+   * `live` shows `to`.
+   */
+  prepare(from: Address, to: Address, live: LiveStoreOf): void {
+    for (const { stage, fromModule } of this.stagePairs(from, to)) {
+      if (fromModule != null) this.shownOf(fromModule, stage, live);
+    }
+  }
+
+  /** The units a module's stage shows in the state at an address, in order; null when that state shows no such module or stage. */
+  shownUnits(address: Address, moduleId: string, stage: string, live: LiveStoreOf): string[] | null {
+    const pieces = this.modulesAt(address).find(({ id }) => id === moduleId);
+    if (pieces == null || !WORKFLOW.isStage(stage)) return null;
+    return this.shownOf(pieces, stage, live).shown;
+  }
+
   /**
    * The units a change from the state at `before` to the one at `after` was
-   * made on: those it added, removed, changed or moved, in the order the
-   * modules and stages of `after` show them; and of those, the ones it made
-   * wait for a signature.
+   * made on: those it added, removed or changed, in the order the modules
+   * and stages of `after` show them; and the units of the stages it changed
+   * that it made wait for a signature, in the order they show.
    */
   unitsChanged(before: Address, after: Address, live: LiveStoreOf): { madeOn: ChangedUnit[]; madeWait: ChangedUnit[] } {
-    const changed = this.changes(before, after, live);
-    const place = ({ moduleId, stage, from, to }: UnitComparison): ChangedUnit => ({ moduleId, stage, unitId: (to ?? from)!.unitId });
-    return {
-      madeOn: changed.map(place),
-      madeWait: changed.filter(({ from, to }) => to?.waits === true && from?.waits !== true).map(place),
-    };
+    const pairs = this.stagePairs(before, after);
+    const madeOn = pairs.flatMap((pair) => this.stageDifference(pair)).map(({ moduleId, stage, unitId }) => ({ moduleId, stage, unitId }));
+    const madeWait = pairs.flatMap(({ moduleId, stage, fromModule, toModule }) => {
+      if (toModule == null) return [];
+      const waitedBefore = fromModule == null ? new Set<string>() : this.shownOf(fromModule, stage, live).waiting;
+      const { shown, waiting } = this.shownOf(toModule, stage, live);
+      return shown.filter((unitId) => waiting.has(unitId) && !waitedBefore.has(unitId)).map((unitId) => ({ moduleId, stage, unitId }));
+    });
+    return { madeOn, madeWait };
   }
 }
 
 /** A stage whose units may differ between two states, with its module in each; null where a state lacks the module. */
 interface StagePair {
   moduleId: string;
-  module: string;
   stage: string;
   fromModule: ModulePieces | null;
   toModule: ModulePieces | null;

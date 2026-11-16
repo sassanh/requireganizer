@@ -82,18 +82,9 @@ interface MarkedPlace {
   position: number;
 }
 
-/** Every place a preview marks: its units, then each stage's threads on units neither state holds. */
-function markedPlaces(difference: StateDifference): MarkedPlace[] {
-  const indexes = new Map<string, number>();
-  return [
-    ...difference.units.map(({ moduleId, stage, unitId, position }) => ({ moduleId, stage, unitId, position })),
-    ...difference.threads.map(({ moduleId, stage, unitId }) => {
-      const key = `${moduleId} ${stage}`;
-      const index = indexes.get(key) ?? 0;
-      indexes.set(key, index + 1);
-      return { moduleId, stage, unitId, position: threadMarkPosition(index) };
-    }),
-  ];
+/** Every place a preview marks, its units and then its threads on removed units, each at its position as `positionOf` gives it. */
+function markedPlaces(difference: StateDifference, positionOf: (place: FocusPlace) => number): MarkedPlace[] {
+  return [...difference.units, ...difference.threads].map(({ moduleId, stage, unitId }) => ({ moduleId, stage, unitId, position: positionOf({ moduleId, stage, unitId }) }));
 }
 
 /**
@@ -111,7 +102,7 @@ export function adjacentMark(
   positionOf: (place: FocusPlace) => number,
 ): MarkedPlace | null {
   const keyOf = (moduleId: string, stage: string, position: number) => [rankOf(moduleId), WORKFLOW.stageIds.indexOf(stage), position];
-  const marks = markedPlaces(difference).sort((left, right) =>
+  const marks = markedPlaces(difference, positionOf).sort((left, right) =>
     compare(keyOf(left.moduleId, left.stage, left.position), keyOf(right.moduleId, right.stage, right.position)),
   );
   if (marks.length === 0) return null;

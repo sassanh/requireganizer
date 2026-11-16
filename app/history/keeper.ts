@@ -133,9 +133,9 @@ export class HistoryKeeper {
   /**
    * Record a change as one step, preceded by an automatic restore point of
    * the state before it when none was made in the hour before, with what it
-   * changed, read while `live` shows the state after it.
+   * changed.
    */
-  record(change: RecordedChange, live: LiveStoreOf): void {
+  record(change: RecordedChange): void {
     if (automaticRestorePointDue(this.current, change.startedAt)) {
       this.current = withRestorePoint(this.current, {
         id: uuid(),
@@ -156,7 +156,7 @@ export class HistoryKeeper {
       kind: change.kind,
       by: change.by,
       focus: change.focus,
-      change: this.readable(change.before, change.after, () => this.comparer.stored(change.before, change.after, live)),
+      change: this.readable(change.before, change.after, () => this.comparer.stored(change.before, change.after)),
     });
     this.nextSequence += 1;
     if (this.current.steps.length <= steps) this.gaveWay = true;
@@ -228,14 +228,14 @@ export class HistoryKeeper {
     if (this.current.currentState == null) return { steps: [], start: null };
     return listedSteps(this.current, (step) =>
       // A step whose states could not be compared when it was made is compared again.
-      this.readable(step.before, step.after, () => this.comparer.described(step.before, step.after, step.change ?? this.comparer.stored(step.before, step.after, () => null), now)),
+      this.readable(step.before, step.after, () => this.comparer.described(step.before, step.after, step.change ?? this.comparer.stored(step.before, step.after), now)),
     );
   }
 
   /** How a kept state differs from the project now; null when its state cannot be read. */
-  differenceFromNow(there: Address, live: LiveStoreOf, now: ModelNowOf): StateDifference | null {
+  differenceFromNow(there: Address, now: ModelNowOf): StateDifference | null {
     const here = this.current.currentState;
-    return here == null ? null : this.readable(here, there, () => this.comparer.difference(here, there, live, now));
+    return here == null ? null : this.readable(here, there, () => this.comparer.difference(here, there, now));
   }
 
   /** What `read` reads of the states at `here` and `there`; null when either cannot be read. */

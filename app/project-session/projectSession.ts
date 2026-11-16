@@ -557,7 +557,7 @@ export class ProjectSession {
             before,
             after: address,
             startedAt,
-          }, this.liveStores());
+          });
           this.cleanUpDue ||= this.keeper.takeGaveWay();
           this.scheduleWrite();
         }
@@ -1441,7 +1441,7 @@ export class ProjectSession {
   }
 
   private differenceFromNowOf(address: Address, doing: string): StateDifference {
-    const difference = this.keeper.differenceFromNow(address, this.liveStores(), this.modelsNow());
+    const difference = this.keeper.differenceFromNow(address, this.modelsNow());
     if (difference == null) throw new UserFacingError(`That earlier state is no longer stored, so it cannot be ${doing}.`);
     return difference;
   }

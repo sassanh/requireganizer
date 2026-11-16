@@ -46,14 +46,25 @@ export default function PreviewControls() {
         const index = modules.findIndex(({ id }) => id === moduleId);
         return index === -1 ? modules.length : index;
       };
+      // Each mark and the focus by where the preview shows it: one stage's units, with those it would remove, then its threads on removed units.
+      const stageOrders = new Map<string, { units: string[]; threads: string[] }>();
+      const stageOrder = (moduleId: string, stage: string) => {
+        const key = `${moduleId} ${stage}`;
+        let order = stageOrders.get(key);
+        if (order == null) {
+          const marks = previewMarksOf(preview.difference, moduleId);
+          const shown = moduleStore(moduleId)?.unitsInShownOrder(stage).map(({ unitId }) => unitId) ?? [];
+          order = { units: shownWithRemoved(shown, marks.removed(stage)), threads: marks.threads(stage).map(({ unitId }) => unitId) };
+          stageOrders.set(key, order);
+        }
+        return order;
+      };
       const positionOf = (place: FocusPlace) => {
-        const store = moduleStore(place.moduleId);
-        if (store == null || place.unitId == null) return -1;
-        const marks = previewMarksOf(preview.difference, place.moduleId);
-        const shown = store.unitsInShownOrder(place.stage).map(({ unitId }) => unitId);
-        const position = shownWithRemoved(shown, marks.removed(place.stage)).indexOf(place.unitId);
+        if (place.unitId == null) return -1;
+        const { units, threads } = stageOrder(place.moduleId, place.stage);
+        const position = units.indexOf(place.unitId);
         if (position !== -1) return position;
-        const thread = marks.threads(place.stage).findIndex(({ unitId }) => unitId === place.unitId);
+        const thread = threads.indexOf(place.unitId);
         return thread === -1 ? -1 : threadMarkPosition(thread);
       };
       const mark = adjacentMark(preview.difference, shownFocus(), direction, rankOf, positionOf);
