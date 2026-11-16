@@ -3,6 +3,8 @@
 import { createContext, type RefObject, useContext, useEffect, useLayoutEffect, useState } from "react";
 import { flushSync } from "react-dom";
 
+import { whenIdle } from "lib/idle";
+
 /** The height a frame takes until its content shows: about that of a unit of a few lines. */
 export const FRAME_PLACEHOLDER_HEIGHT = 240;
 /** No unit is shorter than this, so a window never shows more frames than its height holds of these. */
@@ -12,16 +14,6 @@ const FILL_BUDGET_MS = 10;
 const FILL_BATCH = 2;
 /** The longest the next frames wait for the page to be idle. */
 const FILL_WAIT_MS = 200;
-
-/** Run once the page is idle, or after the longest wait; returns the way to call it off. */
-export function whenIdle(run: () => void): () => void {
-  if (typeof requestIdleCallback === "function") {
-    const request = requestIdleCallback(run, { timeout: FILL_WAIT_MS });
-    return () => cancelIdleCallback(request);
-  }
-  const timer = setTimeout(run, 32);
-  return () => clearTimeout(timer);
-}
 
 /**
  * When each frame of a stage shows its content. Showing the content of
@@ -72,14 +64,14 @@ export class FrameSchedule {
       { root, rootMargin: "100% 0px" },
     );
     for (const frame of this.waiting.keys()) this.observer.observe(frame);
-    this.callOffFill = whenIdle(this.fill);
+    this.callOffFill = whenIdle(this.fill, FILL_WAIT_MS);
   }
 
   /** Call `show` once the frame is to show its content; returns the way to stop waiting for it. */
   watch(frame: Element, show: () => void): () => void {
     this.waiting.set(frame, show);
     this.observer?.observe(frame);
-    if (this.observer != null) this.callOffFill ??= whenIdle(this.fill);
+    if (this.observer != null) this.callOffFill ??= whenIdle(this.fill, FILL_WAIT_MS);
     return () => this.forget(frame);
   }
 
@@ -120,7 +112,7 @@ export class FrameSchedule {
         }
       });
     }
-    if (this.waiting.size > 0) this.callOffFill = whenIdle(this.fill);
+    if (this.waiting.size > 0) this.callOffFill = whenIdle(this.fill, FILL_WAIT_MS);
     else this.filled = true;
   };
 }
@@ -148,7 +140,7 @@ export function useIdleSince(key: object | null): boolean {
   const [idleFor, setIdleFor] = useState<object | null>(null);
   useEffect(() => {
     if (key == null || idleFor === key) return;
-    return whenIdle(() => setIdleFor(key));
+    return whenIdle(() => setIdleFor(key), FILL_WAIT_MS);
   }, [key, idleFor]);
   return key == null || idleFor === key;
 }

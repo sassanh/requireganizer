@@ -1,7 +1,11 @@
+import { whenIdle } from "lib/idle";
 import { siblingModuleEntries } from "lib/moduleSchema";
 import type { ModuleContent, ModuleRegistry, ModuleState } from "storage";
 import { createModuleStore, type Store } from "store";
 import type { LinkedModule } from "workflow";
+
+/** The longest a module's store waits for an idle moment to build its items. */
+const ITEMS_WAIT_MS = 1_000;
 
 interface CacheEntry {
   content: ModuleContent;
@@ -35,6 +39,10 @@ export class SiblingModuleStores {
       return null;
     }
     this.cache.set(entry.id, { content: entry.content, text, store: created });
+    // A store builds its items, their index and their codes on first use, tens of milliseconds for a module of a thousand; while idle, so no request waits for it.
+    whenIdle(() => {
+      if (this.cache.get(entry.id)?.store === created) created.lookup.listItems();
+    }, ITEMS_WAIT_MS);
     return created;
   }
 
