@@ -25,7 +25,7 @@ import {
   useMediaQuery,
 } from "@mui/material";
 import { observer } from "mobx-react-lite";
-import { Fragment, type UIEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, type UIEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { ActionTooltip } from "actions/ActionHint";
 import { returnShortcut, signShortcut, threadShortcut } from "actions/actions";
@@ -38,6 +38,7 @@ import { mentionMarkup, waitsForSpecOwner } from "../threads";
 import { STAGE_PROGRESS_LABELS, unitInPlaceOf, WAITING_CATEGORY_LABELS } from "../units";
 import { answeringSx } from "./answering";
 import { perform, type RemovedUnitMark, type RevealRequest, shownWithRemoved, type ThreadMark, useWorkflowNavigation, useWorkflowView } from "./context";
+import { FrameSchedule, FrameScheduleProvider } from "./frameSchedule";
 import ItemChip, { ItemOption, useItemLabel } from "./ItemChip";
 import ItemEditor, { type EditorTarget } from "./ItemEditor";
 import ThreadPanel from "./ThreadPanel";
@@ -649,6 +650,13 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
   const seen = useRef({ module, stage, complete });
   const containerRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
+  const { opener, returnToOpener, revealRequest, revealed } = useWorkflowNavigation();
+  /** The first frames show their content at once, the others once they come near or the page is idle. */
+  const [frames] = useState(() => new FrameSchedule(orderedUnits().map(({ unitId }) => unitId), revealRequest?.unitId ?? null));
+  useLayoutEffect(() => {
+    frames.start(containerRef.current!);
+    return () => frames.stop();
+  }, [frames]);
 
   // A completion belongs to the visit that saw it: leaving the stage, switching module, or no longer being complete forgets it.
   useEffect(() => {
@@ -670,16 +678,21 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
     const container = containerRef.current;
     if (card == null || container == null) return;
     card.focus({ preventScroll: true });
-    const margin = 16;
-    const top = (headerRef.current ?? container).getBoundingClientRect().bottom + margin;
-    const bottom = container.getBoundingClientRect().bottom - margin;
-    const { top: cardTop, bottom: cardBottom } = card.getBoundingClientRect();
-    const actions = card.querySelector("[data-unit-actions]");
-    const behavior = autoScrollBehavior();
-    if (actionsAt != null && actions != null) {
-      container.scrollBy({ top: Math.min(actions.getBoundingClientRect().top - actionsAt, cardTop - top), behavior });
-    } else if (cardTop < top) container.scrollBy({ top: cardTop - top, behavior });
-    else if (cardBottom > bottom) container.scrollBy({ top: Math.min(cardBottom - bottom, cardTop - top), behavior });
+    const place = () => {
+      const margin = 16;
+      const top = (headerRef.current ?? container).getBoundingClientRect().bottom + margin;
+      const bottom = container.getBoundingClientRect().bottom - margin;
+      const { top: cardTop, bottom: cardBottom } = card.getBoundingClientRect();
+      const actions = card.querySelector("[data-unit-actions]");
+      const behavior = autoScrollBehavior();
+      if (actionsAt != null && actions != null) {
+        container.scrollBy({ top: Math.min(actions.getBoundingClientRect().top - actionsAt, cardTop - top), behavior });
+      } else if (cardTop < top) container.scrollBy({ top: cardTop - top, behavior });
+      else if (cardBottom > bottom) container.scrollBy({ top: Math.min(cardBottom - bottom, cardTop - top), behavior });
+    };
+    place();
+    // A card that is still a placeholder shows its content now, and is placed again by the height it then has.
+    if (frames.show(card)) requestAnimationFrame(place);
   };
 
   /** Where a unit's actions are on screen now, if its card is shown. */
@@ -846,7 +859,6 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
   // An item opened where it is named, or a unit or thread message returned
   // to by the browser's history, is revealed once its card shows; a thread
   // message, in its thread, opened beside the card.
-  const { opener, returnToOpener, revealRequest, revealed } = useWorkflowNavigation();
   // A unit to reveal in another tab shows once its tab does, as does a
   // thread message whose unit is gone.
   useEffect(() => {
@@ -1112,6 +1124,7 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
           )}
         </Stack>
 
+        <FrameScheduleProvider value={frames}>
         <Stack spacing={1.5}>
           {cardsOf([...items, ...removedItems], marksIn(activeTab), (state) => <ItemCard key={state.unitId} state={state} controls={controls} />)}
           {editable && kindShown && (
@@ -1163,6 +1176,7 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
             </Box>
           ))}
         </Stack>
+        </FrameScheduleProvider>
         <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 3 }}>
           Keyboard: j or ↓ next, k or ↑ previous, Shift+J or Shift+K next or previous waiting for a signature, g first, Shift+G last, s sign, Shift+S sign and go to the next waiting for a signature, c open the thread or request a change, Esc close it.
         </Typography>

@@ -75,11 +75,11 @@ export type Item = Instance<typeof ItemModel>;
 export const StageModel = types.model("Stage", {
   items: types.array(ItemModel),
   /** The version of each item of the stages it builds on, as this stage last took it in. */
-  intake: types.optional(types.frozen<Record<string, ItemVersion>>(), {}),
+  intake: types.map(types.frozen<ItemVersion>()),
   /** The last signature on the coverage of each item it covers, by that item's id. */
-  coverages: types.optional(types.frozen<Record<string, CoverageSignature>>(), {}),
+  coverages: types.map(types.frozen<CoverageSignature>()),
   /** The last signature on the impact on each item it took in, by that item's id. */
-  impacts: types.optional(types.frozen<Record<string, ImpactSignature>>(), {}),
+  impacts: types.map(types.frozen<ImpactSignature>()),
 });
 
 export type Stage = Instance<typeof StageModel>;
@@ -567,7 +567,7 @@ export function workflowModuleModel(workflow: Workflow) {
             referencingIndex.set(reference, [...(referencingIndex.get(reference) ?? []), item]);
           }
         }
-        const stored = self.stages.get(stage)?.coverages ?? {};
+        const stored = self.stages.get(stage)?.coverages;
         return workflow.basisStages(stage).flatMap((basis) =>
           activeItems(basis)
             .filter(({ kind }) => workflow.coveredKinds(stage, basis).includes(kind))
@@ -578,7 +578,7 @@ export function workflowModuleModel(workflow: Workflow) {
                 referencing: referencing.map(({ id }) => [id, revisionById(id)]),
               });
               const unitId = coverageUnitId(stage, covered.id);
-              const signature = stored[covered.id] ?? null;
+              const signature = stored?.get(covered.id) ?? null;
               const signatureCounts = signature?.covers === checked;
               const openThread = openThreadOf(unitId);
               const reasons: NotApprovedReason[] = [];
@@ -611,10 +611,8 @@ export function workflowModuleModel(workflow: Workflow) {
       const derivedImpacts = keyedView((stage: string): ImpactState[] => {
         if (countedItems(stage).length === 0) return [];
         const stored = self.stages.get(stage);
-        const intake = stored?.intake ?? {};
-        const signatures = stored?.impacts ?? {};
         const asked = new Map<string, ItemVersion | null>();
-        for (const [id, taken] of Object.entries(intake)) {
+        for (const [id, taken] of stored?.intake.entries() ?? []) {
           const located = locate(id);
           if (located == null || phaseOf(located.item.removal) === "removed") {
             asked.set(id, taken);
@@ -627,7 +625,7 @@ export function workflowModuleModel(workflow: Workflow) {
           if (thread.resolution != null || thread.stage !== stage) continue;
           const address = parseUnitId(thread.unitId);
           if (address.kind !== "impact" || asked.has(address.itemId)) continue;
-          if (signatures[address.itemId] == null) continue;
+          if (stored?.impacts.get(address.itemId) == null) continue;
           asked.set(address.itemId, null);
         }
         return [...asked.entries()].map(([id, taken]) => {
@@ -636,7 +634,7 @@ export function workflowModuleModel(workflow: Workflow) {
           const after = present ? versionOf(located.item) : null;
           const covers = present ? revisionById(id)! : removedRevision(id);
           const unitId = impactUnitId(stage, id);
-          const signature = signatures[id] ?? null;
+          const signature = stored?.impacts.get(id) ?? null;
           const signatureCounts = signature?.covers === covers;
           const openThread = openThreadOf(unitId);
           const reasons: NotApprovedReason[] = [];
@@ -1244,16 +1242,13 @@ export function workflowModuleModel(workflow: Workflow) {
        */
       function takeIn(stage: string, afresh: boolean): void {
         const node = stageNode(stage);
-        const intake = afresh ? {} : { ...node.intake };
-        let changed = afresh;
+        if (afresh) node.intake.clear();
         for (const upstream of workflow.upstreamStages(stage)) {
           for (const item of self.itemsOf(upstream)) {
-            if (item.removal != null || intake[item.id] != null) continue;
-            intake[item.id] = self.versionOf(item.id)!;
-            changed = true;
+            if (item.removal != null || node.intake.has(item.id)) continue;
+            node.intake.set(item.id, self.versionOf(item.id)!);
           }
         }
-        if (changed) node.intake = intake;
       }
 
       function markThreadsRemoved(unitIds: ReadonlySet<string>): void {
@@ -1277,21 +1272,14 @@ export function workflowModuleModel(workflow: Workflow) {
         for (const stage of workflow.stageIds) {
           const node = self.stages.get(stage);
           if (node == null) continue;
-          if (node.coverages[id] != null) {
-            const { [id]: _dropped, ...rest } = node.coverages;
-            node.coverages = rest;
-          }
+          node.coverages.delete(id);
         }
         stageNode(located.stage).items.remove(located.item);
       }
 
       /** Forget the version of an item that no longer exists, which stages building on it took in. */
       function forgetIntake(id: string): void {
-        for (const node of self.stages.values()) {
-          if (node.intake[id] == null) continue;
-          const { [id]: _dropped, ...rest } = node.intake;
-          node.intake = rest;
-        }
+        for (const node of self.stages.values()) node.intake.delete(id);
       }
 
       /**
@@ -1303,7 +1291,7 @@ export function workflowModuleModel(workflow: Workflow) {
       function settleRemovals(): void {
         const removed = [...self.stages.values()].flatMap((node) => node.items.filter((item) => phaseOf(item.removal) === "removed").map(({ id }) => id));
         for (const id of removed) {
-          if (workflow.stageIds.some((stage) => self.holdsItems(stage) && self.stages.get(stage)?.intake[id] != null)) continue;
+          if (workflow.stageIds.some((stage) => self.holdsItems(stage) && self.stages.get(stage)?.intake.has(id) === true)) continue;
           deleteItem(id);
         }
       }
@@ -1737,20 +1725,17 @@ export function workflowModuleModel(workflow: Workflow) {
               break;
             }
             case "coverage": {
-              node.coverages = {
-                ...node.coverages,
-                [state.itemId]: {
-                  ...signatureRecord(signer, state.covers),
-                  item: { id: state.itemId, version: self.versionOf(state.itemId)! },
-                  referencing: state.referencing.map((id) => ({ id, version: self.versionOf(id)! })),
-                },
-              };
+              node.coverages.set(state.itemId, {
+                ...signatureRecord(signer, state.covers),
+                item: { id: state.itemId, version: self.versionOf(state.itemId)! },
+                referencing: state.referencing.map((id) => ({ id, version: self.versionOf(id)! })),
+              });
               break;
             }
             case "impact": {
-              node.impacts = { ...node.impacts, [state.itemId]: { ...signatureRecord(signer, state.covers), before: state.before, after: state.after } };
-              const { [state.itemId]: _taken, ...rest } = node.intake;
-              node.intake = state.after == null ? rest : { ...rest, [state.itemId]: state.after };
+              node.impacts.set(state.itemId, { ...signatureRecord(signer, state.covers), before: state.before, after: state.after });
+              if (state.after == null) node.intake.delete(state.itemId);
+              else node.intake.set(state.itemId, state.after);
               break;
             }
           }

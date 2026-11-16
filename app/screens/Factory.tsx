@@ -10,7 +10,7 @@ import { stepHref, unitHref } from "lib/routes";
 import { rememberedStage, rememberStage } from "lib/viewState";
 import { useProject } from "projectContext";
 import { useStore } from "store";
-import { currentEntryKey, currentOpener, type RevealRequest, recordOpener, returnToOpener, StageNavigation, StageView, subscribeToEntries, type WorkflowNavigation, workflowNavigationContext, workflowViewContext } from "workflow/ui";
+import { currentEntryKey, currentOpener, ItemPreviewProvider, type RevealRequest, recordOpener, returnToOpener, StageNavigation, StageView, subscribeToEntries, type WorkflowNavigation, workflowNavigationContext, workflowViewContext } from "workflow/ui";
 
 import { previewMarksOf } from "./previewMarks";
 
@@ -125,6 +125,7 @@ const Factory = observer(function Factory() {
   return (
     <workflowViewContext.Provider value={view}>
       <workflowNavigationContext.Provider value={navigation}>
+        <ItemPreviewProvider>
         <Stack direction="row" sx={{ minHeight: 0, height: "100%", width: "100%", flexGrow: 1 }}>
           <StageNavigation
             selected={stage}
@@ -134,8 +135,10 @@ const Factory = observer(function Factory() {
             }}
           />
           <Divider orientation="vertical" flexItem />
-          <StageView key={stage} stage={stage} />
+          {/* A stage mounts afresh for each module and earlier state it shows, so it shows as a stage opens: the cards near the screen first. */}
+          <StageView key={`${stage} ${activeModuleId} ${preview == null ? "now" : `${preview.target.kind} ${preview.target.id}`}`} stage={stage} />
         </Stack>
+        </ItemPreviewProvider>
       </workflowNavigationContext.Provider>
     </workflowViewContext.Provider>
   );

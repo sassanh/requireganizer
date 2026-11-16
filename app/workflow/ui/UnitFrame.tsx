@@ -3,7 +3,7 @@
 import { Check, Comment } from "@mui/icons-material";
 import { Box, Button, Chip, Paper, Stack, Tooltip, Typography } from "@mui/material";
 import { observer } from "mobx-react-lite";
-import type { ReactNode } from "react";
+import { type ReactNode, useRef } from "react";
 
 import { ActionTooltip } from "actions/ActionHint";
 import { signShortcut, threadShortcut } from "actions/actions";
@@ -13,6 +13,7 @@ import { waitsForSpecOwner } from "../threads";
 import { NOT_APPROVED_REASON_LABELS, type NotApprovedReason } from "../units";
 import { answeringSx } from "./answering";
 import { useWorkflowView } from "./context";
+import { FRAME_PLACEHOLDER_HEIGHT, useFrameContentShown } from "./frameSchedule";
 import { THREAD_BUTTON } from "./ThreadView";
 
 /** Who gave a signature and when, and whether it still counts. */
@@ -35,7 +36,9 @@ export function SignatureLine({ signature, counts, what = "Signed" }: { signatur
  * outside the frame, so new messages never change the frame's height.
  * A reason with a note shows it on hover and on keyboard focus. In a
  * preview, the frame says what bringing its state back would do to the
- * unit, and offers no signing.
+ * unit, and offers no signing. In a stage of many units the frame is there
+ * from the start, to focus and to scroll to, and shows its content when the
+ * stage's schedule says so.
  */
 const UnitFrame = observer(function UnitFrame({
   unitId,
@@ -69,6 +72,8 @@ const UnitFrame = observer(function UnitFrame({
   children: ReactNode;
 }) {
   const { module, preview } = useWorkflowView();
+  const frame = useRef<HTMLDivElement>(null);
+  const contentShown = useFrameContentShown(unitId, frame);
   const mark = preview?.of(unitId) ?? null;
   const threads = module.threadsOf(unitId);
   const open = threads.find(({ resolution }) => resolution == null);
@@ -78,6 +83,7 @@ const UnitFrame = observer(function UnitFrame({
   const threadLabel = threads.length > 0 ? "Thread" : "Request a change";
   return (
     <Paper
+      ref={frame}
       variant="outlined"
       tabIndex={0}
       data-unit-card={unitId}
@@ -87,8 +93,11 @@ const UnitFrame = observer(function UnitFrame({
         borderLeftColor: approved ? "success.main" : "warning.main",
         outline: "none",
         "&:focus-visible, &:focus-within": { boxShadow: (theme) => `0 0 0 2px ${theme.vars.palette.primary.main}` },
+        minHeight: contentShown ? undefined : FRAME_PLACEHOLDER_HEIGHT,
       }}
     >
+      {contentShown && (
+      <>
       <Stack direction="row" sx={{ alignItems: "center", gap: 1, flexWrap: "wrap" }}>
         <Box sx={{ flexGrow: 1, minWidth: 0 }}>{title}</Box>
         {mark?.change === "add" && <Chip size="small" color="success" variant="outlined" label="Would be added" />}
@@ -144,6 +153,8 @@ const UnitFrame = observer(function UnitFrame({
           </ActionTooltip>
         )}
       </Stack>
+      </>
+      )}
     </Paper>
   );
 });
