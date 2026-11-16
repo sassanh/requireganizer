@@ -107,7 +107,7 @@ function requireCodesVersion(store: Store, args: Arguments): void {
 
 /** How a linked item is named to the agent: by code in this module, or as "Module name/CODE" in another. */
 function linkName(store: Store, id: string): string {
-  return store.namedItem(id)?.name ?? `a removed item (${id})`;
+  return store.itemNameOf(id) ?? `a removed item (${id})`;
 }
 
 /** A version as an agent reads it: its text and marks as the page shows them, its fields with chosen items by code, and its links by code. */
@@ -184,7 +184,7 @@ function threadUnit(store: Store, thread: Thread): Record<string, unknown> {
  * its item no longer exists.
  */
 function messageText(store: Store, text: string): string {
-  return replaceMentions(text, ({ itemId }) => mentionMarkup(store.namedItem(itemId)?.name ?? REMOVED_ITEM, itemId));
+  return replaceMentions(text, ({ itemId }) => mentionMarkup(store.itemNameOf(itemId) ?? REMOVED_ITEM, itemId));
 }
 
 function threadView(store: Store, thread: Thread): Record<string, unknown> {

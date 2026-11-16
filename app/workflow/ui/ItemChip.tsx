@@ -13,7 +13,7 @@ import WrittenText from "./WrittenText";
 /** How the page names an item: its code, "Module/CODE" for an item of another module, or "removed item" once it no longer exists. */
 export function useItemName(): (id: string) => string {
   const { module } = useWorkflowView();
-  return (id) => module.namedItem(id)?.name ?? REMOVED_ITEM;
+  return (id) => module.itemNameOf(id) ?? REMOVED_ITEM;
 }
 
 /**

@@ -1080,6 +1080,11 @@ export function workflowModuleModel(workflow: Workflow) {
           }
           return { problem: `this module has no item ${name}.` };
         },
+        /** How the page names an item of this module or another, "Module/CODE" for another's, by its code alone; null once it no longer exists. */
+        itemNameOf(id: string): string | null {
+          const linked = self.findLinked(id);
+          return linked == null ? null : itemName((linked.module?.lookup ?? lookup).codeOf(id)!, linked.module?.name ?? null);
+        },
         /** An item that an item, coverage or impact of this module, or a marked mention in its threads, names, of this module or another; null once it no longer exists. */
         namedItem(id: string): NamedItem | null {
           const linked = self.findLinked(id);
@@ -1109,7 +1114,7 @@ export function workflowModuleModel(workflow: Workflow) {
       unitLabel(unitId: string): string {
         const address = parseUnitId(unitId);
         const itemName =
-          self.namedItem(address.itemId)?.name ?? self.threads.find((thread) => thread.unitId === unitId)?.removedUnit?.name ?? "a removed item";
+          self.itemNameOf(address.itemId) ?? self.threads.find((thread) => thread.unitId === unitId)?.removedUnit?.name ?? "a removed item";
         switch (address.kind) {
           case "item":
             return itemName;

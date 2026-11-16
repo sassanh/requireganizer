@@ -354,7 +354,7 @@ const ItemEditor = observer(function ItemEditor({
     linked.lookup
       .listItems()
       .filter((item) => item.stage === stage || workflow.buildsOn(stage, item.stage))
-      .map((item) => option(item.id, module.namedItem(item.id)?.name ?? item.code)),
+      .map((item) => option(item.id, module.itemNameOf(item.id) ?? item.code)),
   );
   const dependencyOptions = [...ownOptions, ...otherOptions];
   const labelOf = (options: Option[], id: string) => options.find((candidate) => candidate.id === id) ?? option(id, module.codeOf(id) ?? id);
