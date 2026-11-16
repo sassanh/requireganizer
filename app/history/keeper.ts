@@ -59,8 +59,6 @@ export class HistoryKeeper {
   private nextSequence: number;
   private gaveWay = false;
   private readonly comparer: StateComparer;
-  /** What each kept step changed, by its id, once read: a step's states never change. */
-  private readonly stepChanges = new Map<string, StateDifference>();
 
   constructor(
     pieces: PieceStore,
@@ -134,8 +132,8 @@ export class HistoryKeeper {
 
   /**
    * Record a change as one step, preceded by an automatic restore point of
-   * the state before it when none was made in the hour before, and read
-   * what it changed while `live` shows the state after it.
+   * the state before it when none was made in the hour before, with what it
+   * changed, read while `live` shows the state after it.
    */
   record(change: RecordedChange, live: LiveStoreOf): void {
     if (automaticRestorePointDue(this.current, change.startedAt)) {
@@ -149,9 +147,8 @@ export class HistoryKeeper {
       this.applyKeepingRule();
     }
     const steps = this.current.steps.length;
-    const id = uuid();
     this.current = withStep(this.current, {
-      id,
+      id: uuid(),
       sequence: this.nextSequence,
       before: change.before,
       after: change.after,
@@ -159,14 +156,10 @@ export class HistoryKeeper {
       kind: change.kind,
       by: change.by,
       focus: change.focus,
+      change: this.compared(change.before, change.after, live),
     });
     this.nextSequence += 1;
-    if (this.current.steps.length <= steps) {
-      this.gaveWay = true;
-      const kept = new Set(this.current.steps.map((step) => step.id));
-      for (const stepId of this.stepChanges.keys()) if (!kept.has(stepId)) this.stepChanges.delete(stepId);
-    }
-    this.changeOf(this.current.steps.at(-1)!, live);
+    if (this.current.steps.length <= steps) this.gaveWay = true;
   }
 
   undo(): HistoryMove | null {
@@ -231,18 +224,9 @@ export class HistoryKeeper {
   }
 
   /** Every kept step, newest first, with where each stands and what it changed, then the start. */
-  listSteps(live: LiveStoreOf): ListedSteps {
+  listSteps(): ListedSteps {
     if (this.current.currentState == null) return { steps: [], start: null };
-    return listedSteps(this.current, (step) => this.changeOf(step, live));
-  }
-
-  /** What a step added, changed or removed, read once, as it is recorded or, after reopening, as it is first listed; null when its states cannot be read. */
-  private changeOf(step: HistoryStep, live: LiveStoreOf): StateDifference | null {
-    const known = this.stepChanges.get(step.id);
-    if (known != null) return known;
-    const change = this.compared(step.before, step.after, live);
-    if (change != null) this.stepChanges.set(step.id, change);
-    return change;
+    return listedSteps(this.current);
   }
 
   /** How a kept state differs from the project now; null when its state cannot be read. */

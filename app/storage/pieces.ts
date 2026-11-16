@@ -84,10 +84,19 @@ export interface ModulePieces {
  * that did not change, so an unchanged item, thread, stage or module costs a
  * lookup, never a new hash.
  */
+/** The module contents a piece store keeps by address at most, for the states put together one after another. */
+const KEPT_MODULE_CONTENTS = 64;
+
 export class PieceStore {
   private readonly pieces = new Map<Address, Piece>();
   private readonly addresses = new WeakMap<object, Address>();
   private readonly modules = new WeakMap<ModuleContent, { id: string; name: string; archivedAt: string | null; address: Address }>();
+  /**
+   * The module contents last read or held, by their module's address, so a
+   * state put together reads only the modules it does not share with them;
+   * the oldest give way.
+   */
+  private readonly moduleContents = new Map<Address, ModuleContent>();
 
   get(address: Address): Piece | undefined {
     return this.pieces.get(address);
@@ -210,12 +219,21 @@ export class PieceStore {
 
   /** One module of a held state, put together from its pieces and read by the one project parser. */
   moduleAt(moduleAddress: Address): ModuleState {
-    const node = this.moduleNode(moduleAddress);
+    const known = this.moduleContents.get(moduleAddress) ?? null;
+    const node = known == null ? this.moduleNode(moduleAddress) : this.read(moduleAddress);
     // A project holds a module that is not archived, so the module is read as one.
-    const [parsed] = parseProject({ schemaVersion: PROJECT_SCHEMA_VERSION, modulesEnabled: true, modules: [{ ...node, archivedAt: null }] }).modules;
+    const [parsed] = parseProject({ schemaVersion: PROJECT_SCHEMA_VERSION, modulesEnabled: true, modules: [{ ...node, archivedAt: null }] }, [known]).modules;
     const read = { ...parsed!, archivedAt: node.archivedAt as string | null };
-    this.modules.set(read.content, { id: read.id, name: read.name, archivedAt: read.archivedAt, address: moduleAddress });
+    this.recognise(read, moduleAddress);
     return read;
+  }
+
+  /** A module's content as kept by its address from now on, the newest last. */
+  private recognise(module: ModuleState, address: Address): void {
+    this.modules.set(module.content, { id: module.id, name: module.name, archivedAt: module.archivedAt, address });
+    this.moduleContents.delete(address);
+    this.moduleContents.set(address, module.content);
+    if (this.moduleContents.size > KEPT_MODULE_CONTENTS) this.moduleContents.delete(this.moduleContents.keys().next().value!);
   }
 
   /** A thread's piece, read. */
@@ -225,16 +243,18 @@ export class PieceStore {
 
   /**
    * The state at an address, put together from its pieces and read by the
-   * one project parser. Each part is recognised by its address from then
-   * on, so a state brought back is not hashed again.
+   * one project parser. A module it shares with a state read or held before
+   * is that state's module content, the same object, so it is neither read
+   * nor compared again. Each part is recognised by its address from then on,
+   * so a state brought back is not hashed again.
    */
   stateAt(address: Address): ProjectState {
     const project = this.read(address);
     const moduleAddresses = textsOf(project.modules);
-    const state = parseProject({ ...project, modules: moduleAddresses.map((moduleAddress) => this.moduleNode(moduleAddress)) });
-    state.modules.forEach(({ id, name, archivedAt, content }, index) =>
-      this.modules.set(content, { id, name, archivedAt, address: moduleAddresses[index]! }),
-    );
+    const known = moduleAddresses.map((moduleAddress) => this.moduleContents.get(moduleAddress) ?? null);
+    const modules = moduleAddresses.map((moduleAddress, index) => (known[index] == null ? this.moduleNode(moduleAddress) : this.read(moduleAddress)));
+    const state = parseProject({ ...project, modules }, known);
+    state.modules.forEach((module, index) => this.recognise(module, moduleAddresses[index]!));
     return state;
   }
 
@@ -278,6 +298,7 @@ export class PieceStore {
       known.archivedAt === module.archivedAt &&
       this.pieces.has(known.address)
     ) {
+      this.recognise(module, known.address);
       return known.address;
     }
     const stages = Object.fromEntries(
@@ -292,7 +313,7 @@ export class PieceStore {
         ...threads.map((child) => [child, "thread"] as const),
       ],
     );
-    this.modules.set(module.content, { id: module.id, name: module.name, archivedAt: module.archivedAt, address });
+    this.recognise(module, address);
     return address;
   }
 }

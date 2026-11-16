@@ -9,6 +9,48 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/**
+ * The value, checked to hold exactly the keys named: every required one, and
+ * besides them only optional ones.
+ */
+export function exactRecord(
+  value: unknown,
+  label: string,
+  required: readonly string[],
+  optional: readonly string[] = [],
+): Record<string, unknown> {
+  if (!isRecord(value)) throw new InvalidJsonError(`${label} must be an object.`);
+  for (const key of required) {
+    if (!Object.hasOwn(value, key)) throw new InvalidJsonError(`${label} has no ${key}.`);
+  }
+  for (const key of Object.keys(value)) {
+    if (!required.includes(key) && !optional.includes(key)) {
+      throw new InvalidJsonError(`${label} holds ${JSON.stringify(key)}, which Requireganizer does not store.`);
+    }
+  }
+  return value;
+}
+
+/** The value, checked to be a text. */
+export function readText(value: unknown, label: string): string {
+  if (typeof value !== "string") throw new InvalidJsonError(`${label} must be a text.`);
+  return value;
+}
+
+/** The value, checked to be a list of texts. */
+export function readTexts(value: unknown, label: string): string[] {
+  if (!Array.isArray(value) || !value.every((entry) => typeof entry === "string")) {
+    throw new InvalidJsonError(`${label} must be a list of texts.`);
+  }
+  return value;
+}
+
+/** The value, checked to be true or false. */
+export function readFlag(value: unknown, label: string): boolean {
+  if (typeof value !== "boolean") throw new InvalidJsonError(`${label} must be true or false.`);
+  return value;
+}
+
 export function stripJsoncComments(source: string): string {
   let result = "";
   let inString = false;

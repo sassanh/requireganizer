@@ -1,4 +1,5 @@
-import { type Address, type ModulePieces, type PieceStore, serializeCanonical } from "storage";
+import { exactRecord, InvalidJsonError, isRecord, readFlag, readText, readTexts } from "lib/json";
+import { type Address, type ModulePieces, parseItemVersion, type PieceStore, serializeCanonical } from "storage";
 import { createModuleStore, type Store, WORKFLOW } from "store";
 import type { ItemVersion, Thread, UnitState } from "workflow";
 
@@ -158,6 +159,79 @@ export interface StateDifference {
   same: boolean;
   units: UnitDifference[];
   threads: ThreadDifference[];
+}
+
+function textOrNull(value: unknown, label: string): string | null {
+  return value === null ? null : readText(value, label);
+}
+
+const UNIT_KINDS: readonly UnitState["kind"][] = ["item", "coverage", "impact"];
+
+function parseUnitDifference(value: unknown, label: string): UnitDifference {
+  const shared = ["moduleId", "module", "stage", "unitId", "unitKind", "itemKind", "label", "position"];
+  if (!isRecord(value)) throw new InvalidJsonError(`${label} must be an object.`);
+  const keys = value.change === "add" ? [] : value.change === "change" ? ["content", "signature", "threads", "place", "versionNow"] : value.change === "remove" ? ["textNow", "after"] : null;
+  if (keys == null) throw new InvalidJsonError(`${label} must be an add, a change or a remove.`);
+  const fields = exactRecord(value, label, ["change", ...shared, ...keys]);
+  if (!UNIT_KINDS.includes(fields.unitKind as UnitState["kind"])) throw new InvalidJsonError(`${label} unitKind must be item, coverage or impact.`);
+  if (typeof fields.position !== "number") throw new InvalidJsonError(`${label} position must be a number.`);
+  const base = {
+    moduleId: readText(fields.moduleId, `${label} moduleId`),
+    module: readText(fields.module, `${label} module`),
+    stage: readText(fields.stage, `${label} stage`),
+    unitId: readText(fields.unitId, `${label} unitId`),
+    unitKind: fields.unitKind as UnitState["kind"],
+    itemKind: textOrNull(fields.itemKind, `${label} itemKind`),
+    label: readText(fields.label, `${label} label`),
+    position: fields.position,
+  };
+  switch (fields.change) {
+    case "add":
+      return { ...base, change: "add" };
+    case "remove":
+      return { ...base, change: "remove", textNow: readText(fields.textNow, `${label} textNow`), after: textOrNull(fields.after, `${label} after`) };
+    default: {
+      const place = fields.place === null ? null : exactRecord(fields.place, `${label} place`, ["then", "now"]);
+      return {
+        ...base,
+        change: "change",
+        content: readFlag(fields.content, `${label} content`),
+        signature: readFlag(fields.signature, `${label} signature`),
+        threads: readFlag(fields.threads, `${label} threads`),
+        place: place == null ? null : { then: readText(place.then, `${label} place then`), now: readText(place.now, `${label} place now`) },
+        versionNow: fields.versionNow === null ? null : parseItemVersion(fields.versionNow, `${label} versionNow`),
+      };
+    }
+  }
+}
+
+function parseThreadDifference(value: unknown, label: string): ThreadDifference {
+  const fields = exactRecord(value, label, ["moduleId", "module", "stage", "threadId", "unitId", "label", "text", "messagesAdded", "messagesRemoved", "resolutionDiffers", "onlyNow"]);
+  return {
+    moduleId: readText(fields.moduleId, `${label} moduleId`),
+    module: readText(fields.module, `${label} module`),
+    stage: readText(fields.stage, `${label} stage`),
+    threadId: readText(fields.threadId, `${label} threadId`),
+    unitId: readText(fields.unitId, `${label} unitId`),
+    label: readText(fields.label, `${label} label`),
+    text: readText(fields.text, `${label} text`),
+    messagesAdded: readTexts(fields.messagesAdded, `${label} messagesAdded`),
+    messagesRemoved: readTexts(fields.messagesRemoved, `${label} messagesRemoved`),
+    resolutionDiffers: readFlag(fields.resolutionDiffers, `${label} resolutionDiffers`),
+    onlyNow: readFlag(fields.onlyNow, `${label} onlyNow`),
+  };
+}
+
+/** A difference as a step stores it, read; throws what is wrong with it, naming `label`. */
+export function parseStateDifference(value: unknown, label: string): StateDifference {
+  const fields = exactRecord(value, label, ["same", "units", "threads"]);
+  if (!Array.isArray(fields.units)) throw new InvalidJsonError(`${label} units must be a list.`);
+  if (!Array.isArray(fields.threads)) throw new InvalidJsonError(`${label} threads must be a list.`);
+  return {
+    same: readFlag(fields.same, `${label} same`),
+    units: fields.units.map((unit, index) => parseUnitDifference(unit, `${label} unit ${index + 1}`)),
+    threads: fields.threads.map((thread, index) => parseThreadDifference(thread, `${label} thread ${index + 1}`)),
+  };
 }
 
 /** The value kept under a key, made when missing; the least recently used gives way past `limit`. */

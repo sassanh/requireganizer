@@ -38,6 +38,7 @@ import {
   type ProjectRecord,
   projectDocument,
   serializeCanonical,
+  serializeCanonicalInSlices,
   type StoredProject,
   storedProjectChange,
 } from "storage";
@@ -77,6 +78,21 @@ function writeAtomically(path: string, contents: string): void {
   renameSync(temporary, path);
 }
 
+/**
+ * What tells one version of a file from another without reading it: any
+ * write gives it a new modification time or, replacing it, a new inode.
+ * Null when there is no file.
+ */
+function fingerprintOf(path: string): string | null {
+  try {
+    const stat = statSync(path, { bigint: true });
+    return `${stat.ino} ${stat.size} ${stat.mtimeNs}`;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+}
+
 function readIfPresent(path: string): string | null {
   try {
     return readFileSync(path, "utf8");
@@ -104,9 +120,13 @@ function messageOf(error: unknown): string {
  * project file removed outside Requireganizer still opens, from its
  * history, for the spec owner to write back or leave removed.
  *
- * Writes are issued synchronously and replace files atomically, so they are
- * never reordered: the pieces first, then the record naming the state being
- * written, then the project file, then the record naming it as written.
+ * Reads and writes run one after another, in the order they were issued, so
+ * a read observes every write issued before it. A write first turns the
+ * project into text a slice at a time, so a large project holds no request
+ * up; then, at once, it checks for an outside change and replaces files
+ * atomically: the pieces first, then the record naming the state being
+ * written, then the project file, then the record naming it as written. A
+ * file is read again only once it changed since it was last read or written.
  * Whether the project file changed outside Requireganizer, such as by a
  * checkout, is decided by `storedProjectChange` from the file and the
  * record in the state directory: `outsideChanges` reports such a change as
@@ -124,8 +144,10 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
    * A file that holds another project cannot be opened in its place.
    */
   private heldProjectId: string | null = null;
-  /** The last project file read and what it holds, so an unchanged file is not read into a state again. */
-  private lastRead: { source: string; file: ProjectFile } | null = null;
+  /** The last project file read or written, what it holds and its fingerprint, so an unchanged file is not read again. */
+  private lastRead: { source: string; file: ProjectFile; fingerprint: string } | null = null;
+  /** The reads and writes under way, one after another, in the order they were issued. */
+  private operations: Promise<void> = Promise.resolve();
   private readonly outsideChangeListeners = new Set<(change: OutsideChange | null) => void>();
   private reportedOutsideChange: OutsideChange | null = null;
   private fileWatcher: FSWatcher | null = null;
@@ -140,16 +162,22 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
 
   /** The project file as stored, or null when there is none; throws what makes it unreadable. */
   readProjectFile(): ProjectFile | null {
-    return this.parseProjectFile(readIfPresent(this.projectFile));
+    const fingerprint = fingerprintOf(this.projectFile);
+    if (fingerprint == null) return null;
+    if (this.lastRead?.fingerprint === fingerprint) return this.lastRead.file;
+    return this.parseProjectFile(readIfPresent(this.projectFile), fingerprint);
   }
 
   private defaultName(): string {
     return basename(this.traits.name, extname(this.traits.name));
   }
 
-  private parseProjectFile(source: string | null): ProjectFile | null {
+  private parseProjectFile(source: string | null, fingerprint: string): ProjectFile | null {
     if (source == null) return null;
-    if (this.lastRead?.source === source) return this.lastRead.file;
+    if (this.lastRead?.source === source) {
+      this.lastRead = { ...this.lastRead, fingerprint };
+      return this.lastRead.file;
+    }
     const label = this.traits.name;
     let value: Record<string, unknown>;
     try {
@@ -172,7 +200,7 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
       document,
       address,
     };
-    this.lastRead = { source, file };
+    this.lastRead = { source, file, fingerprint };
     return file;
   }
 
@@ -252,8 +280,9 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
    * leaves a record naming what is not stored. A project file changed
    * outside Requireganizer is replaced only when the spec owner chose it,
    * or when it already holds the state written, which loses nothing.
+   * `contents` is the project file's text for the write.
    */
-  private store(write: ProjectWrite): void {
+  private store(write: ProjectWrite, contents: string): void {
     const stored = this.storedProject();
     const holdsWritten = stored.kind === "readable" && stored.address === write.address;
     if (!write.overOutsideChange && !holdsWritten && storedProjectChange(stored, this.storedRecord()) != null) {
@@ -268,15 +297,15 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
         if (!existsSync(path)) writeAtomically(path, bytes);
       }
       this.writeRecord(write.writing);
-      const document = projectDocument(write.state);
-      const contents = serializeCanonical({ ...document, ...write.project });
       writeAtomically(this.projectFile, contents);
-      writeAtomically(this.identityPath(), serializeCanonical({ id: write.project.id, name: write.project.name }));
-      this.heldProjectId = write.project.id;
+      // Known as written before the watcher hears of it, so the write reads as no outside change.
       this.lastRead = {
         source: contents,
-        file: { identity: write.project, document: { ...document }, address: write.address },
+        file: { identity: write.project, document: { ...projectDocument(write.state) }, address: write.address },
+        fingerprint: fingerprintOf(this.projectFile)!,
       };
+      writeAtomically(this.identityPath(), serializeCanonical({ id: write.project.id, name: write.project.name }));
+      this.heldProjectId = write.project.id;
       this.writeRecord(write.written);
     } catch (error) {
       throw new ProjectStorageError(PROJECT_SAVE_ERROR_MESSAGE, error);
@@ -284,6 +313,21 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
       if (this.outsideChangeListeners.size > 0 && this.fileWatcher == null) this.watchProjectFile();
       this.checkOutsideChange();
     }
+  }
+
+  /** The project file's text for a write, made a slice at a time. */
+  private contentsOf(write: ProjectWrite): Promise<string> {
+    return serializeCanonicalInSlices({ ...projectDocument(write.state), ...write.project });
+  }
+
+  /** Run a read or write once every one issued before it is done. */
+  private queued<Result>(operation: () => Result | Promise<Result>): Promise<Result> {
+    const next = this.operations.then(operation);
+    this.operations = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    return next;
   }
 
   private otherProjectMessage(): string {
@@ -353,75 +397,81 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
   }
 
   readonly projects: ProjectPersistence = {
-    list: async () => {
-      let stored: ProjectFile | null;
-      try {
-        stored = this.readProjectFile();
-      } catch {
-        // The project still opens, and loading it explains what is wrong.
-        return [this.metaOf({ id: DEFAULT_FILE_PROJECT_ID, name: this.defaultName() })];
-      }
-      if (stored != null) return [this.metaOf(stored.identity)];
-      // A project file removed outside Requireganizer still opens, from its
-      // history, so the spec owner chooses what becomes of it.
-      return storedProjectChange({ kind: "missing" }, this.storedRecord()) == null
-        ? []
-        : [this.metaOf(this.writtenIdentity())];
-    },
-    load: async (projectId) => {
-      // Only the project's authority loads it; from then on this adapter
-      // serves that project, and a file holding another is a change.
-      this.heldProjectId ??= projectId;
-      const stored = this.readProjectFile();
-      if (stored == null) return null;
-      if (stored.identity.id !== this.heldProjectId) throw new UserFacingError(this.otherProjectMessage());
-      return stored.document;
-    },
-    create: async (write) => {
-      if (this.storedProject().kind !== "missing") {
-        throw new ProjectStorageError(`${this.traits.name} already holds a project. Import into it from the open project instead.`);
-      }
-      this.store(write);
-    },
-    write: async (write) => {
-      this.store(write);
-    },
-    delete: async () => {
-      if (this.storedProject().kind !== "missing") {
-        throw new ProjectStorageError(`${PROJECT_DELETE_ERROR_MESSAGE} Delete ${this.traits.name} yourself to remove it.`);
-      }
-      try {
-        // The record first: once it is gone, nothing reports the removal again.
-        rmSync(this.recordPath(), { force: true });
-        rmSync(this.identityPath(), { force: true });
-        rmSync(this.objectsPath(), { recursive: true, force: true });
-      } catch (error) {
-        throw new ProjectStorageError(PROJECT_DELETE_ERROR_MESSAGE, error);
-      } finally {
-        this.checkOutsideChange();
-      }
-      this.heldProjectId = null;
-      this.lastRead = null;
-    },
+    list: () =>
+      this.queued(() => {
+        let stored: ProjectFile | null;
+        try {
+          stored = this.readProjectFile();
+        } catch {
+          // The project still opens, and loading it explains what is wrong.
+          return [this.metaOf({ id: DEFAULT_FILE_PROJECT_ID, name: this.defaultName() })];
+        }
+        if (stored != null) return [this.metaOf(stored.identity)];
+        // A project file removed outside Requireganizer still opens, from its
+        // history, so the spec owner chooses what becomes of it.
+        return storedProjectChange({ kind: "missing" }, this.storedRecord()) == null
+          ? []
+          : [this.metaOf(this.writtenIdentity())];
+      }),
+    load: (projectId) =>
+      this.queued(() => {
+        // Only the project's authority loads it; from then on this adapter
+        // serves that project, and a file holding another is a change.
+        this.heldProjectId ??= projectId;
+        const stored = this.readProjectFile();
+        if (stored == null) return null;
+        if (stored.identity.id !== this.heldProjectId) throw new UserFacingError(this.otherProjectMessage());
+        return stored.document;
+      }),
+    create: (write) =>
+      this.queued(async () => {
+        const contents = await this.contentsOf(write);
+        if (this.storedProject().kind !== "missing") {
+          throw new ProjectStorageError(`${this.traits.name} already holds a project. Import into it from the open project instead.`);
+        }
+        this.store(write, contents);
+      }),
+    write: (write) => this.queued(async () => this.store(write, await this.contentsOf(write))),
+    delete: () =>
+      this.queued(() => {
+        if (this.storedProject().kind !== "missing") {
+          throw new ProjectStorageError(`${PROJECT_DELETE_ERROR_MESSAGE} Delete ${this.traits.name} yourself to remove it.`);
+        }
+        try {
+          // The record first: once it is gone, nothing reports the removal again.
+          rmSync(this.recordPath(), { force: true });
+          rmSync(this.identityPath(), { force: true });
+          rmSync(this.objectsPath(), { recursive: true, force: true });
+        } catch (error) {
+          throw new ProjectStorageError(PROJECT_DELETE_ERROR_MESSAGE, error);
+        } finally {
+          this.checkOutsideChange();
+        }
+        this.heldProjectId = null;
+        this.lastRead = null;
+      }),
   };
 
   readonly record: RecordPersistence = {
-    load: async () => {
-      const source = readIfPresent(this.recordPath());
-      return source == null ? null : parseProjectRecord(JSON.parse(source));
-    },
-    pieceAddresses: async () => {
-      const objects = this.objectsPath();
-      if (!existsSync(objects)) return [];
-      return readdirSync(objects).flatMap((prefix) =>
-        readdirSync(join(objects, prefix))
-          .filter((rest) => !rest.endsWith(".tmp"))
-          .map((rest) => `${prefix}${rest}`),
-      );
-    },
-    readPiece: async (_projectId, address) => readIfPresent(this.piecePath(address)),
-    deletePieces: async (_projectId, addresses) => {
-      for (const address of addresses) rmSync(this.piecePath(address), { force: true });
-    },
+    load: () =>
+      this.queued(() => {
+        const source = readIfPresent(this.recordPath());
+        return source == null ? null : parseProjectRecord(JSON.parse(source));
+      }),
+    pieceAddresses: () =>
+      this.queued(() => {
+        const objects = this.objectsPath();
+        if (!existsSync(objects)) return [];
+        return readdirSync(objects).flatMap((prefix) =>
+          readdirSync(join(objects, prefix))
+            .filter((rest) => !rest.endsWith(".tmp"))
+            .map((rest) => `${prefix}${rest}`),
+        );
+      }),
+    readPiece: (_projectId, address) => this.queued(() => readIfPresent(this.piecePath(address))),
+    deletePieces: (_projectId, addresses) =>
+      this.queued(() => {
+        for (const address of addresses) rmSync(this.piecePath(address), { force: true });
+      }),
   };
 }

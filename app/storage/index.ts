@@ -1,7 +1,7 @@
 export { type AuthorityClaim, type ProjectAuthority, webProjectAuthority } from "./authority";
-export { serializeCanonical } from "./canonicalJson";
+export { serializeCanonical, serializeCanonicalInSlices } from "./canonicalJson";
 export { buildExport, DEFAULT_EXPORT_OPTIONS, type ExportOptions } from "./exportProject";
-export { parseProject } from "./parseProject";
+export { parseItemVersion, parseProject } from "./parseProject";
 export { parseProjectRecord, type ProjectRecord } from "./record";
 export { sharedWith } from "./shared";
 export { type Opening, openingOf, type OutsideChange, type StoredProject, storedProjectChange } from "./storedProject";

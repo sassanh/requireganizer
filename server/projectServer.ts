@@ -43,15 +43,15 @@ export interface ProjectServer {
   host: ProjectHost;
   /** Problems with the setup a person should fix, such as a missing API key. */
   warnings: string[];
-  /** Issue every pending write, synchronously. */
-  flush(): void;
-  /** Issue every pending write, then stop serving. */
+  /** Write every pending change; resolves once each is stored or failed. */
+  flush(): Promise<void>;
+  /** Write every pending change, then stop serving. */
   close(): Promise<void>;
 }
 
 /**
  * End the process with the server: a terminal signal stops it cleanly, and
- * an error nothing caught still issues the pending writes before exiting.
+ * an error nothing caught still writes the pending changes before exiting.
  */
 export function endProcessWith(server: ProjectServer): void {
   const stop = () => {
@@ -59,9 +59,8 @@ export function endProcessWith(server: ProjectServer): void {
   };
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) process.once(signal, stop);
   process.once("uncaughtException", (error) => {
-    server.flush();
     process.stderr.write(`${error.stack ?? error.message}\n`);
-    process.exit(1);
+    void server.flush().finally(() => process.exit(1));
   });
 }
 
@@ -197,8 +196,8 @@ async function serveClaimed(
     host,
     warnings,
     flush: () => session.flush(),
-    close: () => {
-      session.flush();
+    close: async () => {
+      await session.flush();
       session.dispose();
       return new Promise((resolve) => {
         server.close(() => {

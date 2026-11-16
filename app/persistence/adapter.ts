@@ -55,9 +55,10 @@ export interface ProjectPersistence {
    * Write a project over what is stored, the name in its identity included.
    * Rejects with `ProjectStorageError` when it could not be stored.
    *
-   * The write is issued before the returned promise is created; adapters
-   * must not reorder writes for the same project. Callers rely on this to
-   * keep the final flush during page unload synchronous.
+   * Adapters must not reorder writes for the same project. One in a page
+   * issues the write before the returned promise is created, so a final
+   * flush during page unload stores it; one in a process that waits for its
+   * writes before ending, such as a server, may issue it later.
    */
   write(write: ProjectWrite): Promise<void>;
 

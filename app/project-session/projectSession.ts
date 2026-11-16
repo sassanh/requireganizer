@@ -1188,9 +1188,13 @@ export class ProjectSession {
     this.showStore(state.project, store, registry);
   }
 
-  /** Flush everything the tab would otherwise lose, e.g. on unload. */
-  flush = (): void => {
+  /**
+   * Write now everything the tab or process would otherwise lose, e.g. on
+   * unload; resolves once every write issued is settled.
+   */
+  flush = (): Promise<void> => {
     this.flushPendingWrites();
+    return this.lastWrite;
   };
 
   /** Rebuild the store from its own snapshot, e.g. after a code reload. */
@@ -1378,7 +1382,7 @@ export class ProjectSession {
   }
 
   /** Every kept step, newest first, with where each stands and what it added, changed or removed, then the start. */
-  listSteps = (): ListedSteps => (this.readyState() == null ? { steps: [], start: null } : this.keeper.listSteps(this.liveStores()));
+  listSteps = (): ListedSteps => (this.readyState() == null ? { steps: [], start: null } : this.keeper.listSteps());
 
   /**
    * Go to how the project was after a kept step, on any branch, or before

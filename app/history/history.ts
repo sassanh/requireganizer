@@ -3,7 +3,7 @@ import { InvalidJsonError, isRecord } from "lib/json";
 import { type Address, isAddress } from "storage";
 
 import { isTimeZone } from "./calendar";
-import type { StateDifference } from "./difference";
+import { parseStateDifference, type StateDifference } from "./difference";
 import { type FocusPlace, isFocusPlace } from "./focus";
 import { AUTOMATIC_RESTORE_POINT_INTERVAL_MS, parseRestorePoint, type RestorePoint } from "./restorePoints";
 
@@ -79,6 +79,11 @@ export interface HistoryStep {
   by: StepAuthor;
   /** Where the spec owner's focus was when the change was made; null when no page had reported it. */
   focus: FocusPlace | null;
+  /**
+   * What the step added, changed or removed, worked out once, as it is
+   * recorded: its states never change. Null when they could not be compared then.
+   */
+  change: StateDifference | null;
 }
 
 /** What a project keeps of its past: its undo tree, the state it is at, and its restore points. */
@@ -325,7 +330,7 @@ export interface ListedSteps {
 }
 
 /** Every kept step, newest first, with where it stands and what it changed, then the start. */
-export function listedSteps(history: ProjectHistory, changeOf: (step: HistoryStep) => StateDifference | null): ListedSteps {
+export function listedSteps(history: ProjectHistory): ListedSteps {
   const places = new Map<string, StepPlace>();
   for (let step = stepNamed(history, history.current); step != null; step = stepNamed(history, step.parent)) {
     places.set(step.id, step.id === history.current ? "current" : "done");
@@ -340,7 +345,7 @@ export function listedSteps(history: ProjectHistory, changeOf: (step: HistorySte
   return {
     steps: [...history.steps]
       .reverse()
-      .map((step) => ({ id: step.id, at: step.at, kind: step.kind, by: step.by.kind, place: places.get(step.id) ?? "other branch", change: changeOf(step) })),
+      .map((step) => ({ id: step.id, at: step.at, kind: step.kind, by: step.by.kind, place: places.get(step.id) ?? "other branch", change: step.change })),
     start: oldest == null ? null : { id: oldest.id, current: history.current == null },
   };
 }
@@ -385,7 +390,8 @@ function parseStep(value: unknown, index: number): HistoryStep {
     typeof value.at !== "string" ||
     !CHANGE_KINDS.includes(value.kind as ChangeKind) ||
     !isStepAuthor(value.by) ||
-    !isFocusPlaceOrNull(value.focus)
+    !isFocusPlaceOrNull(value.focus) ||
+    !Object.hasOwn(value, "change")
   ) {
     throw new InvalidJsonError(`${label} of the history is not one Requireganizer records.`);
   }
@@ -400,6 +406,7 @@ function parseStep(value: unknown, index: number): HistoryStep {
     kind: value.kind as ChangeKind,
     by: value.by,
     focus: value.focus,
+    change: value.change === null ? null : parseStateDifference(value.change, `${label} change`),
   };
 }
 
