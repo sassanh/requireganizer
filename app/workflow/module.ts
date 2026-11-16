@@ -263,7 +263,8 @@ export function addedByChange(changes: readonly ItemChange[], added: readonly st
 /** The revision a basis records for an item that no longer exists. */
 const MISSING_REVISION = "missing";
 
-function versionOf(item: Item): ItemVersion {
+/** An item's version: what it holds, apart from its kind, signature and removal. */
+export function versionOf(item: ItemVersion): ItemVersion {
   return { content: item.content, references: [...item.references], dependencies: [...item.dependencies] };
 }
 
@@ -354,6 +355,9 @@ export function workflowModuleModel(workflow: Workflow) {
       });
 
       const locate = (id: string) => index().get(id) ?? null;
+
+      /** Each item's place among the module's items: by stage, then as its stage holds it. */
+      const itemPlaces = cachedView(() => new Map([...index().keys()].map((id, place) => [id, place])));
 
       const revisionById = keyedView((id: string): string | null => {
         const located = locate(id);
@@ -628,7 +632,11 @@ export function workflowModuleModel(workflow: Workflow) {
           if (stored?.impacts.get(address.itemId) == null) continue;
           asked.set(address.itemId, null);
         }
-        return [...asked.entries()].map(([id, taken]) => {
+        // In the order of the items they are on, as coverages are; those on items no longer held last, by id.
+        const places = itemPlaces();
+        const placeOf = (id: string) => places.get(id) ?? Number.POSITIVE_INFINITY;
+        const ordered = [...asked.entries()].sort(([left], [right]) => placeOf(left) - placeOf(right) || left.localeCompare(right));
+        return ordered.map(([id, taken]) => {
           const located = locate(id);
           const present = located != null && phaseOf(located.item.removal) !== "removed";
           const after = present ? versionOf(located.item) : null;

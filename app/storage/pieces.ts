@@ -241,6 +241,16 @@ export class PieceStore {
     return this.read(address) as unknown as Thread;
   }
 
+  /** An item's piece, read. */
+  itemAt(address: Address): StoredItem {
+    return this.read(address) as unknown as StoredItem;
+  }
+
+  /** The addresses of the items a stage's piece holds, in its order. */
+  stageItemsAt(address: Address): Address[] {
+    return textsOf(this.read(address).items);
+  }
+
   /**
    * The state at an address, put together from its pieces and read by the
    * one project parser. A module it shares with a state read or held before

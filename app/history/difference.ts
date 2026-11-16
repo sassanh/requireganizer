@@ -1,25 +1,23 @@
-import { exactRecord, InvalidJsonError, isRecord, readFlag, readText, readTexts } from "lib/json";
-import { type Address, type ModulePieces, parseItemVersion, type PieceStore, serializeCanonical } from "storage";
+import { exactRecord, InvalidJsonError, isRecord, readFlag, readText } from "lib/json";
+import { type Address, isAddress, type ModulePieces, type PieceStore, serializeCanonical } from "storage";
 import { createModuleStore, type Store, WORKFLOW } from "store";
-import type { ItemVersion, Thread, UnitState } from "workflow";
+import { type ItemVersion, type Thread, type UnitState, versionOf } from "workflow";
 
 /** One item, coverage or impact of a stage as a comparison of two states reads it. */
 interface UnitPrint {
   unitId: string;
   unitKind: UnitState["kind"];
+  /** The item it is or is on. */
+  itemId: string;
   /** The kind of the item it is, or null for a coverage or an impact. */
   itemKind: string | null;
   /** As the page names it, such as "REQ-03" or "coverage of REQ-03". */
   label: string;
-  /** The text of the item it is or is on. */
-  text: string;
   /** What it holds apart from its signatures and threads. */
   content: string;
   signature: string;
   threads: string;
   waits: boolean;
-  /** An item's version. */
-  version: ItemVersion | null;
 }
 
 function printsOf(store: Store, stage: string): UnitPrint[] {
@@ -27,8 +25,8 @@ function printsOf(store: Store, stage: string): UnitPrint[] {
     const common = {
       unitId: unit.unitId,
       unitKind: unit.kind,
+      itemId: unit.itemId,
       label: store.unitLabel(unit.unitId),
-      text: store.textOf(unit.itemId),
       threads: serializeCanonical(store.threadsOf(unit.unitId)),
       waits: store.waitsForSignature(unit),
     };
@@ -39,17 +37,15 @@ function printsOf(store: Store, stage: string): UnitPrint[] {
           itemKind: unit.itemKind,
           content: serializeCanonical({ kind: unit.itemKind, version: unit.version, phase: unit.phase }),
           signature: serializeCanonical({ signature: unit.signature, removal: store.locate(unit.itemId)?.item.removal ?? null }),
-          version: unit.version,
         };
       case "coverage":
-        return { ...common, itemKind: null, content: "", signature: serializeCanonical(unit.signature), version: null };
+        return { ...common, itemKind: null, content: "", signature: serializeCanonical(unit.signature) };
       case "impact":
         return {
           ...common,
           itemKind: null,
           content: serializeCanonical({ before: unit.before, after: unit.after }),
           signature: serializeCanonical(unit.signature),
-          version: null,
         };
     }
   });
@@ -59,12 +55,7 @@ function printsOf(store: Store, stage: string): UnitPrint[] {
 interface OrphanThreadPrint {
   threadId: string;
   unitId: string;
-  /** The name its unit had when it was removed. */
-  label: string;
-  /** What its unit said when it was removed. */
-  text: string;
   messages: string[];
-  texts: string[];
   resolution: string;
 }
 
@@ -75,10 +66,7 @@ function orphanThreadsOf(store: Store, stage: string): OrphanThreadPrint[] {
     .map((thread: Thread) => ({
       threadId: thread.id,
       unitId: thread.unitId,
-      label: thread.removedUnit?.name ?? "a removed item",
-      text: thread.removedUnit?.text ?? "",
       messages: thread.messages.map((message) => serializeCanonical(message)),
-      texts: thread.messages.map(({ text }) => text),
       resolution: serializeCanonical(thread.resolution),
     }));
 }
@@ -107,9 +95,8 @@ export type UnitChange =
 
 /**
  * One item, coverage or impact that bringing an earlier state back would
- * add, change or remove, named by its module, its stage and its label: as
- * the earlier state names it, or, for one it would remove, as the project
- * names it now.
+ * add, change or remove, named by its module, its stage and its label, as
+ * the project names it now: "a removed item" for one it no longer holds.
  */
 export type UnitDifference = UnitChange & {
   moduleId: string;
@@ -161,35 +148,102 @@ export interface StateDifference {
   threads: ThreadDifference[];
 }
 
+/**
+ * A `UnitDifference` as a step keeps it: what the states' pieces hold is
+ * named by the piece's address, and the label and texts are not kept, since
+ * they read as the project names its items now.
+ */
+export type StoredUnitDifference = (
+  | { change: "add" }
+  | {
+      change: "change";
+      content: boolean;
+      signature: boolean;
+      threads: boolean;
+      place: { then: string; now: string } | null;
+      /** For an item whose content differs, the piece of the item as it is now. */
+      itemNow: Address | null;
+    }
+  | {
+      change: "remove";
+      /** The piece of the item it is or is on, as it is now. */
+      itemNow: Address;
+      after: string | null;
+    }
+) & {
+  moduleId: string;
+  stage: string;
+  unitId: string;
+  unitKind: UnitState["kind"];
+  itemKind: string | null;
+  position: number;
+};
+
+/** A `ThreadDifference` as a step keeps it, naming the thread's pieces. */
+export interface StoredThreadDifference {
+  moduleId: string;
+  stage: string;
+  threadId: string;
+  /** The thread's piece in the earlier state; null when that state lacks it. */
+  earlier: Address | null;
+  /** The thread's piece in the project now; null when it lacks it. */
+  now: Address | null;
+  /** The places among the earlier thread's messages of those only it holds. */
+  messagesAdded: number[];
+  /** The places among the thread's messages now of those only it holds. */
+  messagesRemoved: number[];
+  resolutionDiffers: boolean;
+}
+
+/** A `StateDifference` as a step keeps it. */
+export interface StoredDifference {
+  units: StoredUnitDifference[];
+  threads: StoredThreadDifference[];
+}
+
 function textOrNull(value: unknown, label: string): string | null {
   return value === null ? null : readText(value, label);
 }
 
 const UNIT_KINDS: readonly UnitState["kind"][] = ["item", "coverage", "impact"];
 
-function parseUnitDifference(value: unknown, label: string): UnitDifference {
-  const shared = ["moduleId", "module", "stage", "unitId", "unitKind", "itemKind", "label", "position"];
+function address(value: unknown, label: string): Address {
+  if (isAddress(value)) return value;
+  throw new InvalidJsonError(`${label} must be a piece's address.`);
+}
+
+function addressOrNull(value: unknown, label: string): Address | null {
+  return value === null ? null : address(value, label);
+}
+
+function places(value: unknown, label: string): number[] {
+  if (!Array.isArray(value) || !value.every((entry) => Number.isInteger(entry) && entry >= 0)) {
+    throw new InvalidJsonError(`${label} must be a list of places.`);
+  }
+  return value;
+}
+
+function parseUnitDifference(value: unknown, label: string): StoredUnitDifference {
+  const shared = ["moduleId", "stage", "unitId", "unitKind", "itemKind", "position"];
   if (!isRecord(value)) throw new InvalidJsonError(`${label} must be an object.`);
-  const keys = value.change === "add" ? [] : value.change === "change" ? ["content", "signature", "threads", "place", "versionNow"] : value.change === "remove" ? ["textNow", "after"] : null;
+  const keys = value.change === "add" ? [] : value.change === "change" ? ["content", "signature", "threads", "place", "itemNow"] : value.change === "remove" ? ["itemNow", "after"] : null;
   if (keys == null) throw new InvalidJsonError(`${label} must be an add, a change or a remove.`);
   const fields = exactRecord(value, label, ["change", ...shared, ...keys]);
   if (!UNIT_KINDS.includes(fields.unitKind as UnitState["kind"])) throw new InvalidJsonError(`${label} unitKind must be item, coverage or impact.`);
   if (typeof fields.position !== "number") throw new InvalidJsonError(`${label} position must be a number.`);
   const base = {
     moduleId: readText(fields.moduleId, `${label} moduleId`),
-    module: readText(fields.module, `${label} module`),
     stage: readText(fields.stage, `${label} stage`),
     unitId: readText(fields.unitId, `${label} unitId`),
     unitKind: fields.unitKind as UnitState["kind"],
     itemKind: textOrNull(fields.itemKind, `${label} itemKind`),
-    label: readText(fields.label, `${label} label`),
     position: fields.position,
   };
   switch (fields.change) {
     case "add":
       return { ...base, change: "add" };
     case "remove":
-      return { ...base, change: "remove", textNow: readText(fields.textNow, `${label} textNow`), after: textOrNull(fields.after, `${label} after`) };
+      return { ...base, change: "remove", itemNow: address(fields.itemNow, `${label} itemNow`), after: textOrNull(fields.after, `${label} after`) };
     default: {
       const place = fields.place === null ? null : exactRecord(fields.place, `${label} place`, ["then", "now"]);
       return {
@@ -199,36 +253,35 @@ function parseUnitDifference(value: unknown, label: string): UnitDifference {
         signature: readFlag(fields.signature, `${label} signature`),
         threads: readFlag(fields.threads, `${label} threads`),
         place: place == null ? null : { then: readText(place.then, `${label} place then`), now: readText(place.now, `${label} place now`) },
-        versionNow: fields.versionNow === null ? null : parseItemVersion(fields.versionNow, `${label} versionNow`),
+        itemNow: addressOrNull(fields.itemNow, `${label} itemNow`),
       };
     }
   }
 }
 
-function parseThreadDifference(value: unknown, label: string): ThreadDifference {
-  const fields = exactRecord(value, label, ["moduleId", "module", "stage", "threadId", "unitId", "label", "text", "messagesAdded", "messagesRemoved", "resolutionDiffers", "onlyNow"]);
+function parseThreadDifference(value: unknown, label: string): StoredThreadDifference {
+  const fields = exactRecord(value, label, ["moduleId", "stage", "threadId", "earlier", "now", "messagesAdded", "messagesRemoved", "resolutionDiffers"]);
+  const earlier = addressOrNull(fields.earlier, `${label} earlier`);
+  const now = addressOrNull(fields.now, `${label} now`);
+  if (earlier == null && now == null) throw new InvalidJsonError(`${label} must name the thread's piece in one of its states.`);
   return {
     moduleId: readText(fields.moduleId, `${label} moduleId`),
-    module: readText(fields.module, `${label} module`),
     stage: readText(fields.stage, `${label} stage`),
     threadId: readText(fields.threadId, `${label} threadId`),
-    unitId: readText(fields.unitId, `${label} unitId`),
-    label: readText(fields.label, `${label} label`),
-    text: readText(fields.text, `${label} text`),
-    messagesAdded: readTexts(fields.messagesAdded, `${label} messagesAdded`),
-    messagesRemoved: readTexts(fields.messagesRemoved, `${label} messagesRemoved`),
+    earlier,
+    now,
+    messagesAdded: places(fields.messagesAdded, `${label} messagesAdded`),
+    messagesRemoved: places(fields.messagesRemoved, `${label} messagesRemoved`),
     resolutionDiffers: readFlag(fields.resolutionDiffers, `${label} resolutionDiffers`),
-    onlyNow: readFlag(fields.onlyNow, `${label} onlyNow`),
   };
 }
 
-/** A difference as a step stores it, read; throws what is wrong with it, naming `label`. */
-export function parseStateDifference(value: unknown, label: string): StateDifference {
-  const fields = exactRecord(value, label, ["same", "units", "threads"]);
+/** A difference as a step keeps it, read; throws what is wrong with it, naming `label`. */
+export function parseStoredDifference(value: unknown, label: string): StoredDifference {
+  const fields = exactRecord(value, label, ["units", "threads"]);
   if (!Array.isArray(fields.units)) throw new InvalidJsonError(`${label} units must be a list.`);
   if (!Array.isArray(fields.threads)) throw new InvalidJsonError(`${label} threads must be a list.`);
   return {
-    same: readFlag(fields.same, `${label} same`),
     units: fields.units.map((unit, index) => parseUnitDifference(unit, `${label} unit ${index + 1}`)),
     threads: fields.threads.map((thread, index) => parseThreadDifference(thread, `${label} thread ${index + 1}`)),
   };
@@ -315,6 +368,9 @@ const KEPT_STORES = 8;
 /** The model of a module a session shows, when it holds the module version given; null for one it does not show. */
 export type LiveStoreOf = (module: ModulePieces) => Store | null;
 
+/** The model of a module of the project now; null for a module it no longer holds. */
+export type ModelNowOf = (moduleId: string) => Store | null;
+
 /**
  * Compares states of the project kept as pieces, unit by unit, with the
  * one model that derives units. A module or a stage held at one address in
@@ -328,6 +384,8 @@ export class StateComparer {
   private readonly stores = new Map<Address, Store>();
   private readonly modules = new Map<Address, ModulePieces[]>();
   private readonly threadStages = new Map<Address, string>();
+  private readonly itemPieces = new Map<Address, Map<string, Address>>();
+  private readonly threadPieces = new Map<Address, Map<string, Address>>();
 
   constructor(private readonly pieces: PieceStore) {}
 
@@ -358,6 +416,31 @@ export class StateComparer {
       this.threadStages.set(address, stage);
     }
     return stage;
+  }
+
+  /** The piece of an item a stage's piece holds, by the item's id. */
+  private itemPiece(stageAddress: Address, itemId: string): Address | null {
+    const byId = kept(this.itemPieces, stageAddress, KEPT_PRINTS, () => {
+      const addresses = this.pieces.stageItemsAt(stageAddress);
+      return new Map(addresses.map((address) => [this.pieces.itemAt(address).id, address]));
+    });
+    return byId.get(itemId) ?? null;
+  }
+
+  /** The piece of an item a module version holds, by the item's id, in whichever stage holds it. */
+  private itemPieceIn(module: ModulePieces, itemId: string): Address | null {
+    for (const stageAddress of Object.values(module.stages)) {
+      const found = this.itemPiece(stageAddress, itemId);
+      if (found != null) return found;
+    }
+    return null;
+  }
+
+  /** The piece of a thread a module version holds, by the thread's id. */
+  private threadPiece(module: ModulePieces | null, threadId: string): Address | null {
+    if (module == null) return null;
+    const byId = kept(this.threadPieces, module.address, KEPT_PRINTS, () => new Map(module.threads.map((address) => [this.pieces.threadAt(address).id, address])));
+    return byId.get(threadId) ?? null;
   }
 
   /** The stages of two versions of a module whose units may differ. */
@@ -405,19 +488,19 @@ export class StateComparer {
   }
 
   /** The threads on units neither the state at `here` nor the one at `there` holds that differ between them. */
-  private threadDifferences(here: Address, there: Address, live: LiveStoreOf): ThreadDifference[] {
-    return this.stagePairs(here, there).flatMap(({ moduleId, module, stage, fromModule: nowModule, toModule: earlierModule }) => {
+  private threadDifferences(here: Address, there: Address, live: LiveStoreOf): StoredThreadDifference[] {
+    return this.stagePairs(here, there).flatMap(({ moduleId, stage, fromModule: nowModule, toModule: earlierModule }) => {
       const orphans = (pieces: ModulePieces | null) => (pieces == null ? [] : this.stageOrphanThreads(pieces, stage, live));
       const holds = (pieces: ModulePieces | null, unitId: string) => pieces != null && this.storeOf(pieces, live).unitState(unitId) != null;
       const now = new Map(orphans(nowModule).map((print) => [print.threadId, print]));
       const earlier = new Map(orphans(earlierModule).map((print) => [print.threadId, print]));
-      return [...new Set([...earlier.keys(), ...now.keys()])].flatMap((threadId): ThreadDifference[] => {
+      return [...new Set([...earlier.keys(), ...now.keys()])].flatMap((threadId): StoredThreadDifference[] => {
         const then = earlier.get(threadId) ?? null;
         const current = now.get(threadId) ?? null;
         const shown = (then ?? current)!;
         if (holds(nowModule, shown.unitId) || holds(earlierModule, shown.unitId)) return [];
         const only = (print: OrphanThreadPrint | null, other: OrphanThreadPrint | null) =>
-          print == null ? [] : print.texts.filter((_, index) => !(other?.messages.includes(print.messages[index]!) ?? false));
+          print == null ? [] : print.messages.flatMap((message, index) => (other?.messages.includes(message) ?? false ? [] : [index]));
         const messagesAdded = only(then, current);
         const messagesRemoved = only(current, then);
         const resolutionDiffers = (then?.resolution ?? null) !== (current?.resolution ?? null);
@@ -425,16 +508,13 @@ export class StateComparer {
         return [
           {
             moduleId,
-            module,
             stage,
             threadId,
-            unitId: shown.unitId,
-            label: shown.label,
-            text: shown.text,
+            earlier: then == null ? null : this.threadPiece(earlierModule, threadId),
+            now: current == null ? null : this.threadPiece(nowModule, threadId),
             messagesAdded,
             messagesRemoved,
             resolutionDiffers,
-            onlyNow: then == null,
           },
         ];
       });
@@ -477,26 +557,84 @@ export class StateComparer {
    * earlier state, at `there`, and the project now, at `here`; what a step
    * changed is the same comparison from its state before to its state after.
    */
-  difference(here: Address, there: Address, live: LiveStoreOf): StateDifference {
-    const units = this.changes(here, there, live)
-      .map((comparison): UnitDifference => {
-        const { from: now, to: earlier, moduleId, module, stage, position } = comparison;
-        const shown = (earlier ?? now)!;
-        const base = { moduleId, module, stage, unitId: shown.unitId, unitKind: shown.unitKind, itemKind: shown.itemKind, label: shown.label, position };
-        if (now == null) return { ...base, change: "add" };
-        if (earlier == null) return { ...base, change: "remove", textNow: now.text, after: comparison.after };
-        const content = now.content !== earlier.content;
-        return {
-          ...base,
-          change: "change",
-          content,
-          signature: now.signature !== earlier.signature,
-          threads: now.threads !== earlier.threads,
-          place: comparison.moved ? { then: earlier.label, now: now.label } : null,
-          versionNow: content ? now.version : null,
-        };
-      });
-    return { same: here === there, units, threads: this.threadDifferences(here, there, live) };
+  difference(here: Address, there: Address, live: LiveStoreOf, now: ModelNowOf): StateDifference {
+    return this.described(here, there, this.stored(here, there, live), now);
+  }
+
+  /** `difference`, as a step keeps it. */
+  stored(here: Address, there: Address, live: LiveStoreOf): StoredDifference {
+    const modulesNow = new Map(this.modulesAt(here).map((pieces) => [pieces.id, pieces]));
+    const units = this.changes(here, there, live).map((comparison): StoredUnitDifference => {
+      const { from: now, to: earlier, moduleId, stage, position } = comparison;
+      const shown = (earlier ?? now)!;
+      const base = { moduleId, stage, unitId: shown.unitId, unitKind: shown.unitKind, itemKind: shown.itemKind, position };
+      if (now == null) return { ...base, change: "add" };
+      const moduleNow = modulesNow.get(moduleId)!;
+      if (earlier == null) return { ...base, change: "remove", itemNow: this.itemPieceIn(moduleNow, now.itemId)!, after: comparison.after };
+      const content = now.content !== earlier.content;
+      const stageNow = moduleNow.stages[stage]!;
+      return {
+        ...base,
+        change: "change",
+        content,
+        signature: now.signature !== earlier.signature,
+        threads: now.threads !== earlier.threads,
+        place: comparison.moved ? { then: earlier.label, now: now.label } : null,
+        itemNow: content && now.unitKind === "item" ? this.itemPiece(stageNow, now.itemId) : null,
+      };
+    });
+    return { units, threads: this.threadDifferences(here, there, live) };
+  }
+
+  /**
+   * A difference a step keeps, with what it names read from the pieces of
+   * the states at `here` and `there`, and each unit and item text named as
+   * `now`, the project now, names it: a unit it no longer holds is a
+   * removed item.
+   */
+  described(here: Address, there: Address, stored: StoredDifference, now: ModelNowOf): StateDifference {
+    const modulesThen = this.modulesAt(there);
+    const modulesNow = this.modulesAt(here);
+    // Named as the earlier state names it, or as the project does now for a module only it holds.
+    const moduleName = (moduleId: string) => (modulesThen.find(({ id }) => id === moduleId) ?? modulesNow.find(({ id }) => id === moduleId))!.name;
+    /** The model that names a module's units: the project's now, or, for a module it no longer holds, the one `here` holds. */
+    const namer = (moduleId: string) => now(moduleId) ?? this.storeOf(modulesNow.find(({ id }) => id === moduleId)!, () => null);
+    const units = stored.units.map((unit): UnitDifference => {
+      const named = { ...unit, module: moduleName(unit.moduleId), label: now(unit.moduleId)?.unitLabel(unit.unitId) ?? "a removed item" };
+      switch (named.change) {
+        case "add":
+          return named;
+        case "remove": {
+          const { itemNow, ...change } = named;
+          const item = this.pieces.itemAt(itemNow);
+          return { ...change, textNow: namer(unit.moduleId).shownText(item.kind, item.content) };
+        }
+        case "change": {
+          const { itemNow, ...change } = named;
+          return { ...change, versionNow: itemNow == null ? null : versionOf(this.pieces.itemAt(itemNow)) };
+        }
+      }
+    });
+    const threads = stored.threads.map((thread): ThreadDifference => {
+      const earlier = thread.earlier == null ? null : this.pieces.threadAt(thread.earlier);
+      const now = thread.now == null ? null : this.pieces.threadAt(thread.now);
+      const shown = (earlier ?? now)!;
+      const texts = (of: Thread | null, places: readonly number[]) => places.map((place) => of!.messages[place]!.text);
+      return {
+        moduleId: thread.moduleId,
+        module: moduleName(thread.moduleId),
+        stage: thread.stage,
+        threadId: thread.threadId,
+        unitId: shown.unitId,
+        label: shown.removedUnit?.name ?? "a removed item",
+        text: shown.removedUnit?.text ?? "",
+        messagesAdded: texts(earlier, thread.messagesAdded),
+        messagesRemoved: texts(now, thread.messagesRemoved),
+        resolutionDiffers: thread.resolutionDiffers,
+        onlyNow: earlier == null,
+      };
+    });
+    return { same: here === there, units, threads };
   }
 
   /**

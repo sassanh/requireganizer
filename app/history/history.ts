@@ -3,7 +3,7 @@ import { InvalidJsonError, isRecord } from "lib/json";
 import { type Address, isAddress } from "storage";
 
 import { isTimeZone } from "./calendar";
-import { parseStateDifference, type StateDifference } from "./difference";
+import { parseStoredDifference, type StateDifference, type StoredDifference } from "./difference";
 import { type FocusPlace, isFocusPlace } from "./focus";
 import { AUTOMATIC_RESTORE_POINT_INTERVAL_MS, parseRestorePoint, type RestorePoint } from "./restorePoints";
 
@@ -83,7 +83,7 @@ export interface HistoryStep {
    * What the step added, changed or removed, worked out once, as it is
    * recorded: its states never change. Null when they could not be compared then.
    */
-  change: StateDifference | null;
+  change: StoredDifference | null;
 }
 
 /** What a project keeps of its past: its undo tree, the state it is at, and its restore points. */
@@ -330,7 +330,7 @@ export interface ListedSteps {
 }
 
 /** Every kept step, newest first, with where it stands and what it changed, then the start. */
-export function listedSteps(history: ProjectHistory): ListedSteps {
+export function listedSteps(history: ProjectHistory, changeOf: (step: HistoryStep) => StateDifference | null): ListedSteps {
   const places = new Map<string, StepPlace>();
   for (let step = stepNamed(history, history.current); step != null; step = stepNamed(history, step.parent)) {
     places.set(step.id, step.id === history.current ? "current" : "done");
@@ -345,7 +345,7 @@ export function listedSteps(history: ProjectHistory): ListedSteps {
   return {
     steps: [...history.steps]
       .reverse()
-      .map((step) => ({ id: step.id, at: step.at, kind: step.kind, by: step.by.kind, place: places.get(step.id) ?? "other branch", change: step.change })),
+      .map((step) => ({ id: step.id, at: step.at, kind: step.kind, by: step.by.kind, place: places.get(step.id) ?? "other branch", change: changeOf(step) })),
     start: oldest == null ? null : { id: oldest.id, current: history.current == null },
   };
 }
@@ -406,7 +406,7 @@ function parseStep(value: unknown, index: number): HistoryStep {
     kind: value.kind as ChangeKind,
     by: value.by,
     focus: value.focus,
-    change: value.change === null ? null : parseStateDifference(value.change, `${label} change`),
+    change: value.change === null ? null : parseStoredDifference(value.change, `${label} change`),
   };
 }
 

@@ -12,6 +12,7 @@ import {
   type ListedRestorePoint,
   type ListedSteps,
   type LiveStoreOf,
+  type ModelNowOf,
   parseHistory,
   type PreviewTarget,
   type ProjectHistory,
@@ -625,6 +626,14 @@ export class ProjectSession {
       const sibling = this.siblingStores.storeOf(entry.id);
       return sibling != null && this.pieces.moduleAddressOf(entry) === module.address ? sibling : null;
     };
+  }
+
+  /** The models of the open project's modules now, by module, which name its units and items. */
+  private modelsNow(): ModelNowOf {
+    const state = this.readyState();
+    if (state == null) return () => null;
+    const { registry, store } = state;
+    return (moduleId) => (moduleId === registry.activeModuleId ? store : this.siblingStores.storeOf(moduleId));
   }
 
   /**
@@ -1382,7 +1391,7 @@ export class ProjectSession {
   }
 
   /** Every kept step, newest first, with where each stands and what it added, changed or removed, then the start. */
-  listSteps = (): ListedSteps => (this.readyState() == null ? { steps: [], start: null } : this.keeper.listSteps());
+  listSteps = (): ListedSteps => (this.readyState() == null ? { steps: [], start: null } : this.keeper.listSteps(this.modelsNow()));
 
   /**
    * Go to how the project was after a kept step, on any branch, or before
@@ -1432,7 +1441,7 @@ export class ProjectSession {
   }
 
   private differenceFromNowOf(address: Address, doing: string): StateDifference {
-    const difference = this.keeper.differenceFromNow(address, this.liveStores());
+    const difference = this.keeper.differenceFromNow(address, this.liveStores(), this.modelsNow());
     if (difference == null) throw new UserFacingError(`That earlier state is no longer stored, so it cannot be ${doing}.`);
     return difference;
   }

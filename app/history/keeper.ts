@@ -4,7 +4,7 @@ import { uuid } from "utilities";
 import { unitInPlaceOf } from "workflow";
 
 import { ownTimeZone } from "./calendar";
-import { type LiveStoreOf, StateComparer, type StateDifference } from "./difference";
+import { type LiveStoreOf, type ModelNowOf, StateComparer, type StateDifference } from "./difference";
 import type { FocusPlace } from "./focus";
 import {
   automaticRestorePointDue,
@@ -156,7 +156,7 @@ export class HistoryKeeper {
       kind: change.kind,
       by: change.by,
       focus: change.focus,
-      change: this.compared(change.before, change.after, live),
+      change: this.readable(change.before, change.after, () => this.comparer.stored(change.before, change.after, live)),
     });
     this.nextSequence += 1;
     if (this.current.steps.length <= steps) this.gaveWay = true;
@@ -223,22 +223,25 @@ export class HistoryKeeper {
     return { ...target, unitId: unitInPlaceOf(target.unitId, shownBefore ?? [], (unitId) => exists({ ...target, unitId })) };
   }
 
-  /** Every kept step, newest first, with where each stands and what it changed, then the start. */
-  listSteps(): ListedSteps {
+  /** Every kept step, newest first, with where each stands and what it changed, named as `now` names it, then the start. */
+  listSteps(now: ModelNowOf): ListedSteps {
     if (this.current.currentState == null) return { steps: [], start: null };
-    return listedSteps(this.current);
+    return listedSteps(this.current, (step) =>
+      // A step whose states could not be compared when it was made is compared again.
+      this.readable(step.before, step.after, () => this.comparer.described(step.before, step.after, step.change ?? this.comparer.stored(step.before, step.after, () => null), now)),
+    );
   }
 
   /** How a kept state differs from the project now; null when its state cannot be read. */
-  differenceFromNow(there: Address, live: LiveStoreOf): StateDifference | null {
+  differenceFromNow(there: Address, live: LiveStoreOf, now: ModelNowOf): StateDifference | null {
     const here = this.current.currentState;
-    return here == null ? null : this.compared(here, there, live);
+    return here == null ? null : this.readable(here, there, () => this.comparer.difference(here, there, live, now));
   }
 
-  /** How the state at `there` differs from the one at `here`; null when either cannot be read. */
-  private compared(here: Address, there: Address, live: LiveStoreOf): StateDifference | null {
+  /** What `read` reads of the states at `here` and `there`; null when either cannot be read. */
+  private readable<Result>(here: Address, there: Address, read: () => Result): Result | null {
     try {
-      return this.comparer.difference(here, there, live);
+      return read();
     } catch (error) {
       console.error(`The states ${here} and ${there} of the project's history cannot be compared.`, error);
       return null;
