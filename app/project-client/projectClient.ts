@@ -32,9 +32,9 @@ import type { FocusPlace, ListedRestorePoint, ListedSteps, PreviewTarget, StateD
 import { UserFacingError } from "lib/errors";
 import type { ProjectIdentity } from "lib/projectStorage";
 import type { ClientPersistence } from "persistence";
-import { type ProjectSessionSnapshot, SiblingModuleStores } from "project-session";
+import type { ProjectSessionSnapshot } from "project-session";
 import { type ExportOptions, type ModuleContent, moduleContentOf, type ModuleRegistry, type ModuleState, type ProjectState, sharedWith } from "storage";
-import { createModuleStore, type ReplicatedVolatileState, Store } from "store";
+import { createModuleStore, type ReplicatedVolatileState, SiblingModuleStores, Store } from "store";
 import type { SignatureFocusMove } from "workflow";
 
 type Result<Name extends RequestName> = Awaited<ReturnType<HostApi[Name]>>;

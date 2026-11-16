@@ -7,4 +7,3 @@ export {
   type ProjectSessionSnapshot,
   type ProjectSessionStatus,
 } from "./projectSession";
-export { SiblingModuleStores } from "./siblingStores";

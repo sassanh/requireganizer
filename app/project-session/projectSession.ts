@@ -53,10 +53,9 @@ import {
   type StoredProject,
   storedProjectChange,
 } from "storage";
-import { createModuleStore, Store } from "store";
+import { createModuleStore, SiblingModuleStores, Store } from "store";
 import { uuid } from "utilities";
 
-import { SiblingModuleStores } from "./siblingStores";
 
 /** Streaming mutates the store every ~80ms; coalesce writes behind this delay. */
 export const PROJECT_SAVE_DEBOUNCE_MS = 800;

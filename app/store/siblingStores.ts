@@ -1,11 +1,19 @@
 import { whenIdle } from "lib/idle";
-import { siblingModuleEntries } from "lib/moduleSchema";
-import type { ModuleContent, ModuleRegistry, ModuleState } from "storage";
-import { createModuleStore, type Store } from "store";
+import { siblingModuleEntries, visibleModules } from "lib/moduleSchema";
+import type { ModuleContent, ModuleRegistry, ModuleState, ProjectState } from "storage";
 import type { LinkedModule } from "workflow";
+
+import { createModuleStore, type Store } from "./store";
 
 /** The longest a module's store waits for an idle moment to build its items. */
 const ITEMS_WAIT_MS = 1_000;
+
+/** A module's store as linking reads it. */
+interface LinkedStore {
+  id: string;
+  name: string;
+  store: Store;
+}
 
 interface CacheEntry {
   content: ModuleContent;
@@ -61,13 +69,31 @@ export class SiblingModuleStores {
       store.setLinkedModules([]);
       return;
     }
+    const shownEntry = registry.modules.find((module) => module.id === registry.activeModuleId);
+    this.link(shownEntry == null ? [] : [{ id: shownEntry.id, name: shownEntry.name, store }], siblingModuleEntries(registry), registry.modules);
+  }
+
+  /**
+   * Hold a store of every module of a state of the project, none of them
+   * shown, such as a state its history keeps, each linked to the others as
+   * `applyModuleContext` links the project's; `storeOf` then gives each.
+   */
+  linkState(state: ProjectState): void {
+    if (state.modulesEnabled) {
+      this.link([], visibleModules(state), state.modules);
+      return;
+    }
+    for (const entry of visibleModules(state)) this.storeFor(entry)?.setLinkedModules([]);
+  }
+
+  /** Link the shown stores and the stores of `entries` to each other, forgetting the stores of modules `modules` no longer shows. */
+  private link(shown: readonly LinkedStore[], entries: readonly ModuleState[], modules: readonly ModuleState[]): void {
     for (const id of [...this.cache.keys()]) {
-      const entry = registry.modules.find((module) => module.id === id);
+      const entry = modules.find((module) => module.id === id);
       if (entry == null || entry.archivedAt != null) this.cache.delete(id);
     }
-    const shownEntry = registry.modules.find((module) => module.id === registry.activeModuleId);
-    const all: { id: string; name: string; store: Store }[] = shownEntry == null ? [] : [{ id: shownEntry.id, name: shownEntry.name, store }];
-    for (const entry of siblingModuleEntries(registry)) {
+    const all = [...shown];
+    for (const entry of entries) {
       const sibling = this.storeFor(entry);
       if (sibling != null) all.push({ id: entry.id, name: entry.name, store: sibling });
     }

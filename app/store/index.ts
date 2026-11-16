@@ -7,3 +7,4 @@ export {
   WORKFLOW,
   type ReplicatedVolatileState,
 } from "./store";
+export { SiblingModuleStores } from "./siblingStores";

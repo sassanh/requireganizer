@@ -1,6 +1,6 @@
 import { exactRecord, InvalidJsonError, isRecord, readFlag, readText } from "lib/json";
 import { type Address, isAddress, type ModulePieces, type PieceStore, serializeCanonical, type StoredItem } from "storage";
-import { createModuleStore, type Store, WORKFLOW } from "store";
+import { SiblingModuleStores, type Store, WORKFLOW } from "store";
 import { coverageUnitId, impactUnitId, type ItemVersion, parseUnitId, phaseOf, shownItemOrder, type Thread, type UnitState, versionOf } from "workflow";
 
 /** What bringing an earlier state back would do to one item, coverage or impact. */
@@ -231,8 +231,8 @@ function kept<Value>(values: Map<string, Value>, key: string, limit: number, mak
 /** The stages and modules whose pieces a comparer keeps read at most, across the states it compares. */
 const KEPT_READS = 2_000;
 
-/** The models of modules no session shows that are kept at most, for the stages of one module version read one after another. */
-const KEPT_STORES = 8;
+/** The states no session shows whose models are kept at most, for the stages of one state read one after another. */
+const KEPT_STATES = 4;
 
 /** The model of a module a session shows, when it holds the module version given; null for one it does not show. */
 export type LiveStoreOf = (module: ModulePieces) => Store | null;
@@ -319,7 +319,7 @@ function placed(then: readonly string[], now: readonly string[]): { id: string; 
  * and which a stage shows, to place the focus.
  */
 export class StateComparer {
-  private readonly stores = new Map<Address, Store>();
+  private readonly states = new Map<Address, SiblingModuleStores>();
   private readonly modules = new Map<Address, ModulePieces[]>();
   private readonly stages = new Map<string, StageRead>();
   private readonly threads = new Map<Address, ThreadsRead>();
@@ -334,11 +334,20 @@ export class StateComparer {
     return kept(this.modules, address, KEPT_READS, () => this.pieces.modulesAt(address).filter(({ archivedAt }) => archivedAt == null));
   }
 
-  /** A module version's model: the one a session shows, or one read from its pieces. */
-  private storeOf(module: ModulePieces, live: LiveStoreOf): Store {
+  /**
+   * A module's model in the state at an address: the one a session shows,
+   * or one read from the state's pieces, linked to the state's other
+   * modules as the project links its own.
+   */
+  private storeIn(state: Address, module: ModulePieces, live: LiveStoreOf): Store {
     const shown = live(module);
     if (shown != null) return shown;
-    return kept(this.stores, module.address, KEPT_STORES, () => createModuleStore(this.pieces.moduleAt(module.address).content));
+    const models = kept(this.states, state, KEPT_STATES, () => {
+      const linked = new SiblingModuleStores();
+      linked.linkState(this.pieces.stateAt(state));
+      return linked;
+    });
+    return models.storeOf(module.id)!;
   }
 
   /** A module version's stage, read from its piece; an empty one for a module the state lacks, or a stage the module holds none of. */
@@ -517,7 +526,7 @@ export class StateComparer {
     // Named as the earlier state names it, or as the project does now for a module only it holds.
     const moduleName = (moduleId: string) => (modulesThen.find(({ id }) => id === moduleId) ?? modulesNow.find(({ id }) => id === moduleId))!.name;
     /** The model that names a module's units: the project's now, or, for a module it no longer holds, the one `here` holds. */
-    const namer = (moduleId: string) => now(moduleId) ?? this.storeOf(modulesNow.find(({ id }) => id === moduleId)!, () => null);
+    const namer = (moduleId: string) => now(moduleId) ?? this.storeIn(here, modulesNow.find(({ id }) => id === moduleId)!, () => null);
     const units = stored.units.map((unit): UnitDifference => {
       const named = { ...unit, module: moduleName(unit.moduleId), label: now(unit.moduleId)?.unitLabel(unit.unitId) ?? "a removed item" };
       switch (named.change) {
@@ -556,12 +565,12 @@ export class StateComparer {
     return { same: here === there, units, threads };
   }
 
-  /** The units a module version's stage shows, in order, and those of them that wait for a signature, read once by the version's address. */
-  private shownOf(module: ModulePieces, stage: string, live: LiveStoreOf): { shown: string[]; waiting: Set<string> } {
-    const key = `${module.address} ${stage}`;
+  /** The units a module's stage shows in the state at an address, in order, and those of them that wait for a signature, read once. */
+  private shownOf(state: Address, module: ModulePieces, stage: string, live: LiveStoreOf): { shown: string[]; waiting: Set<string> } {
+    const key = `${state} ${module.id} ${stage}`;
     const known = this.shown.get(key);
     if (known != null) return { shown: known, waiting: this.waiting.get(key)! };
-    const store = this.storeOf(module, live);
+    const store = this.storeIn(state, module, live);
     const units = store.unitsInShownOrder(stage);
     const shown = kept(this.shown, key, KEPT_READS, () => units.map(({ unitId }) => unitId));
     const waiting = kept(this.waiting, key, KEPT_READS, () => new Set(units.filter((unit) => store.waitsForSignature(unit)).map(({ unitId }) => unitId)));
@@ -575,7 +584,7 @@ export class StateComparer {
    */
   prepare(from: Address, to: Address, live: LiveStoreOf): void {
     for (const { stage, fromModule } of this.stagePairs(from, to)) {
-      if (fromModule != null) this.shownOf(fromModule, stage, live);
+      if (fromModule != null) this.shownOf(from, fromModule, stage, live);
     }
   }
 
@@ -583,7 +592,7 @@ export class StateComparer {
   shownUnits(address: Address, moduleId: string, stage: string, live: LiveStoreOf): string[] | null {
     const pieces = this.modulesAt(address).find(({ id }) => id === moduleId);
     if (pieces == null || !WORKFLOW.isStage(stage)) return null;
-    return this.shownOf(pieces, stage, live).shown;
+    return this.shownOf(address, pieces, stage, live).shown;
   }
 
   /**
@@ -597,8 +606,8 @@ export class StateComparer {
     const madeOn = pairs.flatMap((pair) => this.stageDifference(pair)).map(({ moduleId, stage, unitId }) => ({ moduleId, stage, unitId }));
     const madeWait = pairs.flatMap(({ moduleId, stage, fromModule, toModule }) => {
       if (toModule == null) return [];
-      const waitedBefore = fromModule == null ? new Set<string>() : this.shownOf(fromModule, stage, live).waiting;
-      const { shown, waiting } = this.shownOf(toModule, stage, live);
+      const waitedBefore = fromModule == null ? new Set<string>() : this.shownOf(before, fromModule, stage, live).waiting;
+      const { shown, waiting } = this.shownOf(after, toModule, stage, live);
       return shown.filter((unitId) => waiting.has(unitId) && !waitedBefore.has(unitId)).map((unitId) => ({ moduleId, stage, unitId }));
     });
     return { madeOn, madeWait };
