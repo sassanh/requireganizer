@@ -651,9 +651,23 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
   const { opener, returnToOpener, revealRequest, revealed } = useWorkflowNavigation();
-  /** The first frames show their content at once, the others once they come near or the page is idle. */
-  const [frames] = useState(() => new FrameSchedule(orderedUnits().map(({ unitId }) => unitId), revealRequest?.unitId ?? null));
+  /** The unit a switch of tab is made to show, around which the tab's first frames are. */
+  const tabTarget = useRef<string | null>(null);
+  /**
+   * Each tab shown has its schedule: its first frames, around the unit to
+   * reveal, show their content at once, the others once they come near or
+   * the page is idle.
+   */
+  const scheduleFor = (tab: string) =>
+    new FrameSchedule(
+      orderedUnits().filter((unit) => tabOf(unit) === tab).map(({ unitId }) => unitId),
+      tabTarget.current ?? revealRequest?.unitId ?? null,
+    );
+  const [schedule, setSchedule] = useState(() => ({ tab: activeTab, frames: scheduleFor(activeTab) }));
+  if (schedule.tab !== activeTab) setSchedule({ tab: activeTab, frames: scheduleFor(activeTab) });
+  const { frames } = schedule;
   useLayoutEffect(() => {
+    tabTarget.current = null;
     frames.start(containerRef.current!);
     return () => frames.stop();
   }, [frames]);
@@ -724,6 +738,7 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
     const state = module.unitState(unitId);
     const tab = state == null ? null : tabOf(state);
     if (tab != null && tab !== activeTab) {
+      tabTarget.current = unitId;
       setShownTab(tab);
       // The card exists once the tab's content has drawn.
       requestAnimationFrame(() => reveal(cards().find((card) => card.dataset.unitCard === unitId), actionsAt));

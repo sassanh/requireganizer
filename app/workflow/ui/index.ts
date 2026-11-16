@@ -1,5 +1,6 @@
 export {
   type MessagePlace,
+  type OpenUnit,
   perform,
   type PreviewMarks,
   type RemovedUnitMark,
@@ -8,6 +9,7 @@ export {
   type ThreadMark,
   type UnitMark,
   type UnitPlace,
+  unitOpenerContext,
   useWorkflowNavigation,
   useWorkflowView,
   type WorkflowNavigation,

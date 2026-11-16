@@ -3,14 +3,14 @@
 import { Divider, Stack } from "@mui/material";
 import { observer } from "mobx-react-lite";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { noteShownFocus, subscribePlaceRequests } from "lib/placeRequests";
 import { stepHref, unitHref } from "lib/routes";
 import { rememberedStage, rememberStage } from "lib/viewState";
 import { useProject } from "projectContext";
 import { useStore } from "store";
-import { currentEntryKey, currentOpener, ItemPreviewProvider, type RevealRequest, recordOpener, returnToOpener, StageNavigation, StageView, subscribeToEntries, type WorkflowNavigation, workflowNavigationContext, workflowViewContext } from "workflow/ui";
+import { currentEntryKey, currentOpener, ItemPreviewProvider, type OpenUnit, type RevealRequest, recordOpener, returnToOpener, StageNavigation, StageView, subscribeToEntries, unitOpenerContext, type WorkflowNavigation, workflowNavigationContext, workflowViewContext } from "workflow/ui";
 
 import { previewMarksOf } from "./previewMarks";
 
@@ -98,16 +98,26 @@ const Factory = observer(function Factory() {
   const entryKey = useSyncExternalStore(subscribeToEntries, currentEntryKey, () => null);
   const opener = useMemo(() => (entryKey == null ? null : currentOpener()), [entryKey]);
 
+  // Opening a unit reads the address as it is when it opens, so it stays the same function as the page moves.
+  const shown = useRef({ searchParams, pathname, stage });
+  useLayoutEffect(() => {
+    shown.current = { searchParams, pathname, stage };
+  }, [searchParams, pathname, stage]);
+  const openUnit = useCallback<OpenUnit>(
+    (place, from) => {
+      const { searchParams: query, pathname: path, stage: shownStage } = shown.current;
+      const search = query.toString();
+      if (from != null) window.history.replaceState(null, "", unitHref(path, search, { step: shownStage, unit: from.unitId, message: from.message }));
+      recordOpener(from);
+      // The page reveals the unit itself; Next's own scroll and focus would take the focus from it.
+      router.push(unitHref(path, search, { ...(place.module == null ? {} : { module: place.module }), step: place.stage, unit: place.unitId }), { scroll: false });
+      setRevealRequest({ unitId: place.unitId, message: null });
+    },
+    [router],
+  );
+
   const navigation = useMemo<WorkflowNavigation>(
     () => ({
-      openUnit: (place, from) => {
-        const search = searchParams.toString();
-        if (from != null) window.history.replaceState(null, "", unitHref(pathname, search, { step: stage, unit: from.unitId, message: from.message }));
-        recordOpener(from);
-        // The page reveals the unit itself; Next's own scroll and focus would take the focus from it.
-        router.push(unitHref(pathname, search, { ...(place.module == null ? {} : { module: place.module }), step: place.stage, unit: place.unitId }), { scroll: false });
-        setRevealRequest({ unitId: place.unitId, message: null });
-      },
       opener: opener == null ? null : { place: opener.place },
       returnToOpener,
       revealRequest,
@@ -117,7 +127,7 @@ const Factory = observer(function Factory() {
       focused,
       withFocusMove,
     }),
-    [searchParams, pathname, stage, router, revealRequest, opener, stageFocusRequest, focused, withFocusMove],
+    [revealRequest, opener, stageFocusRequest, focused, withFocusMove],
   );
 
   const previewMarks = useMemo(() => (preview == null ? null : previewMarksOf(preview.difference, activeModuleId)), [preview, activeModuleId]);
@@ -125,6 +135,7 @@ const Factory = observer(function Factory() {
   return (
     <workflowViewContext.Provider value={view}>
       <workflowNavigationContext.Provider value={navigation}>
+        <unitOpenerContext.Provider value={openUnit}>
         <ItemPreviewProvider>
         <Stack direction="row" sx={{ minHeight: 0, height: "100%", width: "100%", flexGrow: 1 }}>
           <StageNavigation
@@ -139,6 +150,7 @@ const Factory = observer(function Factory() {
           <StageView key={`${stage} ${activeModuleId} ${preview == null ? "now" : `${preview.target.kind} ${preview.target.id}`}`} stage={stage} />
         </Stack>
         </ItemPreviewProvider>
+        </unitOpenerContext.Provider>
       </workflowNavigationContext.Provider>
     </workflowViewContext.Provider>
   );

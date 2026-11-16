@@ -6,7 +6,7 @@ import { createContext, type FocusEvent, type MouseEvent, type ReactNode, useCon
 
 import type { NamedItem, OutOfDateCause } from "../module";
 import { LINK_REASON_LABELS, type LinkReason, REMOVED_ITEM } from "../units";
-import { placeOf, useWorkflowNavigation, useWorkflowView } from "./context";
+import { placeOf, useOpenUnit, useWorkflowView } from "./context";
 import VersionDiff from "./VersionDiff";
 import WrittenText from "./WrittenText";
 
@@ -171,7 +171,7 @@ const ItemChip = observer(function ItemChip({
   onDelete?: (event: unknown) => void;
 }) {
   const { module } = useWorkflowView();
-  const { openUnit } = useWorkflowNavigation();
+  const openUnit = useOpenUnit();
   const label = useItemLabel();
   const named = module.namedItem(itemId);
   const cause = reasons.length > 0;

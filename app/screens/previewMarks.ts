@@ -82,17 +82,13 @@ interface MarkedPlace {
   position: number;
 }
 
-/** Every place a preview marks, its units and then its threads on removed units, each at its position as `positionOf` gives it. */
-function markedPlaces(difference: StateDifference, positionOf: (place: FocusPlace) => number): MarkedPlace[] {
-  return [...difference.units, ...difference.threads].map(({ moduleId, stage, unitId }) => ({ moduleId, stage, unitId, position: positionOf({ moduleId, stage, unitId }) }));
-}
-
 /**
  * The mark of a preview after or before the place with the focus, across
  * stages and modules, wrapping around; null when nothing is marked.
  * `rankOf` gives a module's place in the order the modules show, and
  * `positionOf` the place's position among its stage's marks as the preview
- * shows them.
+ * shows them. Marks are taken stage by stage from the focus on, and a
+ * mark's position is read only in the stages reached.
  */
 export function adjacentMark(
   difference: StateDifference,
@@ -101,13 +97,32 @@ export function adjacentMark(
   rankOf: (moduleId: string) => number,
   positionOf: (place: FocusPlace) => number,
 ): MarkedPlace | null {
-  const keyOf = (moduleId: string, stage: string, position: number) => [rankOf(moduleId), WORKFLOW.stageIds.indexOf(stage), position];
-  const marks = markedPlaces(difference, positionOf).sort((left, right) =>
-    compare(keyOf(left.moduleId, left.stage, left.position), keyOf(right.moduleId, right.stage, right.position)),
-  );
-  if (marks.length === 0) return null;
-  if (focus == null) return direction === 1 ? marks[0]! : marks.at(-1)!;
-  const current = keyOf(focus.moduleId, focus.stage, focus.unitId == null ? -1 : positionOf(focus));
-  if (direction === 1) return marks.find((mark) => compare(keyOf(mark.moduleId, mark.stage, mark.position), current) > 0) ?? marks[0]!;
-  return [...marks].reverse().find((mark) => compare(keyOf(mark.moduleId, mark.stage, mark.position), current) < 0) ?? marks.at(-1)!;
+  const keyOf = (moduleId: string, stage: string) => [rankOf(moduleId), WORKFLOW.stageIds.indexOf(stage)];
+  // Each stage's marks, its units and then its threads on removed units, the stages in the order the page shows them, or the reverse.
+  const stages = new Map<string, { key: number[]; places: FocusPlace[] }>();
+  for (const { moduleId, stage, unitId } of [...difference.units, ...difference.threads]) {
+    const name = `${moduleId} ${stage}`;
+    let entry = stages.get(name);
+    if (entry == null) stages.set(name, (entry = { key: keyOf(moduleId, stage), places: [] }));
+    entry.places.push({ moduleId, stage, unitId });
+  }
+  const ordered = [...stages.values()].sort((left, right) => compare(left.key, right.key) * direction);
+  if (ordered.length === 0) return null;
+  /** A stage's marks with their positions, in the direction moved. */
+  const positioned = (places: readonly FocusPlace[]): MarkedPlace[] =>
+    places
+      .map((place) => ({ ...place, unitId: place.unitId!, position: positionOf(place) }))
+      .sort((left, right) => (left.position - right.position) * direction);
+  if (focus != null) {
+    const focusKey = keyOf(focus.moduleId, focus.stage);
+    const focusPosition = focus.unitId == null ? -1 : positionOf(focus);
+    for (const { key, places } of ordered) {
+      const order = compare(key, focusKey) * direction;
+      if (order < 0) continue;
+      const marks = positioned(places);
+      const next = order > 0 ? marks[0] : marks.find((mark) => (mark.position - focusPosition) * direction > 0);
+      if (next != null) return next;
+    }
+  }
+  return positioned(ordered[0]!.places)[0]!;
 }
