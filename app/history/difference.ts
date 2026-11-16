@@ -68,13 +68,41 @@ export interface ThreadDifference {
 }
 
 /**
- * How an earlier state differs from the project now, unit by unit and then
- * thread by thread on removed units, in the order the modules and stages
- * show them. `same` is false also for a difference neither shows, such as
- * a module's name.
+ * What bringing an earlier state back would do to one of the project's
+ * modules: add or remove it, archive it or bring it back from the archive,
+ * or rename it.
+ */
+export type ModuleChange = "add" | "remove" | "archive" | "bring back" | "rename";
+
+export interface ModuleDifference {
+  moduleId: string;
+  change: ModuleChange;
+  /** Its name in the project now, or in the earlier state for a module only it holds. */
+  nameNow: string;
+  /** Its name in the earlier state, or in the project now for a module only it holds. */
+  nameThen: string;
+}
+
+/** A stage that bringing an earlier state back would ask of the coding agent, asking it anew, or no longer ask. */
+export interface AskDifference {
+  moduleId: string;
+  module: string;
+  stage: string;
+  change: "ask" | "withdraw";
+}
+
+/**
+ * How an earlier state differs from the project now: its modules, whether
+ * it has modules turned on, the stages asked of the coding agent, then unit
+ * by unit and thread by thread on removed units, in the order the modules
+ * and stages show them. `modulesEnabled` is the earlier state's, when it
+ * differs.
  */
 export interface StateDifference {
   same: boolean;
+  modulesEnabled: boolean | null;
+  modules: ModuleDifference[];
+  asks: AskDifference[];
   units: UnitDifference[];
   threads: ThreadDifference[];
 }
@@ -125,8 +153,24 @@ export interface StoredThreadDifference {
   resolutionDiffers: boolean;
 }
 
+/** A `ModuleDifference` as a step keeps it: the names are read from the modules' pieces. */
+export interface StoredModuleDifference {
+  moduleId: string;
+  change: ModuleChange;
+}
+
+/** An `AskDifference` as a step keeps it. */
+export interface StoredAskDifference {
+  moduleId: string;
+  stage: string;
+  change: "ask" | "withdraw";
+}
+
 /** A `StateDifference` as a step keeps it. */
 export interface StoredDifference {
+  modulesEnabled: boolean | null;
+  modules: StoredModuleDifference[];
+  asks: StoredAskDifference[];
   units: StoredUnitDifference[];
   threads: StoredThreadDifference[];
 }
@@ -204,14 +248,33 @@ function parseThreadDifference(value: unknown, label: string): StoredThreadDiffe
   };
 }
 
+const MODULE_CHANGES: readonly ModuleChange[] = ["add", "remove", "archive", "bring back", "rename"];
+
+function parseModuleDifference(value: unknown, label: string): StoredModuleDifference {
+  const fields = exactRecord(value, label, ["moduleId", "change"]);
+  if (!MODULE_CHANGES.includes(fields.change as ModuleChange)) throw new InvalidJsonError(`${label} change must be one of ${MODULE_CHANGES.join(", ")}.`);
+  return { moduleId: readText(fields.moduleId, `${label} moduleId`), change: fields.change as ModuleChange };
+}
+
+function parseAskDifference(value: unknown, label: string): StoredAskDifference {
+  const fields = exactRecord(value, label, ["moduleId", "stage", "change"]);
+  if (fields.change !== "ask" && fields.change !== "withdraw") throw new InvalidJsonError(`${label} change must be ask or withdraw.`);
+  return { moduleId: readText(fields.moduleId, `${label} moduleId`), stage: readText(fields.stage, `${label} stage`), change: fields.change };
+}
+
 /** A difference as a step keeps it, read; throws what is wrong with it, naming `label`. */
 export function parseStoredDifference(value: unknown, label: string): StoredDifference {
-  const fields = exactRecord(value, label, ["units", "threads"]);
-  if (!Array.isArray(fields.units)) throw new InvalidJsonError(`${label} units must be a list.`);
-  if (!Array.isArray(fields.threads)) throw new InvalidJsonError(`${label} threads must be a list.`);
+  const fields = exactRecord(value, label, ["modulesEnabled", "modules", "asks", "units", "threads"]);
+  if (fields.modulesEnabled !== null && typeof fields.modulesEnabled !== "boolean") throw new InvalidJsonError(`${label} modulesEnabled must be true, false or null.`);
+  for (const key of ["modules", "asks", "units", "threads"]) {
+    if (!Array.isArray(fields[key])) throw new InvalidJsonError(`${label} ${key} must be a list.`);
+  }
   return {
-    units: fields.units.map((unit, index) => parseUnitDifference(unit, `${label} unit ${index + 1}`)),
-    threads: fields.threads.map((thread, index) => parseThreadDifference(thread, `${label} thread ${index + 1}`)),
+    modulesEnabled: fields.modulesEnabled,
+    modules: (fields.modules as unknown[]).map((module, index) => parseModuleDifference(module, `${label} module ${index + 1}`)),
+    asks: (fields.asks as unknown[]).map((ask, index) => parseAskDifference(ask, `${label} ask ${index + 1}`)),
+    units: (fields.units as unknown[]).map((unit, index) => parseUnitDifference(unit, `${label} unit ${index + 1}`)),
+    threads: (fields.threads as unknown[]).map((thread, index) => parseThreadDifference(thread, `${label} thread ${index + 1}`)),
   };
 }
 
@@ -511,7 +574,46 @@ export class StateComparer {
   /** `difference`, as a step keeps it. */
   stored(here: Address, there: Address): StoredDifference {
     const pairs = this.stagePairs(here, there);
-    return { units: pairs.flatMap((pair) => this.stageDifference(pair)), threads: pairs.flatMap((pair) => this.threadDifferences(pair)) };
+    const enabledThen = this.pieces.modulesEnabledAt(there);
+    return {
+      modulesEnabled: here !== there && enabledThen !== this.pieces.modulesEnabledAt(here) ? enabledThen : null,
+      ...this.moduleDifferences(here, there),
+      units: pairs.flatMap((pair) => this.stageDifference(pair)),
+      threads: pairs.flatMap((pair) => this.threadDifferences(pair)),
+    };
+  }
+
+  /**
+   * What going from `here` to `there` does to the project's modules, in the
+   * order `there` holds them, then those only `here` holds, and to the
+   * stages asked of the coding agent: a stage `there` asks for and `here`
+   * does not, or asks for again, is asked; one only `here` asks for is withdrawn.
+   */
+  private moduleDifferences(here: Address, there: Address): Pick<StoredDifference, "modules" | "asks"> {
+    if (here === there) return { modules: [], asks: [] };
+    const now = this.pieces.modulesAt(here);
+    const then = this.pieces.modulesAt(there);
+    const nowById = new Map(now.map((module) => [module.id, module]));
+    const thenIds = new Set(then.map(({ id }) => id));
+    const modules: StoredModuleDifference[] = [];
+    const asks: StoredAskDifference[] = [];
+    for (const entry of [...then, ...now.filter(({ id }) => !thenIds.has(id))]) {
+      const inNow = nowById.get(entry.id) ?? null;
+      const inThen = thenIds.has(entry.id) ? entry : null;
+      const moduleId = entry.id;
+      if (inNow == null) modules.push({ moduleId, change: "add" });
+      else if (inThen == null) modules.push({ moduleId, change: "remove" });
+      else {
+        if (inThen.archivedAt != null && inNow.archivedAt == null) modules.push({ moduleId, change: "archive" });
+        if (inThen.archivedAt == null && inNow.archivedAt != null) modules.push({ moduleId, change: "bring back" });
+        if (inThen.name !== inNow.name) modules.push({ moduleId, change: "rename" });
+      }
+      const askedNow = new Map((inNow?.writingAsked ?? []).map(({ stage, at }) => [stage, at]));
+      const askedThen = new Map((inThen?.writingAsked ?? []).map(({ stage, at }) => [stage, at]));
+      for (const [stage, at] of askedThen) if (askedNow.get(stage) !== at) asks.push({ moduleId, stage, change: "ask" });
+      for (const stage of askedNow.keys()) if (!askedThen.has(stage)) asks.push({ moduleId, stage, change: "withdraw" });
+    }
+    return { modules, asks };
   }
 
   /**
@@ -521,6 +623,15 @@ export class StateComparer {
    * removed item.
    */
   described(here: Address, there: Address, stored: StoredDifference, now: ModelNowOf): StateDifference {
+    const allThen = this.pieces.modulesAt(there);
+    const allNow = this.pieces.modulesAt(here);
+    const named = (moduleId: string) => {
+      const inNow = allNow.find(({ id }) => id === moduleId);
+      const inThen = allThen.find(({ id }) => id === moduleId);
+      return { nameNow: (inNow ?? inThen)!.name, nameThen: (inThen ?? inNow)!.name };
+    };
+    const modules = stored.modules.map((module): ModuleDifference => ({ ...module, ...named(module.moduleId) }));
+    const asks = stored.asks.map((ask): AskDifference => ({ ...ask, module: named(ask.moduleId).nameThen }));
     const modulesThen = this.modulesAt(there);
     const modulesNow = this.modulesAt(here);
     // Named as the earlier state names it, or as the project does now for a module only it holds.
@@ -562,7 +673,7 @@ export class StateComparer {
         onlyNow: earlier == null,
       };
     });
-    return { same: here === there, units, threads };
+    return { same: here === there, modulesEnabled: stored.modulesEnabled, modules, asks, units, threads };
   }
 
   /** The units a module's stage shows in the state at an address, in order, and those of them that wait for a signature, read once. */

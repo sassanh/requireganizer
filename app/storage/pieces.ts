@@ -2,7 +2,7 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 
 import { isRecord, parseJson } from "lib/json";
-import type { Thread } from "workflow";
+import type { Thread, WritingAsk } from "workflow";
 
 import { serializeCanonical } from "./canonicalJson";
 import { parseProject } from "./parseProject";
@@ -73,6 +73,8 @@ export interface ModulePieces {
   address: Address;
   stages: Record<string, Address>;
   threads: Address[];
+  /** The stages asked of the coding agent, as the module's piece holds them. */
+  writingAsked: WritingAsk[];
 }
 
 /**
@@ -190,8 +192,14 @@ export class PieceStore {
         address: moduleAddress,
         stages: content.stages as Record<string, Address>,
         threads: textsOf(content.threads),
+        writingAsked: content.writingAsked as WritingAsk[],
       };
     });
+  }
+
+  /** Whether the state at an address has its modules turned on. */
+  modulesEnabledAt(address: Address): boolean {
+    return this.read(address).modulesEnabled === true;
   }
 
   /** The address of a module's piece, holding its pieces. */

@@ -1,5 +1,17 @@
 export { isTimeZone, ownTimeZone } from "./calendar";
-export { type ChangedUnit, type LiveStoreOf, type ModelNowOf, StateComparer, type StateDifference, type ThreadDifference, type UnitChange, type UnitDifference } from "./difference";
+export {
+  type AskDifference,
+  type ChangedUnit,
+  type LiveStoreOf,
+  type ModelNowOf,
+  type ModuleChange,
+  type ModuleDifference,
+  StateComparer,
+  type StateDifference,
+  type ThreadDifference,
+  type UnitChange,
+  type UnitDifference,
+} from "./difference";
 export { type FocusPlace, isFocusPlace, sameFocusPlace } from "./focus";
 export {
   type ChangeKind,

@@ -3,7 +3,7 @@
 import { Box, CircularProgress, Tooltip, Typography } from "@mui/material";
 import { Fragment, type ReactElement, useEffect, useState } from "react";
 
-import type { PreviewTarget, StateDifference, ThreadDifference, UnitDifference } from "history";
+import type { AskDifference, ModuleChange, ModuleDifference, PreviewTarget, StateDifference, ThreadDifference, UnitDifference } from "history";
 import { getUserFacingErrorMessage } from "lib/errors";
 import { useProject } from "projectContext";
 import { WORKFLOW } from "store";
@@ -16,6 +16,27 @@ const CHANGE_SIGNS: Record<UnitDifference["change"], { sign: string; color: stri
   change: { sign: "~", color: "warning.main", name: { step: "changed", "bringing back": "would change" } },
   remove: { sign: "−", color: "error.main", name: { step: "removed", "bringing back": "would be removed" } },
 };
+
+const MODULE_SIGNS: Record<ModuleChange, { sign: string; color: string; name: Record<Reading, string> }> = {
+  add: { sign: "+", color: "success.main", name: { step: "added", "bringing back": "would be added" } },
+  remove: { sign: "−", color: "error.main", name: { step: "removed", "bringing back": "would be removed" } },
+  archive: { sign: "−", color: "error.main", name: { step: "archived", "bringing back": "would be archived" } },
+  "bring back": { sign: "+", color: "success.main", name: { step: "brought back from the archive", "bringing back": "would be brought back from the archive" } },
+  rename: { sign: "~", color: "warning.main", name: { step: "renamed", "bringing back": "would be renamed" } },
+};
+
+const ASK_SIGNS: Record<AskDifference["change"], { sign: string; color: string; name: Record<Reading, string> }> = {
+  ask: { sign: "+", color: "success.main", name: { step: "asked of the coding agent", "bringing back": "would be asked of the coding agent" } },
+  withdraw: { sign: "−", color: "error.main", name: { step: "no longer asked of the coding agent", "bringing back": "would no longer be asked of the coding agent" } },
+};
+
+/**
+ * A module as a change to it names it. A renamed one reads from its name in
+ * the state compared with, before a step or now, to the other one's.
+ */
+function moduleLabel(module: ModuleDifference): string {
+  return module.change === "rename" ? `${module.nameNow} → ${module.nameThen}` : module.nameThen;
+}
 
 /** What of a changed unit differs, as the list names it. */
 export function differingParts(unit: Extract<UnitDifference, { change: "change" }>): string {
@@ -39,27 +60,53 @@ export default function DifferenceList({
   withModules: boolean;
   reading: Reading;
 }) {
-  if (difference.units.length === 0 && difference.threads.length === 0) {
+  const projectWide = difference.modules.length > 0 || difference.modulesEnabled != null;
+  if (!projectWide && difference.asks.length === 0 && difference.units.length === 0 && difference.threads.length === 0) {
     if (reading === "step") return null;
     return (
       <Typography variant="caption" sx={{ color: "text.secondary" }}>
-        {difference.same ? "Same as now" : "Differs from now only in its modules"}
+        {difference.same ? "Same as now" : "Nothing it lists differs from now"}
       </Typography>
     );
   }
-  const groups: { module: string; moduleName: string; stage: string; units: UnitDifference[]; threads: ThreadDifference[] }[] = [];
+  const groups: { module: string; moduleName: string; stage: string; asks: AskDifference[]; units: UnitDifference[]; threads: ThreadDifference[] }[] = [];
   const groupOf = (moduleId: string, moduleName: string, stage: string) => {
     let group = groups.find((entry) => entry.module === moduleId && entry.stage === stage);
     if (group == null) {
-      group = { module: moduleId, moduleName, stage, units: [], threads: [] };
+      group = { module: moduleId, moduleName, stage, asks: [], units: [], threads: [] };
       groups.push(group);
     }
     return group;
   };
+  for (const ask of difference.asks) groupOf(ask.moduleId, ask.module, ask.stage).asks.push(ask);
   for (const unit of difference.units) groupOf(unit.moduleId, unit.module, unit.stage).units.push(unit);
   for (const thread of difference.threads) groupOf(thread.moduleId, thread.module, thread.stage).threads.push(thread);
+  const turned = difference.modulesEnabled == null ? null : `modules ${difference.modulesEnabled ? "on" : "off"}`;
   return (
     <Box sx={{ display: "grid", gridTemplateColumns: "auto 1fr", columnGap: 1.5, rowGap: 0.25, mt: 0.5, pl: 1, borderLeft: 2, borderColor: "divider" }}>
+      {projectWide && (
+        <>
+          <Typography variant="caption" sx={{ color: "text.secondary" }}>
+            Modules
+          </Typography>
+          <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", columnGap: 1, rowGap: 0.25, minWidth: 0 }}>
+            {turned != null && (
+              <Typography variant="caption" sx={{ color: "warning.main", whiteSpace: "nowrap" }} aria-label={reading === "step" ? `Turned ${turned}` : `Would turn ${turned}`}>
+                ~ {turned}
+              </Typography>
+            )}
+            {difference.modules.map((module) => {
+              const { sign, color, name } = MODULE_SIGNS[module.change];
+              return (
+                <Typography key={`${module.moduleId} ${module.change}`} variant="caption" sx={{ color, whiteSpace: "nowrap" }} aria-label={`${moduleLabel(module)} ${name[reading]}`}>
+                  {sign} {moduleLabel(module)}
+                  {module.change === "archive" || module.change === "bring back" ? ` (${name.step})` : ""}
+                </Typography>
+              );
+            })}
+          </Box>
+        </>
+      )}
       {groups.map((group, index) => (
         <Fragment key={`${group.module} ${group.stage}`}>
           {withModules && group.module !== groups[index - 1]?.module && (
@@ -71,6 +118,14 @@ export default function DifferenceList({
             {WORKFLOW.stage(group.stage).label}
           </Typography>
           <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", columnGap: 1, rowGap: 0.25, minWidth: 0 }}>
+            {group.asks.map((ask) => {
+              const { sign, color, name } = ASK_SIGNS[ask.change];
+              return (
+                <Typography key={`ask ${ask.change}`} variant="caption" sx={{ color, whiteSpace: "nowrap" }} aria-label={`Writing ${WORKFLOW.stage(ask.stage).label} ${name[reading]}`}>
+                  {sign} writing it {ask.change === "ask" ? "asked" : "no longer asked"}
+                </Typography>
+              );
+            })}
             {group.units.map((unit) => {
               const { sign, color, name } = CHANGE_SIGNS[unit.change];
               const parts = unit.change === "change" ? ` (${differingParts(unit)})` : "";
