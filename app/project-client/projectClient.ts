@@ -135,6 +135,9 @@ const REFUSED_DURING_PREVIEW: ReadonlySet<RequestName> = new Set<RequestName>([
   "renameModule",
 ]);
 
+/** The requests whose repeat means doing it again, not the same intent; see `ProjectClient.request`. */
+const REPEATED_AS_MEANT: ReadonlySet<RequestName> = new Set<RequestName>(["undo", "redo"]);
+
 /**
  * A request whose answer was lost with the connection: the host may or may
  * not have carried it out.
@@ -170,6 +173,8 @@ export class ProjectClient {
   private readonly pending = new Map<number, PendingRequest>();
   /** Requests made before a connection opened; sent in order once one has. */
   private readonly queued: QueuedRequest[] = [];
+  /** The last request made, by its name and arguments, while it waits for its answer. */
+  private lastRequest: { key: string; answer: Promise<unknown> } | null = null;
   private readonly listeners = new Set<() => void>();
   private readonly siblingStores = new SiblingModuleStores();
 
@@ -477,6 +482,12 @@ export class ProjectClient {
   callAgentTool = (name: string, args: Record<string, unknown>, caller: AgentCaller): Promise<string> =>
     this.request("callAgentTool", name, args, caller);
 
+  /**
+   * Send a request to the host. One that repeats the last request made while
+   * that one waits for its answer, such as a second click of the same
+   * button, is the same intent: it shares that answer and is not sent again.
+   * Undo and redo are sent each time.
+   */
   private request<Name extends RequestName>(
     name: Name,
     ...args: Parameters<HostApi[Name]>
@@ -487,6 +498,23 @@ export class ProjectClient {
     } catch (error) {
       return Promise.reject(error);
     }
+    if (REPEATED_AS_MEANT.has(name)) {
+      this.lastRequest = null;
+      return this.sendRequest(name, sent);
+    }
+    const key = JSON.stringify([name, sent]);
+    if (this.lastRequest?.key === key) return this.lastRequest.answer as Promise<Result<Name>>;
+    const answer = this.sendRequest(name, sent);
+    const last = { key, answer };
+    this.lastRequest = last;
+    const forget = () => {
+      if (this.lastRequest === last) this.lastRequest = null;
+    };
+    answer.then(forget, forget);
+    return answer;
+  }
+
+  private sendRequest<Name extends RequestName>(name: Name, sent: unknown[]): Promise<Result<Name>> {
     const message: RequestMessage = {
       type: "request",
       id: (this.nextRequestId += 1),
