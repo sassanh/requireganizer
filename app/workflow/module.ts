@@ -409,9 +409,12 @@ export function workflowModuleModel(workflow: Workflow) {
         return threadsOf(unitId).find(({ resolution }) => resolution == null) ?? null;
       }
 
-      /** The items of single kinds that the given stages hold. */
+      /** The items of a stage's single kinds, at most one of each, read once for every item that counts them. */
+      const singleItems = keyedView((stage: string): Item[] => itemsOf(stage).filter((candidate) => workflow.kind(candidate.kind).single === true), comparer.shallow);
+
+      /** The items of single kinds, `kinds`, that the given stages hold; the workflow lets an item count only single kinds this way. */
       function singleItemsOf(kinds: readonly string[], stages: readonly string[]): string[] {
-        return stages.flatMap((stage) => itemsOf(stage).filter((candidate) => kinds.includes(candidate.kind)).map(({ id }) => id));
+        return stages.flatMap((stage) => singleItems(stage).filter((candidate) => kinds.includes(candidate.kind)).map(({ id }) => id));
       }
 
       /** The items of a basis stage an item counts as referencing without listing them: those its fields choose, and the items of single kinds it references. */

@@ -16,7 +16,6 @@ import {
   type HistoryPosition,
   historyPosition,
   historyRoots,
-  type HistoryStep,
   goToMove,
   keptStep,
   listedSteps,
@@ -180,6 +179,8 @@ export class HistoryKeeper {
    * project is at needs of it, before the move replaces them.
    */
   prepareMove(move: HistoryMove, live: LiveStoreOf): void {
+    // Going to a step leaves the focus where it is, so it needs nothing read.
+    if (move.direction === "go to") return;
     const from = this.current.currentState;
     if (from != null) this.comparer.prepare(from, move.state, live);
   }
