@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, type RefObject, useContext, useLayoutEffect, useState } from "react";
+import { createContext, type RefObject, useContext, useEffect, useLayoutEffect, useState } from "react";
 import { flushSync } from "react-dom";
 
 /** The height a frame takes until its content shows: about that of a unit of a few lines. */
@@ -14,7 +14,7 @@ const FILL_BATCH = 2;
 const FILL_WAIT_MS = 200;
 
 /** Run once the page is idle, or after the longest wait; returns the way to call it off. */
-function whenIdle(run: () => void): () => void {
+export function whenIdle(run: () => void): () => void {
   if (typeof requestIdleCallback === "function") {
     const request = requestIdleCallback(run, { timeout: FILL_WAIT_MS });
     return () => cancelIdleCallback(request);
@@ -138,4 +138,17 @@ export function useFrameContentShown(unitId: string, frame: RefObject<Element | 
     return schedule.watch(frame.current, () => setShown(true));
   }, [shown, schedule, frame]);
   return shown;
+}
+
+/**
+ * Whether the page has been idle since `key` was first given, so a view can
+ * show what is costly to work out once the rest of it shows; at once for null.
+ */
+export function useIdleSince(key: object | null): boolean {
+  const [idleFor, setIdleFor] = useState<object | null>(null);
+  useEffect(() => {
+    if (key == null || idleFor === key) return;
+    return whenIdle(() => setIdleFor(key));
+  }, [key, idleFor]);
+  return key == null || idleFor === key;
 }
