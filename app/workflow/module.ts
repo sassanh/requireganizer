@@ -376,10 +376,12 @@ export function workflowModuleModel(workflow: Workflow) {
         return located == null ? null : revisionOf(versionOf(located.item));
       });
 
+      /** Every item's code in a stage, worked out in one pass over it. */
+      const stageCodes = keyedView((stage: string): ReadonlyMap<string, string> => workflow.codesOf(itemsOf(stage)));
+
       const codeById = keyedView((id: string): string | null => {
         const located = locate(id);
-        if (located == null) return null;
-        return workflow.codeOf(located.item, itemsOf(located.stage));
+        return located == null ? null : stageCodes(located.stage).get(id)!;
       });
 
       /** An item this module's items may link to: its own, or another module's for a dependency. */

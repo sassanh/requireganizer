@@ -461,10 +461,28 @@ export class Workflow {
    * a single item, otherwise numbered among the stage's items of its kind.
    */
   codeOf(item: { kind: string }, stageItems: readonly { kind: string }[]): string {
-    const definition = this.kind(item.kind);
-    if (definition.single) return definition.code;
     const sameKind = stageItems.filter(({ kind }) => kind === item.kind);
-    return formatCode(definition.code, sameKind.indexOf(item) + 1, sameKind.length);
+    return this.codeAt(item.kind, sameKind.indexOf(item) + 1, sameKind.length);
+  }
+
+  /** The code of every one of a stage's items, by id, as `codeOf` gives it, in one pass over them. */
+  codesOf(stageItems: readonly { id: string; kind: string }[]): Map<string, string> {
+    const counts = new Map<string, number>();
+    for (const { kind } of stageItems) counts.set(kind, (counts.get(kind) ?? 0) + 1);
+    const places = new Map<string, number>();
+    return new Map(
+      stageItems.map(({ id, kind }) => {
+        const place = (places.get(kind) ?? 0) + 1;
+        places.set(kind, place);
+        return [id, this.codeAt(kind, place, counts.get(kind)!)];
+      }),
+    );
+  }
+
+  /** The code of the item at `place` among `count` items of a kind in a stage, counting from 1. */
+  private codeAt(kind: string, place: number, count: number): string {
+    const definition = this.kind(kind);
+    return definition.single ? definition.code : formatCode(definition.code, place, count);
   }
 
   /** The words shown in front of a kind's display: the prefix of the first of its fields that has one. */
