@@ -378,8 +378,7 @@ function placed(then: readonly string[], now: readonly string[]): { id: string; 
  * no model: a module or a stage held at one address in both states is the
  * same and is not read, and what a stage's piece or a module's threads hold
  * is read once and kept by its address. Undo and redo also read, from the
- * models that derive units, which units a change made wait for a signature
- * and which a stage shows, to place the focus.
+ * models that derive units, which units a stage shows, to place the focus.
  */
 export class StateComparer {
   private readonly states = new Map<Address, SiblingModuleStores>();
@@ -388,7 +387,6 @@ export class StateComparer {
   private readonly threads = new Map<Address, ThreadsRead>();
   private readonly places = new Map<Address, Map<string, number>>();
   private readonly shown = new Map<string, string[]>();
-  private readonly waiting = new Map<string, Set<string>>();
 
   constructor(private readonly pieces: PieceStore) {}
 
@@ -676,16 +674,11 @@ export class StateComparer {
     return { same: here === there, modulesEnabled: stored.modulesEnabled, modules, asks, units, threads };
   }
 
-  /** The units a module's stage shows in the state at an address, in order, and those of them that wait for a signature, read once. */
-  private shownOf(state: Address, module: ModulePieces, stage: string, live: LiveStoreOf): { shown: string[]; waiting: Set<string> } {
-    const key = `${state} ${module.id} ${stage}`;
-    const known = this.shown.get(key);
-    if (known != null) return { shown: known, waiting: this.waiting.get(key)! };
-    const store = this.storeIn(state, module, live);
-    const units = store.unitsInShownOrder(stage);
-    const shown = kept(this.shown, key, KEPT_READS, () => units.map(({ unitId }) => unitId));
-    const waiting = kept(this.waiting, key, KEPT_READS, () => new Set(units.filter((unit) => store.waitsForSignature(unit)).map(({ unitId }) => unitId)));
-    return { shown, waiting };
+  /** The units a module's stage shows in the state at an address, in order, read once. */
+  private shownOf(state: Address, module: ModulePieces, stage: string, live: LiveStoreOf): string[] {
+    return kept(this.shown, `${state} ${module.id} ${stage}`, KEPT_READS, () =>
+      this.storeIn(state, module, live).unitsInShownOrder(stage).map(({ unitId }) => unitId),
+    );
   }
 
   /**
@@ -703,25 +696,18 @@ export class StateComparer {
   shownUnits(address: Address, moduleId: string, stage: string, live: LiveStoreOf): string[] | null {
     const pieces = this.modulesAt(address).find(({ id }) => id === moduleId);
     if (pieces == null || !WORKFLOW.isStage(stage)) return null;
-    return this.shownOf(address, pieces, stage, live).shown;
+    return this.shownOf(address, pieces, stage, live);
   }
 
   /**
    * The units a change from the state at `before` to the one at `after` was
    * made on: those it added, removed or changed, in the order the modules
-   * and stages of `after` show them; and the units of the stages it changed
-   * that it made wait for a signature, in the order they show.
+   * and stages of `after` show them.
    */
-  unitsChanged(before: Address, after: Address, live: LiveStoreOf): { madeOn: ChangedUnit[]; madeWait: ChangedUnit[] } {
-    const pairs = this.stagePairs(before, after);
-    const madeOn = pairs.flatMap((pair) => this.stageDifference(pair)).map(({ moduleId, stage, unitId }) => ({ moduleId, stage, unitId }));
-    const madeWait = pairs.flatMap(({ moduleId, stage, fromModule, toModule }) => {
-      if (toModule == null) return [];
-      const waitedBefore = fromModule == null ? new Set<string>() : this.shownOf(before, fromModule, stage, live).waiting;
-      const { shown, waiting } = this.shownOf(after, toModule, stage, live);
-      return shown.filter((unitId) => waiting.has(unitId) && !waitedBefore.has(unitId)).map((unitId) => ({ moduleId, stage, unitId }));
-    });
-    return { madeOn, madeWait };
+  unitsChanged(before: Address, after: Address): ChangedUnit[] {
+    return this.stagePairs(before, after)
+      .flatMap((pair) => this.stageDifference(pair))
+      .map(({ moduleId, stage, unitId }) => ({ moduleId, stage, unitId }));
   }
 }
 

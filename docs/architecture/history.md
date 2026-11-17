@@ -8,7 +8,7 @@ Undo goes back one step at a time along the steps that led to the project as it 
 
 ## Focus after undo and redo
 
-Each step records where your focus was when it was made, where the change moved it, and, for a change of the coding agent, what it named for your attention. Undo puts the focus on the first item, coverage or impact the change was made on that still exists, else where it was when the change was made. Redo puts it where the change moved it, else on the first unit the change was made on; for the coding agent's change, on what it named, else on the first unit it made wait for a signature, else on the first it was made on. A unit that no longer exists gives way to the next of its stage, else the previous, else the stage. Its module and stage show, with it in view.
+Each step records where your focus was when it was made, where the change moved it, and, for a change of the coding agent, what it named for your attention. Undo puts the focus on the first item, coverage or impact the change was made on that still exists, else where it was when the change was made. Redo puts it where the change moved it, else on the first unit the change was made on; for the coding agent's change, on what it named, else it leaves the focus where it is. A unit that no longer exists gives way to the next of its stage, else the previous, else the stage. Its module and stage show, with it in view.
 
 ## Restore points
 

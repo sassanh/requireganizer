@@ -4,7 +4,7 @@ import { uuid } from "utilities";
 import { unitInPlaceOf } from "workflow";
 
 import { ownTimeZone } from "./calendar";
-import { type LiveStoreOf, type ModelNowOf, StateComparer, type StateDifference } from "./difference";
+import { type ChangedUnit, type LiveStoreOf, type ModelNowOf, StateComparer, type StateDifference } from "./difference";
 import type { FocusPlace } from "./focus";
 import {
   automaticRestorePointDue,
@@ -194,8 +194,7 @@ export class HistoryKeeper {
    *   else where the focus was when the change was made;
    * - redo of the spec owner's change: where it moved the focus, else the
    *   first unit it was made on, else the focus stays;
-   * - redo of the coding agent's: what it named, else the first unit it
-   *   made wait for a signature, else the first it was made on.
+   * - redo of the coding agent's: what it named, else the focus stays.
    * A unit that does not exist after the move gives way to the one in its
    * place, else to its stage. Null leaves the focus where it is.
    */
@@ -204,19 +203,17 @@ export class HistoryKeeper {
     this.current = move.history;
     if (move.direction === "go to") return null;
     const { step } = move;
-    const { madeOn, madeWait } = changesWholeProject(step.kind)
-      ? { madeOn: [], madeWait: [] }
-      : this.comparer.unitsChanged(step.before, step.after, live);
+    const madeOn = () => (changesWholeProject(step.kind) ? [] : this.comparer.unitsChanged(step.before, step.after));
     const exists = (place: FocusPlace) =>
       place.unitId == null || this.comparer.shownUnits(move.state, place.moduleId, place.stage, live)?.includes(place.unitId) === true;
-    const asPlace = (unit: (typeof madeOn)[number] | undefined): FocusPlace | null => (unit == null ? null : { ...unit });
+    const asPlace = (unit: ChangedUnit | undefined): FocusPlace | null => (unit == null ? null : { ...unit });
     let target: FocusPlace | null;
     if (move.direction === "undo") {
-      target = asPlace(madeOn.find((unit) => exists({ ...unit }))) ?? step.focus;
+      target = asPlace(madeOn().find((unit) => exists({ ...unit }))) ?? step.focus;
     } else if (step.by.kind === "spec owner") {
-      target = step.by.movedFocusTo ?? asPlace(madeOn[0]);
+      target = step.by.movedFocusTo ?? asPlace(madeOn()[0]);
     } else {
-      target = step.by.named ?? asPlace(madeWait[0]) ?? asPlace(madeOn[0]);
+      target = step.by.named;
     }
     if (target == null || target.unitId == null || exists(target)) return target;
     const shownBefore = left == null ? null : this.comparer.shownUnits(left, target.moduleId, target.stage, live);
