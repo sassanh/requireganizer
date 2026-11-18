@@ -20,6 +20,8 @@ export interface WorkflowSlots {
   stage?: (props: { stage: string; preview: boolean }) => ReactNode;
   /** In a unit's frame, beside its actions. */
   unit?: (props: { unitId: string; preview: boolean }) => ReactNode;
+  /** In a unit's frame, under its content, on lines of their own. */
+  unitNotes?: (props: { unitId: string; preview: boolean }) => ReactNode;
   /** Under an open thread's state. */
   thread?: (props: { threadId: string; preview: boolean }) => ReactNode;
   /** In place of a thread's send button, and what its send key does. */
@@ -32,7 +34,7 @@ export interface WorkflowSlots {
 
 export const workflowSlotsContext = createContext<WorkflowSlots>({});
 
-type ShownSlot = "stage" | "unit" | "thread";
+type ShownSlot = "stage" | "unit" | "unitNotes" | "thread";
 
 /** What fills a slot, or nothing while no module fills it. */
 export function Slot<Name extends ShownSlot>({ name, props }: { name: Name; props: Parameters<NonNullable<WorkflowSlots[Name]>>[0] }) {

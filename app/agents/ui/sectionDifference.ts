@@ -25,9 +25,9 @@ function moduleLines(then: ModuleRequests, now: ModuleRequests, stageLabel: (sta
   const noteKey = ({ threadId, message }: ModuleRequests["withdrawn"][number]) => `${threadId} ${message}`;
   for (const _note of added(then.withdrawn, now.withdrawn, noteKey)) lines.push({ sign: "−", text: "A change request withdrawn" });
   for (const _note of added(now.withdrawn, then.withdrawn, noteKey)) lines.push({ sign: "+", text: "A withdrawn change request waits again" });
-  const findingKey = ({ itemId, revision, rule }: ModuleRequests["findings"][number]) => `${itemId} ${revision} ${rule}`;
-  const stages = new Set([...added(then.findings, now.findings, findingKey), ...added(now.findings, then.findings, findingKey)].map(({ stage }) => stage));
-  for (const stage of stages) lines.push({ sign: "~", text: `Review findings on ${stageLabel(stage)}` });
+  const answerKey = ({ stage, at }: ModuleRequests["reviewAnswers"][number]) => `${stage} ${at}`;
+  for (const answer of added(then.reviewAnswers, now.reviewAnswers, answerKey)) lines.push({ sign: "+", text: `${answer.agent}'s review of ${stageLabel(answer.stage)}` });
+  for (const answer of added(now.reviewAnswers, then.reviewAnswers, answerKey)) lines.push({ sign: "−", text: `${answer.agent}'s review of ${stageLabel(answer.stage)}` });
   return lines;
 }
 

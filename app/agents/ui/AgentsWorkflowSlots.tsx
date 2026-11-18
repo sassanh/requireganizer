@@ -1,6 +1,6 @@
 "use client";
 
-import { Stack, Typography } from "@mui/material";
+import { Alert, AlertTitle, Stack, Typography } from "@mui/material";
 import { observer } from "mobx-react-lite";
 import { type ReactNode, useMemo } from "react";
 
@@ -100,21 +100,31 @@ const StageRequests = observer(function StageRequests({ stage }: { stage: string
   );
 });
 
-/** In a unit's frame: the sign that an agent works on it, and what answers to requests to review found it breaking. */
+/** Beside a unit's actions: the sign that an agent works on it. */
 const UnitRequests = observer(function UnitRequests({ unitId }: { unitId: string }) {
+  const { client, view, activeModuleId } = useAgents();
+  return <WorkingSign view={view} place={{ kind: "unit", moduleId: activeModuleId, unitId }} onStop={(keys) => attempt(() => client.stopRequests(keys), "The request could not be stopped.")} />;
+});
+
+/** Under a unit's content: what answers to requests to review found it breaking. */
+const UnitFindings = observer(function UnitFindings({ unitId }: { unitId: string }) {
   const agents = useAgents();
-  const { client, view, activeModuleId } = agents;
-  const store = agents.moduleStore(activeModuleId);
+  const store = agents.moduleStore(agents.activeModuleId);
   const address = parseUnitId(unitId);
-  const findings = store == null || address.kind !== "item" ? [] : findingsOf(store, agents.requestsOf(activeModuleId), address.itemId);
+  const findings = store == null || address.kind !== "item" ? [] : findingsOf(store, agents.requestsOf(agents.activeModuleId), address.itemId);
   return (
     <>
-      {findings.map((finding) => (
-        <Typography key={finding.rule} variant="caption" color="warning.main" sx={{ display: "block", mr: "auto" }}>
-          Breaks “{finding.rule}”: {finding.how}
-        </Typography>
+      {findings.map(({ answer, finding }) => (
+        <Alert key={`${answer.stage} ${finding.rule}`} severity="warning" variant="outlined" sx={{ mt: 1 }}>
+          <AlertTitle>
+            Review by {answer.agent} · {howLongAgo(answer.at)}
+          </AlertTitle>
+          <Typography variant="body2">{finding.how}</Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
+            Rule: {finding.rule}
+          </Typography>
+        </Alert>
       ))}
-      <WorkingSign view={view} place={{ kind: "unit", moduleId: activeModuleId, unitId }} onStop={(keys) => attempt(() => client.stopRequests(keys), "The request could not be stopped.")} />
     </>
   );
 });
@@ -172,6 +182,7 @@ export default function AgentsWorkflowSlots({ children }: { children: ReactNode 
     () => ({
       stage: ({ stage, preview }) => (preview ? null : <StageRequests stage={stage} />),
       unit: ({ unitId, preview }) => (preview ? null : <UnitRequests unitId={unitId} />),
+      unitNotes: ({ unitId, preview }) => (preview ? null : <UnitFindings unitId={unitId} />),
       thread: ({ threadId, preview }) => (preview ? null : <ThreadRequests threadId={threadId} />),
       send: {
         render: (props) => <ThreadSend {...props} />,

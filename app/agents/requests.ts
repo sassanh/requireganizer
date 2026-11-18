@@ -1,7 +1,7 @@
 import type { Store } from "store";
 import type { Thread } from "workflow";
 
-import { answersRequest, type ModuleRequests, type StageRequest } from "./section";
+import { answersRequest, type ModuleRequests, type ReviewAnswer, type ReviewFinding, type StageRequest } from "./section";
 
 /**
  * A request of the spec owner's to an agent: a change request whose thread
@@ -149,10 +149,13 @@ export function reviewAskProblem(store: Store, requests: ModuleRequests, stage: 
   return null;
 }
 
-/** The findings of answers to requests to review that still show on an item: those made of the item as it is now. */
-export function findingsOf(store: Store, requests: ModuleRequests, itemId: string): ModuleRequests["findings"] {
+/** What answers to requests to review found of an item as it is now, each with its answer. */
+export function findingsOf(store: Store, requests: ModuleRequests, itemId: string): { answer: ReviewAnswer; finding: ReviewFinding }[] {
   const revision = store.itemState(itemId)?.revision;
-  return revision == null ? [] : requests.findings.filter((finding) => finding.itemId === itemId && finding.revision === revision);
+  if (revision == null) return [];
+  return requests.reviewAnswers.flatMap((answer) =>
+    answer.findings.filter((finding) => finding.itemId === itemId && finding.revision === revision).map((finding) => ({ answer, finding })),
+  );
 }
 
 /** What a request asks, in one line, such as "Write Requirements" or "Change request on REQ-04". */

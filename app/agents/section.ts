@@ -19,11 +19,18 @@ export interface WithdrawalNote {
 /** An item an answer to a request to review found breaking a published rule, as the item was then. */
 export interface ReviewFinding {
   itemId: string;
-  stage: string;
   /** The item's revision when it was found; the finding shows only while the item is still so. */
   revision: string;
   rule: string;
   how: string;
+}
+
+/** The last answer to a request to review a stage: the agent that gave it, when, and what it found. */
+export interface ReviewAnswer {
+  stage: string;
+  agent: string;
+  at: string;
+  findings: ReviewFinding[];
 }
 
 /** What the Agents module keeps of one module of the project. */
@@ -35,7 +42,8 @@ export interface ModuleRequests {
   /** When the last request to write each stage was fulfilled. */
   fulfilled: StageRequest[];
   withdrawn: WithdrawalNote[];
-  findings: ReviewFinding[];
+  /** The last answer to a request to review each stage. */
+  reviewAnswers: ReviewAnswer[];
 }
 
 /** The Agents module's section of the project: its requests and what came of them, by module. */
@@ -43,7 +51,7 @@ export interface AgentsSection {
   modules: Readonly<Record<string, ModuleRequests>>;
 }
 
-export const NO_REQUESTS: ModuleRequests = { write: [], review: [], fulfilled: [], withdrawn: [], findings: [] };
+export const NO_REQUESTS: ModuleRequests = { write: [], review: [], fulfilled: [], withdrawn: [], reviewAnswers: [] };
 
 const EMPTY_SECTION: AgentsSection = { modules: {} };
 
@@ -68,9 +76,18 @@ function moduleRequestsOf(value: unknown): ModuleRequests {
     withdrawn: list(value.withdrawn, (entry) =>
       text(entry.threadId) && typeof entry.message === "number" && text(entry.at) ? { threadId: entry.threadId, message: entry.message, at: entry.at } : null,
     ),
-    findings: list(value.findings, (entry) =>
-      text(entry.itemId) && text(entry.stage) && text(entry.revision) && text(entry.rule) && text(entry.how)
-        ? { itemId: entry.itemId, stage: entry.stage, revision: entry.revision, rule: entry.rule, how: entry.how }
+    reviewAnswers: list(value.reviewAnswers, (entry) =>
+      text(entry.stage) && text(entry.agent) && text(entry.at)
+        ? {
+            stage: entry.stage,
+            agent: entry.agent,
+            at: entry.at,
+            findings: list(entry.findings, (finding) =>
+              text(finding.itemId) && text(finding.revision) && text(finding.rule) && text(finding.how)
+                ? { itemId: finding.itemId, revision: finding.revision, rule: finding.rule, how: finding.how }
+                : null,
+            ),
+          }
         : null,
     ),
   };

@@ -126,6 +126,7 @@ const UnitFrame = observer(function UnitFrame({
         )}
       </Stack>
       <Box sx={{ mt: 1 }}>{children}</Box>
+      <Slot name="unitNotes" props={{ unitId, preview: preview != null }} />
       {/* The actions keep a line of their own, right-aligned just under the content, so the text keeps the full width. */}
       <Stack data-unit-actions direction="row" sx={{ alignItems: "center", gap: 0.5, justifyContent: "flex-end", mt: 0.5 }}>
         {actions}

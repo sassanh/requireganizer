@@ -356,14 +356,19 @@ export class AgentsHost {
       },
       answerReview: (moduleId, stage, findings) => {
         const { store } = this.requestModule(moduleId);
-        const found = findings.map(({ itemId, rule, how }) => ({ itemId, stage, revision: store.itemState(itemId)!.revision, rule, how }));
+        const answer = {
+          stage,
+          agent: author.agent,
+          at: new Date().toISOString(),
+          findings: findings.map(({ itemId, rule, how }) => ({ itemId, revision: store.itemState(itemId)!.revision, rule, how })),
+        };
         this.changeSection(
           `Answered the request to review ${store.workflow.stage(stage).label}`,
           (section) =>
             withModuleRequests(section, moduleId, (requests) => ({
               ...requests,
               review: requests.review.filter((ask) => ask.stage !== stage),
-              findings: [...requests.findings.filter((finding) => finding.stage !== stage), ...found],
+              reviewAnswers: [...requests.reviewAnswers.filter((last) => last.stage !== stage), answer],
             })),
           author,
         );
