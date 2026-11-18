@@ -7,12 +7,11 @@ import { parseArgs } from "node:util";
 
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
-import { installAiRuntime } from "ai-agent/runtime";
+import { serveMcp } from "agents/mcp/server";
 
 import packageJson from "../package.json";
-import { environmentAiSettings } from "./aiEnvironment";
-import { serveMcp } from "./mcp";
 import { resolveProjectFile } from "./projectFile";
+import { projectLink } from "./projectLink";
 import { endProcessWith, startProjectServer } from "./projectServer";
 import { serveStaticFiles } from "./staticFiles";
 
@@ -28,15 +27,13 @@ mcp serves the project to a coding agent over standard input and output.
 Options:
   --port <number>      Port to listen on (default: the project's last port,
                        else 4519, or the next free one)
-  --env-file <path>    Read AI_API_KEY and the other settings from this file
+  --env-file <path>    Read the environment variables from this file
   --no-open            Do not open the browser
   -h, --help           Show this help
 
 Environment:
-  AI_API_KEY           Key for the AI endpoint
-  AI_BASE_URL          OpenAI-compatible Responses API (default OpenRouter)
-  AI_MODEL             Model that writes
-  AI_REVIEWER_MODEL    Model that reviews; unset for manual review only
+  XDG_STATE_HOME       Where the server keeps history, restore points and
+                       the agents Requireganizer runs (default ~/.local/state)
 `;
 
 function openBrowser(url: string): void {
@@ -106,16 +103,20 @@ async function main(): Promise<void> {
   // not be the folder it starts it in, such as for a plugin's server.
   const projectDirectory = mcp ? (process.env.CLAUDE_PROJECT_DIR ?? process.cwd()) : process.cwd();
   const projectFile = resolveProjectFile(positionals[0] ?? null, projectDirectory);
-  const aiSettings = environmentAiSettings();
-  installAiRuntime(aiSettings);
 
   if (mcp) {
     // Standard output carries the protocol; everything else goes to standard error.
     Object.assign(console, { log: console.error, info: console.error, debug: console.error });
     const service = await serveMcp({
-      projectFile,
-      aiSettings,
-      serveInterface,
+      // This process serves the project itself while no other process does, and takes over when the one that does stops.
+      link: projectLink({
+        projectFile,
+        serveInterface,
+        onServing: (server) => {
+          process.stderr.write(`Requireganizer is serving ${projectFile} at ${server.url}\n`);
+          for (const warning of server.warnings) process.stderr.write(`Warning: ${warning}\n`);
+        },
+      }),
       version: packageJson.version,
       transport: new StdioServerTransport(),
     });
@@ -137,7 +138,7 @@ async function main(): Promise<void> {
     process.stderr.write(`The interface is missing from ${interfaceRoot}. Build it with pnpm run server:build.\n`);
     process.exit(1);
   }
-  const started = await startProjectServer({ projectFile, aiSettings, port, serveInterface });
+  const started = await startProjectServer({ projectFile, port, serveInterface });
   if ("heldBy" in started) {
     if (started.heldBy.url == null) {
       process.stderr.write("Another Requireganizer process is starting this project. Try again in a moment.\n");

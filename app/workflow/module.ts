@@ -1,5 +1,5 @@
 import { comparer } from "mobx";
-import { cast, getSnapshot, getType, type Instance, types } from "mobx-state-tree";
+import { addMiddleware, cast, getSnapshot, getType, type Instance, types } from "mobx-state-tree";
 
 import { UserFacingError } from "lib/errors";
 import { codesMatch } from "lib/fragmentCodes";
@@ -33,14 +33,12 @@ import {
   type Thread,
   type ThreadAnswer,
   type ThreadAuthor,
-  type TurnInHand,
   addedMentionsIn,
   keptMessageText,
   mentionMarkup,
   mentionsIn,
   replaceAddedMentions,
-  threadTurn,
-  waitsForAnswerer,
+  type ThreadMessage,
   waitsForSpecOwner,
 } from "./threads";
 import {
@@ -80,6 +78,8 @@ export const StageModel = types.model("Stage", {
   coverages: types.map(types.frozen<CoverageSignature>()),
   /** The last signature on the impact on each item it took in, by that item's id. */
   impacts: types.map(types.frozen<ImpactSignature>()),
+  /** When the stage last went from not complete to complete; null while that is unknown, such as after an import without signature times. */
+  completedAt: types.optional(types.maybeNull(types.string), null),
 });
 
 export type Stage = Instance<typeof StageModel>;
@@ -105,17 +105,6 @@ export interface LinkedModule {
   id: string;
   name: string;
   lookup: ModuleLookup;
-}
-
-/** The spec owner's request that the coding agent write a stage, and when it was made. */
-export interface WritingAsk {
-  stage: string;
-  at: string;
-}
-
-/** One request to write a stage: it changes when the stage is asked for again, so whatever concerned a request ends with it. */
-export function writingTurn(ask: WritingAsk): string {
-  return `write:${ask.stage}:${ask.at}`;
 }
 
 /** An item that an item, coverage, impact or marked mention names, of this module or another, as the page names and previews it. */
@@ -346,14 +335,10 @@ export function workflowModuleModel(workflow: Workflow) {
     .model("WorkflowModule", {
       stages: types.optional(types.map(StageModel), {}),
       threads: types.optional(types.frozen<Thread[]>(), []),
-      /** The stages the spec owner asked the coding agent to write, until a write reaches them. */
-      writingAsked: types.optional(types.frozen<WritingAsk[]>(), []),
     })
     .volatile(() => ({
       /** The project's other modules, which dependencies may name. */
       linkedModules: [] as LinkedModule[],
-      /** The turns an answerer is at work on now: of threads, and of requests to write a stage. */
-      turnsInHand: [] as TurnInHand[],
     }))
     .views((self) => {
       const itemsOf = (stage: string): readonly Item[] => self.stages.get(stage)?.items ?? [];
@@ -950,9 +935,6 @@ export function workflowModuleModel(workflow: Workflow) {
         ...self.linkedModules.flatMap((linked) => linked.lookup.listItems().map(({ id, code }) => ({ id, name: itemName(code, linked.name) }))),
       ]);
 
-      /** The stages the spec owner asked the coding agent to write that are still open and not complete. */
-      const writingAskedOfAnswerer = (): WritingAsk[] => self.writingAsked.filter(({ stage }) => self.stageOpen(stage) && !self.stageComplete(stage));
-
       /**
        * Every unit a stage shows, in the order its tabs show them: its items
        * as `shownItemOrder` orders them, then the stage's coverages and
@@ -1024,31 +1006,9 @@ export function workflowModuleModel(workflow: Workflow) {
         threadsOfStage(stage: string): Thread[] {
           return self.threads.filter((thread) => thread.stage === stage);
         },
-        /** The stages that build directly on a complete stage and can be written now, still holding no item. */
-        stagesToWriteAfter(stage: string): string[] {
-          if (!self.stageComplete(stage)) return [];
-          return workflow.stageIds.filter((later) =>
-            workflow.basisStages(later).includes(stage) && self.stageOpen(later) && self.itemsOf(later).length === 0,
-          );
-        },
-        get writingAskedOfAnswerer(): WritingAsk[] {
-          return writingAskedOfAnswerer();
-        },
-        /** The open threads that wait for the coding agent in stages open now. */
-        get threadsWaitingForAnswerer(): Thread[] {
-          return self.threads.filter((thread) => waitsForAnswerer(thread) && self.stageOpen(thread.stage));
-        },
-        /** An answerer is at work on the thread's turn now. */
-        isBeingAnswered(threadId: string): boolean {
-          const thread = self.threads.find(({ id }) => id === threadId);
-          if (thread == null || !waitsForAnswerer(thread)) return false;
-          const turn = threadTurn(thread);
-          return self.turnsInHand.some((inHand) => inHand.turn === turn);
-        },
-        /** An answerer is at work on the request to write the stage now. */
-        isBeingWritten(stage: string): boolean {
-          const ask = writingAskedOfAnswerer().find((asked) => asked.stage === stage);
-          return ask != null && self.turnsInHand.some((inHand) => inHand.turn === writingTurn(ask));
+        /** When a complete stage last became complete; null while it is not complete, or while that is unknown. */
+        stageCompletedAt(stage: string): string | null {
+          return self.stageComplete(stage) ? (self.stages.get(stage)?.completedAt ?? null) : null;
         },
         /** This module as another module resolves dependencies on it. */
         get lookup(): ModuleLookup {
@@ -1581,11 +1541,27 @@ export function workflowModuleModel(workflow: Workflow) {
         return keptMessageText(text);
       }
 
-      /** Posts each answer, its marked mentions already checked, each mention of an added item tied to the item its change added. */
-      function postAnswers(answers: readonly ThreadAnswer[], author: ThreadAuthor, changes: readonly ItemChange[] = [], added: readonly string[] = []) {
+      /**
+       * Posts each answer, its marked mentions already checked, each mention
+       * of an added item tied to the item its change added, with the
+       * annotations its writer gives, kept and never read here.
+       */
+      function postAnswers(
+        answers: readonly ThreadAnswer[],
+        author: ThreadAuthor,
+        annotations: ThreadMessage["annotations"],
+        changes: readonly ItemChange[] = [],
+        added: readonly string[] = [],
+      ) {
         for (const { threadId, text } of answers) {
           const tied = replaceAddedMentions(text, ({ change }) => mentionMarkup("", addedByChange(changes, added, change)!));
-          addMessage(threadId, { author, text: keptMessageText(tied), at: new Date().toISOString(), ...(changes.length > 0 ? { withChanges: true as const } : {}) });
+          addMessage(threadId, {
+            author,
+            text: keptMessageText(tied),
+            at: new Date().toISOString(),
+            ...(changes.length > 0 ? { withChanges: true as const } : {}),
+            ...(annotations == null ? {} : { annotations }),
+          });
         }
       }
 
@@ -1594,15 +1570,6 @@ export function workflowModuleModel(workflow: Workflow) {
         if (thread == null) throw new UserFacingError(`There is no thread ${threadId}.`);
         if (thread.resolution != null) throw new UserFacingError(`Thread ${threadId} is resolved.`);
         return thread;
-      }
-
-      /** Record that `by` is at work on a turn, letting go of the turns that have ended. */
-      function takeUp(turn: string, by: string) {
-        const current = new Set([...self.threads.filter(waitsForAnswerer).map(threadTurn), ...self.writingAskedOfAnswerer.map(writingTurn)]);
-        self.turnsInHand = [
-          ...self.turnsInHand.filter((inHand) => current.has(inHand.turn) && !(inHand.turn === turn && inHand.by === by)),
-          { turn, by },
-        ];
       }
 
       return {
@@ -1630,7 +1597,7 @@ export function workflowModuleModel(workflow: Workflow) {
          * was. Throws every problem at once. The threads it answers are
          * checked against the module as the write leaves it.
          */
-        writeItems(changes: ItemChange[], replies: { answers: readonly ThreadAnswer[]; author: ThreadAuthor } | null = null): ChangeOutcome {
+        writeItems(changes: ItemChange[], replies: { answers: readonly ThreadAnswer[]; author: ThreadAuthor; annotations?: ThreadMessage["annotations"] } | null = null): ChangeOutcome {
           const answering = replies?.answers ?? [];
           const answerProblem = self.answerProblem(answering);
           if (answerProblem != null) throw new UserFacingError(answerProblem);
@@ -1669,8 +1636,7 @@ export function workflowModuleModel(workflow: Workflow) {
           }
           const { outcome } = applyAll(changes);
           settleRemovals();
-          self.writingAsked = self.writingAsked.filter(({ stage }) => !touched.includes(stage));
-          if (replies != null) postAnswers(replies.answers, replies.author, changes, outcome.added);
+          if (replies != null) postAnswers(replies.answers, replies.author, replies.annotations, changes, outcome.added);
           return outcome;
         },
         /** Apply changes as far as they go, returning their problems: for a trial copy only. */
@@ -1795,12 +1761,6 @@ export function workflowModuleModel(workflow: Workflow) {
           self.threads = [...self.threads, thread];
           return thread.id;
         },
-        /** The spec owner asks the coding agent to write a stage that can be written now. */
-        askToWrite(stage: string) {
-          requireOpen(stage, "writing");
-          if (self.stageComplete(stage)) throw new UserFacingError(`${workflow.stage(stage).label} is complete.`);
-          self.writingAsked = [...self.writingAsked.filter((ask) => ask.stage !== stage), { stage, at: new Date().toISOString() }];
-        },
         /** The spec owner replies in an open thread, including one whose unit is gone. */
         replyAsSpecOwner(threadId: string, text: string) {
           const thread = openThread(threadId);
@@ -1816,31 +1776,50 @@ export function workflowModuleModel(workflow: Workflow) {
             candidate.id === threadId ? { ...candidate, resolution: { at: new Date().toISOString() } } : candidate,
           );
         },
-        /** The answerer replies, with no changes; a reply with changes is part of writeItems. */
-        answerThreads(answers: ThreadAnswer[], author: ThreadAuthor) {
+        /** Another than the spec owner replies, with no changes, with the annotations it gives; a reply with changes is part of writeItems. */
+        answerThreads(answers: ThreadAnswer[], author: ThreadAuthor, annotations?: ThreadMessage["annotations"]) {
           const problem = self.answerProblem(answers);
           if (problem != null) throw new UserFacingError(problem);
           for (const { text } of answers) checkMentions(text);
-          postAnswers(answers, author);
+          postAnswers(answers, author, annotations);
         },
-        /** An answerer takes up the thread's current turn, which ends with the thread's next message. */
-        takeUpThread(threadId: string, by: string) {
-          const thread = self.threads.find(({ id }) => id === threadId);
-          if (thread != null && waitsForAnswerer(thread)) takeUp(threadTurn(thread), by);
+      };
+    })
+    .actions((self) => {
+      const completeStages = () => workflow.stageIds.filter((stage) => self.stageComplete(stage));
+      return {
+        /** Record that each of `stages` became complete now. */
+        recordCompletions(stages: readonly string[]) {
+          const at = new Date().toISOString();
+          for (const stage of stages) {
+            if (self.stages.get(stage) == null) self.stages.set(stage, {});
+            self.stages.get(stage)!.completedAt = at;
+          }
         },
-        /** An answerer takes up the request to write a stage, which ends once the stage is written or asked for again. */
-        takeUpWriting(stage: string, by: string) {
-          const ask = self.writingAskedOfAnswerer.find((asked) => asked.stage === stage);
-          if (ask != null) takeUp(writingTurn(ask), by);
-        },
-        /** What `by` took up is no longer in hand, such as once its connection ends. */
-        releaseTurns(by: string) {
-          if (!self.turnsInHand.some((inHand) => inHand.by === by)) return;
-          self.turnsInHand = self.turnsInHand.filter((inHand) => inHand.by !== by);
+        /**
+         * Whatever action of the module's makes a stage complete, a signature,
+         * a resolved thread, a removal settling or a write, records when.
+         */
+        afterCreate() {
+          addMiddleware(self, (call, next) => {
+            if (call.id !== call.rootId || call.name.startsWith("@") || NOT_RECORDING_COMPLETIONS.has(call.name)) return next(call);
+            const before = new Set(completeStages());
+            const result = next(call);
+            const reached = completeStages().filter((stage) => !before.has(stage));
+            if (reached.length > 0) (self as unknown as { recordCompletions(stages: readonly string[]): void }).recordCompletions(reached);
+            return result;
+          });
         },
       };
     });
 }
+
+/**
+ * The actions after which a stage that became complete is not recorded as
+ * becoming so then: reading another state in, linking the other modules,
+ * which only shows a completion they already held, and the recording itself.
+ */
+const NOT_RECORDING_COMPLETIONS = new Set(["recordCompletions", "setLinkedModules", "afterCreate"]);
 
 export type WorkflowModuleModel = ReturnType<typeof workflowModuleModel>;
 export type WorkflowModule = Instance<WorkflowModuleModel>;

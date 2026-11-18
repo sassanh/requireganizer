@@ -8,16 +8,18 @@ import { type FocusPlace, isFocusPlace } from "./focus";
 import { AUTOMATIC_RESTORE_POINT_INTERVAL_MS, parseRestorePoint, type RestorePoint } from "./restorePoints";
 
 /**
- * What a change to the project was, as its step names it. The first six
- * are made within a module; the rest on the whole project.
+ * What a change to the project was, as its step names it. The first five
+ * are made within a module; a section change is made to a section of the
+ * project another module owns, which describes it; the rest are made on
+ * the whole project.
  */
 export type ChangeKind =
   | "edit"
   | "signature"
   | "thread message"
   | "thread resolution"
-  | "request to write a stage"
   | "write of items"
+  | "section change"
   | "restore"
   | "import"
   | "opening a changed project"
@@ -28,8 +30,8 @@ const CHANGE_KINDS: readonly ChangeKind[] = [
   "signature",
   "thread message",
   "thread resolution",
-  "request to write a stage",
   "write of items",
+  "section change",
   "restore",
   "import",
   "opening a changed project",
@@ -37,13 +39,14 @@ const CHANGE_KINDS: readonly ChangeKind[] = [
 ];
 
 const WHOLE_PROJECT_KINDS: ReadonlySet<ChangeKind> = new Set<ChangeKind>([
+  "section change",
   "restore",
   "import",
   "opening a changed project",
   "module change",
 ]);
 
-/** Whether a change of this kind is made on the whole project rather than on its items, coverages and impacts. */
+/** Whether a change of this kind is made on the whole project or a section of it rather than on its items, coverages and impacts. */
 export function changesWholeProject(kind: ChangeKind): boolean {
   return WHOLE_PROJECT_KINDS.has(kind);
 }
@@ -51,12 +54,12 @@ export function changesWholeProject(kind: ChangeKind): boolean {
 /**
  * Who made a change, with where it sent the spec owner: the spec owner,
  * with where the change moved their focus, or null when it did not move
- * it; or the coding agent, with what it named for the spec owner's
- * attention, or null when it named nothing.
+ * it; or an agent, by its name, with what it pointed the spec owner to
+ * first, or null when it pointed to nothing.
  */
 export type StepAuthor =
   | { kind: "spec owner"; movedFocusTo: FocusPlace | null }
-  | { kind: "coding agent"; named: FocusPlace | null };
+  | { kind: "agent"; name: string; named: FocusPlace | null };
 
 /**
  * One change to the project: the states before and after it, who made it,
@@ -76,6 +79,8 @@ export interface HistoryStep {
   after: Address;
   at: string;
   kind: ChangeKind;
+  /** What the change was, in the words of the module that owns what it changed; null for a change the kind names alone. */
+  description: string | null;
   by: StepAuthor;
   /** Where the spec owner's focus was when the change was made; null when no page had reported it. */
   focus: FocusPlace | null;
@@ -315,7 +320,9 @@ export interface ListedStep {
   id: string;
   at: string;
   kind: ChangeKind;
-  by: StepAuthor["kind"];
+  description: string | null;
+  /** The spec owner, or an agent by its name. */
+  by: { kind: "spec owner" } | { kind: "agent"; name: string };
   place: StepPlace;
   /** What the step added, changed or removed; null when its states cannot be read. */
   change: StateDifference | null;
@@ -345,7 +352,15 @@ export function listedSteps(history: ProjectHistory, changeOf: (step: HistorySte
   return {
     steps: [...history.steps]
       .reverse()
-      .map((step) => ({ id: step.id, at: step.at, kind: step.kind, by: step.by.kind, place: places.get(step.id) ?? "other branch", change: changeOf(step) })),
+      .map((step) => ({
+        id: step.id,
+        at: step.at,
+        kind: step.kind,
+        description: step.description,
+        by: step.by.kind === "agent" ? { kind: "agent" as const, name: step.by.name } : { kind: "spec owner" as const },
+        place: places.get(step.id) ?? "other branch",
+        change: changeOf(step),
+      })),
     start: oldest == null ? null : { id: oldest.id, current: history.current == null },
   };
 }
@@ -365,22 +380,34 @@ function isFocusPlaceOrNull(value: unknown): value is FocusPlace | null {
   return value === null || isFocusPlace(value);
 }
 
-function isStepAuthor(value: unknown): value is StepAuthor {
-  if (!isRecord(value) || Object.keys(value).length !== 2) return false;
+/** Who made a step, as stored. */
+function parseStepAuthor(value: unknown): StepAuthor | null {
+  if (!isRecord(value)) return null;
   switch (value.kind) {
     case "spec owner":
-      return isFocusPlaceOrNull(value.movedFocusTo);
-    case "coding agent":
-      return isFocusPlaceOrNull(value.named);
+      return Object.keys(value).length === 2 && isFocusPlaceOrNull(value.movedFocusTo) ? { kind: "spec owner", movedFocusTo: value.movedFocusTo } : null;
+    case "agent":
+      return Object.keys(value).length === 3 && typeof value.name === "string" && isFocusPlaceOrNull(value.named) ? { kind: "agent", name: value.name, named: value.named } : null;
     default:
-      return false;
+      return null;
   }
+}
+
+/** A step's kind and description, as stored. */
+function parseStepKind(value: Record<string, unknown>): { kind: ChangeKind; description: string | null } | null {
+  if (!CHANGE_KINDS.includes(value.kind as ChangeKind)) return null;
+  const description = value.description ?? null;
+  return description === null || typeof description === "string" ? { kind: value.kind as ChangeKind, description } : null;
 }
 
 function parseStep(value: unknown, index: number): HistoryStep {
   const label = `Step ${index + 1}`;
+  const kind = isRecord(value) ? parseStepKind(value) : null;
+  const by = isRecord(value) ? parseStepAuthor(value.by) : null;
   if (
     !isRecord(value) ||
+    kind == null ||
+    by == null ||
     typeof value.id !== "string" ||
     typeof value.sequence !== "number" ||
     !isStepId(value.parent) ||
@@ -388,8 +415,6 @@ function parseStep(value: unknown, index: number): HistoryStep {
     !isAddress(value.before) ||
     !isAddress(value.after) ||
     typeof value.at !== "string" ||
-    !CHANGE_KINDS.includes(value.kind as ChangeKind) ||
-    !isStepAuthor(value.by) ||
     !isFocusPlaceOrNull(value.focus) ||
     !Object.hasOwn(value, "change")
   ) {
@@ -403,8 +428,8 @@ function parseStep(value: unknown, index: number): HistoryStep {
     before: value.before,
     after: value.after,
     at: value.at,
-    kind: value.kind as ChangeKind,
-    by: value.by,
+    ...kind,
+    by,
     focus: value.focus,
     change: value.change === null ? null : parseStoredDifference(value.change, `${label} change`),
   };

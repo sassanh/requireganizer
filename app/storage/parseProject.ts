@@ -117,7 +117,10 @@ function checkItem(stage: string, value: unknown, label: string, ids: Set<string
 }
 
 function checkMessage(value: unknown, label: string): void {
-  const message = exactRecord(value, label, ["author", "text", "at"], ["withChanges"]);
+  const message = exactRecord(value, label, ["author", "text", "at"], ["withChanges", "annotations"]);
+  if (Object.hasOwn(message, "annotations") && !isRecord(message.annotations)) {
+    throw new InvalidJsonError(`${label} annotations must be an object.`);
+  }
   checkAuthor(message.author, `${label} author`);
   readText(message.text, `${label} text`);
   checkTime(message.at, `${label} time`);
@@ -143,37 +146,36 @@ function checkThread(value: unknown, label: string): void {
   if (thread.resolution !== null) checkTime(exactRecord(thread.resolution, `${label} resolution`, ["at"]).at, `${label} resolution time`);
 }
 
-function checkWritingAsk(value: unknown, label: string): void {
-  const ask = exactRecord(value, label, ["stage", "at"]);
-  if (!WORKFLOW.isStage(ask.stage)) throw new InvalidJsonError(`${label} names ${JSON.stringify(ask.stage)}, which is no stage.`);
-  readText(ask.at, `${label} time`);
-}
-
 /**
  * A module's content, checked: every stage is one the workflow defines,
  * every item is of a kind its stage holds, and every record has exactly the
  * keys Requireganizer stores. It is returned as given.
  */
 function parseModuleContent(value: unknown, label: string): ModuleContent {
-  const content = exactRecord(value, label, ["stages", "threads", "writingAsked"]);
+  const content = exactRecord(value, label, ["stages", "threads"]);
   if (!isRecord(content.stages)) throw new InvalidJsonError(`${label} stages must be an object.`);
   const ids = new Set<string>();
   for (const [stage, entry] of Object.entries(content.stages)) {
     if (!WORKFLOW.isStage(stage)) throw new InvalidJsonError(`${label} has a stage ${JSON.stringify(stage)}, which is no stage.`);
     const stageLabel = `${label}, ${WORKFLOW.stage(stage).label}`;
-    const stored = exactRecord(entry, stageLabel, ["items", "intake", "coverages", "impacts"]);
+    const stored = exactRecord(entry, stageLabel, ["items", "intake", "coverages", "impacts", "completedAt"]);
+    checkTime(stored.completedAt, `${stageLabel} completion time`);
     checkList(stored.items, `${stageLabel} item`, (item, itemLabel) => checkItem(stage, item, itemLabel, ids));
     checkEntries(stored.intake, `${stageLabel} intake of`, checkVersion);
     checkEntries(stored.coverages, `${stageLabel} coverage of`, checkCoverage);
     checkEntries(stored.impacts, `${stageLabel} impact on`, checkImpact);
   }
   checkList(content.threads, `${label} thread`, checkThread);
-  checkList(content.writingAsked, `${label} request to write`, checkWritingAsk);
   if (!Store.is(content)) throw new InvalidJsonError(`${label} does not have the shape Requireganizer stores.`);
   return content as unknown as ModuleContent;
 }
 
-function parseModule(value: unknown, index: number, modules: readonly ModuleState[], known: ModuleContent | null): ModuleState {
+function parseModule(
+  value: unknown,
+  index: number,
+  modules: readonly ModuleState[],
+  known: ModuleContent | null,
+): ModuleState {
   const label = `Module ${index + 1}`;
   const stored = exactRecord(value, label, ["id", "name", "archivedAt", "content"]);
   if (typeof stored.id !== "string" || stored.id.length === 0) throw new InvalidJsonError(`${label} has no id.`);
@@ -183,12 +185,8 @@ function parseModule(value: unknown, index: number, modules: readonly ModuleStat
   // The one name-uniqueness rule, so imports and the interface refuse the same names.
   assertModuleNameAvailable(name, modules);
   checkTime(stored.archivedAt, `Module “${name}” archive time`);
-  return {
-    id: stored.id,
-    name,
-    archivedAt: stored.archivedAt as string | null,
-    content: known ?? parseModuleContent(stored.content, `Module “${name}”`),
-  };
+  const content = known ?? parseModuleContent(stored.content, `Module “${name}”`);
+  return { id: stored.id, name, archivedAt: stored.archivedAt as string | null, content };
 }
 
 /**
@@ -201,14 +199,15 @@ function parseModule(value: unknown, index: number, modules: readonly ModuleStat
 export function parseProject(value: unknown, knownContents: readonly (ModuleContent | null)[] = []): ProjectState {
   if (isRecord(value) && value.schemaVersion !== PROJECT_SCHEMA_VERSION) {
     throw new InvalidJsonError(
-      `This project uses schema ${JSON.stringify(value.schemaVersion)}. Requireganizer reads schema ${PROJECT_SCHEMA_VERSION}.`,
+      `This project uses schema ${JSON.stringify(value.schemaVersion)}. Requireganizer reads schema ${PROJECT_SCHEMA_VERSION} only.`,
     );
   }
-  const document = exactRecord(value, "The project", ["schemaVersion", "modulesEnabled", "modules"]);
+  const document = exactRecord(value, "The project", ["schemaVersion", "modulesEnabled", "modules", "sections"]);
   if (typeof document.modulesEnabled !== "boolean") throw new InvalidJsonError("The project must say whether modules are enabled.");
   if (!Array.isArray(document.modules) || document.modules.length === 0) throw new InvalidJsonError("The project must hold at least one module.");
+  if (!isRecord(document.sections)) throw new InvalidJsonError("The project's sections must be an object.");
   const modules: ModuleState[] = [];
   document.modules.forEach((entry, index) => modules.push(parseModule(entry, index, modules, knownContents[index] ?? null)));
   if (modules.every(({ archivedAt }) => archivedAt != null)) throw new InvalidJsonError("Every module of the project is archived.");
-  return { modulesEnabled: document.modulesEnabled, modules };
+  return { modulesEnabled: document.modulesEnabled, modules, sections: document.sections as Record<string, unknown> };
 }

@@ -25,7 +25,6 @@ Requirements:
 
 ```bash
 pnpm install
-cp .env.example .env.local
 pnpm run dev
 ```
 

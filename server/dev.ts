@@ -3,9 +3,6 @@ import { parseArgs } from "node:util";
 
 import next from "next";
 
-import { installAiRuntime } from "ai-agent/runtime";
-
-import { environmentAiSettings } from "./aiEnvironment";
 import { endProcessWith, startProjectServer } from "./projectServer";
 
 const DEFAULT_PORT = 3000;
@@ -28,12 +25,8 @@ async function main(): Promise<void> {
   const app = next({ dev: true, dir: process.cwd(), hostname: "127.0.0.1", port });
   await app.prepare();
   const handle = app.getRequestHandler();
-  // Read after Next has loaded `.env.local`.
-  const aiSettings = environmentAiSettings();
-  installAiRuntime(aiSettings);
   const started = await startProjectServer({
     projectFile,
-    aiSettings,
     port,
     serveInterface: (request, response) => void handle(request, response),
     forwardUpgrade: app.getUpgradeHandler(),

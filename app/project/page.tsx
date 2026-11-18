@@ -16,8 +16,8 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 
 import { switchModuleShortcut } from "actions/actions";
+import { AgentsControls, AttentionOffers, ModuleWorkingSign, RequestConfirmationHost } from "agents/ui";
 import {
-  AttentionOffers,
   HistoryControls,
   PreviewControls,
   RestorePointsControls,
@@ -299,8 +299,10 @@ function Home() {
               </Typography>
             </Button>
           ) : null}
+          <ModuleWorkingSign moduleId={activeModuleId} />
         </Stack>
         <PreviewControls />
+        <AgentsControls />
         <HistoryControls />
         <RestorePointsControls />
         </Toolbar>
@@ -336,6 +338,7 @@ function Home() {
         </Box>
       </Stack>
       <AttentionOffers />
+      <RequestConfirmationHost />
       <OutsideChangeDialog />
       <ModuleSwitcherDialog open={modulesOpen} onClose={closeModules} />
     </>

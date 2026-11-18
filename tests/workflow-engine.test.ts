@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { callAgentTool } from "../app/ai-agent/agent-access";
+import { callAgentTool } from "../app/agents/interface/tools";
+import { waitingRequests } from "../app/agents/requests";
+import { NO_REQUESTS } from "../app/agents/section";
 import { Store } from "../app/store";
 
 function itemOf(store: Store, stage: string, code: string): string {
@@ -108,14 +110,14 @@ describe("workflow engine", () => {
     const feature = itemOf(store, "features-and-target-users", "FEA-01");
     const thread = store.requestChange(feature, "Name the stages.");
     assert.equal(store.itemState(feature)!.approved, false);
-    assert.equal(store.threadsWaitingForAnswerer.length, 1);
+    assert.equal(waitingRequests([{ id: "module", name: null, store, requests: NO_REQUESTS }]).length, 1);
     const state = JSON.parse(await callAgentTool(store, "get_workflow_state", {})) as { codesVersion: string };
     await callAgentTool(store, "write_items", {
       codesVersion: state.codesVersion,
       changes: [{ action: "change", item: "FEA-01", fields: { description: "Staged workflow: overview, stories, requirements, criteria." } }],
       answers: [{ threadId: thread, reply: "Named them." }],
     });
-    assert.equal(store.threadsWaitingForAnswerer.length, 0);
+    assert.equal(waitingRequests([{ id: "module", name: null, store, requests: NO_REQUESTS }]).length, 0);
     store.resolveThread(thread);
     store.sign(feature, store.signingCovers(feature)!);
     assert.equal(store.itemState(feature)!.approved, true);
@@ -131,7 +133,7 @@ describe("workflow engine", () => {
       /This write closes Features and Target Users/,
     );
     assert.equal(store.textOf(capability), "Staging: Staged workflow.");
-    assert.equal(store.threadsWaitingForAnswerer.length, 1);
+    assert.equal(waitingRequests([{ id: "module", name: null, store, requests: NO_REQUESTS }]).length, 1);
   });
 
   it("reports each item written by the code the write named it by, with the code it moved to", async () => {

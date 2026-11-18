@@ -32,6 +32,14 @@ function canonicalPath(projectFile: string): string {
   return absolute;
 }
 
+/** Requireganizer's directory under the user's state directory, for what belongs to no one project. */
+export function userStateDirectory(environment: Record<string, string | undefined> = process.env): string {
+  const root = environment.XDG_STATE_HOME?.trim() || join(homedir(), ".local", "state");
+  const directory = join(root, "requireganizer");
+  mkdirSync(directory, { recursive: true });
+  return directory;
+}
+
 /**
  * Where a project file's history lives: one directory per project file
  * under the user's state directory, named after the file's real path.
@@ -40,10 +48,9 @@ export function stateDirectoryFor(
   projectFile: string,
   environment: Record<string, string | undefined> = process.env,
 ): string {
-  const root = environment.XDG_STATE_HOME?.trim() || join(homedir(), ".local", "state");
   const absolute = canonicalPath(projectFile);
   const key = createHash("sha256").update(absolute).digest("hex").slice(0, 16);
-  const directory = join(root, "requireganizer", "projects", key);
+  const directory = join(userStateDirectory(environment), "projects", key);
   mkdirSync(directory, { recursive: true });
   // Names the project file, for a person looking through the directory.
   writeFileSync(join(directory, "project-file.txt"), `${absolute}\n`);

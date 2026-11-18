@@ -39,6 +39,8 @@ export type PreviewTarget = StepListTarget | { kind: "restore point"; id: string
 /** A change as its step records it. */
 export interface RecordedChange {
   kind: ChangeKind;
+  /** What the change was, in the words of the module that owns what it changed; null for a change the kind names alone. */
+  description: string | null;
   by: StepAuthor;
   focus: FocusPlace | null;
   before: Address;
@@ -153,6 +155,7 @@ export class HistoryKeeper {
       after: change.after,
       at: new Date().toISOString(),
       kind: change.kind,
+      description: change.description,
       by: change.by,
       focus: change.focus,
       change: this.readable(change.before, change.after, () => this.comparer.stored(change.before, change.after)),
@@ -194,7 +197,7 @@ export class HistoryKeeper {
    *   else where the focus was when the change was made;
    * - redo of the spec owner's change: where it moved the focus, else the
    *   first unit it was made on, else the focus stays;
-   * - redo of the coding agent's: what it named, else the focus stays.
+   * - redo of an agent's: what it pointed to first, else the focus stays.
    * A unit that does not exist after the move gives way to the one in its
    * place, else to its stage. Null leaves the focus where it is.
    */

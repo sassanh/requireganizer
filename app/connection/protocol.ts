@@ -1,12 +1,11 @@
 import type { IJsonPatch } from "mobx-state-tree";
 
-import type { AgentCaller, AgentToolDescription } from "ai-agent/agent-access";
+import type { AgentsHostApi, AgentsHostEvent, RequestState } from "agents";
 import type { FocusPlace, ListedRestorePoint, ListedSteps, PreviewTarget, StateDifference, StepListTarget } from "history";
 import type { ProjectIdentity } from "lib/projectStorage";
 import type { ClientPersistence, StorageTraits } from "persistence";
 import type { ProjectSessionSnapshot } from "project-session";
 import type { ExportOptions, ModuleContent, ModuleRegistry, ModuleState, ProjectState } from "storage";
-import type { ReplicatedVolatileState } from "store";
 import type { SignatureFocusMove } from "workflow";
 
 /**
@@ -20,7 +19,7 @@ import type { SignatureFocusMove } from "workflow";
  * different builds checks it before any message is exchanged; change it
  * whenever a message changes shape.
  */
-export const PROTOCOL_VERSION = 15;
+export const PROTOCOL_VERSION = 17;
 
 /**
  * WebSocket close codes a host server ends a connection with when connecting
@@ -55,6 +54,8 @@ export interface StoreActionCall {
   args: unknown[];
   /** Where the action moves the spec owner's focus, for one that does, such as a signature. */
   focusMove?: SignatureFocusMove;
+  /** The requests agents have that the spec owner confirmed stopping to carry the action out. */
+  stopping?: string[];
 }
 
 /** What a store action returned, and where it moved the spec owner's focus, as the step records it. */
@@ -85,8 +86,8 @@ export const PERSISTENCE_METHODS: {
   projects: { list: true },
 };
 
-/** What a host serves. A request names one member and passes its arguments. */
-export interface HostApi {
+/** What a host serves, the Agents module's part included. A request names one member and passes its arguments. */
+export interface HostApi extends AgentsHostApi {
   selectProject(
     id: string,
     name: string,
@@ -107,24 +108,28 @@ export interface HostApi {
   importNewProject(text: string, fileName: string): Promise<ProjectIdentity>;
   /** Open here the project another session holds, once it has written what it had. */
   takeOverProject(): Promise<void>;
-  /** Replace the open project with the one an exported file's text holds, as a step of kind import. */
-  importProjectFile(text: string, fileName: string): void;
+  /** Replace the open project with the one an exported file's text holds, as a step of kind import; refused as undo is while it concerns requests agents have. */
+  importProjectFile(text: string, fileName: string, stopping?: string[]): Promise<void>;
   /** The export of the open project, or of one of its restore points, as the bytes of its file. */
   exportProject(options: ExportOptions, restorePointId?: string): Promise<string>;
   /** Open the project as storage now holds it, after it changed outside the host. */
-  openChangedProject(): Promise<void>;
+  openChangedProject(stopping?: string[]): Promise<void>;
   /** Write the shown project over the stored one that changed or was removed outside the host. */
   keepShownProject(): void;
   /** Leave the stored project removed outside the host: close it and forget its history, writing nothing where it was. */
   leaveProjectRemoved(): Promise<void>;
-  /** Undo the current step; not itself a step. Resolves to where the focus goes, or null to leave it. */
-  undo(): FocusPlace | null;
+  /**
+   * Undo the current step; not itself a step. Resolves to where the focus
+   * goes, or null to leave it. Refused while it concerns requests agents
+   * have that `stopping` does not name; this holds for redo and goTo too.
+   */
+  undo(stopping?: string[]): Promise<FocusPlace | null>;
   /** Redo the step undo last left; resolves as undo does. */
-  redo(): FocusPlace | null;
+  redo(stopping?: string[]): Promise<FocusPlace | null>;
   /** Every kept step, newest first, with what it added, changed or removed, then the start, before the oldest of them. */
   listSteps(): ListedSteps;
   /** Go to how the project was after a kept step or before the oldest of them, as undo and redo move, recording no step. */
-  goTo(target: StepListTarget): void;
+  goTo(target: StepListTarget, stopping?: string[]): Promise<void>;
   /** The kept restore points, newest first. */
   listRestorePoints(): ListedRestorePoint[];
   /** What bringing back the project as it was after a kept step or at a restore point would add, change or remove; changes nothing. */
@@ -133,12 +138,12 @@ export interface HostApi {
   preview(target: PreviewTarget): Promise<{ state: SentPreviewState; difference: StateDifference }>;
   /** Where the spec owner's focus is now. */
   reportFocus(place: FocusPlace | null): void;
-  /** Take away an offer to go to what the coding agent named, once taken or dismissed. */
+  /** Take away an offer to go to what an agent pointed to, once dismissed. */
   dismissOffer(offerId: string): void;
   /** Make a restore point of the shown project under a name. */
   makeRestorePoint(name: string): void;
   /** Restore the project to a restore point, as a step of kind restore. */
-  restoreToRestorePoint(restorePointId: string): Promise<void>;
+  restoreToRestorePoint(restorePointId: string, stopping?: string[]): Promise<void>;
   pinRestorePoint(restorePointId: string): void;
   unpinRestorePoint(restorePointId: string): void;
   deleteRestorePoint(restorePointId: string): void;
@@ -148,10 +153,6 @@ export interface HostApi {
   deleteProject(projectId: string): Promise<void>;
   runStoreAction(call: StoreActionCall): StoreActionOutcome;
   runPersistence(call: PersistenceCall): unknown;
-  /** The tools an outside agent can call on the open project now. */
-  listAgentTools(): Promise<AgentToolDescription[]>;
-  /** Run one of those tools for the named agent; resolves to its text result. */
-  callAgentTool(name: string, args: Record<string, unknown>, caller: AgentCaller): Promise<string>;
 }
 
 export type RequestName = keyof HostApi;
@@ -167,6 +168,8 @@ export interface RequestMessage {
 export interface WireError {
   name: string;
   message: string;
+  /** For an action refused because it concerns requests agents have: those requests. */
+  concerned?: RequestState[];
 }
 
 export type ResponseMessage = { type: "response"; id: number } & (
@@ -182,14 +185,13 @@ type WithoutStoreAndRegistry<Snapshot> = Snapshot extends unknown
 export type SessionView = WithoutStoreAndRegistry<ProjectSessionSnapshot>;
 
 /**
- * A store the host started showing: its snapshot and replicated volatile
- * values, with an id no other image of any host shares, so forwarded actions
- * name the store they meant even across a host restart.
+ * A store the host started showing: its snapshot, with an id no other image
+ * of any host shares, so forwarded actions name the store they meant even
+ * across a host restart.
  */
 export interface StoreImage {
   id: string;
   snapshot: unknown;
-  volatile: ReplicatedVolatileState;
 }
 
 /**
@@ -215,10 +217,6 @@ export interface SentPreviewState extends Omit<ProjectState, "modules"> {
 
 /** What clients know about the host itself rather than the project it shows. */
 export interface HostInfo {
-  /** The reviewer model the host's AI uses; null when auto review is unavailable. */
-  reviewerModel: string | null;
-  /** How to configure a reviewer model where the host runs. */
-  missingReviewerModelMessage: string;
   /** The storage behind the host. */
   storage: StorageTraits;
 }
@@ -232,8 +230,6 @@ export interface HostInfo {
  */
 export interface StoreUpdate {
   patches: IJsonPatch[];
-  /** Replicated volatile values that changed, whole. */
-  volatile: Partial<ReplicatedVolatileState>;
 }
 
 export type HostEvent =
@@ -246,7 +242,8 @@ export type HostEvent =
       /** Present when the host shows another store. */
       store?: StoreImage;
     }
-  | { type: "store-update"; update: StoreUpdate };
+  | { type: "store-update"; update: StoreUpdate }
+  | AgentsHostEvent;
 
 export interface EventMessage {
   type: "event";

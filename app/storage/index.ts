@@ -13,6 +13,7 @@ export {
   type ModuleState,
   PROJECT_SCHEMA_VERSION,
   type ProjectDocument,
+  type ProjectSections,
   projectDocument,
   projectState,
   type ProjectState,

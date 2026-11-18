@@ -1,5 +1,6 @@
 import { applySnapshot, getSnapshot, onSnapshot } from "mobx-state-tree";
 
+import { type AttentionOffer, parseOffers, type PointedPlace } from "agents/pointers";
 import {
   type ChangeKind,
   EMPTY_HISTORY,
@@ -60,18 +61,6 @@ import { uuid } from "utilities";
 /** Streaming mutates the store every ~80ms; coalesce writes behind this delay. */
 export const PROJECT_SAVE_DEBOUNCE_MS = 800;
 
-/**
- * An item, coverage or impact the coding agent named for the spec owner's
- * attention, with the text it gave, offered until the spec owner takes or
- * dismisses it.
- */
-export interface AttentionOffer {
-  id: string;
-  place: FocusPlace & { unitId: string };
-  text: string;
-  /** The name the coding agent gave. */
-  from: string;
-}
 
 /** One visible module as the interface sees it. */
 export interface ModuleSummary {
@@ -144,6 +133,7 @@ function blankProjectState(): ProjectState {
   return {
     modulesEnabled: false,
     modules: [{ id: LEGACY_MODULE_ID, name: LEGACY_MODULE_ID, archivedAt: null, content: moduleContentOf(blankStore()) }],
+    sections: {},
   };
 }
 
@@ -321,24 +311,17 @@ function historyOf(record: ProjectRecord | null): ProjectHistory | null {
   }
 }
 
-function isAttentionOffer(value: unknown): value is AttentionOffer {
-  if (value == null || typeof value !== "object") return false;
-  const { id, place, text, from } = value as Record<string, unknown>;
-  return typeof id === "string" && isFocusPlace(place) && place.unitId != null && typeof text === "string" && typeof from === "string";
-}
-
-/** The offers the record keeps, oldest first; none when it keeps none or they cannot be read. */
+/** The offers the record keeps, oldest first. */
 function offersOf(record: ProjectRecord | null): AttentionOffer[] {
-  const offers = record?.offers;
-  if (offers == null) return [];
-  if (Array.isArray(offers) && offers.every(isAttentionOffer)) return offers;
-  console.error("The offers of what the coding agent named could not be read; they are dropped.");
-  return [];
+  return parseOffers(record?.offers);
 }
 
-/** What the coding agent named for the spec owner's attention within the change running. */
+/** Who makes a change: the spec owner, or an agent by its name. */
+export type ChangeAuthor = "spec owner" | { agent: string };
+
+/** What an agent pointed the spec owner to within the change running. */
 interface Pointed {
-  place: FocusPlace & { unitId: string };
+  places: PointedPlace[];
   text: string;
   from: string;
 }
@@ -406,6 +389,8 @@ export class ProjectSession {
   private focus: FocusPlace | null = null;
   /** What the coding agent named for the spec owner's attention in the change running. */
   private pointed: Pointed | null = null;
+  /** What a change within the one running says it was, for a step its outer change does not describe. */
+  private innerDescription: string | null = null;
   private offers: AttentionOffer[] = [];
 
   private unsubscribeStore: (() => void) | null = null;
@@ -517,16 +502,22 @@ export class ProjectSession {
    * project comes through here. A change inside another is part of it.
    * `movesFocusTo`, read once the change ran, is where a change of the spec
    * owner's moves their focus, such as a signature to the next unit; the
-   * step records it with the change. What the coding agent names for the
-   * spec owner's attention within its change is offered once it is made.
+   * step records it with the change. What an agent points the spec owner
+   * to within its change is offered once it is made. `description` is what
+   * the change was in the words of the module that owns what it changed.
    */
   change = <Result>(
     kind: ChangeKind,
     run: () => Result,
-    author: "spec owner" | "coding agent" = "spec owner",
+    author: ChangeAuthor = "spec owner",
     movesFocusTo: () => FocusPlace | null = () => null,
+    description: string | null = null,
   ): Result => {
-    if (this.changing) return run();
+    if (this.changing) {
+      // A change within another describes the step when the outer one does not.
+      this.innerDescription ??= description;
+      return run();
+    }
     const state = this.changeableState();
     const project = state.project.id;
     const before = this.addressOf(state);
@@ -534,6 +525,7 @@ export class ProjectSession {
     const focus = this.focus;
     this.changing = true;
     this.pointed = null;
+    this.innerDescription = null;
     let made = false;
     try {
       const result = run();
@@ -551,7 +543,8 @@ export class ProjectSession {
         if (address !== before) {
           this.keeper.record({
             kind,
-            by: author === "spec owner" ? { kind: "spec owner", movedFocusTo } : { kind: "coding agent", named: made ? (pointed?.place ?? null) : null },
+            description: description ?? this.innerDescription,
+            by: author === "spec owner" ? { kind: "spec owner", movedFocusTo } : { kind: "agent", name: author.agent, named: made ? (pointed?.places[0] ?? null) : null },
             focus,
             before,
             after: address,
@@ -573,6 +566,26 @@ export class ProjectSession {
     }
   };
 
+  /** The section of the open project `owner` owns, as storage keeps it; null for one it holds nothing in. */
+  section = (owner: string): unknown => this.readyState()?.registry.sections[owner] ?? null;
+
+  /**
+   * Change the section of the open project `owner` owns, as one step with
+   * the owner's description of it; part of the change running, if one is.
+   */
+  changeSection = (owner: string, description: string, update: (value: unknown) => unknown, author: ChangeAuthor = "spec owner"): void => {
+    this.change(
+      "section change",
+      () => {
+        const { registry } = this.changeableState();
+        this.commitRegistry({ ...registry, sections: { ...registry.sections, [owner]: update(registry.sections[owner] ?? null) } });
+      },
+      author,
+      undefined,
+      description,
+    );
+  };
+
   /**
    * Run a read of the open project, through the same gate as a change. A
    * read that changes the project throws, since no step records it.
@@ -589,13 +602,13 @@ export class ProjectSession {
   };
 
   /**
-   * Name an item, coverage or impact for the spec owner's attention, with
-   * the coding agent's text; offered once the coding agent's change running
-   * now is made.
+   * Point the spec owner to a set of items, coverages and impacts, with an
+   * agent's one text; offered once the agent's change running now is made.
    */
-  pointOut = (place: FocusPlace & { unitId: string }, text: string, from: string): void => {
+  pointOut = (places: readonly PointedPlace[], text: string, from: string): void => {
     if (!this.changing) throw new Error("Something is named for the spec owner's attention only within a change.");
-    this.pointed = { place, text, from };
+    if (places.length === 0) throw new Error("A pointer names at least one unit.");
+    this.pointed = { places: [...places], text, from };
   };
 
   /** Take an offer away, once the spec owner took or dismissed it. */
@@ -1010,11 +1023,12 @@ export class ProjectSession {
     });
     const registryKept =
       shown.modulesEnabled === same.registry.modulesEnabled &&
+      shown.sections === same.registry.sections &&
       modules.length === same.registry.modules.length &&
       modules.every((entry, index) => entry === same.registry.modules[index]);
     this.state = registryKept
       ? same
-      : { ...same, registry: { modulesEnabled: shown.modulesEnabled, activeModuleId: opened.id, modules } };
+      : { ...same, registry: { modulesEnabled: shown.modulesEnabled, activeModuleId: opened.id, modules, sections: sharedWith(same.registry.sections, shown.sections) } };
     this.scheduleWrite();
     this.syncModuleContext();
     this.publish();
@@ -1603,7 +1617,8 @@ export class ProjectSession {
     return true;
   };
 
-  addModule = (name: string): void => {
+  /** Add a module; the spec owner's addition shows it, an agent's leaves the shown module shown. */
+  addModule = (name: string, options: { show: boolean } = { show: true }): void => {
     const state = this.readyState();
     if (state == null) return;
     const trimmed = normalizeModuleName(name);
@@ -1615,8 +1630,74 @@ export class ProjectSession {
       archivedAt: null,
       content: moduleContentOf(created),
     };
+    if (!options.show) {
+      this.commitRegistry({ ...state.registry, modules: [...state.registry.modules, entry] });
+      return;
+    }
     const stashed = this.stashActiveModule(state);
     this.showModule(state, created, { ...stashed, activeModuleId: entry.id, modules: [...stashed.modules, entry] });
+  };
+
+  /**
+   * Change a module of the open project without showing it, such as an
+   * agent's write to another module than the shown one: `run` changes a
+   * copy linked to the other modules, which then takes the module's place.
+   * Runs within a change, which records it as one step.
+   */
+  changeOtherModule = <Result>(id: string, run: (store: Store) => Result): Result => {
+    const state = this.readyState();
+    if (state == null) throw new UserFacingError("The project is not open yet. Try again in a moment.");
+    if (id === state.registry.activeModuleId) return run(state.store);
+    const entry = state.registry.modules.find((module) => module.id === id && module.archivedAt == null);
+    const sibling = this.siblingStores.storeOf(id);
+    if (entry == null || sibling == null) throw new UserFacingError("That module could not be read.");
+    const copy = createModuleStore(entry.content);
+    copy.setLinkedModules(sibling.linkedModules);
+    const result = run(copy);
+    const content = moduleContentOf(copy);
+    const current = this.readyState()!;
+    this.commitRegistry({ ...current.registry, modules: current.registry.modules.map((module) => (module.id === id ? { ...module, content } : module)) });
+    return result;
+  };
+
+  /**
+   * The project as an action of the spec owner's that shows another state
+   * would leave it, changing nothing: undo, redo, going to a step, importing
+   * a file in place of the project, restoring a restore point, or opening
+   * the project as it changed outside Requireganizer. Null when the action
+   * would show nothing else, such as with nothing to undo; an action that
+   * cannot be carried out throws as it would.
+   */
+  stateAfter = async (
+    action:
+      | { kind: "undo" }
+      | { kind: "redo" }
+      | { kind: "go to"; target: StepListTarget }
+      | { kind: "import"; text: string; fileName: string }
+      | { kind: "restore"; restorePointId: string }
+      | { kind: "open changed" },
+  ): Promise<ProjectState | null> => {
+    const state = this.readyState();
+    if (state == null) return null;
+    switch (action.kind) {
+      case "undo":
+      case "redo":
+      case "go to": {
+        const found = action.kind === "undo" ? this.keeper.undo() : action.kind === "redo" ? this.keeper.redo() : this.keeper.goTo(action.target);
+        return found == null ? null : this.keptState(found.state);
+      }
+      case "import":
+        return importedProject(action.text, action.fileName);
+      case "restore": {
+        const address = await this.heldRestorePoint(state.project.id, action.restorePointId, "restored");
+        return address == null ? null : this.keptState(address);
+      }
+      case "open changed": {
+        if (this.outsideChange?.kind !== "changed") return null;
+        const stored = await this.readStoredProject(state.project);
+        return stored.kind === "readable" ? stored.state : null;
+      }
+    }
   };
 
   /** Throws when the name is empty, invalid, or another module has it. */

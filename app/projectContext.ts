@@ -13,7 +13,7 @@ import type {
 import type { ProjectIdentity } from "lib/projectStorage";
 import type { ClientPersistence, StorageTraits } from "persistence";
 import type { ShownPreview } from "project-client";
-import type { AttentionOffer, ModuleSummary, ProjectSessionStatus } from "project-session";
+import type { ModuleSummary, ProjectSessionStatus } from "project-session";
 import type { ExportOptions, OutsideChange } from "storage";
 import type { Store } from "store";
 import type { SignatureFocusMove } from "workflow";
@@ -53,10 +53,6 @@ export interface ProjectContextValue {
   /** Show an earlier state in place of the project now; rejects, showing the project now, when it is no longer kept. */
   openPreview: (target: PreviewTarget) => Promise<void>;
   closePreview: () => void;
-  /** What the coding agent named for the spec owner's attention, oldest first. */
-  offers: AttentionOffer[];
-  /** Take away an offer, once taken or dismissed. */
-  dismissOffer: (offerId: string) => Promise<void>;
   /** Tell the project where the spec owner's focus is. */
   reportFocus: (place: FocusPlace | null) => void;
   /** Make a change that sends `move` with it; resolves to the unit the change moved the spec owner's focus to, null for none. */

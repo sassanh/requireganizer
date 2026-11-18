@@ -1,6 +1,6 @@
 "use client";
 
-import { Add, ArrowBack, Delete, Edit, KeyboardArrowDown, KeyboardArrowUp, MenuBook, Restore, Send } from "@mui/icons-material";
+import { Add, ArrowBack, Delete, Edit, KeyboardArrowDown, KeyboardArrowUp, MenuBook, Restore } from "@mui/icons-material";
 import {
   Alert,
   Autocomplete,
@@ -36,11 +36,11 @@ import type { CoverageState, ImpactState, ItemState, OutOfDateCause, UnitState, 
 import { revisionOf, textValue, type ItemVersion } from "../records";
 import { mentionMarkup, waitsForSpecOwner } from "../threads";
 import { STAGE_PROGRESS_LABELS, unitInPlaceOf, WAITING_CATEGORY_LABELS } from "../units";
-import { answeringSx } from "./answering";
 import { perform, type RemovedUnitMark, type RevealRequest, shownWithRemoved, type ThreadMark, useWorkflowNavigation, useWorkflowView } from "./context";
 import { FrameSchedule, FrameScheduleProvider } from "./frameSchedule";
 import ItemChip, { ItemOption, useItemLabel } from "./ItemChip";
 import ItemEditor, { type EditorTarget } from "./ItemEditor";
+import { Slot } from "./slots";
 import ThreadPanel from "./ThreadPanel";
 import ThreadView, { useThreadForm } from "./ThreadView";
 import UnitFrame, { SignatureLine } from "./UnitFrame";
@@ -642,12 +642,6 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
   };
   const [rulesOpen, setRulesOpen] = useState(false);
   const [compact, setCompact] = useState(false);
-  /** The action that completed this stage, for this visit only: the page offers writing the next stage until the person leaves. */
-  const [completedOn, setCompletedOn] = useState<{ module: WorkflowModule; stage: string } | null>(null);
-  const complete = summary.progress === "complete";
-  const justCompleted = complete && completedOn?.module === module && completedOn.stage === stage;
-  /** The last progress seen, so the transition to complete is noticed once, whatever action made it. */
-  const seen = useRef({ module, stage, complete });
   const containerRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
   const { opener, returnToOpener, revealRequest, revealed } = useWorkflowNavigation();
@@ -671,17 +665,6 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
     frames.start(containerRef.current!);
     return () => frames.stop();
   }, [frames]);
-
-  // A completion belongs to the visit that saw it: leaving the stage, switching module, or no longer being complete forgets it.
-  useEffect(() => {
-    const previous = seen.current;
-    seen.current = { module, stage, complete };
-    if (previous.module !== module || previous.stage !== stage) {
-      setCompletedOn(null);
-    } else if (complete !== previous.complete) {
-      setCompletedOn(complete ? { module, stage } : null);
-    }
-  }, [module, stage, complete]);
 
   /**
    * Focus a unit's card and scroll it into view clear of the sticky header, with a margin on either side.
@@ -977,14 +960,6 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
   if (summary.waiting.impacts > 0) waitingParts.push(`${summary.waiting.impacts} ${summary.waiting.impacts === 1 ? "impact" : "impacts"}`);
   const items = units.filter((unit): unit is ItemState => unit.kind === "item");
   const waitingShown = orderedUnits().some((unit) => module.waitsForSignature(unit));
-  // Besides the stages offered while empty, a sign that completes this stage offers writing the stages that build on it.
-  const stagesOffered = new Set(module.stagesToWriteAfter(stage));
-  if (justCompleted && summary.progress === "complete") {
-    for (const later of workflow.stagesBuildingOn(stage)) {
-      if (module.stageOpen(later) && !module.stageComplete(later)) stagesOffered.add(later);
-    }
-  }
-  const stagesToWrite = preview == null ? workflow.stageIds.filter((later) => stagesOffered.has(later)) : [];
   const progressBar = (
     <Stack direction="row" sx={{ alignItems: "center", gap: 1, flexGrow: 1 }}>
       <LinearProgress
@@ -1058,26 +1033,7 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
             {waitingParts.length === 0 ? "Nothing waits for a signature." : `Waiting for a signature: ${waitingParts.join(", ")}.`}
             {summary.threadsWaitingForSpecOwner > 0 ? ` ${summary.threadsWaitingForSpecOwner} ${summary.threadsWaitingForSpecOwner === 1 ? "thread waits" : "threads wait"} for you.` : ""}
           </Typography>
-          {stagesToWrite.map((later) => {
-            const asked = module.writingAskedOfAnswerer.some((ask) => ask.stage === later);
-            const writing = module.isBeingWritten(later);
-            const label = workflow.stage(later).label;
-            return (
-              <Box key={later}>
-                <Button
-                  size="small"
-                  variant={asked ? "outlined" : "contained"}
-                  startIcon={<Send />}
-                  disabled={asked}
-                  aria-busy={writing || undefined}
-                  sx={writing ? answeringSx : undefined}
-                  onClick={() => void perform(() => module.askToWrite(later), "The coding agent could not be asked.")}
-                >
-                  {writing ? `The coding agent is writing ${label}` : asked ? `Asked the coding agent to write ${label}` : `Ask the coding agent to write ${label}`}
-                </Button>
-              </Box>
-            );
-          })}
+          <Slot name="stage" props={{ stage, preview: preview != null }} />
           {!summary.open && !compact && (
             <Alert severity="info">
               Closed until {workflow.upstreamStages(stage).filter((upstream) => !module.stageComplete(upstream)).map((upstream) => workflow.stage(upstream).label).join(" and ")} {workflow.upstreamStages(stage).filter((upstream) => !module.stageComplete(upstream)).length === 1 ? "is" : "are"} complete. Its work stays readable.

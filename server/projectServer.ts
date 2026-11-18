@@ -1,8 +1,9 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { type AddressInfo, connect } from "node:net";
+import { join } from "node:path";
 import type { Duplex } from "node:stream";
 
-import type { AiSettingsSource } from "ai-agent/settings";
+import { fileRunAgents } from "agents/internal/fileRunAgents";
 import { ProjectHost } from "project-host";
 import { ProjectSession } from "project-session";
 
@@ -17,6 +18,7 @@ import {
   rememberPort,
   serverToken,
   stateDirectoryFor,
+  userStateDirectory,
 } from "./stateDirectory";
 
 /** The port a project is first served on, unless it is taken. */
@@ -24,8 +26,6 @@ export const DEFAULT_PORT = 4519;
 
 export interface ProjectServerOptions {
   projectFile: string;
-  /** The settings the installed AI runtime reads; checked here only to warn. */
-  aiSettings: AiSettingsSource;
   /**
    * The port to listen on. Without it, the port the project was last served
    * on, else the default; the first free one from there.
@@ -41,7 +41,7 @@ export interface ProjectServer {
   url: string;
   /** The project host, for a client in the same process. */
   host: ProjectHost;
-  /** Problems with the setup a person should fix, such as a missing API key. */
+  /** Problems with the setup a person should fix, such as a project file that cannot be read. */
   warnings: string[];
   /** Write every pending change; resolves once each is stored or failed. */
   flush(): Promise<void>;
@@ -151,12 +151,9 @@ async function serveClaimed(
     // The interface explains it too, and opens the project once it is fixed.
     warnings.push(error instanceof Error ? error.message : String(error));
   }
-  if (options.aiSettings.read().apiKey.length === 0) {
-    warnings.push("AI_API_KEY is not set, so AI actions fail until you set it and restart the server.");
-  }
 
   const session = new ProjectSession(adapter, { outsideChanges: adapter.outsideChanges });
-  const host = new ProjectHost(session);
+  const host = new ProjectHost(session, fileRunAgents(join(userStateDirectory(), "agents.json")));
   session.start();
 
   const token = serverToken(stateDirectory);

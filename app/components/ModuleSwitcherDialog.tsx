@@ -19,6 +19,7 @@ import {
 } from "@mui/material";
 import { useState } from "react";
 
+import { ModuleWorkingSign } from "agents/ui";
 import { useProject } from "projectContext";
 
 import { NameField, RenameableName, RenameButton } from "./RenameableName";
@@ -182,6 +183,7 @@ export default function ModuleSwitcherDialog({
                 <ListItemText primary={module.name} />
                 {module.active ? <Check color="primary" fontSize="small" /> : null}
               </ListItemButton>
+              <ModuleWorkingSign moduleId={module.id} />
             </ListItem>
           ))}
         </List>

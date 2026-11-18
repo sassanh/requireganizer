@@ -1,8 +1,5 @@
 import type { Model } from "@earendil-works/pi-ai";
 
-export const DEFAULT_AI_BASE_URL = "https://openrouter.ai/api/v1";
-export const DEFAULT_AI_MODEL_ID = "nvidia/nemotron-3-ultra-550b-a55b:free";
-
 /**
  * A model served by the configured OpenAI-compatible endpoint, for the pi
  * agent runtime. Requests use the Responses API with reasoning efforts

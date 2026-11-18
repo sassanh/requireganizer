@@ -2,7 +2,7 @@ import { InvalidJsonError, isRecord } from "lib/json";
 
 import type { Signer } from "./records";
 
-/** Who wrote a thread message: the spec owner, a model, or a coding agent by the name it gave. */
+/** Who wrote a thread message: the spec owner, a model, or an agent by its name. */
 export type ThreadAuthor = Signer | { kind: "agent"; name: string };
 
 export interface ThreadMessage {
@@ -12,6 +12,8 @@ export interface ThreadMessage {
   at: string | null;
   /** The message answered with changes to items, not only words. */
   withChanges?: true;
+  /** What another module says of the message, by its own keys; kept with the message and never read here. */
+  annotations?: Readonly<Record<string, unknown>>;
 }
 
 /**
@@ -56,22 +58,6 @@ export function authorLabel(author: ThreadAuthor): string {
 /** An open thread waits for the spec owner while its last message is not theirs. */
 export function waitsForSpecOwner(thread: Thread): boolean {
   return thread.resolution == null && thread.messages.at(-1)?.author.kind !== "person";
-}
-
-/** An open thread waits for its answerer while its last message is the spec owner's. */
-export function waitsForAnswerer(thread: Thread): boolean {
-  return thread.resolution == null && thread.messages.at(-1)?.author.kind === "person";
-}
-
-/** One turn of a thread: it changes with every message, so whatever concerned a turn ends with it. */
-export function threadTurn(thread: Thread): string {
-  return `${thread.id}:${thread.messages.length}`;
-}
-
-/** An answerer at work on one turn, of a thread or of a request to write a stage, by the connection that took it up. */
-export interface TurnInHand {
-  turn: string;
-  by: string;
 }
 
 /**
@@ -158,30 +144,6 @@ export function mentionedItem(href: string): string | null {
   return href.startsWith(MENTION_SCHEME) && href.length > MENTION_SCHEME.length ? href.slice(MENTION_SCHEME.length) : null;
 }
 
-/** How an answerer through the agent interface writes a marked mention, and what it is. */
-export const MENTION_MARKUP_TEXT =
-  "A marked mention ties a part of a reply to one item: write it [CODE](item:ID), with the item's code and id as get_items gives them, or [Module name/CODE](item:ID) for an item of another module than the thread's, whose code and id get_items gives when passed that module. The spec owner sees it by the item's code at the time they read it, with a preview and a way to open it; a code written outside a marked mention is plain text, tied to no item. A reply holding a marked mention whose code names no item, or another item than its id, is refused. In a reply sent with write_items, mark an item the write adds as [](change:N), N being the place of its add change among the changes, counting from 1; the spec owner sees it by the code the item gets. A reply is refused if N is not among its changes or that change adds no item.";
-
-/** The rules every reply of an answerer through the agent interface follows. */
-export const REPLY_RULES: readonly string[] = [
-  "it speaks only to its thread's request;",
-  "it makes sense read on its own;",
-  "it gives an item's code only inside a marked mention of that item; and",
-  "it names each item that no longer exists when the reply is sent by what the item said, never by a code.",
-];
-
-/** The reply rules and the mention markup as one text, for an answerer through the agent interface. */
-export function replyRulesText(): string {
-  return `Each reply follows these rules: ${REPLY_RULES.join(" ")} ${MENTION_MARKUP_TEXT}`;
-}
-
-/** The thread as one text, for an answerer that reads it as a request. */
-export function threadText(thread: Thread): string {
-  return thread.messages
-    .map(({ author, text }) => `${author.kind === "person" ? "Spec owner" : authorLabel(author)}: ${text}`)
-    .join("\n");
-}
-
 function author(value: unknown, label: string): ThreadAuthor {
   if (isRecord(value)) {
     if (value.kind === "person") return { kind: "person" };
@@ -227,6 +189,7 @@ export function parseThreads(value: unknown): Thread[] {
           text: message.text,
           at: message.at as string | null,
           ...(message.withChanges === true ? { withChanges: true as const } : {}),
+          ...(isRecord(message.annotations) ? { annotations: message.annotations } : {}),
         };
       }),
     };

@@ -226,11 +226,16 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
   /** The record in the state directory; null when there is none or it cannot be read, so there is nothing to compare with. */
   private storedRecord(): ProjectRecord | null {
     try {
-      const source = readIfPresent(this.recordPath());
-      return source == null ? null : parseProjectRecord(JSON.parse(source));
+      return this.readRecord();
     } catch {
       return null;
     }
+  }
+
+  /** The record in the state directory; null when there is none. */
+  private readRecord(): ProjectRecord | null {
+    const source = readIfPresent(this.recordPath());
+    return source == null ? null : parseProjectRecord(JSON.parse(source));
   }
 
   private currentOutsideChange(): OutsideChange | null {
@@ -453,11 +458,7 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
   };
 
   readonly record: RecordPersistence = {
-    load: () =>
-      this.queued(() => {
-        const source = readIfPresent(this.recordPath());
-        return source == null ? null : parseProjectRecord(JSON.parse(source));
-      }),
+    load: () => this.queued(() => this.readRecord()),
     pieceAddresses: () =>
       this.queued(() => {
         const objects = this.objectsPath();

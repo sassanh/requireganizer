@@ -11,10 +11,10 @@ import { SEND_SHORTCUT_SPEC } from "actions/shortcutText";
 import { autoScrollBehavior } from "lib/scroll";
 
 import { authorLabel, type Thread, waitsForSpecOwner } from "../threads";
-import { answeringSx } from "./answering";
 import { type MessagePlace, messageAttributes, messageElement, perform, useWorkflowView } from "./context";
 import { useItemName } from "./ItemChip";
 import MentionField, { type MessageDraft, messageText } from "./MentionField";
+import { Slot, useWorkflowSlots } from "./slots";
 import WrittenText from "./WrittenText";
 
 /** A thread's messages, each one focusable, so the page can return to the one an item was opened from. */
@@ -70,7 +70,7 @@ const ThreadPanel = observer(function ThreadPanel({
   const nameOf = useItemName();
   const open = threads.find(({ resolution }) => resolution == null) ?? null;
   const resolved = threads.filter(({ resolution }) => resolution != null);
-  const answering = open != null && module.isBeingAnswered(open.id);
+  const slots = useWorkflowSlots();
   const draftKey = unitId ?? open?.id ?? "";
   const [draft, setDraftState] = useState(() => drafts.get(draftKey) ?? null);
   const setDraft = (value: MessageDraft | null) => {
@@ -81,14 +81,21 @@ const ThreadPanel = observer(function ThreadPanel({
   const sendLabel = open == null ? "Send change request" : "Send";
 
   // Each marked mention is sent by its item's name now, which the store checks against its id.
-  const send = async () => {
+  const send = async (): Promise<string | null> => {
     const message = messageText(draft, nameOf).trim();
-    if (message.length === 0) return;
-    const sent = await perform(
-      () => (unitId == null ? module.replyAsSpecOwner(open!.id, message) : module.requestChange(unitId, message)),
-      "The message could not be sent.",
-    );
-    if (sent) setDraft(null);
+    if (message.length === 0) return null;
+    let threadId: string | null = null;
+    const sent = await perform(async () => {
+      if (unitId == null) {
+        await module.replyAsSpecOwner(open!.id, message);
+        threadId = open!.id;
+      } else {
+        threadId = (await module.requestChange(unitId, message)) as string;
+      }
+    }, "The message could not be sent.");
+    if (!sent) return null;
+    setDraft(null);
+    return threadId;
   };
 
   const resolve = async () => {
@@ -128,19 +135,20 @@ const ThreadPanel = observer(function ThreadPanel({
         if (event.key !== SEND_SHORTCUT_SPEC.key || (!event.metaKey && !event.ctrlKey)) return;
         event.preventDefault();
         if (event.shiftKey) void resolve();
+        else if (slots.send != null) void slots.send.submit(send);
         else void send();
       }}
     >
       {open != null && (
         <Typography
           variant="overline"
-          aria-busy={answering || undefined}
           color={waitsForSpecOwner(open) ? "warning.main" : "text.secondary"}
-          sx={[{ alignSelf: "flex-start", flexShrink: 0, px: 1, borderRadius: 1 }, answering && answeringSx]}
+          sx={{ alignSelf: "flex-start", flexShrink: 0, px: 1, borderRadius: 1 }}
         >
-          {waitsForSpecOwner(open) ? "Open thread · waits for you" : answering ? "Open thread · the coding agent is answering" : "Open thread · waits for the coding agent"}
+          {waitsForSpecOwner(open) ? "Open thread · waits for you" : "Open thread"}
         </Typography>
       )}
+      {open != null && <Slot name="thread" props={{ threadId: open.id, preview: preview != null }} />}
       <Stack ref={history} spacing={1.5} sx={{ minHeight: 0, flexShrink: 1, overflowY: "auto" }}>
         {resolved.length > 0 && (
           <Button size="small" sx={{ alignSelf: "flex-start" }} onClick={() => setShowResolved(!resolvedShown)}>
@@ -172,13 +180,17 @@ const ThreadPanel = observer(function ThreadPanel({
                 </IconButton>
               </ActionTooltip>
             )}
-            <ActionTooltip name={sendLabel} shortcut={SEND_SHORTCUT_SPEC}>
-              <span>
-                <IconButton size="small" color="primary" aria-label={sendLabel} disabled={messageText(draft, nameOf).trim().length === 0} onClick={() => void send()}>
-                  <Send fontSize="small" />
-                </IconButton>
-              </span>
-            </ActionTooltip>
+            {slots.send != null ? (
+              slots.send.render({ label: sendLabel, disabled: messageText(draft, nameOf).trim().length === 0, unitId, threadId: open?.id ?? null, send })
+            ) : (
+              <ActionTooltip name={sendLabel} shortcut={SEND_SHORTCUT_SPEC}>
+                <span>
+                  <IconButton size="small" color="primary" aria-label={sendLabel} disabled={messageText(draft, nameOf).trim().length === 0} onClick={() => void send()}>
+                    <Send fontSize="small" />
+                  </IconButton>
+                </span>
+              </ActionTooltip>
+            )}
           </Stack>
         </Stack>
       )}

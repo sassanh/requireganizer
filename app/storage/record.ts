@@ -5,8 +5,8 @@ import { type Address, isAddress } from "./pieces";
 /**
  * What storage keeps beside a project, never in it: the state it last wrote
  * for certain, the state being written while a write is under way, and the
- * project's history and the offers of what the coding agent named for the
- * spec owner's attention, which storage holds whole and never reads.
+ * project's history and the offers of what agents pointed the spec owner
+ * to, which storage holds whole and never reads.
  */
 export interface ProjectRecord {
   lastWritten: Address | null;

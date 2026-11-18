@@ -58,8 +58,3 @@ export const previousMarkShortcut: ShortcutSpec = { key: "n", shift: true };
 /** Close a preview, showing the project now. */
 export const closePreviewShortcut: ShortcutSpec = { key: "Escape", shift: true };
 
-/** Go to what the coding agent named last for the spec owner's attention. */
-export const takeOfferShortcut: ShortcutSpec = { key: "o" };
-
-/** Dismiss what the coding agent named last for the spec owner's attention. */
-export const dismissOfferShortcut: ShortcutSpec = { key: "o", shift: true };

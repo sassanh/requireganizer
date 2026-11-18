@@ -12,36 +12,7 @@
   "mcpServers": {
     "requireganizer": {
       "command": "npx",
-      "args": ["-y", "requireganizer@0.1.1", "mcp"],
-      "env": {
-        "AI_API_KEY": "${user_config.ai_api_key}",
-        "AI_BASE_URL": "${user_config.ai_base_url}",
-        "AI_MODEL": "${user_config.ai_model}",
-        "AI_REVIEWER_MODEL": "${user_config.ai_reviewer_model}"
-      }
-    }
-  },
-  "userConfig": {
-    "ai_api_key": {
-      "type": "string",
-      "title": "AI API key",
-      "description": "Key for the AI endpoint, for Requireganizer's own AI. Empty means the person reviews alone.",
-      "sensitive": true
-    },
-    "ai_base_url": {
-      "type": "string",
-      "title": "AI endpoint",
-      "description": "An OpenAI-compatible Responses API. Empty means OpenRouter."
-    },
-    "ai_model": {
-      "type": "string",
-      "title": "Writer model",
-      "description": "The model Requireganizer writes with. Empty means its default model."
-    },
-    "ai_reviewer_model": {
-      "type": "string",
-      "title": "Reviewer model",
-      "description": "The model that reviews each submission. Empty means no automatic review."
+      "args": ["-y", "requireganizer@0.1.1", "mcp"]
     }
   }
 }

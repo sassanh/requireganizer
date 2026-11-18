@@ -75,6 +75,8 @@ function exportedStage(stage: StageContent, option: ExportOptions["signatures"])
     })),
     coverages: exportedSignatures(stage.coverages, option),
     impacts: exportedSignatures(stage.impacts, option),
+    // An export without signature times holds no time the stage became complete either.
+    completedAt: null,
   };
 }
 

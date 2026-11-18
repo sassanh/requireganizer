@@ -83,17 +83,20 @@ export interface ModuleDifference {
   nameThen: string;
 }
 
-/** A stage that bringing an earlier state back would ask of the coding agent, asking it anew, or no longer ask. */
-export interface AskDifference {
-  moduleId: string;
-  module: string;
-  stage: string;
-  change: "ask" | "withdraw";
+/**
+ * A section of the project another module owns whose value differs: its
+ * owner, and its value in the earlier state and now, which only the owner
+ * reads.
+ */
+export interface SectionDifference {
+  section: string;
+  then: unknown;
+  now: unknown;
 }
 
 /**
  * How an earlier state differs from the project now: its modules, whether
- * it has modules turned on, the stages asked of the coding agent, then unit
+ * it has modules turned on, the sections other modules own, then unit
  * by unit and thread by thread on removed units, in the order the modules
  * and stages show them. `modulesEnabled` is the earlier state's, when it
  * differs.
@@ -102,7 +105,7 @@ export interface StateDifference {
   same: boolean;
   modulesEnabled: boolean | null;
   modules: ModuleDifference[];
-  asks: AskDifference[];
+  sections: SectionDifference[];
   units: UnitDifference[];
   threads: ThreadDifference[];
 }
@@ -159,18 +162,13 @@ export interface StoredModuleDifference {
   change: ModuleChange;
 }
 
-/** An `AskDifference` as a step keeps it. */
-export interface StoredAskDifference {
-  moduleId: string;
-  stage: string;
-  change: "ask" | "withdraw";
-}
 
 /** A `StateDifference` as a step keeps it. */
 export interface StoredDifference {
   modulesEnabled: boolean | null;
   modules: StoredModuleDifference[];
-  asks: StoredAskDifference[];
+  /** The owners of the sections that differ; their values are read from the states. */
+  sections: string[];
   units: StoredUnitDifference[];
   threads: StoredThreadDifference[];
 }
@@ -256,23 +254,18 @@ function parseModuleDifference(value: unknown, label: string): StoredModuleDiffe
   return { moduleId: readText(fields.moduleId, `${label} moduleId`), change: fields.change as ModuleChange };
 }
 
-function parseAskDifference(value: unknown, label: string): StoredAskDifference {
-  const fields = exactRecord(value, label, ["moduleId", "stage", "change"]);
-  if (fields.change !== "ask" && fields.change !== "withdraw") throw new InvalidJsonError(`${label} change must be ask or withdraw.`);
-  return { moduleId: readText(fields.moduleId, `${label} moduleId`), stage: readText(fields.stage, `${label} stage`), change: fields.change };
-}
 
 /** A difference as a step keeps it, read; throws what is wrong with it, naming `label`. */
 export function parseStoredDifference(value: unknown, label: string): StoredDifference {
-  const fields = exactRecord(value, label, ["modulesEnabled", "modules", "asks", "units", "threads"]);
+  const fields = exactRecord(value, label, ["modulesEnabled", "modules", "sections", "units", "threads"]);
   if (fields.modulesEnabled !== null && typeof fields.modulesEnabled !== "boolean") throw new InvalidJsonError(`${label} modulesEnabled must be true, false or null.`);
-  for (const key of ["modules", "asks", "units", "threads"]) {
+  for (const key of ["modules", "sections", "units", "threads"]) {
     if (!Array.isArray(fields[key])) throw new InvalidJsonError(`${label} ${key} must be a list.`);
   }
   return {
     modulesEnabled: fields.modulesEnabled,
     modules: (fields.modules as unknown[]).map((module, index) => parseModuleDifference(module, `${label} module ${index + 1}`)),
-    asks: (fields.asks as unknown[]).map((ask, index) => parseAskDifference(ask, `${label} ask ${index + 1}`)),
+    sections: (fields.sections as unknown[]).map((section, index) => readText(section, `${label} section ${index + 1}`)),
     units: (fields.units as unknown[]).map((unit, index) => parseUnitDifference(unit, `${label} unit ${index + 1}`)),
     threads: (fields.threads as unknown[]).map((thread, index) => parseThreadDifference(thread, `${label} thread ${index + 1}`)),
   };
@@ -575,26 +568,32 @@ export class StateComparer {
     const enabledThen = this.pieces.modulesEnabledAt(there);
     return {
       modulesEnabled: here !== there && enabledThen !== this.pieces.modulesEnabledAt(here) ? enabledThen : null,
-      ...this.moduleDifferences(here, there),
+      modules: this.moduleDifferences(here, there),
+      sections: this.sectionDifferences(here, there),
       units: pairs.flatMap((pair) => this.stageDifference(pair)),
       threads: pairs.flatMap((pair) => this.threadDifferences(pair)),
     };
   }
 
+  /** The owners of the sections whose values differ between the states at `here` and `there`. */
+  private sectionDifferences(here: Address, there: Address): string[] {
+    if (here === there) return [];
+    const now = this.pieces.sectionsAt(here);
+    const then = this.pieces.sectionsAt(there);
+    return [...new Set([...Object.keys(then), ...Object.keys(now)])].filter((section) => serializeCanonical(then[section] ?? null) !== serializeCanonical(now[section] ?? null));
+  }
+
   /**
    * What going from `here` to `there` does to the project's modules, in the
-   * order `there` holds them, then those only `here` holds, and to the
-   * stages asked of the coding agent: a stage `there` asks for and `here`
-   * does not, or asks for again, is asked; one only `here` asks for is withdrawn.
+   * order `there` holds them, then those only `here` holds.
    */
-  private moduleDifferences(here: Address, there: Address): Pick<StoredDifference, "modules" | "asks"> {
-    if (here === there) return { modules: [], asks: [] };
+  private moduleDifferences(here: Address, there: Address): StoredModuleDifference[] {
+    if (here === there) return [];
     const now = this.pieces.modulesAt(here);
     const then = this.pieces.modulesAt(there);
     const nowById = new Map(now.map((module) => [module.id, module]));
     const thenIds = new Set(then.map(({ id }) => id));
     const modules: StoredModuleDifference[] = [];
-    const asks: StoredAskDifference[] = [];
     for (const entry of [...then, ...now.filter(({ id }) => !thenIds.has(id))]) {
       const inNow = nowById.get(entry.id) ?? null;
       const inThen = thenIds.has(entry.id) ? entry : null;
@@ -606,12 +605,8 @@ export class StateComparer {
         if (inThen.archivedAt == null && inNow.archivedAt != null) modules.push({ moduleId, change: "bring back" });
         if (inThen.name !== inNow.name) modules.push({ moduleId, change: "rename" });
       }
-      const askedNow = new Map((inNow?.writingAsked ?? []).map(({ stage, at }) => [stage, at]));
-      const askedThen = new Map((inThen?.writingAsked ?? []).map(({ stage, at }) => [stage, at]));
-      for (const [stage, at] of askedThen) if (askedNow.get(stage) !== at) asks.push({ moduleId, stage, change: "ask" });
-      for (const stage of askedNow.keys()) if (!askedThen.has(stage)) asks.push({ moduleId, stage, change: "withdraw" });
     }
-    return { modules, asks };
+    return modules;
   }
 
   /**
@@ -629,7 +624,9 @@ export class StateComparer {
       return { nameNow: (inNow ?? inThen)!.name, nameThen: (inThen ?? inNow)!.name };
     };
     const modules = stored.modules.map((module): ModuleDifference => ({ ...module, ...named(module.moduleId) }));
-    const asks = stored.asks.map((ask): AskDifference => ({ ...ask, module: named(ask.moduleId).nameThen }));
+    const sectionsNow = this.pieces.sectionsAt(here);
+    const sectionsThen = this.pieces.sectionsAt(there);
+    const sections = stored.sections.map((section): SectionDifference => ({ section, then: sectionsThen[section] ?? null, now: sectionsNow[section] ?? null }));
     const modulesThen = this.modulesAt(there);
     const modulesNow = this.modulesAt(here);
     // Named as the earlier state names it, or as the project does now for a module only it holds.
@@ -671,7 +668,7 @@ export class StateComparer {
         onlyNow: earlier == null,
       };
     });
-    return { same: here === there, modulesEnabled: stored.modulesEnabled, modules, asks, units, threads };
+    return { same: here === there, modulesEnabled: stored.modulesEnabled, modules, sections, units, threads };
   }
 
   /** The units a module's stage shows in the state at an address, in order, read once. */

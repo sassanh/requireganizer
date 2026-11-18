@@ -2,7 +2,7 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 
 import { isRecord, parseJson } from "lib/json";
-import type { Thread, WritingAsk } from "workflow";
+import type { Thread } from "workflow";
 
 import { serializeCanonical } from "./canonicalJson";
 import { parseProject } from "./parseProject";
@@ -10,6 +10,7 @@ import {
   PROJECT_SCHEMA_VERSION,
   type ModuleContent,
   type ModuleState,
+  type ProjectSections,
   type ProjectState,
   type StageContent,
   type StoredItem,
@@ -73,8 +74,6 @@ export interface ModulePieces {
   address: Address;
   stages: Record<string, Address>;
   threads: Address[];
-  /** The stages asked of the coding agent, as the module's piece holds them. */
-  writingAsked: WritingAsk[];
 }
 
 /**
@@ -113,7 +112,7 @@ export class PieceStore {
     const modules = state.modules.map((module) => this.moduleAddress(module));
     return this.hold(
       "project",
-      { schemaVersion: PROJECT_SCHEMA_VERSION, modulesEnabled: state.modulesEnabled, modules },
+      { schemaVersion: PROJECT_SCHEMA_VERSION, modulesEnabled: state.modulesEnabled, modules, sections: state.sections },
       modules.map((address) => [address, "module"] as const),
     );
   }
@@ -192,9 +191,13 @@ export class PieceStore {
         address: moduleAddress,
         stages: content.stages as Record<string, Address>,
         threads: textsOf(content.threads),
-        writingAsked: content.writingAsked as WritingAsk[],
       };
     });
+  }
+
+  /** The sections of the state at an address, as its project piece holds them. */
+  sectionsAt(address: Address): ProjectSections {
+    return this.read(address).sections as ProjectSections;
   }
 
   /** Whether the state at an address has its modules turned on. */
@@ -230,7 +233,7 @@ export class PieceStore {
     const known = this.moduleContents.get(moduleAddress) ?? null;
     const node = known == null ? this.moduleNode(moduleAddress) : this.read(moduleAddress);
     // A project holds a module that is not archived, so the module is read as one.
-    const [parsed] = parseProject({ schemaVersion: PROJECT_SCHEMA_VERSION, modulesEnabled: true, modules: [{ ...node, archivedAt: null }] }, [known]).modules;
+    const [parsed] = parseProject({ schemaVersion: PROJECT_SCHEMA_VERSION, modulesEnabled: true, modules: [{ ...node, archivedAt: null }], sections: {} }, [known]).modules;
     const read = { ...parsed!, archivedAt: node.archivedAt as string | null };
     this.recognise(read, moduleAddress);
     return read;

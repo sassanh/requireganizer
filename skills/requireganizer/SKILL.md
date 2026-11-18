@@ -23,14 +23,24 @@ tool signs.
 
 ## Read before you act
 
+- Give yourself a name with `name_yourself` before anything else: the one
+  your user calls you by, or ask them.
 - Call `get_workflow_state` first, and again after anything changes. A stage
   in its `stagesWaitingForYou` is one the person asks you to write next.
+  Pass `fulfils` with that stage in the `write_items` call that completes
+  it, which may change no item.
+- A stage in its `stagesToReviewForYou` is one the person asks you to
+  review. Check each item against the published rules of its kind, then
+  answer with `answer_review`, naming each item that breaks a rule, the rule
+  and how it breaks it, or none.
+- When you cannot answer a request given to you, say why with
+  `report_cannot_answer`.
 - Before writing a stage, read the rules of each kind of item it holds with
   `get_stage_rules`, and follow them: the person signs against the same
   rules.
-- To work on a module other than the one the person has open, call
-  `switch_module` with a name `get_workflow_state` lists. The person's page
-  opens that module too; call `get_workflow_state` again before working on it.
+- To work on a module other than the one the person has open, pass `module`
+  with a name `get_workflow_state` lists under `otherModules`. Codes and
+  `codesVersion` are then that module's.
 - Read items with `get_items` again before changing or citing them, rather
   than relying on an earlier read: codes are positions and move.
 
@@ -110,15 +120,17 @@ tool signs.
   counting from 1; it has no code or id before the write.
 - Name an item that no longer exists by what it said, never by a code.
 
-## Pointing the person to a unit
+## Pointing the person to units
 
-- When one item, coverage or impact needs the person's attention, pass
-  `pointTo` with `write_items` or `reply_to_thread`: `item` as its code, or
-  `Module name/CODE` for another module's; for its coverage or impact, add
-  `unit` and the `stage` that holds it; for an item the same write adds,
-  `change` instead of `item`, the place of its add change among the
-  changes, counting from 1. Give `text`, at most 80 characters, saying why.
-- The person is offered a way to go there; their focus stays where it is.
+- When items, coverages or impacts need the person's attention, pass
+  `pointTo` with `write_items` or `reply_to_thread`: `units`, each with
+  `item` as its code, or `Module name/CODE` for another module's; for its
+  coverage or impact, add `unit` and the `stage` that holds it; for an item
+  the same write adds, `change` instead of `item`, the place of its add
+  change among the changes, counting from 1. Give one `text` for the set,
+  at most 80 characters, saying why.
+- The person is offered a way to go to each in turn; their focus stays
+  where it is.
 - A pointer that names nothing, names a change that adds no item, or has no
   text or a longer one refuses the whole call, which changes nothing.
 

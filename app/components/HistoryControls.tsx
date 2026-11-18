@@ -145,9 +145,9 @@ function HistoryPanel({ onClose }: { onClose: () => void }) {
           const ledToNow = step.place === "current" || step.place === "done";
           return (
             <ListItem key={step.id} sx={{ display: "block", px: 2, opacity: ledToNow ? 1 : 0.6 }}>
-              <ListedStateHead label={kindLabel(step.kind)} place={step.place} target={{ kind: "step", id: step.id }} onPreview={onClose} />
+              <ListedStateHead label={step.description ?? kindLabel(step.kind)} place={step.place} target={{ kind: "step", id: step.id }} onPreview={onClose} />
               <Typography variant="caption" sx={{ display: "block", color: "text.secondary" }}>
-                {step.by === "coding agent" ? "Coding agent" : "You"}, {new Date(step.at).toLocaleString()}
+                {step.by.kind === "agent" ? step.by.name : "You"}, {new Date(step.at).toLocaleString()}
               </Typography>
               {step.change != null && <DifferenceList difference={step.change} withModules={modulesEnabled} reading="step" />}
             </ListItem>

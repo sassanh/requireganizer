@@ -6,20 +6,20 @@ import { AppRouterCacheProvider } from "@mui/material-nextjs/v15-appRouter";
 import { saveAs } from "file-saver";
 import { memo, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
-import { installAiRuntime } from "ai-agent/runtime";
+import { AGENTS_SECTION, type AttentionOffer, browserRunAgents, parseAgentsSection, type PointedPlace, requestsOfModule } from "agents";
+import { agentsContext, type AgentsPageValue, AgentsWorkflowSlots } from "agents/ui";
 import Link from "components/Link";
 import { NoticeHost } from "components/NoticeHost";
 import PersistentAlert from "components/PersistentAlert";
 import { connectWebSocket, linkInProcess, linkUrlFor } from "connection";
 import { PROJECT_HOST_LOCATION } from "deployment";
 import type { ListedRestorePoint } from "history";
-import { browserAiSettings } from "lib/aiSettingsStorage";
 import { webPersistence } from "persistence";
 import { type ConnectionStatus, ProjectClient } from "project-client";
 import { ProjectHost } from "project-host";
-import { type AttentionOffer, moduleSummaries, ProjectSession } from "project-session";
+import { moduleSummaries, ProjectSession } from "project-session";
 import { type ExportOptions, webProjectAuthority } from "storage";
-import { storeContext } from "store";
+import { storeContext, WORKFLOW } from "store";
 
 import { projectContext, type ProjectContextValue } from "./projectContext";
 import { theme } from "./theme";
@@ -51,10 +51,9 @@ function connectProject(): ProjectConnection {
       client: new ProjectClient(() => connectWebSocket(linkUrlFor(window.location.href)), { timeZone: pageTimeZone() }),
     };
   }
-  installAiRuntime(browserAiSettings);
   // Every tab builds its own host; the lock makes one of them the project's writer.
   const session = new ProjectSession(webPersistence, { authority: webProjectAuthority });
-  const host = new ProjectHost(session);
+  const host = new ProjectHost(session, browserRunAgents());
   return { session, client: new ProjectClient(() => linkInProcess(host), { timeZone: pageTimeZone() }) };
 }
 
@@ -135,6 +134,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
   // A preview is no place in the history, so it has nothing to undo or redo.
   const history = sessionState.status === "ready" && preview == null ? sessionState.history : null;
   const offers = sessionState.status === "ready" ? sessionState.offers : NO_OFFERS;
+  const agents = useSyncExternalStore(client.subscribe, client.agents.getView, client.agents.getView);
   const { storage } = useSyncExternalStore(
     client.subscribe,
     client.getHostInfo,
@@ -201,8 +201,6 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     preview,
     openPreview: client.openPreview,
     closePreview: client.closePreview,
-    offers,
-    dismissOffer: client.dismissOffer,
     reportFocus: client.reportFocus,
     withFocusMove: client.withFocusMove,
     moduleStore: client.moduleStore,
@@ -231,13 +229,39 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     importNewProject: client.importNewProject,
     importProjectFile: client.importProjectFile,
     exportProject,
-  }), [client, status, activeProject, persistenceError, outsideChange, history, preview, offers, storage, registry, exportProject]);
+  }), [client, status, activeProject, persistenceError, outsideChange, history, preview, storage, registry, exportProject]);
+
+  const agentsValue = useMemo((): AgentsPageValue => {
+    const stageLabel = (stage: string) => (WORKFLOW.isStage(stage) ? WORKFLOW.stage(stage).label : stage);
+    const section = parseAgentsSection(registry?.sections[AGENTS_SECTION]);
+    const activeModuleId = registry?.activeModuleId ?? "";
+    return {
+      activeModuleId,
+      activeModuleName: registry?.modulesEnabled ? (registry.modules.find(({ id }) => id === activeModuleId)?.name ?? null) : null,
+      moduleStore: client.moduleStore,
+      requestsOf: (moduleId: string) => requestsOfModule(section, moduleId),
+      client: client.agents,
+      view: agents,
+      offers,
+      dismissOffer: client.dismissOffer,
+      stageLabel,
+      placeLabel: (place: PointedPlace) => {
+        const label = client.moduleStore(place.moduleId)?.unitLabel(place.unitId) ?? "a removed item";
+        const moduleName = registry?.modulesEnabled ? registry.modules.find(({ id }) => id === place.moduleId)?.name : undefined;
+        return [label, moduleName, WORKFLOW.isStage(place.stage) ? stageLabel(place.stage) : null].filter((part) => part != null).join(", ");
+      },
+    };
+  }, [client, agents, offers, registry]);
 
   return (
     <projectContext.Provider value={contextValue}>
-      <storeContext.Provider value={store}>
-        <PageShell connection={connection}>{children}</PageShell>
-      </storeContext.Provider>
+      <agentsContext.Provider value={agentsValue}>
+        <AgentsWorkflowSlots>
+          <storeContext.Provider value={store}>
+            <PageShell connection={connection}>{children}</PageShell>
+          </storeContext.Provider>
+        </AgentsWorkflowSlots>
+      </agentsContext.Provider>
     </projectContext.Provider>
   );
 }

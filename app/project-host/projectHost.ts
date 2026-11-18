@@ -1,4 +1,3 @@
-import { reaction } from "mobx";
 import {
   getMembers,
   getSnapshot,
@@ -7,8 +6,7 @@ import {
   onSnapshot,
 } from "mobx-state-tree";
 
-import { type AgentCaller, agentToolChange, agentToolDescriptions, callAgentTool, type OpenModule, readToolDescriptions } from "ai-agent/agent-access";
-import { aiSettings } from "ai-agent/settings";
+import { AgentsHost, RequestsConcernedError, type RunAgentsSource } from "agents";
 import {
   type ClientMessage,
   type HostApi,
@@ -33,30 +31,18 @@ import { activeModule, visibleModuleNamed, visibleModules } from "lib/moduleSche
 import type { StorageTraits } from "persistence";
 import type { ProjectSession, ProjectSessionSnapshot } from "project-session";
 import type { ModuleContent, ModuleRegistry } from "storage";
-import {
-  replicatedVolatileState,
-  type ReplicatedVolatileState,
-  type Store,
-} from "store";
+import type { Store } from "store";
 import { uuid } from "utilities";
 
 function wireError(error: unknown): WireError {
+  if (error instanceof RequestsConcernedError) return { name: error.name, message: error.message, concerned: error.requests };
   return error instanceof Error
     ? { name: error.name, message: error.message }
     : { name: "Error", message: String(error) };
 }
 
 function hostInfo(storage: StorageTraits): HostInfo {
-  const settings = aiSettings();
-  return {
-    reviewerModel: settings.read().reviewerModel,
-    missingReviewerModelMessage: settings.missingReviewerModelMessage,
-    storage,
-  };
-}
-
-function sameHostInfo(left: HostInfo, right: HostInfo): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
+  return { storage };
 }
 
 function contentsOf(registry: ModuleRegistry | null): Map<string, ModuleContent> {
@@ -75,7 +61,6 @@ const PAGE_ACTION_KINDS = {
   requestChange: "thread message",
   replyAsSpecOwner: "thread message",
   resolveThread: "thread resolution",
-  askToWrite: "request to write a stage",
 } as const satisfies { readonly [Name in keyof Store]?: ChangeKind };
 
 function pageActionKind(name: string): ChangeKind {
@@ -107,13 +92,18 @@ export class ProjectHost implements HostEndpoint {
   private sentRegistry: ModuleRegistry | null = null;
   /** The module contents every client holds, by module id. */
   private sentContents = new Map<string, ModuleContent>();
-  private sentVolatile: ReplicatedVolatileState | null = null;
   private pendingPatches: IJsonPatch[] = [];
   private flushScheduled = false;
+  /** The agents of the project, the requests they have, and the agent interface. */
+  readonly agents: AgentsHost;
 
-  constructor(session: ProjectSession) {
+  constructor(session: ProjectSession, runAgents: RunAgentsSource) {
     this.session = session;
     this.sentHostInfo = hostInfo(session.persistence.traits);
+    this.agents = new AgentsHost(session, runAgents, (view) => {
+      if (this.links.size > 0) this.broadcast({ type: "agents", view });
+    });
+    const replacing = this.agents.clearReplacing.bind(this.agents);
     const moduleChange = <Result>(run: () => Result): Result => session.change("module change", run);
     this.api = {
       selectProject: (id, name, options) =>
@@ -129,15 +119,30 @@ export class ProjectHost implements HostEndpoint {
       createProject: (name) => session.createProject(name),
       importNewProject: (text, fileName) => session.importNewProject(text, fileName),
       takeOverProject: () => session.takeOverProject(),
-      importProjectFile: (text, fileName) => session.change("import", () => session.importProjectFile(text, fileName)),
+      importProjectFile: async (text, fileName, stopping) => {
+        await replacing({ kind: "import", text, fileName }, stopping);
+        session.change("import", () => session.importProjectFile(text, fileName));
+      },
       exportProject: (options, restorePointId) => session.exportProject(options, restorePointId),
-      openChangedProject: () => session.openChangedProject(),
+      openChangedProject: async (stopping) => {
+        await replacing({ kind: "open changed" }, stopping);
+        await session.openChangedProject();
+      },
       keepShownProject: () => session.keepShownProject(),
       leaveProjectRemoved: () => session.leaveProjectRemoved(),
-      undo: () => session.undo(),
-      redo: () => session.redo(),
+      undo: async (stopping) => {
+        await replacing({ kind: "undo" }, stopping);
+        return session.undo();
+      },
+      redo: async (stopping) => {
+        await replacing({ kind: "redo" }, stopping);
+        return session.redo();
+      },
       listSteps: () => session.listSteps(),
-      goTo: (target) => session.goTo(target),
+      goTo: async (target, stopping) => {
+        await replacing({ kind: "go to", target }, stopping);
+        session.goTo(target);
+      },
       listRestorePoints: () => session.listRestorePoints(),
       differenceFromNow: (target) => session.differenceFromNow(target),
       preview: async (target) => {
@@ -153,13 +158,17 @@ export class ProjectHost implements HostEndpoint {
       reportFocus: (place) => session.reportFocus(place),
       dismissOffer: (offerId) => session.dismissOffer(offerId),
       makeRestorePoint: (name) => session.makeRestorePoint(name),
-      restoreToRestorePoint: (restorePointId) => session.restoreToRestorePoint(restorePointId),
+      restoreToRestorePoint: async (restorePointId, stopping) => {
+        await replacing({ kind: "restore", restorePointId }, stopping);
+        await session.restoreToRestorePoint(restorePointId);
+      },
       pinRestorePoint: (restorePointId) => session.pinRestorePoint(restorePointId),
       unpinRestorePoint: (restorePointId) => session.unpinRestorePoint(restorePointId),
       deleteRestorePoint: (restorePointId) => session.deleteRestorePoint(restorePointId),
       reportTimeZone: (timeZone) => session.reportTimeZone(timeZone),
       deleteProject: (projectId) => session.deleteProject(projectId),
       runStoreAction: (call) => {
+        if (this.shown != null) this.agents.clearStoreAction(this.shown.store, call.name, call.args, call.stopping);
         // The stage is read before the action, which may remove the unit it starts from, such as a signed removal.
         const stage = call.focusMove == null ? null : (this.shown?.store.unitState(call.focusMove.from)?.stage ?? null);
         let focusMovedTo: FocusPlace | null = null;
@@ -170,88 +179,8 @@ export class ProjectHost implements HostEndpoint {
         return { result, focusMovedTo };
       },
       runPersistence: (call) => this.runPersistence(call),
-      listAgentTools: async () => {
-        // Without an open project the read tools are still listed: calling
-        // one tells the agent what stands in the way.
-        const store = await this.openStore().catch(() => null);
-        return store == null ? readToolDescriptions() : agentToolDescriptions(this.openModule());
-      },
-      callAgentTool: async (name, args, caller) => {
-        const store = await this.openStore();
-        // One call is one change, though a write with answers takes two store
-        // actions. Reading goes through the gate too: while an outside change
-        // waits, either version may be the one kept, so neither is read.
-        const open = this.openModule(caller);
-        const makes = agentToolChange(name, open);
-        const run = () => callAgentTool(store, name, args, open, caller);
-        return makes == null ? session.read(run) : session.change(makes, run, "coding agent");
-      },
+      ...this.agents.api,
     };
-  }
-
-  /** The module an outside agent works on: the one the page shows. */
-  private openModule(caller: AgentCaller = { name: "The coding agent" }): OpenModule {
-    const { registry } = this.session.getSnapshot();
-    if (registry == null) return {};
-    const pointOut: OpenModule["pointOut"] = (unit, text) => {
-      const moduleId = unit.module == null ? registry.activeModuleId : visibleModuleNamed(registry, unit.module)?.id;
-      if (moduleId == null) throw new UserFacingError(`There is no module named “${unit.module}”.`);
-      this.session.pointOut({ moduleId, stage: unit.stage, unitId: unit.unitId }, text, caller.name);
-    };
-    if (!registry.modulesEnabled) return { pointOut };
-    const moduleName = activeModule(registry)?.name;
-    if (moduleName == null) return { pointOut };
-    const modules = visibleModules(registry);
-    const moduleNamed = (name: string) => {
-      const target = visibleModuleNamed(registry, name);
-      if (target != null) return target;
-      const names = modules.map((entry) => `“${entry.name}”`).join(", ");
-      throw new UserFacingError(`There is no module named “${name}”. The modules are ${names}.`);
-    };
-    return {
-      moduleName,
-      ...(modules.length > 1
-        ? {
-            readModule: (name: string) => {
-              const target = moduleNamed(name);
-              const store = this.session.otherModuleStore(target.id);
-              if (store == null) throw new UserFacingError(`“${target.name}” could not be read.`);
-              return store;
-            },
-            switchModule: (name: string) => {
-              const target = moduleNamed(name);
-              if (!this.session.switchModule(target.id)) {
-                throw new UserFacingError(`“${target.name}” could not be opened.`);
-              }
-              return target.name;
-            },
-          }
-        : {}),
-      addModule: (name) => this.session.addModule(name),
-      pointOut,
-    };
-  }
-
-  /** The open project's shown store, opening the only project a single-project storage holds. */
-  private async openStore(): Promise<Store> {
-    await this.session.openOnlyProject();
-    const snapshot = this.session.getSnapshot();
-    switch (snapshot.status) {
-      case "ready":
-        return snapshot.store;
-      case "failed":
-        throw new UserFacingError(snapshot.persistenceError);
-      case "loading":
-        throw new UserFacingError("The project is still opening. Try again in a moment.");
-      case "elsewhere":
-        throw new UserFacingError("The project is open in another tab. Ask the person to take it over in Requireganizer.");
-      case "idle":
-        throw new UserFacingError(
-          this.session.persistence.traits.singleProject
-            ? `${this.session.persistence.traits.name} holds no project yet. Ask the person to create it in Requireganizer, then call get_workflow_state.`
-            : "Ask the person to open a project in Requireganizer, then call get_workflow_state.",
-        );
-    }
   }
 
   /**
@@ -264,10 +193,9 @@ export class ProjectHost implements HostEndpoint {
     this.sentRegistry = initial.registry;
     this.sentContents = contentsOf(initial.registry);
     this.showStore(initial.store);
-    this.disposers.push(
-      aiSettings().subscribe(() => this.hostInfoChanged()),
-      this.session.subscribe(() => this.sessionChanged()),
-    );
+    // The agents learn which project is open now, which may have opened before anyone was connected.
+    this.agents.sessionChanged();
+    this.disposers.push(this.session.subscribe(() => this.sessionChanged()));
   }
 
   private stopObserving(): void {
@@ -296,21 +224,12 @@ export class ProjectHost implements HostEndpoint {
         store: this.storeImage(),
       },
     });
-    send({
-      type: "event",
-      event: {
-        type: "store-update",
-        update: {
-          patches: [],
-          volatile: {},
-        },
-      },
-    });
+    send({ type: "event", event: { type: "agents", view: this.agents.view() } });
     return {
       receive: (message: ClientMessage) => this.receive(send, message, connection),
       close: () => {
         if (!this.links.delete(send)) return;
-        this.shown?.store.releaseTurns(connection);
+        this.agents.connectionEnded(connection);
         if (this.links.size === 0) this.stopObserving();
       },
     };
@@ -332,7 +251,7 @@ export class ProjectHost implements HostEndpoint {
   ): Promise<void> {
     let response: ResponseMessage;
     try {
-      const value = await this.dispatch(message, connection);
+      const value = await this.dispatch(send, message, connection);
       response = { type: "response", id: message.id, ok: true, value };
     } catch (error) {
       response = { type: "response", id: message.id, ok: false, error: wireError(error) };
@@ -348,9 +267,13 @@ export class ProjectHost implements HostEndpoint {
     }
   }
 
-  private dispatch(message: RequestMessage, connection: string): unknown {
+  private dispatch(send: (message: HostMessage) => void, message: RequestMessage, connection: string): unknown {
     if (!Object.hasOwn(this.api, message.name)) {
       throw new Error(`The project host has no request named ${String(message.name)}.`);
+    }
+    if (message.name === "registerAgent") {
+      const [name] = message.args as Parameters<HostApi["registerAgent"]>;
+      return this.agents.register(connection, (notice) => send({ type: "event", event: { type: "agent-notice", notice } }), name);
     }
     if (message.name === "callAgentTool") {
       const [name, args, caller] = message.args as Parameters<HostApi["callAgentTool"]>;
@@ -405,15 +328,9 @@ export class ProjectHost implements HostEndpoint {
     return group[call.method](...call.args);
   }
 
-  private hostInfoChanged(): void {
-    const info = hostInfo(this.session.persistence.traits);
-    if (sameHostInfo(info, this.sentHostInfo)) return;
-    this.sentHostInfo = info;
-    this.broadcast({ type: "host", info });
-  }
-
   private sessionChanged(): void {
     const snapshot = this.session.getSnapshot();
+    this.agents.sessionChanged();
     const event: Extract<HostEvent, { type: "session" }> = {
       type: "session",
       session: sessionView(snapshot),
@@ -448,17 +365,15 @@ export class ProjectHost implements HostEndpoint {
   private showStore(store: Store): void {
     this.shown?.stopObserving();
     this.pendingPatches = [];
-    this.sentVolatile = replicatedVolatileState(store);
 
     const stopPatches = onPatch(store, (patch) => {
       this.pendingPatches.push(patch);
     });
-    // Flushed when the change finishes.
-    const stopSnapshots = onSnapshot(store, () => this.flushUpdate());
-    const stopVolatile = reaction(
-      () => replicatedVolatileState(store),
-      () => this.flushUpdate(),
-    );
+    // Flushed when the change finishes; what waits may have changed with it.
+    const stopSnapshots = onSnapshot(store, () => {
+      this.flushUpdate();
+      this.agents.storeChanged();
+    });
 
     this.shown = {
       id: uuid(),
@@ -466,7 +381,6 @@ export class ProjectHost implements HostEndpoint {
       stopObserving: () => {
         stopPatches();
         stopSnapshots();
-        stopVolatile();
       },
     };
   }
@@ -476,7 +390,6 @@ export class ProjectHost implements HostEndpoint {
     return {
       id: shown.id,
       snapshot: getSnapshot(shown.store),
-      volatile: replicatedVolatileState(shown.store),
     };
   }
 
@@ -497,30 +410,9 @@ export class ProjectHost implements HostEndpoint {
   private flushUpdate(): void {
     const shown = this.shown;
     if (shown == null) return;
-    const current = replicatedVolatileState(shown.store);
-    const volatile: Partial<Record<keyof ReplicatedVolatileState, unknown>> = {};
-    let volatileChanged = false;
-    for (const key of Object.keys(current) as (keyof ReplicatedVolatileState)[]) {
-      const value = current[key];
-      if (value === this.sentVolatile?.[key]) continue;
-      volatileChanged = true;
-      volatile[key] = value;
-    }
-    if (
-      this.pendingPatches.length === 0 &&
-      !volatileChanged
-    ) {
-      return;
-    }
-    this.sentVolatile = current;
+    if (this.pendingPatches.length === 0) return;
     const patches = this.pendingPatches;
     this.pendingPatches = [];
-    this.broadcast({
-      type: "store-update",
-      update: {
-        patches,
-        volatile: volatile as Partial<ReplicatedVolatileState>,
-      },
-    });
+    this.broadcast({ type: "store-update", update: { patches } });
   }
 }

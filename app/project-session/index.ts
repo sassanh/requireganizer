@@ -1,5 +1,5 @@
 export {
-  type AttentionOffer,
+  type ChangeAuthor,
   PROJECT_SAVE_DEBOUNCE_MS,
   ProjectSession,
   moduleSummaries,

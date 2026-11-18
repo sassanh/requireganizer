@@ -11,8 +11,7 @@ const packageJson = json("package.json") as { name: string; version: string };
 const plugin = json(".claude-plugin/plugin.json") as {
   name: string;
   version: string;
-  mcpServers: Record<string, { command: string; args: string[]; env: Record<string, string> }>;
-  userConfig: Record<string, unknown>;
+  mcpServers: Record<string, { command: string; args: string[] }>;
 };
 const marketplace = json(".claude-plugin/marketplace.json") as {
   name: string;
@@ -27,15 +26,6 @@ describe("Claude Code plugin", () => {
     assert.ok(server != null);
     assert.equal(server.command, "npx");
     assert.deepEqual(server.args, ["-y", `${packageJson.name}@${packageJson.version}`, "mcp"]);
-  });
-
-  it("passes each AI setting it asks for to the server", () => {
-    const { env } = plugin.mcpServers.requireganizer!;
-    const asked = Object.keys(plugin.userConfig).sort();
-    const passed = Object.values(env)
-      .map((value) => /^\$\{user_config\.(\w+)\}$/.exec(value)?.[1])
-      .sort();
-    assert.deepEqual(passed, asked);
   });
 
   it("is listed by the repository's marketplace from the repository itself", () => {

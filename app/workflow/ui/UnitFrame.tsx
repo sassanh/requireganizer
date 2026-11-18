@@ -11,9 +11,9 @@ import { signShortcut, threadShortcut } from "actions/actions";
 import { signerLabel, type SignatureRecord } from "../records";
 import { waitsForSpecOwner } from "../threads";
 import { NOT_APPROVED_REASON_LABELS, type NotApprovedReason } from "../units";
-import { answeringSx } from "./answering";
 import { useWorkflowView } from "./context";
 import { FRAME_PLACEHOLDER_HEIGHT, useFrameContentShown } from "./frameSchedule";
+import { Slot } from "./slots";
 import { THREAD_BUTTON } from "./ThreadView";
 
 /** Who gave a signature and when, and whether it still counts. */
@@ -78,8 +78,7 @@ const UnitFrame = observer(function UnitFrame({
   const threads = module.threadsOf(unitId);
   const open = threads.find(({ resolution }) => resolution == null);
   const waitsForYou = open != null && waitsForSpecOwner(open);
-  const answering = open != null && module.isBeingAnswered(open.id);
-  const threadTitle = open == null ? "" : waitsForYou ? "Waits for you" : answering ? "The coding agent is answering" : "Waits for the coding agent";
+  const threadTitle = open == null ? "" : waitsForYou ? "Waits for you" : "Open thread";
   const threadLabel = threads.length > 0 ? "Thread" : "Request a change";
   return (
     <Paper
@@ -130,6 +129,7 @@ const UnitFrame = observer(function UnitFrame({
       {/* The actions keep a line of their own, right-aligned just under the content, so the text keeps the full width. */}
       <Stack data-unit-actions direction="row" sx={{ alignItems: "center", gap: 0.5, justifyContent: "flex-end", mt: 0.5 }}>
         {actions}
+        <Slot name="unit" props={{ unitId, preview: preview != null }} />
         {(stageOpen || threads.length > 0) && (
           <ActionTooltip name={threadTitle === "" ? threadLabel : threadTitle} shortcut={threadShortcut}>
             <Button
@@ -137,8 +137,6 @@ const UnitFrame = observer(function UnitFrame({
               size="small"
               color={waitsForYou ? "warning" : "primary"}
               startIcon={<Comment />}
-              aria-busy={answering || undefined}
-              sx={answering ? answeringSx : undefined}
               onClick={(event) => onOpenThread(event.currentTarget.closest<HTMLElement>("[data-unit-actions]") ?? event.currentTarget)}
             >
               {threadLabel}

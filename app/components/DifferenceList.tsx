@@ -3,7 +3,8 @@
 import { Box, CircularProgress, Tooltip, Typography } from "@mui/material";
 import { Fragment, type ReactElement, useEffect, useState } from "react";
 
-import type { AskDifference, ModuleChange, ModuleDifference, PreviewTarget, StateDifference, ThreadDifference, UnitDifference } from "history";
+import { type SectionLine, sectionDifferenceLines } from "agents/ui";
+import type { ModuleChange, ModuleDifference, PreviewTarget, StateDifference, ThreadDifference, UnitDifference } from "history";
 import { getUserFacingErrorMessage } from "lib/errors";
 import { useProject } from "projectContext";
 import { WORKFLOW } from "store";
@@ -25,10 +26,7 @@ const MODULE_SIGNS: Record<ModuleChange, { sign: string; color: string; name: Re
   rename: { sign: "~", color: "warning.main", name: { step: "renamed", "bringing back": "would be renamed" } },
 };
 
-const ASK_SIGNS: Record<AskDifference["change"], { sign: string; color: string; name: Record<Reading, string> }> = {
-  ask: { sign: "+", color: "success.main", name: { step: "asked of the coding agent", "bringing back": "would be asked of the coding agent" } },
-  withdraw: { sign: "−", color: "error.main", name: { step: "no longer asked of the coding agent", "bringing back": "would no longer be asked of the coding agent" } },
-};
+const LINE_COLORS: Record<SectionLine["sign"], string> = { "+": "success.main", "−": "error.main", "~": "warning.main" };
 
 /**
  * A module as a change to it names it. A renamed one reads from its name in
@@ -61,7 +59,11 @@ export default function DifferenceList({
   reading: Reading;
 }) {
   const projectWide = difference.modules.length > 0 || difference.modulesEnabled != null;
-  if (!projectWide && difference.asks.length === 0 && difference.units.length === 0 && difference.threads.length === 0) {
+  const { modules } = useProject();
+  const sectionLines = difference.sections.flatMap(({ section, then, now }) =>
+    sectionDifferenceLines(section, then, now, (stage) => (WORKFLOW.isStage(stage) ? WORKFLOW.stage(stage).label : stage), (moduleId) => (withModules ? (modules.find(({ id }) => id === moduleId)?.name ?? null) : null)),
+  );
+  if (!projectWide && sectionLines.length === 0 && difference.units.length === 0 && difference.threads.length === 0) {
     if (reading === "step") return null;
     return (
       <Typography variant="caption" sx={{ color: "text.secondary" }}>
@@ -69,16 +71,15 @@ export default function DifferenceList({
       </Typography>
     );
   }
-  const groups: { module: string; moduleName: string; stage: string; asks: AskDifference[]; units: UnitDifference[]; threads: ThreadDifference[] }[] = [];
+  const groups: { module: string; moduleName: string; stage: string; units: UnitDifference[]; threads: ThreadDifference[] }[] = [];
   const groupOf = (moduleId: string, moduleName: string, stage: string) => {
     let group = groups.find((entry) => entry.module === moduleId && entry.stage === stage);
     if (group == null) {
-      group = { module: moduleId, moduleName, stage, asks: [], units: [], threads: [] };
+      group = { module: moduleId, moduleName, stage, units: [], threads: [] };
       groups.push(group);
     }
     return group;
   };
-  for (const ask of difference.asks) groupOf(ask.moduleId, ask.module, ask.stage).asks.push(ask);
   for (const unit of difference.units) groupOf(unit.moduleId, unit.module, unit.stage).units.push(unit);
   for (const thread of difference.threads) groupOf(thread.moduleId, thread.module, thread.stage).threads.push(thread);
   const turned = difference.modulesEnabled == null ? null : `modules ${difference.modulesEnabled ? "on" : "off"}`;
@@ -107,6 +108,20 @@ export default function DifferenceList({
           </Box>
         </>
       )}
+      {sectionLines.length > 0 && (
+        <>
+          <Typography variant="caption" sx={{ color: "text.secondary" }}>
+            Requests
+          </Typography>
+          <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", columnGap: 1, rowGap: 0.25, minWidth: 0 }}>
+            {sectionLines.map((line, index) => (
+              <Typography key={index} variant="caption" sx={{ color: LINE_COLORS[line.sign], whiteSpace: "nowrap" }}>
+                {line.sign} {line.text}
+              </Typography>
+            ))}
+          </Box>
+        </>
+      )}
       {groups.map((group, index) => (
         <Fragment key={`${group.module} ${group.stage}`}>
           {withModules && group.module !== groups[index - 1]?.module && (
@@ -118,14 +133,6 @@ export default function DifferenceList({
             {WORKFLOW.stage(group.stage).label}
           </Typography>
           <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", columnGap: 1, rowGap: 0.25, minWidth: 0 }}>
-            {group.asks.map((ask) => {
-              const { sign, color, name } = ASK_SIGNS[ask.change];
-              return (
-                <Typography key={`ask ${ask.change}`} variant="caption" sx={{ color, whiteSpace: "nowrap" }} aria-label={`Writing ${WORKFLOW.stage(ask.stage).label} ${name[reading]}`}>
-                  {sign} writing it {ask.change === "ask" ? "asked" : "no longer asked"}
-                </Typography>
-              );
-            })}
             {group.units.map((unit) => {
               const { sign, color, name } = CHANGE_SIGNS[unit.change];
               const parts = unit.change === "change" ? ` (${differingParts(unit)})` : "";

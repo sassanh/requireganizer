@@ -6,7 +6,7 @@ import {
   type SnapshotIn,
 } from "mobx-state-tree";
 
-import type { AgentCaller, AgentToolDescription } from "ai-agent/agent-access";
+import { AgentsClient, type AgentsHostApi, type AgentsRequest, RequestsConcernedError, storeActionName } from "agents";
 import {
   addressOf,
   type ClientConnection,
@@ -34,7 +34,7 @@ import type { ProjectIdentity } from "lib/projectStorage";
 import type { ClientPersistence } from "persistence";
 import type { ProjectSessionSnapshot } from "project-session";
 import { type ExportOptions, type ModuleContent, moduleContentOf, type ModuleRegistry, type ModuleState, type ProjectState, sharedWith } from "storage";
-import { createModuleStore, type ReplicatedVolatileState, SiblingModuleStores, Store } from "store";
+import { createModuleStore, SiblingModuleStores, Store } from "store";
 import type { SignatureFocusMove } from "workflow";
 
 type Result<Name extends RequestName> = Awaited<ReturnType<HostApi[Name]>>;
@@ -53,6 +53,7 @@ const FIRST_RECONNECT_DELAY_MS = 500;
 const MAX_RECONNECT_DELAY_MS = 8000;
 
 function errorFromWire(error: WireError): Error {
+  if (error.concerned != null) return new RequestsConcernedError(error.concerned);
   if (error.name === "UserFacingError") return new UserFacingError(error.message);
   const rebuilt = new Error(error.message);
   rebuilt.name = error.name;
@@ -186,10 +187,15 @@ export class ProjectClient {
     outsideChange: null,
   };
   private hostInfo: HostInfo = {
-    reviewerModel: null,
-    missingReviewerModelMessage: "",
     storage: { singleProject: false, name: "storage" },
   };
+  /** The agents and the waiting requests, the agent this client is, and the spec owner's confirmations. */
+  readonly agents = new AgentsClient(
+    ((name: keyof AgentsHostApi, ...args: unknown[]) => this.request(name, ...(args as never))) as AgentsRequest,
+    () => {
+      for (const listener of this.listeners) listener();
+    },
+  );
   private registry: ModuleRegistry | null = null;
   private replica: Store;
   /** The earlier state shown in place of the project now; null while the project now is shown. */
@@ -208,7 +214,7 @@ export class ProjectClient {
     this.timeZone = options.timeZone ?? null;
     // Until the host's first event arrives, actions on this blank replica
     // name a store the host never shows, so they are refused.
-    this.replica = this.createReplica("", {}, null);
+    this.replica = this.createReplica("", {});
     this.snapshot = snapshotFrom(this.view, this.registry, this.replica);
     this.persistence = this.remotePersistence();
   }
@@ -265,6 +271,7 @@ export class ProjectClient {
               console.error("Could not report the time zone to the project host.", error),
             );
           }
+          this.agents.connected();
           for (const request of this.queued.splice(0)) this.send(link, request);
         }
         this.receive(message);
@@ -330,6 +337,7 @@ export class ProjectClient {
   /** What the host reported about itself; notified through `subscribe`. */
   getHostInfo = (): HostInfo => this.hostInfo;
 
+
   selectProject = (
     id: string,
     name: string,
@@ -372,25 +380,26 @@ export class ProjectClient {
   takeOverProject = (): Promise<void> => this.request("takeOverProject");
 
   importProjectFile = (text: string, fileName: string): Promise<void> =>
-    this.request("importProjectFile", text, fileName);
+    this.agents.confirmed("import the project", (stopping) => this.request("importProjectFile", text, fileName, stopping));
 
   exportProject = (options: ExportOptions, restorePointId?: string): Promise<string> =>
     this.request("exportProject", options, restorePointId);
 
-  openChangedProject = (): Promise<void> => this.request("openChangedProject");
+  openChangedProject = (): Promise<void> =>
+    this.agents.confirmed("open the changed project", (stopping) => this.request("openChangedProject", stopping));
 
   keepShownProject = (): Promise<void> => this.request("keepShownProject");
 
   leaveProjectRemoved = (): Promise<void> => this.request("leaveProjectRemoved");
 
   /** Resolves to where the focus goes, or null to leave it where it is. */
-  undo = (): Promise<FocusPlace | null> => this.request("undo");
+  undo = (): Promise<FocusPlace | null> => this.agents.confirmed("undo", (stopping) => this.request("undo", stopping));
 
-  redo = (): Promise<FocusPlace | null> => this.request("redo");
+  redo = (): Promise<FocusPlace | null> => this.agents.confirmed("redo", (stopping) => this.request("redo", stopping));
 
   listSteps = (): Promise<ListedSteps> => this.request("listSteps");
 
-  goTo = (target: StepListTarget): Promise<void> => this.request("goTo", target);
+  goTo = (target: StepListTarget): Promise<void> => this.agents.confirmed("go to that step", (stopping) => this.request("goTo", target, stopping));
 
   listRestorePoints = (): Promise<ListedRestorePoint[]> => this.request("listRestorePoints");
 
@@ -465,7 +474,7 @@ export class ProjectClient {
   makeRestorePoint = (name: string): Promise<void> => this.request("makeRestorePoint", name);
 
   restoreToRestorePoint = (restorePointId: string): Promise<void> =>
-    this.request("restoreToRestorePoint", restorePointId);
+    this.agents.confirmed("restore the restore point", (stopping) => this.request("restoreToRestorePoint", restorePointId, stopping));
 
   pinRestorePoint = (restorePointId: string): Promise<void> => this.request("pinRestorePoint", restorePointId);
 
@@ -475,12 +484,6 @@ export class ProjectClient {
 
   deleteProject = (projectId: string): Promise<void> => this.request("deleteProject", projectId);
 
-  /** The tools an outside agent can call on the open project now. */
-  listAgentTools = (): Promise<AgentToolDescription[]> => this.request("listAgentTools");
-
-  /** Run one of those tools for the named agent; resolves to its text result. */
-  callAgentTool = (name: string, args: Record<string, unknown>, caller: AgentCaller): Promise<string> =>
-    this.request("callAgentTool", name, args, caller);
 
   /**
    * Send a request to the host. One that repeats the last request made while
@@ -563,13 +566,17 @@ export class ProjectClient {
     } catch (error) {
       return Promise.reject(error);
     }
-    const outcome = this.request("runStoreAction", {
-      store,
-      address: addressOf(call.context),
-      name: call.name,
-      args,
-      ...(this.focusMove == null ? {} : { focusMove: this.focusMove.move }),
-    });
+    const focusMove = this.focusMove?.move;
+    const outcome = this.agents.confirmed(storeActionName(call.name), (stopping) =>
+      this.request("runStoreAction", {
+        store,
+        address: addressOf(call.context),
+        name: call.name,
+        args,
+        ...(focusMove == null ? {} : { focusMove }),
+        ...(stopping == null ? {} : { stopping }),
+      }),
+    );
     this.focusMove?.movedTo.push(outcome.then(({ focusMovedTo }) => focusMovedTo));
     return outcome.then(({ result }) => result);
   }
@@ -657,11 +664,7 @@ export class ProjectClient {
     for (const listener of this.listeners) listener();
   }
 
-  private createReplica(
-    id: string,
-    snapshot: unknown,
-    volatile: ReplicatedVolatileState | null,
-  ): Store {
+  private createReplica(id: string, snapshot: unknown): Store {
     const replica = Store.create(snapshot as SnapshotIn<typeof Store>);
     addMiddleware(
       replica,
@@ -675,10 +678,7 @@ export class ProjectClient {
       // Lifecycle hooks run on the replica itself and are never forwarded.
       false,
     );
-    this.local(() => {
-      if (volatile != null) replica.mirrorVolatileState(volatile);
-      this.siblingStores.applyModuleContext(replica, this.registry);
-    });
+    this.local(() => this.siblingStores.applyModuleContext(replica, this.registry));
     return replica;
   }
 
@@ -710,6 +710,10 @@ export class ProjectClient {
       case "store-update":
         this.applyUpdate(event.update);
         return;
+      case "agents":
+      case "agent-notice":
+        this.agents.receive(event);
+        return;
     }
   }
 
@@ -717,8 +721,8 @@ export class ProjectClient {
     const registryChanged = "registry" in event;
     if (registryChanged) this.registry = receivedRegistry(event.registry ?? null, this.registry);
     if (event.store != null) {
-      const { id, snapshot, volatile } = event.store;
-      this.replica = this.createReplica(id, snapshot, volatile);
+      const { id, snapshot } = event.store;
+      this.replica = this.createReplica(id, snapshot);
     } else if (registryChanged) {
       this.local(() => this.siblingStores.applyModuleContext(this.replica, this.registry));
     }
@@ -753,7 +757,6 @@ export class ProjectClient {
     runInAction(() => {
       this.local(() => {
         if (update.patches.length > 0) applyPatch(replica, update.patches);
-        if (Object.keys(update.volatile).length > 0) replica.mirrorVolatileState(update.volatile);
       });
     });
   }

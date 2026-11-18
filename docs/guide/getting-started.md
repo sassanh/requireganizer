@@ -46,7 +46,6 @@ When no other process serves the project, the agent's process serves it, page in
 ## Develop
 
 ```bash
-cp .env.example .env.local
 pnpm run dev
 ```
 

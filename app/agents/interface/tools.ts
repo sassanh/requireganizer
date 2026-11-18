@@ -1,3 +1,5 @@
+import { getSnapshot, getType } from "mobx-state-tree";
+
 import type { ChangeKind } from "history";
 import { UserFacingError } from "lib/errors";
 import { isRecord } from "lib/json";
@@ -21,13 +23,17 @@ import {
   parseUnitId,
   REMOVED_ITEM,
   replaceMentions,
-  replyRulesText,
   signerLabel,
   STAGE_PROGRESS_LABELS,
   type Thread,
   type ThreadAnswer,
-  waitsForAnswerer,
 } from "workflow";
+
+import type { AgentDesk } from "../desk";
+import { type AgentRequest, changeRequestKey, changeRequestStart } from "../requests";
+import { type AgentId, codingAgentId } from "../roster";
+import { ANSWERS_REQUEST, type ModuleRequests, NO_REQUESTS } from "../section";
+import { replyRulesText } from "./replyRules";
 
 type RecordContent = ItemContent;
 
@@ -39,38 +45,82 @@ export interface AgentToolDescription {
   inputSchema: Record<string, unknown>;
 }
 
+/** A unit an agent points the spec owner to: of the open module, or of another by its name. */
+export interface PointedUnit {
+  module: string | null;
+  stage: string;
+  unitId: string;
+}
+
+/** What an agent's answer to a request to review a stage finds: an item that breaks a published rule, and how. */
+export interface ReviewFinding {
+  itemId: string;
+  rule: string;
+  how: string;
+}
+
+/** Another module of the project than the one a call works on, by its name. */
+export interface OtherModule {
+  id: string;
+  name: string;
+  /** Its model, to read. */
+  store: Store;
+  /** Change it without showing it to the spec owner; `run` changes a copy that then takes its place. */
+  change<Result>(run: (store: Store) => Result): Result;
+}
+
 /**
- * What an outside agent works on: the module the person has open, named
- * while the project has modules, and then how to switch to another or add
- * one.
+ * What an agent works on: the module the person has open, named while the
+ * project has modules, every other module by its name, and how to add one;
+ * and the agents of the project with the requests they have. Nothing here
+ * moves the spec owner's page.
  */
 export interface OpenModule {
   moduleName?: string;
-  /** Another module, read-only, without opening it. */
-  readModule?: (name: string) => Store;
-  switchModule?: (name: string) => string;
+  /** Another module, by its name; throws for a name no module has. */
+  otherModule?: (name: string) => OtherModule;
+  /** Add a module, leaving the spec owner's page where it is. */
   addModule?: (name: string) => void;
+  /** Point the spec owner to a set of units with one text, offered as one and browsed one by one. */
+  pointOut?: (units: readonly PointedUnit[], text: string) => void;
   /**
-   * Name an item, coverage or impact for the spec owner's attention, of the
-   * open module or, by its name, another, with the agent's text.
+   * The project's agents and the requests they have, and the open module's
+   * id as it names them. Without them no request is any agent's, and an
+   * agent works as before agents had requests.
    */
-  pointOut?: (unit: { module: string | null; stage: string; unitId: string }, text: string) => void;
+  desk?: AgentDesk;
+  moduleId?: string;
+  /** Mark a module's request to write a stage fulfilled; the write_items tool takes fulfils once it is given. */
+  fulfilWriting?: (moduleId: string, stage: string) => void;
+  /** Keep an answer to a module's request to review a stage; the answer_review tool is listed once it is given. */
+  answerReview?: (moduleId: string, stage: string, findings: readonly ReviewFinding[]) => void;
 }
 
-/** The outside agent calling: the name it gave when it connected. */
+/** The agent calling: the name it gave when it connected. */
 export interface AgentCaller {
   name: string;
-  /** The connection it calls through, set by the host; what the agent takes up ends with it. */
+  /** The connection a coding agent calls through, set by the host; the coding agent is that connection. */
   connection?: string;
+  /** An agent Requireganizer runs, calling as itself. */
+  agentId?: AgentId;
 }
 
 type Arguments = Record<string, unknown>;
 
+/** The agent calling as the requests it may have know it: null while the project has no desk. */
+interface CallingAgent {
+  id: AgentId;
+  /** The name its messages are signed with. */
+  name: string;
+}
+
 interface AgentTool {
   description: AgentToolDescription;
+  /** Takes `module`, to work on another module than the open one; its schema gets the property. */
+  inModule?: boolean;
   /** The kind of change a call makes, as its step names it; null for a tool that only reads. */
   makes: ChangeKind | null;
-  run(store: Store, args: Arguments, open: OpenModule, caller: AgentCaller): string;
+  run(store: Store, args: Arguments, open: OpenModule, caller: AgentCaller, agent: CallingAgent | null): string;
 }
 
 function stringArgument(args: Arguments, name: string): string {
@@ -187,12 +237,15 @@ function messageText(store: Store, text: string): string {
   return replaceMentions(text, ({ itemId }) => mentionMarkup(store.itemNameOf(itemId) ?? REMOVED_ITEM, itemId));
 }
 
-function threadView(store: Store, thread: Thread): Record<string, unknown> {
+/** Whom a thread waits for, as the calling agent reads it. */
+type ThreadStatus = (thread: Thread) => string;
+
+function threadView(store: Store, thread: Thread, status: ThreadStatus): Record<string, unknown> {
   return {
     threadId: thread.id,
     ...threadUnit(store, thread),
     stage: thread.stage,
-    status: thread.resolution != null ? "resolved" : waitsForAnswerer(thread) ? "waiting for you" : "waiting for the spec owner",
+    status: status(thread),
     messages: thread.messages.map(({ author, text, withChanges }) => ({
       from: author.kind === "person" ? "spec owner" : authorLabel(author),
       text: messageText(store, text),
@@ -202,11 +255,11 @@ function threadView(store: Store, thread: Thread): Record<string, unknown> {
 }
 
 /** A thread with the item it is on, as get_items gives it, or that its unit is gone. */
-function threadWithUnit(store: Store, thread: Thread): Record<string, unknown> {
+function threadWithUnit(store: Store, thread: Thread, status: ThreadStatus): Record<string, unknown> {
   const address = parseUnitId(thread.unitId);
   const isItem = address.kind === "item" && store.itemState(address.itemId) != null;
   return {
-    ...threadView(store, thread),
+    ...threadView(store, thread, status),
     ...(isItem ? { item: itemView(store, address.itemId) } : {}),
   };
 }
@@ -329,27 +382,70 @@ const POINTER_TEXT_LIMIT = 80;
 
 /** What a pointer names, before the write it comes with runs: a unit by its code, or an item the write adds by its change. */
 type PointerTarget =
-  | { kind: "unit"; module: string | null; stage: string; unitId: string; name: string }
+  | { kind: "unit"; unit: PointedUnit; name: string }
   | { kind: "change"; change: number };
 
 interface Pointer {
-  target: PointerTarget;
+  targets: PointerTarget[];
   text: string;
 }
 
 const POINTER_PROPERTY = {
   type: "object",
-  description: `One item, coverage or impact, of this module or another, to point the spec owner to, with why it needs them. The spec owner is offered a way to go to it; nothing moves their focus. Name it by item, the item's code or "Module name/CODE" from get_items, with unit and stage for its coverage or impact; or, for an item this write adds, by change instead of item. A pointer that names nothing, or a change that adds no item, or a text missing or longer than ${POINTER_TEXT_LIMIT} characters, refuses the whole call and changes nothing.`,
+  description: `A set of items, coverages and impacts, of this module or others, to point the spec owner to, with one text saying why the set needs them. The spec owner is offered a way to go to each in turn; nothing moves their focus. Name each by item, the item's code or "Module name/CODE" from get_items, with unit and stage for its coverage or impact; or, for an item this write adds, by change instead of item. A member that names nothing, or a change that adds no item, or a text missing or longer than ${POINTER_TEXT_LIMIT} characters, refuses the whole call and changes nothing.`,
   properties: {
-    item: { type: "string", description: "The item's code, or \"Module name/CODE\" for an item of another module." },
-    unit: { type: "string", enum: ["item", "coverage", "impact"], description: "The item itself, the default, or its coverage or impact in stage." },
-    stage: { type: "string", description: "For a coverage or an impact: the stage that holds it." },
-    change: { type: "integer", minimum: 1, description: "For an item this write adds, in place of item: the place of its add change among the changes, counting from 1." },
-    text: { type: "string", description: `Why it needs the spec owner, at most ${POINTER_TEXT_LIMIT} characters, such as "Answers your question".` },
+    units: {
+      type: "array",
+      minItems: 1,
+      items: {
+        type: "object",
+        properties: {
+          item: { type: "string", description: "The item's code, or \"Module name/CODE\" for an item of another module." },
+          unit: { type: "string", enum: ["item", "coverage", "impact"], description: "The item itself, the default, or its coverage or impact in stage." },
+          stage: { type: "string", description: "For a coverage or an impact: the stage that holds it." },
+          change: { type: "integer", minimum: 1, description: "For an item this write adds, in place of item: the place of its add change among the changes, counting from 1." },
+        },
+        additionalProperties: false,
+      },
+    },
+    text: { type: "string", description: `Why the set needs the spec owner, at most ${POINTER_TEXT_LIMIT} characters, such as "Answers your question".` },
   },
-  required: ["text"],
+  required: ["units", "text"],
   additionalProperties: false,
 };
+
+/** One member of a pointer's set, checked against the module as it is before the write and the changes it sends. */
+function parsePointerTarget(store: Store, open: OpenModule, value: unknown, changes: readonly ItemChange[], label: string): PointerTarget {
+  if (!isRecord(value)) throw new UserFacingError(`${label} must be an object naming an item, coverage or impact.`);
+  const unit = value.unit ?? "item";
+  if (unit !== "item" && unit !== "coverage" && unit !== "impact") throw new UserFacingError(`${label}: unit must be item, coverage or impact.`);
+  if (value.change != null) {
+    if (value.item != null) throw new UserFacingError(`${label} names an item by item or by change, not both.`);
+    if (unit !== "item") throw new UserFacingError(`${label}: change names the item it adds; name a coverage or an impact by item and stage.`);
+    const change = value.change;
+    if (typeof change !== "number" || !Number.isInteger(change) || changes[change - 1]?.type !== "add") {
+      throw new UserFacingError(`${label}: change ${String(change)} adds no item. Give the place of an add change among the changes, counting from 1.`);
+    }
+    return { kind: "change", change };
+  }
+  if (typeof value.item !== "string") throw new UserFacingError(`${label} names nothing. Give item, the code of what to point to, or change.`);
+  const name = value.item;
+  const nothing = () =>
+    new UserFacingError(`${label}: ${name}${unit === "item" ? "" : ` ${unit}`} names no item, coverage or impact. Name one as get_items gives it, or "Module name/CODE" for another module's.`);
+  const named = store.itemOfName(name, true);
+  if ("problem" in named) throw nothing();
+  const own = store.locate(named.id);
+  const linked = own == null ? store.linkedModules.find((other) => other.lookup.locateItem(named.id) != null) : undefined;
+  const moduleName = own == null ? (linked?.name ?? null) : null;
+  const itemStage = own?.stage ?? linked?.lookup.locateItem(named.id)?.stage;
+  if (itemStage == null) throw nothing();
+  if (unit === "item") return { kind: "unit", unit: { module: moduleName, stage: itemStage, unitId: named.id }, name };
+  if (!store.workflow.isStage(value.stage)) throw nothing();
+  const unitId = unit === "coverage" ? coverageUnitId(value.stage, named.id) : impactUnitId(value.stage, named.id);
+  const holder = moduleName == null ? store : open.otherModule?.(moduleName).store;
+  if (holder?.unitState(unitId) == null) throw nothing();
+  return { kind: "unit", unit: { module: moduleName, stage: value.stage, unitId }, name };
+}
 
 /**
  * The pointer an agent sent, checked against the module as it is before
@@ -358,52 +454,36 @@ const POINTER_PROPERTY = {
  */
 function parsePointer(store: Store, open: OpenModule, value: unknown, changes: readonly ItemChange[]): Pointer | null {
   if (value == null) return null;
-  if (!isRecord(value)) throw new UserFacingError("pointTo must be an object with the item to point to and a text.");
+  if (!isRecord(value)) throw new UserFacingError("pointTo must be an object with the units to point to and a text.");
   const text = typeof value.text === "string" ? value.text.trim() : "";
-  if (text.length === 0) throw new UserFacingError(`pointTo gives no text. Say in at most ${POINTER_TEXT_LIMIT} characters why it needs the spec owner.`);
+  if (text.length === 0) throw new UserFacingError(`pointTo gives no text. Say in at most ${POINTER_TEXT_LIMIT} characters why the set needs the spec owner.`);
   if (text.length > POINTER_TEXT_LIMIT) {
     throw new UserFacingError(`pointTo's text is ${text.length} characters long. Shorten it to at most ${POINTER_TEXT_LIMIT}.`);
   }
-  const unit = value.unit ?? "item";
-  if (unit !== "item" && unit !== "coverage" && unit !== "impact") throw new UserFacingError("pointTo's unit must be item, coverage or impact.");
-  if (value.change != null) {
-    if (value.item != null) throw new UserFacingError("pointTo names an item by item or by change, not both.");
-    if (unit !== "item") throw new UserFacingError("pointTo's change names the item it adds; name a coverage or an impact by item and stage.");
-    const change = value.change;
-    if (typeof change !== "number" || !Number.isInteger(change) || changes[change - 1]?.type !== "add") {
-      throw new UserFacingError(`pointTo's change ${String(change)} adds no item. Give the place of an add change among the changes, counting from 1.`);
+  if (!Array.isArray(value.units) || value.units.length === 0) throw new UserFacingError("pointTo names nothing. Give units, the items, coverages and impacts to point to.");
+  const problems: string[] = [];
+  const targets = value.units.flatMap((entry, index): PointerTarget[] => {
+    try {
+      return [parsePointerTarget(store, open, entry, changes, `pointTo unit ${index + 1}`)];
+    } catch (error) {
+      problems.push(error instanceof Error ? error.message : String(error));
+      return [];
     }
-    return { target: { kind: "change", change }, text };
-  }
-  if (typeof value.item !== "string") throw new UserFacingError("pointTo names nothing. Give item, the code of what to point to, or change.");
-  const name = value.item;
-  const nothing = () =>
-    new UserFacingError(`pointTo's ${name}${unit === "item" ? "" : ` ${unit}`} names no item, coverage or impact. Name one as get_items gives it, or "Module name/CODE" for another module's.`);
-  const named = store.itemOfName(name, true);
-  if ("problem" in named) throw nothing();
-  const own = store.locate(named.id);
-  const linked = own == null ? store.linkedModules.find((other) => other.lookup.locateItem(named.id) != null) : undefined;
-  const moduleName = own == null ? (linked?.name ?? null) : null;
-  const itemStage = own?.stage ?? linked?.lookup.locateItem(named.id)?.stage;
-  if (itemStage == null) throw nothing();
-  if (unit === "item") return { target: { kind: "unit", module: moduleName, stage: itemStage, unitId: named.id, name }, text };
-  if (!store.workflow.isStage(value.stage)) throw nothing();
-  const unitId = unit === "coverage" ? coverageUnitId(value.stage, named.id) : impactUnitId(value.stage, named.id);
-  const holder = moduleName == null ? store : open.readModule?.(moduleName);
-  if (holder?.unitState(unitId) == null) throw nothing();
-  return { target: { kind: "unit", module: moduleName, stage: value.stage, unitId, name }, text };
+  });
+  if (problems.length > 0) throw new UserFacingError(problems.join("\n"));
+  return { targets, text };
 }
 
 /** Point the spec owner to what a pointer names, once its write ran; the line the reply says it with. */
 function pointOut(store: Store, open: OpenModule, pointer: Pointer, changes: readonly ItemChange[], added: readonly string[]): string {
-  const { target, text } = pointer;
-  if (target.kind === "unit") {
-    open.pointOut?.({ module: target.module, stage: target.stage, unitId: target.unitId }, text);
-    return `The spec owner is offered a way to go to ${target.name}.`;
-  }
-  const itemId = addedByChange(changes, added, target.change)!;
-  open.pointOut?.({ module: null, stage: store.locate(itemId)!.stage, unitId: itemId }, text);
-  return `The spec owner is offered a way to go to ${store.codeOf(itemId)}.`;
+  const resolved = pointer.targets.map((target): { unit: PointedUnit; name: string } => {
+    if (target.kind === "unit") return target;
+    const itemId = addedByChange(changes, added, target.change)!;
+    return { unit: { module: null, stage: store.locate(itemId)!.stage, unitId: itemId }, name: store.codeOf(itemId)! };
+  });
+  // A unit of the module the call works on is named by that module, which need not be the one shown.
+  open.pointOut?.(resolved.map(({ unit }) => ({ ...unit, module: unit.module ?? open.moduleName ?? null })), pointer.text);
+  return `The spec owner is offered a way to go to ${resolved.map(({ name }) => name).join(", ")}.`;
 }
 
 /** Every item's code, by id, as a write names them before it runs. */
@@ -442,15 +522,78 @@ function outcomeLines(store: Store, outcome: ChangeOutcome, codesBefore: Readonl
 
 const STAGE_PROPERTY = { type: "string", description: "A stage id, as get_workflow_state lists them." };
 
+/** The desk and the open module's id as it names requests; null while the project has none. */
+function deskOf(open: OpenModule): { desk: AgentDesk; moduleId: string } | null {
+  return open.desk == null || open.moduleId == null ? null : { desk: open.desk, moduleId: open.moduleId };
+}
+
+/** What the Agents module keeps of the module a call works on; nothing while the project has no desk. */
+function requestsFor(open: OpenModule): ModuleRequests {
+  const found = deskOf(open);
+  return found == null ? NO_REQUESTS : found.desk.requestsOf(found.moduleId);
+}
+
+/** Whether the calling agent has the change request that waits in a thread; without a desk, whether one waits. */
+function hasChangeRequest(open: OpenModule, agent: CallingAgent | null, thread: Thread): boolean {
+  const start = changeRequestStart(thread, requestsFor(open));
+  if (start == null) return false;
+  const found = deskOf(open);
+  return found == null || found.desk.holderOf(changeRequestKey(found.moduleId, thread.id, start))?.agentId === agent?.id;
+}
+
+/** Whom each thread waits for, as the calling agent reads it. */
+function statusOf(open: OpenModule, agent: CallingAgent | null): ThreadStatus {
+  const requests = requestsFor(open);
+  return (thread) => {
+    if (thread.resolution != null) return "resolved";
+    if (hasChangeRequest(open, agent, thread)) return "waiting for you";
+    return changeRequestStart(thread, requests) == null ? "waiting for the spec owner" : "its change request waits for another agent, or for the spec owner to give it";
+  };
+}
+
+/**
+ * The requests the calling agent has in the module a call works on.
+ * Without a desk, every waiting change request, as before agents had
+ * requests.
+ */
+function requestsOfCaller(store: Store, open: OpenModule, agent: CallingAgent | null): { threads: Thread[]; write: string[]; review: string[] } {
+  const found = deskOf(open);
+  if (found == null) {
+    return { threads: store.threads.filter((thread) => store.stageOpen(thread.stage) && hasChangeRequest(open, agent, thread)), write: [], review: [] };
+  }
+  const mine = found.desk.heldRequests().filter((request) => request.moduleId === found.moduleId && request.agentId === agent?.id);
+  const stagesOf = (kind: AgentRequest["kind"]) => mine.filter((request) => request.kind === kind).map(({ stage }) => stage);
+  const threadIds = new Set(mine.flatMap(({ thread }) => (thread == null ? [] : [thread.id])));
+  return { threads: store.threads.filter(({ id }) => threadIds.has(id)), write: stagesOf("write"), review: stagesOf("review") };
+}
+
+/** The stages a write would close: open before it and closed after, tried on a copy of the module. */
+function stagesClosedBy(store: Store, changes: readonly ItemChange[]): string[] {
+  const trial = getType(store).create(getSnapshot(store)) as Store;
+  trial.setLinkedModules(store.linkedModules);
+  trial.writeItemsUnchecked([...changes]);
+  return store.workflow.stageIds.filter((stage) => store.stageOpen(stage) && !trial.stageOpen(stage));
+}
+
+/** The stage each change changes. */
+function stagesChangedBy(store: Store, changes: readonly ItemChange[]): string[] {
+  return [...new Set(changes.flatMap((change) => {
+    const stage = change.type === "add" ? change.stage : store.locate(change.item)?.stage;
+    return stage == null ? [] : [stage];
+  }))];
+}
+
 const workflowStateTool: AgentTool = {
   makes: null,
   description: {
     name: "get_workflow_state",
     description:
-      "Get the module the spec owner has open and its workflow state: whether every stage is complete, and for each stage whether it is open (every stage it builds on is complete, so it can be written, signed and discussed) or closed, its progress (empty, in progress, complete), how many of its items, coverages and impacts are approved out of how many, what in it waits for a signature, and its open threads. threadsWaitingForYou lists the change requests that wait for your answer; stagesWaitingForYou lists the stages the spec owner asks you to write next. Items are named by the codes of codesVersion.",
+      "Get the module the spec owner has open and its workflow state: whether every stage is complete, and for each stage whether it is open (every stage it builds on is complete, so it can be written, signed and discussed) or closed, its progress (empty, in progress, complete), how many of its items, coverages and impacts are approved out of how many, what in it waits for a signature, and its open threads. threadsWaitingForYou lists the change requests given to you; stagesWaitingForYou lists the stages you are asked to write, and stagesToReviewForYou those you are asked to review. Items are named by the codes of codesVersion. Pass module to read another module's state.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
-  run: (store, _args, open) => {
+  inModule: true,
+  run: (store, _args, open, _caller, agent) => {
+    const mine = requestsOfCaller(store, open, agent);
     const stages = store.workflow.stageIds.map((stage) => {
       const summary = store.stageSummary(stage);
       const definition = store.workflow.stage(stage);
@@ -462,7 +605,7 @@ const workflowStateTool: AgentTool = {
         progress: STAGE_PROGRESS_LABELS[summary.progress],
         approved: `${summary.approved} of ${summary.total}`,
         waitingForSignature: summary.waiting,
-        openThreads: store.threadsOfStage(stage).filter(({ resolution }) => resolution == null).map((thread) => threadView(store, thread)),
+        openThreads: store.threadsOfStage(stage).filter(({ resolution }) => resolution == null).map((thread) => threadView(store, thread, statusOf(open, agent))),
       };
     });
     return JSON.stringify({
@@ -471,12 +614,13 @@ const workflowStateTool: AgentTool = {
       codesVersion: store.codesVersion,
       complete: store.isComplete,
       stages,
-      threadsWaitingForYou: store.threadsWaitingForAnswerer.map((thread) => ({
+      threadsWaitingForYou: mine.threads.map((thread) => ({
         threadId: thread.id,
         ...threadUnit(store, thread),
         stage: thread.stage,
       })),
-      stagesWaitingForYou: store.writingAskedOfAnswerer.map(({ stage }) => ({ stage, label: store.workflow.stage(stage).label })),
+      stagesWaitingForYou: mine.write.map((stage) => ({ stage, label: store.workflow.stage(stage).label })),
+      ...(mine.review.length === 0 ? {} : { stagesToReviewForYou: mine.review.map((stage) => ({ stage, label: store.workflow.stage(stage).label })) }),
     });
   },
 };
@@ -501,12 +645,11 @@ const stageRulesTool: AgentTool = {
   description: {
     name: "get_stage_rules",
     description:
-      "Read the published rules of each kind of item one stage holds, the same the spec owner reads and signs against, and the shared rules every kind follows. For each kind: the question its items answer, which decides what belongs in an item of it; its own rules; its code and fields; the kinds of the stages it builds on whose coverage its items give; what it must reference: for each entry, at least one item of any of its kinds, and with when only an item whose field holds that option, such as a requirement whose type is constraint; the kinds it never references; the single items it counts as referencing or depending on without listing them; an example of its fields where the shape is not plain; and examples: one item of the kind, then items of other kinds, or wrong items of the same kind, that could pass for one, each with why it is not. Each field has a type: text; choice, one of its options; flag, true or false; texts, a list of texts; items, a list of codes of the kind it chooses, or one code, never a list, when single, which count as the item's references when that kind is in a stage this stage builds on, or as its dependencies when it is in this stage, and are never listed again in references or dependencies; record, an object of its own fields, or null for none; records, a list of such objects, one per entry. A field with shownAfter holds only what follows those words. A refused write names the field by its place, such as \"AT-01, Then step 2: Comparison\". Read them before writing a stage. Reading the rules of the kinds of a stage the spec owner asked you to write shows them you are working on it, until you write it.",
+      "Read the published rules of each kind of item one stage holds, the same the spec owner reads and signs against, and the shared rules every kind follows. For each kind: the question its items answer, which decides what belongs in an item of it; its own rules; its code and fields; the kinds of the stages it builds on whose coverage its items give; what it must reference: for each entry, at least one item of any of its kinds, and with when only an item whose field holds that option, such as a requirement whose type is constraint; the kinds it never references; the single items it counts as referencing or depending on without listing them; an example of its fields where the shape is not plain; and examples: one item of the kind, then items of other kinds, or wrong items of the same kind, that could pass for one, each with why it is not. Each field has a type: text; choice, one of its options; flag, true or false; texts, a list of texts; items, a list of codes of the kind it chooses, or one code, never a list, when single, which count as the item's references when that kind is in a stage this stage builds on, or as its dependencies when it is in this stage, and are never listed again in references or dependencies; record, an object of its own fields, or null for none; records, a list of such objects, one per entry. A field with shownAfter holds only what follows those words. A refused write names the field by its place, such as \"AT-01, Then step 2: Comparison\". Read them before writing a stage.",
     inputSchema: { type: "object", properties: { stage: STAGE_PROPERTY }, required: ["stage"], additionalProperties: false },
   },
-  run: (store, args, _open, caller) => {
+  run: (store, args, open, caller) => {
     const stage = store.workflow.stage(stageNamed(store, args.stage));
-    store.takeUpWriting(stage.id, caller.connection ?? caller.name);
     return JSON.stringify({
       stage: stage.id,
       label: stage.label,
@@ -540,14 +683,6 @@ const stageRulesTool: AgentTool = {
   },
 };
 
-/** The store a read names by `name`: the open module's when it names none or the open one, or another module's, read-only. */
-function readModule(store: Store, open: OpenModule, name: unknown): Store {
-  if (name == null || name === open.moduleName) return store;
-  if (typeof name !== "string") throw new UserFacingError("module must be a string.");
-  if (open.readModule == null) throw new UserFacingError("This project has no other module to read.");
-  return open.readModule(name);
-}
-
 const itemsTool: AgentTool = {
   makes: null,
   description: {
@@ -559,14 +694,13 @@ const itemsTool: AgentTool = {
       properties: {
         stage: STAGE_PROPERTY,
         items: { type: "array", items: { type: "string" }, description: "Codes or ids of the items to read; all of the stage's items when left out." },
-        module: { type: "string", description: "Another module to read, as get_workflow_state lists it under otherModules; the open module when left out." },
       },
       required: ["stage"],
       additionalProperties: false,
     },
   },
-  run: (shown, args, open) => {
-    const store = readModule(shown, open, args.module);
+  inModule: true,
+  run: (store, args) => {
     const stage = stageNamed(store, args.stage);
     const all = store.itemsOf(stage).map(({ id }) => id);
     const wanted = optionalStrings(args, "items", "get_items");
@@ -587,11 +721,12 @@ const itemsTool: AgentTool = {
 };
 
 const threadTool: AgentTool = {
+  inModule: true,
   makes: null,
   description: {
     name: "get_thread",
     description:
-      "Read one thread, open or resolved: whom it waits for, every message, and its unit; for an item, the item as get_items gives it; for a removed unit, what it said when it was removed (removedUnitText), by which a reply names it. A marked mention in a message reads [CODE](item:ID), by the item's code now, or as [removed item](item:ID) once its item is gone; any other code in a message is plain text. A channel event about a change request names its thread. Reading a thread that waits for you shows the spec owner you are working on it, until you answer or they write again.",
+      "Read one thread, open or resolved: whom it waits for, every message, and its unit; for an item, the item as get_items gives it; for a removed unit, what it said when it was removed (removedUnitText), by which a reply names it. A marked mention in a message reads [CODE](item:ID), by the item's code now, or as [removed item](item:ID) once its item is gone; any other code in a message is plain text. A channel event about a change request names its thread.",
     inputSchema: {
       type: "object",
       properties: { threadId: { type: "string", description: "The thread to read." } },
@@ -599,17 +734,17 @@ const threadTool: AgentTool = {
       additionalProperties: false,
     },
   },
-  run: (store, args, _open, caller) => {
+  run: (store, args, open, _caller, agent) => {
     const threadId = stringArgument(args, "threadId");
     const thread = store.threads.find(({ id }) => id === threadId);
     if (thread == null) throw new UserFacingError(`There is no thread ${threadId}.`);
-    const text = JSON.stringify(threadWithUnit(store, thread));
-    store.takeUpThread(threadId, caller.connection ?? caller.name);
+    const text = JSON.stringify(threadWithUnit(store, thread, statusOf(open, agent)));
     return text;
   },
 };
 
 const threadsTool: AgentTool = {
+  inModule: true,
   makes: null,
   description: {
     name: "get_threads",
@@ -617,9 +752,9 @@ const threadsTool: AgentTool = {
       "Read every thread of the module, open and resolved, with all their messages and, for an item, the item as get_items gives it, oldest first; pass a stage to read only its threads, including those whose unit was removed. Marked mentions read as in get_thread.",
     inputSchema: { type: "object", properties: { stage: STAGE_PROPERTY }, additionalProperties: false },
   },
-  run: (store, args) => {
+  run: (store, args, open, _caller, agent) => {
     const threads = args.stage == null ? store.threads : store.threadsOfStage(stageNamed(store, args.stage));
-    return JSON.stringify(threads.map((thread) => threadWithUnit(store, thread)));
+    return JSON.stringify(threads.map((thread) => threadWithUnit(store, thread, statusOf(open, agent))));
   },
 };
 
@@ -635,7 +770,15 @@ const ANSWERS_PROPERTY = {
   },
 };
 
-const writeTool: AgentTool = {
+const FULFILS_PROPERTY = {
+  type: "string",
+  description: "A stage id: mark the request to write that stage, which you have, fulfilled. Every change of this write is then to that stage, and it may have none.",
+};
+
+/** The write tool; it marks a request to write a stage fulfilled once the open module can. */
+function writeTool(open: OpenModule): AgentTool {
+  return {
+  inModule: true,
   makes: "write of items",
   description: {
     name: "write_items",
@@ -667,33 +810,53 @@ const writeTool: AgentTool = {
         },
         answers: ANSWERS_PROPERTY,
         pointTo: POINTER_PROPERTY,
+        ...(open.fulfilWriting == null ? {} : { fulfils: FULFILS_PROPERTY }),
       },
       required: ["codesVersion", "changes"],
       additionalProperties: false,
     },
   },
-  run: (store, args, open, caller) => {
+  run: (store, args, open, caller, agent) => {
     requireCodesVersion(store, args);
     const changes = parseChanges(store, args.changes);
     const answers = parseAnswers(store, args.answers, args.codesVersion, changes);
     const pointer = parsePointer(store, open, args.pointTo, changes);
+    const fulfils = args.fulfils == null || open.fulfilWriting == null ? null : stageNamed(store, args.fulfils);
+    const found = deskOf(open);
+    if (found != null && agent != null) {
+      const stages = stagesChangedBy(store, changes);
+      const othersHold = found.desk.heldRequests().some((request) => request.moduleId === found.moduleId && request.agentId !== agent.id);
+      const problems = found.desk.writeProblems(agent.id, {
+        moduleId: found.moduleId,
+        stages,
+        closes: othersHold && changes.length > 0 ? stagesClosedBy(store, changes) : [],
+        answers: answers.map(({ threadId }) => threadId),
+        fulfils,
+      });
+      if (problems.length > 0) throw new UserFacingError(problems.join("\n"));
+    }
     const versionBefore = store.codesVersion;
     const codesBefore = codesNow(store);
-    const outcome = store.writeItems(changes, answers.length === 0 ? null : { answers, author: { kind: "agent", name: caller.name } });
+    // Each thread answered with changes is one whose change request this agent has, so the reply answers it.
+    const outcome = store.writeItems(changes, answers.length === 0 ? null : { answers, author: { kind: "agent", name: agent?.name ?? caller.name }, annotations: ANSWERS_REQUEST });
+    if (fulfils != null) open.fulfilWriting!(open.moduleId!, fulfils);
     const lines = [
       ...outcomeLines(store, outcome, codesBefore),
       ...(answers.length > 0
         ? [`Replied to ${answers.length === 1 ? "one thread" : `${answers.length} threads`}; the spec owner reads the replies and resolves the threads.`]
         : []),
+      ...(fulfils == null ? [] : [`The request to write ${store.stageLabel(fulfils)} is fulfilled.`]),
       ...(pointer == null ? [] : [pointOut(store, open, pointer, changes, outcome.added)]),
       "The spec owner signs these in Requireganizer; get_workflow_state shows what waits for a signature.",
     ];
     if (store.codesVersion !== versionBefore) lines.push(`Codes may have moved (codesVersion ${store.codesVersion}): read get_items again before naming items.`);
     return lines.join("\n");
   },
-};
+  };
+}
 
 const reorderTool: AgentTool = {
+  inModule: true,
   makes: "write of items",
   description: {
     name: "reorder_items",
@@ -714,9 +877,14 @@ const reorderTool: AgentTool = {
       additionalProperties: false,
     },
   },
-  run: (store, args) => {
+  run: (store, args, open, _caller, agent) => {
     requireCodesVersion(store, args);
     const stage = stageNamed(store, args.stage);
+    const found = deskOf(open);
+    if (found != null && agent != null) {
+      const problems = found.desk.writeProblems(agent.id, { moduleId: found.moduleId, stages: [stage], closes: [], answers: [], fulfils: null });
+      if (problems.length > 0) throw new UserFacingError(problems.join("\n"));
+    }
     const codes = optionalStrings(args, "order", "reorder_items");
     if (codes == null) throw new UserFacingError("order must be a list of codes.");
     const itemIds = codes.map((code) => {
@@ -734,35 +902,13 @@ const reorderTool: AgentTool = {
   },
 };
 
-const switchModuleTool: AgentTool = {
-  makes: "module change",
-  description: {
-    name: "switch_module",
-    description:
-      "Open another module of the project, so the spec owner's page and every tool work on it. Name it as get_workflow_state lists it under module or otherModules. The page switches at once. Call get_workflow_state after switching: each module has its own stages, items and codesVersion.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        name: { type: "string", minLength: 1, description: "The module to open, as get_workflow_state lists it." },
-      },
-      required: ["name"],
-      additionalProperties: false,
-    },
-  },
-  run: (_store, args, open) => {
-    const requested = stringArgument(args, "name");
-    const opened = open.switchModule!(requested);
-    if (opened === open.moduleName) return `“${opened}” is already open.`;
-    return `Opened “${opened}”. Every tool now works on it; call get_workflow_state before working on it.`;
-  },
-};
-
 const replyTool: AgentTool = {
+  inModule: true,
   makes: "thread message",
   description: {
     name: "reply_to_thread",
     description:
-      `Reply to an open thread without changing items, such as to ask what the spec owner means or to say why the unit should stay as it is. To answer with changes, use write_items with answers. Pass pointTo to point the spec owner to one item, coverage or impact that needs them. Only the spec owner resolves a thread. ${replyRulesText()}`,
+      `Add a message to an open thread of an open stage without changing items, such as to ask what the spec owner means or to say why the unit should stay as it is. A message of the agent that has the thread's change request answers it; any other agent's leaves it waiting with that agent. To answer with changes, use write_items with answers. Pass pointTo to point the spec owner to a set of items, coverages and impacts that need them. Only the spec owner resolves a thread. ${replyRulesText()}`,
     inputSchema: {
       type: "object",
       properties: {
@@ -775,10 +921,13 @@ const replyTool: AgentTool = {
       additionalProperties: false,
     },
   },
-  run: (store, args, open, caller) => {
+  run: (store, args, open, caller, agent) => {
     const reply = parseReply(store, stringArgument(args, "threadId"), stringArgument(args, "text"), args.codesVersion, []);
     const pointer = parsePointer(store, open, args.pointTo, []);
-    store.answerThreads([reply], { kind: "agent", name: caller.name });
+    const thread = store.threads.find(({ id }) => id === reply.threadId);
+    // Only the agent that has the thread's change request answers it; any other agent's message leaves it waiting.
+    const answers = thread != null && hasChangeRequest(open, agent, thread);
+    store.answerThreads([reply], { kind: "agent", name: agent?.name ?? caller.name }, answers ? ANSWERS_REQUEST : undefined);
     return ["Replied. The thread waits for the spec owner.", ...(pointer == null ? [] : [pointOut(store, open, pointer, [], [])])].join("\n");
   },
 };
@@ -788,7 +937,7 @@ const createModuleTool: AgentTool = {
   description: {
     name: "create_module",
     description:
-      "Create a module the spec owner asked for. It opens at once in Requireganizer, empty at its first stage, and every tool then works on it.",
+      "Create a module the spec owner asked for, empty at its first stage. The spec owner's page stays where it is; pass module with the new module's name to read and write it.",
     inputSchema: {
       type: "object",
       properties: { name: { type: "string", minLength: 1, description: "The module's name, as the spec owner gave it." } },
@@ -797,8 +946,139 @@ const createModuleTool: AgentTool = {
     },
   },
   run: (_store, args, open) => {
-    open.addModule!(stringArgument(args, "name"));
-    return "Created the module; it is now the one the spec owner has open. Call get_workflow_state before working on it.";
+    const name = stringArgument(args, "name");
+    open.addModule!(name);
+    return `Created the module. Pass module: "${name.trim()}" to work on it; call get_workflow_state with it first.`;
+  },
+};
+
+/** The one tool a coding agent that has no name may call. */
+const NAME_TOOL = "name_yourself";
+
+/** What a coding agent that has no name is told, as it connects and whenever it calls another tool. */
+export const NAME_YOURSELF_TEXT =
+  `Before anything else, give yourself a name with ${NAME_TOOL}: take it from your conversation with your user, or ask your user for one when that conversation gives none. The spec owner gives each request to an agent by its name.`;
+
+const nameYourselfTool: AgentTool = {
+  makes: null,
+  description: {
+    name: NAME_TOOL,
+    description: `Give yourself the name the spec owner gives you requests by, once, as you connect. ${NAME_YOURSELF_TEXT} A name is refused when it is empty or another available agent has it, letters of either case counting as the same.`,
+    inputSchema: {
+      type: "object",
+      properties: { name: { type: "string", minLength: 1, description: "Your name, such as the one your user calls you by." } },
+      required: ["name"],
+      additionalProperties: false,
+    },
+  },
+  run: (_store, args, open, caller) => {
+    if (open.desk == null || caller.connection == null) throw new UserFacingError("Only a connected coding agent names itself.");
+    const name = stringArgument(args, "name");
+    open.desk.roster.nameCodingAgent(caller.connection, name);
+    return `You are “${name.trim()}”. The spec owner can now give you requests; each one given to you arrives as a channel event. Call get_workflow_state to start.`;
+  },
+};
+
+/** The request a report or an answer names: a change request by its thread, or a request to write or review by its stage. */
+function namedRequest(desk: AgentDesk, moduleId: string, store: Store, args: Arguments): AgentRequest {
+  const waiting = desk.waiting().filter((request) => request.moduleId === moduleId);
+  if (typeof args.threadId === "string") {
+    const request = waiting.find(({ thread }) => thread?.id === args.threadId);
+    if (request == null) throw new UserFacingError(`No change request waits in thread ${args.threadId}.`);
+    return request;
+  }
+  const stage = stageNamed(store, args.stage);
+  const kind = args.kind === "review" ? "review" : "write";
+  const request = waiting.find((candidate) => candidate.kind === kind && candidate.stage === stage);
+  if (request == null) throw new UserFacingError(`No request to ${kind} ${store.stageLabel(stage)} waits.`);
+  return request;
+}
+
+const reportCannotAnswerTool: AgentTool = {
+  inModule: true,
+  makes: null,
+  description: {
+    name: "report_cannot_answer",
+    description:
+      "Report that you cannot answer a request you have, with a text saying why, such as a question only the spec owner can settle. The request goes back to no agent and still waits; the spec owner sees your text with it until they give it again. Name a change request by threadId, or a request to write or review a stage by stage and kind.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        threadId: { type: "string", description: "For a change request: its thread." },
+        stage: STAGE_PROPERTY,
+        kind: { type: "string", enum: ["write", "review"], description: "For a stage: whether the request is to write it, the default, or to review it." },
+        reason: { type: "string", minLength: 1, description: "Why you cannot answer it, for the spec owner." },
+      },
+      required: ["reason"],
+      additionalProperties: false,
+    },
+  },
+  run: (store, args, open, _caller, agent) => {
+    const found = deskOf(open);
+    if (found == null || agent == null) throw new UserFacingError("No request is any agent's in this project.");
+    const request = namedRequest(found.desk, found.moduleId, store, args);
+    found.desk.fail(request.key, agent.id, stringArgument(args, "reason"));
+    return "Reported. The request is no agent's now and waits for the spec owner to give it again.";
+  },
+};
+
+const answerReviewTool: AgentTool = {
+  inModule: true,
+  makes: "section change",
+  description: {
+    name: "answer_review",
+    description:
+      "Answer a request to review a stage that you have: name each item of the stage that breaks a published rule of its kind, from get_stage_rules, with the rule and how the item breaks it; name none when no item breaks a rule. The spec owner sees each finding on its item until the item changes or a later review does not find it. This ends the request.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        stage: STAGE_PROPERTY,
+        findings: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              item: { type: "string", description: "The item's code, from get_items." },
+              rule: { type: "string", minLength: 1, description: "The rule it breaks, as the published rules state it." },
+              how: { type: "string", minLength: 1, description: "How the item breaks it." },
+            },
+            required: ["item", "rule", "how"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["stage", "findings"],
+      additionalProperties: false,
+    },
+  },
+  run: (store, args, open, _caller, agent) => {
+    const found = deskOf(open);
+    if (found == null || agent == null || open.answerReview == null) throw new UserFacingError("No request to review is any agent's in this project.");
+    const stage = stageNamed(store, args.stage);
+    const problem = found.desk.reviewProblem(agent.id, found.moduleId, stage);
+    if (problem != null) throw new UserFacingError(problem);
+    if (!Array.isArray(args.findings)) throw new UserFacingError("findings must be a list of { item, rule, how }.");
+    const problems: string[] = [];
+    const findings = args.findings.flatMap((entry, index): ReviewFinding[] => {
+      const label = `Finding ${index + 1}`;
+      if (!isRecord(entry) || typeof entry.item !== "string" || typeof entry.rule !== "string" || typeof entry.how !== "string") {
+        problems.push(`${label} must be { item, rule, how }.`);
+        return [];
+      }
+      const itemId = store.itemNamed(entry.item);
+      if (itemId == null || store.locate(itemId)?.stage !== stage) {
+        problems.push(`${label}: ${store.stageLabel(stage)} has no item ${entry.item}.`);
+        return [];
+      }
+      if (entry.rule.trim().length === 0 || entry.how.trim().length === 0) {
+        problems.push(`${label}: say which rule ${entry.item} breaks and how.`);
+        return [];
+      }
+      return [{ itemId, rule: entry.rule.trim(), how: entry.how.trim() }];
+    });
+    if (problems.length > 0) throw new UserFacingError(problems.join("\n"));
+    open.answerReview(found.moduleId, stage, findings);
+    return `Answered the request to review ${store.stageLabel(stage)}${findings.length === 0 ? ", finding no item that breaks a rule" : ` with ${findings.length === 1 ? "one finding" : `${findings.length} findings`}`}.`;
   },
 };
 
@@ -806,11 +1086,13 @@ const READ_TOOLS: readonly AgentTool[] = [workflowStateTool, stageRulesTool, ite
 
 function toolsFor(open: OpenModule): AgentTool[] {
   return [
+    ...(open.desk == null ? [] : [nameYourselfTool]),
     ...READ_TOOLS,
-    writeTool,
+    writeTool(open),
     reorderTool,
     replyTool,
-    ...(open.switchModule == null ? [] : [switchModuleTool]),
+    ...(open.desk == null ? [] : [reportCannotAnswerTool]),
+    ...(open.desk == null || open.answerReview == null ? [] : [answerReviewTool]),
     ...(open.addModule == null ? [] : [createModuleTool]),
   ];
 }
@@ -826,23 +1108,67 @@ export function agentToolChange(name: string, open: OpenModule = {}): ChangeKind
   return toolNamed(name, open).makes;
 }
 
-/** The read tools, which an outside agent can call in every state of the project. */
+/** The read tools, which an agent can call in every state of the project. */
 export function readToolDescriptions(): AgentToolDescription[] {
-  return READ_TOOLS.map(({ description }) => description);
+  return READ_TOOLS.map((tool) => describedTool(tool, {}));
 }
 
 /**
- * The tools an outside agent works with on an open project. Signing and
- * resolving threads stay with the spec owner, so no tool does either.
+ * The tools an agent works with on an open project. Signing and resolving
+ * threads stay with the spec owner, so no tool does either.
  */
 export function agentToolDescriptions(open: OpenModule = {}): AgentToolDescription[] {
-  return toolsFor(open).map(({ description }) => description);
+  return toolsFor(open).map((tool) => describedTool(tool, open));
+}
+
+const MODULE_PROPERTY = {
+  type: "string",
+  description: "Another module to work on, as get_workflow_state lists it under otherModules; the module the spec owner has open when left out. Its codes and codesVersion are that module's. Working on it does not move the spec owner's page.",
+};
+
+/** A tool as it is listed: one that works on any module takes module while the project has other modules. */
+function describedTool(tool: AgentTool, open: OpenModule): AgentToolDescription {
+  if (!tool.inModule || open.otherModule == null) return tool.description;
+  const schema = tool.description.inputSchema as { properties?: Record<string, unknown> };
+  return { ...tool.description, inputSchema: { ...schema, properties: { ...schema.properties, module: MODULE_PROPERTY } } };
+}
+
+/** Run a tool on the module `args.module` names, or the open one; another module is read as it is, or changed without being shown. */
+function runInModule(tool: AgentTool, shown: Store, args: Arguments, open: OpenModule, caller: AgentCaller, agent: CallingAgent | null): string {
+  const { module: name, ...rest } = args;
+  if (!tool.inModule || name == null || name === open.moduleName) return tool.run(shown, rest, open, caller, agent);
+  if (typeof name !== "string") throw new UserFacingError("module must be a module's name.");
+  if (open.otherModule == null) throw new UserFacingError("This project has no other module.");
+  const other = open.otherModule(name);
+  const scoped: OpenModule = { ...open, moduleName: other.name, moduleId: other.id };
+  const run = (store: Store) => tool.run(store, rest, scoped, caller, agent);
+  return tool.makes == null ? run(other.store) : other.change(run);
 }
 
 /**
- * Run one tool for an outside agent, synchronously, so the host can take the
- * call as one change. Throws a message the agent can act on when the call
- * fails.
+ * The agent calling, as the desk knows it: a coding agent is its
+ * connection, known from its first call until the connection ends; one
+ * that has no name may only name itself.
+ */
+function callingAgent(open: OpenModule, caller: AgentCaller, toolName: string): CallingAgent | null {
+  const { desk } = open;
+  if (desk == null) return null;
+  if (caller.agentId != null) {
+    const name = desk.roster.nameOf(caller.agentId);
+    if (name == null) throw new UserFacingError("This agent is no longer available.");
+    return { id: caller.agentId, name };
+  }
+  if (caller.connection == null) throw new UserFacingError("Only an agent of this project calls its tools.");
+  desk.roster.connect(caller.connection);
+  const id = codingAgentId(caller.connection);
+  const name = desk.roster.nameOf(id);
+  if (name == null && toolName !== NAME_TOOL) throw new UserFacingError(`You have no name yet, so nothing else is open to you. ${NAME_YOURSELF_TEXT}`);
+  return name == null ? null : { id, name };
+}
+
+/**
+ * Run one tool for an agent, synchronously, so the host can take the call
+ * as one change. Throws a message the agent can act on when the call fails.
  */
 export function callAgentTool(
   store: Store,
@@ -851,5 +1177,9 @@ export function callAgentTool(
   open: OpenModule = {},
   caller: AgentCaller = { name: "The coding agent" },
 ): string {
-  return toolNamed(name, open).run(store, args, open, caller);
+  const tool = toolNamed(name, open);
+  const result = runInModule(tool, store, args, open, caller, callingAgent(open, caller, name));
+  // What the call answered or withdrew is no agent's, even if undo makes it wait again.
+  open.desk?.settle();
+  return result;
 }

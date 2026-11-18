@@ -9,17 +9,17 @@ import type {
   ItemVersion,
   Removal,
   Thread,
-  WritingAsk,
 } from "workflow";
 
 import { serializeCanonical } from "./canonicalJson";
 
 /**
- * Version of a stored or exported project. 5 holds each module's content
- * whole, with no view state and no description, and thread resolutions and
- * times that may be null.
+ * Version of a stored or exported project. 6 holds each module's content
+ * whole, with no view state and no description, thread resolutions and
+ * times that may be null, and the sections other modules own. 5 is read
+ * too: it held the stages asked to be written in each module's content.
  */
-export const PROJECT_SCHEMA_VERSION = 5 as const;
+export const PROJECT_SCHEMA_VERSION = 6 as const;
 
 /** One item as a module stores it. */
 export interface StoredItem {
@@ -39,14 +39,22 @@ export interface StageContent {
   intake: Record<string, ItemVersion>;
   coverages: Record<string, CoverageSignature>;
   impacts: Record<string, ImpactSignature>;
+  /** When the stage last became complete; null when unknown, such as in a project imported without signature times. */
+  completedAt: string | null;
 }
 
-/** Everything one module holds: its stages, its threads and the stages asked to be written. */
+/** Everything one module holds: its stages and its threads. */
 export interface ModuleContent {
   stages: Record<string, StageContent>;
   threads: Thread[];
-  writingAsked: WritingAsk[];
 }
+
+/**
+ * The parts of the project other modules own, by the name of the module
+ * that owns each: storage keeps each whole, as JSON, and never reads it;
+ * its owner parses it.
+ */
+export type ProjectSections = Readonly<Record<string, unknown>>;
 
 export interface ModuleState {
   id: string;
@@ -64,6 +72,7 @@ export interface ModuleState {
 export interface ProjectState {
   modulesEnabled: boolean;
   modules: ModuleState[];
+  sections: ProjectSections;
 }
 
 /** A project as written out: its state with the schema it is written in. */
@@ -92,11 +101,12 @@ export function projectState(registry: ModuleRegistry, shown: Store): ProjectSta
     modules: registry.modules.map((module) =>
       module.id === registry.activeModuleId ? { ...module, content: moduleContentOf(shown) } : module,
     ),
+    sections: registry.sections,
   };
 }
 
 export function projectDocument(state: ProjectState): ProjectDocument {
-  return { schemaVersion: PROJECT_SCHEMA_VERSION, modulesEnabled: state.modulesEnabled, modules: state.modules };
+  return { schemaVersion: PROJECT_SCHEMA_VERSION, modulesEnabled: state.modulesEnabled, modules: state.modules, sections: state.sections };
 }
 
 /** The bytes of a project as storage and exports hold it. */
