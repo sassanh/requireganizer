@@ -27,20 +27,22 @@ tool signs.
   your user calls you by, or ask them.
 - Call `get_workflow_state` first, and again after anything changes. A stage
   in its `stagesWaitingForYou` is one the person asks you to write next.
-  Pass `fulfils` with that stage in the `write_items` call that completes
-  it, which may change no item.
+  Pass that entry's `request` as `fulfils` in the `write_items` call that
+  completes it, which may change no item.
 - A stage in its `stagesToReviewForYou` is one the person asks you to
   review. Check each item against the published rules of its kind, then
-  answer with `answer_review`, naming each item that breaks a rule, the rule
-  and how it breaks it, or none.
-- When you cannot answer a request given to you, say why with
-  `report_cannot_answer`.
+  answer with `answer_review` and that entry's `request`, naming each item
+  that breaks a rule, the rule and how it breaks it, or none.
+- When you cannot answer a request given to you, pass its request's id to
+  `report_cannot_answer` with why.
 - Before writing a stage, read the rules of each kind of item it holds with
   `get_stage_rules`, and follow them: the person signs against the same
   rules.
 - To work on a module other than the one the person has open, pass `module`
-  with a name `get_workflow_state` lists under `otherModules`. Codes and
-  `codesVersion` are then that module's.
+  to a tool that takes one, named by `get_workflow_state` under
+  `otherModules` or by a request given to you. Codes and `codesVersion` are
+  then that module's. The tools that answer a request take its id, which
+  names its module.
 - Read items with `get_items` again before changing or citing them, rather
   than relying on an earlier read: codes are positions and move.
 

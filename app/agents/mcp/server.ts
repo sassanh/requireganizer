@@ -9,6 +9,7 @@ import type { ClientConnection } from "connection";
 import { ConnectionLostError, ProjectClient } from "project-client";
 
 import type { AgentNotice } from "../desk";
+import { channelNotice, type ChannelNotification } from "./channel";
 import { replyRulesText } from "../interface/replyRules";
 import { type AgentToolDescription, NAME_YOURSELF_TEXT } from "../interface/tools";
 
@@ -20,16 +21,6 @@ const ADDRESS_WAIT_MS = 5_000;
 const TOOL_LIST_CHECK_DELAY_MS = 500;
 /** How often a call still running, such as a submission under review, tells the client so. */
 const PROGRESS_INTERVAL_MS = 10_000;
-
-/**
- * A Claude Code channel event: a session started with this server as a
- * channel receives it as if the person had written it, and other clients
- * ignore it.
- */
-interface ChannelNotification {
-  method: "notifications/claude/channel";
-  params: { content: string; meta: Record<string, string> };
-}
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -68,16 +59,7 @@ function reachHost(client: ProjectClient, waitMs: number): Promise<void> {
 
 function instructionsFor(url: string | null, mustName: boolean): string {
   const where = url == null ? "in Requireganizer" : `at ${url}`;
-  return `${mustName ? `${NAME_YOURSELF_TEXT} ` : ""}Requireganizer holds the spec the spec owner signs for this project, stage by stage, each item traced to what it builds on. Read it before building: get_workflow_state shows which stages are open; get_stage_rules gives the published rules of each kind of item a stage holds, and get_items reads a stage's items by code. Write, change and remove items with write_items; the spec owner signs them ${where}, and no tool signs. A channel event with a thread_id means a change request of the spec owner's is given to you: read it with get_thread and answer it with reply_to_thread, or with write_items and its answers. A channel event with a stage means the spec owner gives you a request to write or to review that stage: read the rules of its kinds of item with get_stage_rules, then write it with write_items, marking the request fulfilled, or answer the review with answer_review. When you cannot answer a request given to you, say why with report_cannot_answer. To point the spec owner to a set of items, coverages and impacts that need them, pass pointTo with write_items or reply_to_thread, with one text of at most 80 characters saying why. ${replyRulesText()}`;
-}
-
-/** The channel event that tells a coding agent of a request given to it or stopped. */
-export function channelNotice(notice: AgentNotice): ChannelNotification["params"] {
-  const { request } = notice;
-  const meta: Record<string, string> = request.thread == null ? { stage: request.stage, request: request.kind } : { thread_id: request.thread.id };
-  return notice.type === "given"
-    ? { content: `The spec owner gives you a request: ${notice.summary}.`, meta }
-    : { content: `The spec owner stopped your request: ${notice.summary}. Your answer to it no longer counts; leave it.`, meta: { ...meta, stopped: "true" } };
+  return `${mustName ? `${NAME_YOURSELF_TEXT} ` : ""}Requireganizer holds the spec the spec owner signs for this project, stage by stage, each item traced to what it builds on. Read it before building: get_workflow_state shows which stages are open; get_stage_rules gives the published rules of each kind of item a stage holds, and get_items reads a stage's items by code. Write, change and remove items with write_items; the spec owner signs them ${where}, and no tool signs. A channel event names the request it is about by its id, and while the project has modules its module: pass that module to each tool that takes one, such as get_items, get_thread, reply_to_thread and write_items. A request to write or to review a stage names its stage too: read the rules of its kinds of item with get_stage_rules and its items with get_items, then pass the request's id to write_items' fulfils, or to answer_review. A change request waits in its thread_id: read it with get_thread and answer it with reply_to_thread, or with write_items and its answers. When you cannot answer a request given to you, pass its id to report_cannot_answer. To point the spec owner to a set of items, coverages and impacts that need them, pass pointTo with write_items or reply_to_thread, with one text of at most 80 characters saying why. ${replyRulesText()}`;
 }
 
 export interface McpService {

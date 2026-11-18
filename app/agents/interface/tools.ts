@@ -118,9 +118,15 @@ interface AgentTool {
   description: AgentToolDescription;
   /** Takes `module`, to work on another module than the open one; its schema gets the property. */
   inModule?: boolean;
+  /**
+   * The argument naming the request this call answers, and the kind of request
+   * the tool answers. The call then works on that request's module and stage,
+   * whatever the module the spec owner has open or the call names.
+   */
+  request?: { argument: string; kind?: "write" | "review" };
   /** The kind of change a call makes, as its step names it; null for a tool that only reads. */
   makes: ChangeKind | null;
-  run(store: Store, args: Arguments, open: OpenModule, caller: AgentCaller, agent: CallingAgent | null): string;
+  run(store: Store, args: Arguments, open: OpenModule, caller: AgentCaller, agent: CallingAgent | null, request: AgentRequest | null): string;
 }
 
 function stringArgument(args: Arguments, name: string): string {
@@ -554,17 +560,48 @@ function statusOf(open: OpenModule, agent: CallingAgent | null): ThreadStatus {
 /**
  * The requests the calling agent has in the module a call works on.
  * Without a desk, every waiting change request, as before agents had
- * requests.
+ * requests, named by no request id.
  */
-function requestsOfCaller(store: Store, open: OpenModule, agent: CallingAgent | null): { threads: Thread[]; write: string[]; review: string[] } {
+function requestsOfCaller(store: Store, open: OpenModule, agent: CallingAgent | null): {
+  threads: { thread: Thread; request: AgentRequest | null }[];
+  write: AgentRequest[];
+  review: AgentRequest[];
+} {
   const found = deskOf(open);
   if (found == null) {
-    return { threads: store.threads.filter((thread) => store.stageOpen(thread.stage) && hasChangeRequest(open, agent, thread)), write: [], review: [] };
+    return {
+      threads: store.threads
+        .filter((thread) => store.stageOpen(thread.stage) && hasChangeRequest(open, agent, thread))
+        .map((thread) => ({ thread, request: null })),
+      write: [],
+      review: [],
+    };
   }
   const mine = found.desk.heldRequests().filter((request) => request.moduleId === found.moduleId && request.agentId === agent?.id);
-  const stagesOf = (kind: AgentRequest["kind"]) => mine.filter((request) => request.kind === kind).map(({ stage }) => stage);
-  const threadIds = new Set(mine.flatMap(({ thread }) => (thread == null ? [] : [thread.id])));
-  return { threads: store.threads.filter(({ id }) => threadIds.has(id)), write: stagesOf("write"), review: stagesOf("review") };
+  return {
+    threads: mine.flatMap((request) => {
+      if (request.thread == null) return [];
+      const thread = store.threads.find(({ id }) => id === request.thread!.id);
+      return thread == null ? [] : [{ thread, request }];
+    }),
+    write: mine.filter(({ kind }) => kind === "write"),
+    review: mine.filter(({ kind }) => kind === "review"),
+  };
+}
+
+/**
+ * The request a tool call names, held by the calling agent; null when the
+ * tool names none or the call names none.
+ */
+function requestNamedBy(tool: AgentTool, args: Arguments, open: OpenModule, agent: CallingAgent | null): AgentRequest | null {
+  const named = tool.request;
+  if (named == null) return null;
+  const value = args[named.argument];
+  if (value == null) return null;
+  if (typeof value !== "string") throw new UserFacingError(`${named.argument} must be a request's id.`);
+  const found = deskOf(open);
+  if (found == null || agent == null) throw new UserFacingError("No request is any agent's in this project.");
+  return found.desk.requireHeldRequest(agent.id, value, named.kind);
 }
 
 /** The stages a write would close: open before it and closed after, tried on a copy of the module. */
@@ -588,7 +625,7 @@ const workflowStateTool: AgentTool = {
   description: {
     name: "get_workflow_state",
     description:
-      "Get the module the spec owner has open and its workflow state: whether every stage is complete, and for each stage whether it is open (every stage it builds on is complete, so it can be written, signed and discussed) or closed, its progress (empty, in progress, complete), how many of its items, coverages and impacts are approved out of how many, what in it waits for a signature, and its open threads. threadsWaitingForYou lists the change requests given to you; stagesWaitingForYou lists the stages you are asked to write, and stagesToReviewForYou those you are asked to review. Items are named by the codes of codesVersion. Pass module to read another module's state.",
+      "Get a module's workflow state: the one the spec owner has open, or the one module names. It says whether every stage is complete, and for each stage whether it is open (every stage it builds on is complete, so it can be written, signed and discussed) or closed, its progress (empty, in progress, complete), how many of its items, coverages and impacts are approved out of how many, what in it waits for a signature, and its open threads. threadsWaitingForYou lists the change requests of the module you read that are given to you; stagesWaitingForYou lists the stages of that module you are asked to write, and stagesToReviewForYou those you are asked to review. Each names the request by its id, which the tool answering it takes. Items are named by the codes of codesVersion. Pass module to read another module's state.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   inModule: true,
@@ -614,13 +651,14 @@ const workflowStateTool: AgentTool = {
       codesVersion: store.codesVersion,
       complete: store.isComplete,
       stages,
-      threadsWaitingForYou: mine.threads.map((thread) => ({
+      threadsWaitingForYou: mine.threads.map(({ thread, request }) => ({
+        ...(request == null ? {} : { request: request.key }),
         threadId: thread.id,
         ...threadUnit(store, thread),
         stage: thread.stage,
       })),
-      stagesWaitingForYou: mine.write.map((stage) => ({ stage, label: store.workflow.stage(stage).label })),
-      ...(mine.review.length === 0 ? {} : { stagesToReviewForYou: mine.review.map((stage) => ({ stage, label: store.workflow.stage(stage).label })) }),
+      stagesWaitingForYou: mine.write.map((request) => ({ request: request.key, stage: request.stage, label: store.workflow.stage(request.stage).label })),
+      ...(mine.review.length === 0 ? {} : { stagesToReviewForYou: mine.review.map((request) => ({ request: request.key, stage: request.stage, label: store.workflow.stage(request.stage).label })) }),
     });
   },
 };
@@ -772,13 +810,14 @@ const ANSWERS_PROPERTY = {
 
 const FULFILS_PROPERTY = {
   type: "string",
-  description: "A stage id: mark the request to write that stage, which you have, fulfilled. Every change of this write is then to that stage, and it may have none.",
+  description: "The id of a request to write a stage that you have, as get_workflow_state or the message that gives it to you gives it: the write marks it fulfilled. Every change of the write is then to that request's stage, and it may change none.",
 };
 
 /** The write tool; it marks a request to write a stage fulfilled once the open module can. */
 function writeTool(open: OpenModule): AgentTool {
   return {
   inModule: true,
+  request: { argument: "fulfils", kind: "write" },
   makes: "write of items",
   description: {
     name: "write_items",
@@ -816,12 +855,12 @@ function writeTool(open: OpenModule): AgentTool {
       additionalProperties: false,
     },
   },
-  run: (store, args, open, caller, agent) => {
+  run: (store, args, open, caller, agent, fulfils) => {
+    if (fulfils != null && open.fulfilWriting == null) throw new UserFacingError("This project cannot mark a request to write fulfilled.");
     requireCodesVersion(store, args);
     const changes = parseChanges(store, args.changes);
     const answers = parseAnswers(store, args.answers, args.codesVersion, changes);
     const pointer = parsePointer(store, open, args.pointTo, changes);
-    const fulfils = args.fulfils == null || open.fulfilWriting == null ? null : stageNamed(store, args.fulfils);
     const found = deskOf(open);
     if (found != null && agent != null) {
       const stages = stagesChangedBy(store, changes);
@@ -839,13 +878,13 @@ function writeTool(open: OpenModule): AgentTool {
     const codesBefore = codesNow(store);
     // Each thread answered with changes is one whose change request this agent has, so the reply answers it.
     const outcome = store.writeItems(changes, answers.length === 0 ? null : { answers, author: { kind: "agent", name: agent?.name ?? caller.name }, annotations: ANSWERS_REQUEST });
-    if (fulfils != null) open.fulfilWriting!(open.moduleId!, fulfils);
+    if (fulfils != null) open.fulfilWriting?.(fulfils.moduleId, fulfils.stage);
     const lines = [
       ...outcomeLines(store, outcome, codesBefore),
       ...(answers.length > 0
         ? [`Replied to ${answers.length === 1 ? "one thread" : `${answers.length} threads`}; the spec owner reads the replies and resolves the threads.`]
         : []),
-      ...(fulfils == null ? [] : [`The request to write ${store.stageLabel(fulfils)} is fulfilled.`]),
+      ...(fulfils == null ? [] : [`The request to write ${store.stageLabel(fulfils.stage)} is fulfilled.`]),
       ...(pointer == null ? [] : [pointOut(store, open, pointer, changes, outcome.added)]),
       "The spec owner signs these in Requireganizer; get_workflow_state shows what waits for a signature.",
     ];
@@ -979,51 +1018,36 @@ const nameYourselfTool: AgentTool = {
   },
 };
 
-/** The request a report or an answer names: a change request by its thread, or a request to write or review by its stage. */
-function namedRequest(desk: AgentDesk, moduleId: string, store: Store, args: Arguments): AgentRequest {
-  const waiting = desk.waiting().filter((request) => request.moduleId === moduleId);
-  if (typeof args.threadId === "string") {
-    const request = waiting.find(({ thread }) => thread?.id === args.threadId);
-    if (request == null) throw new UserFacingError(`No change request waits in thread ${args.threadId}.`);
-    return request;
-  }
-  const stage = stageNamed(store, args.stage);
-  const kind = args.kind === "review" ? "review" : "write";
-  const request = waiting.find((candidate) => candidate.kind === kind && candidate.stage === stage);
-  if (request == null) throw new UserFacingError(`No request to ${kind} ${store.stageLabel(stage)} waits.`);
-  return request;
-}
-
 const reportCannotAnswerTool: AgentTool = {
-  inModule: true,
+  inModule: false,
+  request: { argument: "request" },
   makes: null,
   description: {
     name: "report_cannot_answer",
     description:
-      "Report that you cannot answer a request you have, with a text saying why, such as a question only the spec owner can settle. The request goes back to no agent and still waits; the spec owner sees your text with it until they give it again. Name a change request by threadId, or a request to write or review a stage by stage and kind.",
+      "Report that you cannot answer a request you have, with a text saying why, such as a question only the spec owner can settle. The request goes back to no agent and still waits; the spec owner sees your text with it until they give it again. Name the request by its id, as get_workflow_state or the message that gives it to you gives it.",
     inputSchema: {
       type: "object",
       properties: {
-        threadId: { type: "string", description: "For a change request: its thread." },
-        stage: STAGE_PROPERTY,
-        kind: { type: "string", enum: ["write", "review"], description: "For a stage: whether the request is to write it, the default, or to review it." },
+        request: { type: "string", description: "The request you cannot answer, as get_workflow_state or the message that gives it to you gives it." },
         reason: { type: "string", minLength: 1, description: "Why you cannot answer it, for the spec owner." },
       },
-      required: ["reason"],
+      required: ["request", "reason"],
       additionalProperties: false,
     },
   },
-  run: (store, args, open, _caller, agent) => {
+  run: (_store, args, open, _caller, agent, request) => {
     const found = deskOf(open);
     if (found == null || agent == null) throw new UserFacingError("No request is any agent's in this project.");
-    const request = namedRequest(found.desk, found.moduleId, store, args);
+    if (request == null) throw new UserFacingError("Name the request you cannot answer, as get_workflow_state or the message that gives it to you gives it.");
     found.desk.fail(request.key, agent.id, stringArgument(args, "reason"));
     return "Reported. The request is no agent's now and waits for the spec owner to give it again.";
   },
 };
 
 const answerReviewTool: AgentTool = {
-  inModule: true,
+  inModule: false,
+  request: { argument: "request", kind: "review" },
   makes: "section change",
   description: {
     name: "answer_review",
@@ -1032,7 +1056,7 @@ const answerReviewTool: AgentTool = {
     inputSchema: {
       type: "object",
       properties: {
-        stage: STAGE_PROPERTY,
+        request: { type: "string", description: "The request to review, as get_workflow_state or the message that gives it to you gives it." },
         findings: {
           type: "array",
           items: {
@@ -1047,16 +1071,15 @@ const answerReviewTool: AgentTool = {
           },
         },
       },
-      required: ["stage", "findings"],
+      required: ["request", "findings"],
       additionalProperties: false,
     },
   },
-  run: (store, args, open, _caller, agent) => {
+  run: (store, args, open, _caller, agent, request) => {
     const found = deskOf(open);
     if (found == null || agent == null || open.answerReview == null) throw new UserFacingError("No request to review is any agent's in this project.");
-    const stage = stageNamed(store, args.stage);
-    const problem = found.desk.reviewProblem(agent.id, found.moduleId, stage);
-    if (problem != null) throw new UserFacingError(problem);
+    if (request == null) throw new UserFacingError("Name the request to review, as get_workflow_state or the message that gives it to you gives it.");
+    const stage = request.stage;
     if (!Array.isArray(args.findings)) throw new UserFacingError("findings must be a list of { item, rule, how }.");
     const problems: string[] = [];
     const findings = args.findings.flatMap((entry, index): ReviewFinding[] => {
@@ -1077,7 +1100,7 @@ const answerReviewTool: AgentTool = {
       return [{ itemId, rule: entry.rule.trim(), how: entry.how.trim() }];
     });
     if (problems.length > 0) throw new UserFacingError(problems.join("\n"));
-    open.answerReview(found.moduleId, stage, findings);
+    open.answerReview(request.moduleId, stage, findings);
     return `Answered the request to review ${store.stageLabel(stage)}${findings.length === 0 ? ", finding no item that breaks a rule" : ` with ${findings.length === 1 ? "one finding" : `${findings.length} findings`}`}.`;
   },
 };
@@ -1133,15 +1156,34 @@ function describedTool(tool: AgentTool, open: OpenModule): AgentToolDescription 
   return { ...tool.description, inputSchema: { ...schema, properties: { ...schema.properties, module: MODULE_PROPERTY } } };
 }
 
-/** Run a tool on the module `args.module` names, or the open one; another module is read as it is, or changed without being shown. */
-function runInModule(tool: AgentTool, shown: Store, args: Arguments, open: OpenModule, caller: AgentCaller, agent: CallingAgent | null): string {
-  const { module: name, ...rest } = args;
-  if (!tool.inModule || name == null || name === open.moduleName) return tool.run(shown, rest, open, caller, agent);
-  if (typeof name !== "string") throw new UserFacingError("module must be a module's name.");
+/**
+ * Run a tool on the request's module when it names one, else on the module
+ * `args.module` names, else on the open one; another module is read as it
+ * is, or changed without being shown.
+ */
+function runInModule(
+  tool: AgentTool,
+  shown: Store,
+  args: Arguments,
+  open: OpenModule,
+  caller: AgentCaller,
+  agent: CallingAgent | null,
+  request: AgentRequest | null,
+): string {
+  const { module: named, ...rest } = args;
+  if (named != null && typeof named !== "string") throw new UserFacingError("module must be a module's name.");
+  if (request?.moduleName != null && named != null && named !== request.moduleName) {
+    throw new UserFacingError(`The request this call answers is in module “${request.moduleName}”, not “${named}”.`);
+  }
+  const name = request?.moduleName ?? named ?? null;
+  if (!tool.inModule && request == null) return tool.run(shown, rest, open, caller, agent, request);
+  if (request != null && request.moduleId === open.moduleId) return tool.run(shown, rest, open, caller, agent, request);
+  if (request != null && name == null) throw new UserFacingError("The request this call answers is in a module this call cannot reach.");
+  if (name == null || name === open.moduleName) return tool.run(shown, rest, open, caller, agent, request);
   if (open.otherModule == null) throw new UserFacingError("This project has no other module.");
   const other = open.otherModule(name);
   const scoped: OpenModule = { ...open, moduleName: other.name, moduleId: other.id };
-  const run = (store: Store) => tool.run(store, rest, scoped, caller, agent);
+  const run = (store: Store) => tool.run(store, rest, scoped, caller, agent, request);
   return tool.makes == null ? run(other.store) : other.change(run);
 }
 
@@ -1178,7 +1220,9 @@ export function callAgentTool(
   caller: AgentCaller = { name: "The coding agent" },
 ): string {
   const tool = toolNamed(name, open);
-  const result = runInModule(tool, store, args, open, caller, callingAgent(open, caller, name));
+  const agent = callingAgent(open, caller, name);
+  const request = requestNamedBy(tool, args, open, agent);
+  const result = runInModule(tool, store, args, open, caller, agent, request);
   // What the call answered or withdrew is no agent's, even if undo makes it wait again.
   open.desk?.settle();
   return result;

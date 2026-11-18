@@ -6,25 +6,13 @@ import { providerStream } from "./gateway";
 import { gatewayModel } from "./model";
 import { replyRulesText } from "../interface/replyRules";
 import type { AgentToolDescription } from "../interface/tools";
-import type { AgentRequest } from "../requests";
+import { type AgentRequest, requestPrompt } from "../requests";
 import type { AgentId } from "../roster";
 
 /** The agent interface as an agent Requireganizer runs reaches it: the host's tools, called as that agent. */
 export interface AgentInterfaceAccess {
   list(): Promise<AgentToolDescription[]>;
   call(agentId: AgentId, name: string, args: Record<string, unknown>): Promise<string>;
-}
-
-/** What the agent is asked to do with a request given to it. */
-function requestPrompt(request: AgentRequest, summary: string): string {
-  switch (request.kind) {
-    case "change":
-      return `The spec owner gives you a change request: ${summary}. Read thread ${request.thread!.id} with get_thread, then answer it with reply_to_thread, or with write_items and its answers when items must change.`;
-    case "write":
-      return `The spec owner gives you a request to write a stage: ${summary}. Read the rules of its kinds of item with get_stage_rules (stage ${request.stage}) and the stages it builds on with get_items, then write it with write_items, passing fulfils: "${request.stage}" in the write that completes it.`;
-    case "review":
-      return `The spec owner gives you a request to review a stage: ${summary}. Read the rules of its kinds of item with get_stage_rules (stage ${request.stage}) and its items with get_items, then answer with answer_review, naming each item that breaks a published rule, the rule and how.`;
-  }
 }
 
 function systemPrompt(name: string): string {

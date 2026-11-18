@@ -152,4 +152,21 @@ export function requestSummary(request: AgentRequest, store: Store): string {
   }
 }
 
+/**
+ * What an agent is asked to do with a request given to it, naming the request
+ * and the module its reads need as the tools take them.
+ */
+export function requestPrompt(request: AgentRequest, summary: string): string {
+  const where = request.moduleName == null ? "" : ` in module “${request.moduleName}”`;
+  const moduleArgument = request.moduleName == null ? "" : ` with module: ${JSON.stringify(request.moduleName)}`;
+  switch (request.kind) {
+    case "change":
+      return `The spec owner gives you a change request${where}: ${summary}. Read thread ${request.thread!.id} with get_thread${moduleArgument}, then answer it with reply_to_thread${moduleArgument}, or with write_items${moduleArgument} and its answers. If you cannot answer it, call report_cannot_answer with request: ${JSON.stringify(request.key)}.`;
+    case "write":
+      return `The spec owner gives you a request to write a stage${where}: ${summary}. Read the rules of its kinds of item with get_stage_rules (stage ${request.stage}) and the stages it builds on with get_items${moduleArgument}, then write it with write_items, passing fulfils: "${request.key}" in the write that completes it.`;
+    case "review":
+      return `The spec owner gives you a request to review a stage${where}: ${summary}. Read the rules of its kinds of item with get_stage_rules (stage ${request.stage}) and its items with get_items${moduleArgument}, then answer with answer_review, passing request: "${request.key}" and naming each item that breaks a published rule, the rule and how.`;
+  }
+}
+
 export type { StageRequest };

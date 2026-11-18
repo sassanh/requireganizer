@@ -55,8 +55,8 @@ export interface AgentWrite {
   closes: readonly string[];
   /** The threads it answers with its changes. */
   answers: readonly string[];
-  /** The stage whose request to write it marks fulfilled, if it does. */
-  fulfils: string | null;
+  /** The request to write it marks fulfilled, if it does. */
+  fulfils: AgentRequest | null;
 }
 
 /**
@@ -131,6 +131,17 @@ export class AgentDesk {
   private waitingRequest(key: string): AgentRequest {
     const request = this.waiting().find((candidate) => candidate.key === key);
     if (request == null) throw new UserFacingError("That request no longer waits.");
+    return request;
+  }
+
+  /**
+   * The waiting request with this id that an agent has; refused when it no
+   * longer waits, another agent has it, or it is not of `kind`.
+   */
+  requireHeldRequest(agentId: AgentId, key: string, kind?: "write" | "review"): AgentRequest {
+    const request = this.waitingRequest(key);
+    if (kind != null && request.kind !== kind) throw new UserFacingError(`That request is not a request to ${kind} a stage.`);
+    if (this.holderOf(key)?.agentId !== agentId) throw new UserFacingError("That request is not yours, so only the agent that has it can answer it.");
     return request;
   }
 
@@ -290,20 +301,11 @@ export class AgentDesk {
       else if (this.holderOf(request.key)?.agentId !== agentId) problems.push(`The change request of thread ${threadId} is not yours, so you may add a message to it but not answer it with changes.`);
     }
     if (write.fulfils != null) {
-      const request = this.waiting().find((candidate) => candidate.moduleId === write.moduleId && candidate.kind === "write" && candidate.stage === write.fulfils);
-      if (request == null) problems.push(`No request to write ${label(write.fulfils)} waits.`);
-      else if (this.holderOf(request.key)?.agentId !== agentId) problems.push(`The request to write ${label(write.fulfils)} is not yours.`);
-      const elsewhere = write.stages.filter((stage) => stage !== write.fulfils);
-      if (elsewhere.length > 0) problems.push(`A write that marks the request to write ${label(write.fulfils)} fulfilled changes only that stage; this one also changes ${elsewhere.map(label).join(", ")}.`);
+      const fulfilled = write.fulfils;
+      const elsewhere = write.stages.filter((stage) => stage !== fulfilled.stage);
+      if (elsewhere.length > 0) problems.push(`A write that marks the request to write ${label(fulfilled.stage)} fulfilled changes only that stage; this one also changes ${elsewhere.map(label).join(", ")}.`);
     }
     return problems;
-  }
-
-  /** Why an agent's answer to a request to review a stage is refused; null when it is not. */
-  reviewProblem(agentId: AgentId, moduleId: string, stage: string): string | null {
-    const request = this.waiting().find((candidate) => candidate.moduleId === moduleId && candidate.kind === "review" && candidate.stage === stage);
-    if (request == null) return "No request to review that stage waits.";
-    return this.holderOf(request.key)?.agentId === agentId ? null : "The request to review that stage is not yours.";
   }
 
   /**
