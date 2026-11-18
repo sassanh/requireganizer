@@ -51,7 +51,7 @@ export default function RequestConfirmation({
         </DialogContent>
       )}
       <DialogActions>
-        <Button onClick={onGiveUp}>Give up</Button>
+        {action != null ? <Button onClick={onGiveUp}>Give up</Button> : held.length > 0 && <Button onClick={onGiveUp}>Keep working</Button>}
         {held.length === 0 ? (
           <Button variant="contained" autoFocus onClick={onCarryOut}>
             {capitalized}
