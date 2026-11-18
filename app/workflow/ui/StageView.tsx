@@ -989,19 +989,23 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
   /**
    * Each tab's label, with a badge counting what keeps the stage from
    * completing: the tab's units not approved, or its threads waiting for the
-   * spec owner.
+   * spec owner. Only a count worth showing gets a badge; MUI hides a zero
+   * badge through a transform of its own, which the badge's placement below
+   * would override.
    */
-  const tabLabel = (label: string, count: number, counting: string) => (
-    <Badge
-      color="warning"
-      badgeContent={count}
-      invisible={count === 0}
-      aria-label={count > 0 ? `${label}, ${count} ${counting}` : label}
-      sx={{ pr: count > 0 ? 2 : 0, "& .MuiBadge-badge": { right: 0, top: "50%", transform: "translateY(-50%)" } }}
-    >
-      {label}
-    </Badge>
-  );
+  const tabLabel = (label: string, count: number, counting: string) =>
+    count > 0 ? (
+      <Badge
+        color="warning"
+        badgeContent={count}
+        aria-label={`${label}, ${count} ${counting}`}
+        sx={{ pr: 2, "& .MuiBadge-badge": { right: 0, top: "50%", transform: "translateY(-50%)" } }}
+      >
+        {label}
+      </Badge>
+    ) : (
+      label
+    );
   const notApprovedIn = (tab: string) => allUnits.filter((unit) => tabOf(unit) === tab && !unit.approved).length;
 
   const returnLabel = opener?.place == null ? "Back" : `Back to ${module.unitLabel(opener.place.unitId)}`;
