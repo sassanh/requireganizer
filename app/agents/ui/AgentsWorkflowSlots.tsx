@@ -8,13 +8,13 @@ import { notify } from "components/notices";
 import { getUserFacingErrorMessage } from "lib/errors";
 import type { Store } from "store";
 import { parseUnitId } from "workflow";
-import { type WorkflowSlots, workflowSlotsContext } from "workflow/ui";
+import { type ThreadSendProps, type WorkflowSlots, workflowSlotsContext } from "workflow/ui";
 
 import type { DeskView } from "../desk";
-import { changeRequestOf, findingsOf, reviewAskProblem, stagesToAskAfter } from "../requests";
+import { changeRequestOf, findingsOf, readOnlyRequest, reviewAskProblem, stagesToAskAfter } from "../requests";
 import type { AgentId } from "../roster";
 import { type AgentsPageValue, useAgents } from "./context";
-import SendButton from "./SendButton";
+import SendButton, { agentWithNoChoice } from "./SendButton";
 import { howLongAgo } from "./time";
 import { requestStatus } from "./WaitingRequests";
 import WorkingSign from "./WorkingSign";
@@ -25,19 +25,20 @@ function attempt(request: () => Promise<unknown>, fallback: string): void {
 
 /**
  * The agents a request in a stage can be given to as it is made: the one
- * whose request to write or to review makes the stage read-only, else every
- * available agent.
+ * whose request to write or to review makes the stage read-only, with why,
+ * else every available agent.
  */
-function agentsFor(view: DeskView, store: Store, moduleId: string, stage: string): { id: AgentId; name: string }[] {
-  const readOnly = view.requests.find(
-    (request) =>
-      request.moduleId === moduleId &&
-      request.holder != null &&
-      (request.kind === "write" || request.kind === "review") &&
-      (request.stage === stage || store.workflow.buildsOn(stage, request.stage)),
+function agentsFor(view: DeskView, store: Store, moduleId: string, stage: string): { agents: { id: AgentId; name: string }[]; note: string | null } {
+  const readOnly = readOnlyRequest(
+    view.requests.filter((request) => request.holder != null),
+    store,
+    moduleId,
+    stage,
   );
   const available = view.agents.flatMap((agent) => (agent.name == null ? [] : [{ id: agent.id, name: agent.name }]));
-  return readOnly == null ? available : available.filter(({ id }) => id === readOnly.holder!.agentId);
+  if (readOnly == null) return { agents: available, note: null };
+  const { agentId, name } = readOnly.holder!;
+  return { agents: available.filter(({ id }) => id === agentId), note: `Only ${name} can take requests here while it has “${readOnly.summary}”.` };
 }
 
 /** Send a message in a thread, then give its change request to `to`, if any. */
@@ -76,7 +77,7 @@ const StageRequests = observer(function StageRequests({ stage }: { stage: string
       <SendButton
         key={later}
         label={`Ask for the writing of ${stageLabel(later)}`}
-        agents={agentsFor(view, store, activeModuleId, later)}
+        {...agentsFor(view, store, activeModuleId, later)}
         onSend={(to) => attempt(() => client.askToWrite(activeModuleId, later, to), "The stage could not be asked for.")}
       />
     )),
@@ -85,7 +86,7 @@ const StageRequests = observer(function StageRequests({ stage }: { stage: string
           <SendButton
             key="review"
             label="Ask for a review"
-            agents={agentsFor(view, store, activeModuleId, stage)}
+            {...agentsFor(view, store, activeModuleId, stage)}
             onSend={(to) => attempt(() => client.askToReview(activeModuleId, stage, to), "The review could not be asked for.")}
           />,
         ]
@@ -140,25 +141,24 @@ const ThreadRequests = observer(function ThreadRequests({ threadId }: { threadId
   );
 });
 
-/** The thread's send button: it sends the message and gives its change request to the agent chosen, or to none. */
-const ThreadSend = observer(function ThreadSend({
-  label,
-  disabled,
-  unitId,
-  threadId,
-  send,
-}: {
-  label: string;
-  disabled: boolean;
-  unitId: string | null;
-  threadId: string | null;
-  send: () => Promise<string | null>;
-}) {
-  const agents = useAgents();
+/** The agents a thread's change request can be given to as its message is sent, with why when fewer than are available. */
+function threadChoices(agents: AgentsPageValue, { unitId, threadId }: ThreadSendProps): ReturnType<typeof agentsFor> {
   const store = agents.moduleStore(agents.activeModuleId);
   const stage = store == null ? null : ((unitId == null ? null : store.unitState(unitId)?.stage) ?? store.threads.find(({ id }) => id === threadId)?.stage ?? null);
-  const choices = store == null || stage == null ? [] : agentsFor(agents.view, store, agents.activeModuleId, stage);
-  return <SendButton label={label} agents={choices} disabled={disabled} onSend={(to) => attempt(() => sendTo(agents, send, to), "The request could not be given.")} />;
+  return store == null || stage == null ? { agents: [], note: null } : agentsFor(agents.view, store, agents.activeModuleId, stage);
+}
+
+/** The thread's send button: it sends the message and gives its change request to the agent chosen, or to none. */
+const ThreadSend = observer(function ThreadSend({ label, disabled, ...props }: ThreadSendProps & { label: string; disabled: boolean }) {
+  const agents = useAgents();
+  return (
+    <SendButton
+      label={label}
+      {...threadChoices(agents, props)}
+      disabled={disabled}
+      onSend={(to) => attempt(() => sendTo(agents, props.send, to), "The request could not be given.")}
+    />
+  );
 });
 
 /**
@@ -175,13 +175,11 @@ export default function AgentsWorkflowSlots({ children }: { children: ReactNode 
       thread: ({ threadId, preview }) => (preview ? null : <ThreadRequests threadId={threadId} />),
       send: {
         render: (props) => <ThreadSend {...props} />,
-        // The send key gives the request to the one agent available, if exactly one is; else to none.
-        submit: (send) => {
-          const named = agents.view.agents.filter(({ name }) => name != null);
-          return sendTo(agents, send, named.length === 1 ? named[0]!.id : null).catch((error: unknown) =>
+        // The send key does what the send button's main part does.
+        submit: (props) =>
+          sendTo(agents, props.send, agentWithNoChoice(threadChoices(agents, props).agents)).catch((error: unknown) =>
             notify(getUserFacingErrorMessage(error, "The request could not be given."), "error"),
-          );
-        },
+          ),
       },
     }),
     [agents],

@@ -135,7 +135,7 @@ const ThreadPanel = observer(function ThreadPanel({
         if (event.key !== SEND_SHORTCUT_SPEC.key || (!event.metaKey && !event.ctrlKey)) return;
         event.preventDefault();
         if (event.shiftKey) void resolve();
-        else if (slots.send != null) void slots.send.submit(send);
+        else if (slots.send != null) void slots.send.submit({ unitId, threadId: open?.id ?? null, send });
         else void send();
       }}
     >

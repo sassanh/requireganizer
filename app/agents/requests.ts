@@ -94,6 +94,25 @@ export function waitingRequests(modules: readonly RequestModule[]): AgentRequest
   ]);
 }
 
+/** A request to write or to review a stage, which makes that stage and those building on it read-only while an agent has it. */
+export const makesReadOnly = (request: AgentRequest) => request.kind === "write" || request.kind === "review";
+
+/**
+ * Of the requests agents have, the request to write or to review that makes
+ * a stage of a module read-only to all agents but its own: one in that stage
+ * or in a stage it builds on.
+ */
+export function readOnlyRequest<Held extends AgentRequest>(held: readonly Held[], store: Store, moduleId: string, stage: string): Held | null {
+  return (
+    held.find(
+      (request) =>
+        request.moduleId === moduleId &&
+        makesReadOnly(request) &&
+        (request.stage === stage || store.workflow.buildsOn(stage, request.stage)),
+    ) ?? null
+  );
+}
+
 /**
  * The stages the spec owner may ask, from a complete stage, to be written:
  * each open stage building on it directly that is not complete, has no

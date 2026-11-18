@@ -2,7 +2,7 @@ import { getSnapshot } from "mobx-state-tree";
 
 import { UserFacingError } from "lib/errors";
 
-import { type AgentRequest, requestSummary, type RequestModule, waitingRequests } from "./requests";
+import { type AgentRequest, makesReadOnly, readOnlyRequest, requestSummary, type RequestModule, waitingRequests } from "./requests";
 import type { AgentId, AgentRoster, AgentView } from "./roster";
 import type { ModuleRequests } from "./section";
 
@@ -75,9 +75,6 @@ function itemsOf(store: RequestModule["store"], stage: string): string {
   const node = store.stages.get(stage);
   return node == null ? "[]" : JSON.stringify(getSnapshot(node).items.map(({ id, kind, content, references, dependencies }) => [id, kind, content, references, dependencies]));
 }
-
-/** A request whose stage a request to write or to review makes read-only to all but the agent that has it. */
-const makesReadOnly = (request: AgentRequest) => request.kind === "write" || request.kind === "review";
 
 /**
  * Which agent has each waiting request of the open project, kept in memory
@@ -173,12 +170,7 @@ export class AgentDesk {
    * but the agent that has it: one on that stage or on a stage it builds on.
    */
   readOnlyBy(moduleId: string, stage: string, held = this.heldRequests()): (AgentRequest & { agentId: AgentId }) | null {
-    const { workflow } = this.module(moduleId).store;
-    return (
-      held.find(
-        (request) => request.moduleId === moduleId && makesReadOnly(request) && (request.stage === stage || workflow.buildsOn(stage, request.stage)),
-      ) ?? null
-    );
+    return readOnlyRequest(held, this.module(moduleId).store, moduleId, stage);
   }
 
   /** The agents a request can be given to now. */

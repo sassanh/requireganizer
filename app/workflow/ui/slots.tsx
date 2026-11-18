@@ -2,6 +2,14 @@
 
 import { createContext, type ReactNode, useContext } from "react";
 
+/** Where a thread's message goes: the unit and the thread, if open, and how to send it. */
+export interface ThreadSendProps {
+  unitId: string | null;
+  threadId: string | null;
+  /** Sends the message written and resolves to the thread it went to, or null when nothing was sent. */
+  send: () => Promise<string | null>;
+}
+
 /**
  * The places in a stage, a unit and a thread where another module shows a
  * part of its own, such as who is answering. The page fills them where it
@@ -14,15 +22,11 @@ export interface WorkflowSlots {
   unit?: (props: { unitId: string; preview: boolean }) => ReactNode;
   /** Under an open thread's state. */
   thread?: (props: { threadId: string; preview: boolean }) => ReactNode;
-  /**
-   * In place of a thread's send button, and what its send key does: `send`
-   * sends the message written and resolves to the thread it went to, or
-   * null when nothing was sent.
-   */
+  /** In place of a thread's send button, and what its send key does. */
   send?: {
-    render: (props: { label: string; disabled: boolean; unitId: string | null; threadId: string | null; send: () => Promise<string | null> }) => ReactNode;
+    render: (props: ThreadSendProps & { label: string; disabled: boolean }) => ReactNode;
     /** What the send key does, with no choice made. */
-    submit: (send: () => Promise<string | null>) => Promise<void>;
+    submit: (props: ThreadSendProps) => Promise<void>;
   };
 }
 
