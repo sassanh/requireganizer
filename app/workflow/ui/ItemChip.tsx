@@ -194,7 +194,7 @@ export const ItemOption = observer(function ItemOption({ itemId }: { itemId: str
   return (
     <Stack direction="row" sx={{ gap: 1, alignItems: "baseline", minWidth: 0 }}>
       <ItemChip itemId={itemId} opens={false} />
-      {named != null && <Typography variant="body2" sx={{ minWidth: 0, whiteSpace: "normal" }}>{named.text}</Typography>}
+      {named != null && <Box sx={{ minWidth: 0 }}><WrittenText text={named.text} /></Box>}
     </Stack>
   );
 });

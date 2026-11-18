@@ -6,14 +6,15 @@ import { wordDiff } from "components/wordDiff";
 
 import type { FieldDefinition } from "../definition";
 import { chosenItems, type FieldValue, type ItemVersion, recordsValue, recordValue, textsValue, textValue } from "../records";
+import { markedDiff } from "./changeMarks";
 import { useWorkflowView } from "./context";
 import ItemChip, { useItemName } from "./ItemChip";
+import WrittenText from "./WrittenText";
 
-/** Two versions of a text word by word, after the field's prefix, such as "The system must", as the item reads. */
-function TextDiff({ before, after, prefix }: { before: string; after: string; prefix?: string }) {
+/** Two versions of a field that is not written text, as lines of text, word by word. */
+function TextDiff({ before, after }: { before: string; after: string }) {
   return (
     <Typography variant="body2" component="div" sx={{ whiteSpace: "pre-wrap" }}>
-      {prefix != null && <Box component="span" sx={{ color: "text.secondary", fontWeight: 600 }}>{prefix} </Box>}
       {wordDiff(before, after).map((hunk, index) => (
         <Box
           key={index}
@@ -98,11 +99,12 @@ export default function VersionDiff({ kind, signed, current, caption = "Since th
         ) : (
           <Stack key={field.name} spacing={0.25}>
             <Typography variant="caption">{field.label}</Typography>
-            <TextDiff
-              before={fieldText(field, signed.content[field.name] ?? null, name)}
-              after={fieldText(field, current.content[field.name] ?? null, name)}
-              prefix={field.type === "text" ? field.prefix : undefined}
-            />
+            {field.type === "text" ? (
+              // A text field is written in Markdown, so the two versions show as it renders.
+              <WrittenText text={markedDiff(textValue(signed.content[field.name] ?? null), textValue(current.content[field.name] ?? null))} lead={field.prefix} marksChanges />
+            ) : (
+              <TextDiff before={fieldText(field, signed.content[field.name] ?? null, name)} after={fieldText(field, current.content[field.name] ?? null, name)} />
+            )}
           </Stack>
         ),
       )}
