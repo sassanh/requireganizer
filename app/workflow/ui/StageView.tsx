@@ -625,6 +625,28 @@ const ThreadCard = observer(function ThreadCard({ stage, place, marks, onOpen }:
   );
 });
 
+/**
+ * Where the Threads tab's threads are, each place once: those with an open
+ * thread, then those with none, each newest first by when its latest thread
+ * started. Threads with no time, as in an export made without thread times,
+ * keep the order they were opened in, newest first too.
+ */
+function threadSections(threads: readonly Thread[]): { open: string[]; resolved: string[] } {
+  const places = new Map<string, { started: string; index: number; open: boolean }>();
+  threads.forEach((thread, index) => {
+    const place = threadPlace(thread);
+    const before = places.get(place);
+    places.set(place, { started: thread.messages[0]?.at ?? "", index, open: (before?.open ?? false) || thread.resolution == null });
+  });
+  const newestFirst = [...places].sort(([, left], [, right]) => right.started.localeCompare(left.started) || right.index - left.index);
+  return {
+    open: newestFirst.filter(([, { open }]) => open).map(([place]) => place),
+    resolved: newestFirst.filter(([, { open }]) => !open).map(([place]) => place),
+  };
+}
+
+const THREAD_GRID = { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 1.5, alignItems: "stretch" } as const;
+
 /** The tab that shows a unit: its own kind for an item, and the stage's coverages or impacts for those. */
 function tabOf(unit: { kind: UnitState["kind"]; itemKind?: string | null }): string {
   switch (unit.kind) {
@@ -665,15 +687,11 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
   const coverages = allUnits.filter((unit): unit is CoverageState => unit.kind === "coverage");
   const impacts = allUnits.filter((unit): unit is ImpactState => unit.kind === "impact");
   const threadsWithAgent = useThreadsWithAgent();
-  const openStageThreads = module.threadsOnStage(stage).filter(({ resolution }) => resolution == null).length;
   /** The threads the Threads tab shows: those on the stage itself and those whose unit is gone. */
   const tabThreads = module.threadsOfStage(stage).filter(({ unitId }) => unitId == null || module.unitState(unitId) == null);
-  /** Where the Threads tab's threads are, each place once, those with an open thread first. */
-  const tabPlaces = [...new Set(tabThreads.map(threadPlace))].sort(
-    (left, right) =>
-      Number(!tabThreads.some((thread) => threadPlace(thread) === left && thread.resolution == null)) -
-      Number(!tabThreads.some((thread) => threadPlace(thread) === right && thread.resolution == null)),
-  );
+  const tabSections = threadSections(tabThreads);
+  /** The open threads on the stage itself, by place, in the order the Threads tab shows them. */
+  const openStageThreads = tabSections.open.filter((place) => tabThreads.some((thread) => thread.unitId == null && thread.resolution == null && threadPlace(thread) === place));
   const waitingForYou = (threads: readonly Thread[]) => threads.filter((thread) => waitsForSpecOwner(thread, threadsWithAgent.has(thread.id))).length;
   const threadsWaiting = module.threadsWaitingForSpecOwner(stage, threadsWithAgent).length;
   /** The threads on units neither state holds that a preview would change, and of those the ones its state lacks. */
@@ -856,6 +874,19 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
   };
 
   const openThread = (place: string, anchor: HTMLElement | null, autoFocus = true) => setThread({ place, anchor, autoFocus });
+
+  /** Lead to the open threads on the stage itself: the only one opened beside its card, or of several the newest focused in the Threads tab. */
+  const showOpenStageThreads = () => {
+    const place = openStageThreads[0];
+    if (place == null) return;
+    setShownTab(THREADS_TAB);
+    // The card exists once the tab's content has drawn.
+    requestAnimationFrame(() => {
+      const card = cards().find((candidate) => candidate.dataset.unitCard === place);
+      reveal(card);
+      if (openStageThreads.length === 1) openThread(place, card ?? null);
+    });
+  };
 
   const stageRequestButton = useRef<HTMLButtonElement>(null);
   /** Show the stage's threads, and the box that requests a change on the stage beside its button, once the tab has drawn it. */
@@ -1113,6 +1144,16 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
     );
   const notApprovedIn = (tab: string) => allUnits.filter((unit) => tabOf(unit) === tab && !unit.approved).length;
 
+  const threadCard = (place: string) => (
+    <ThreadCard
+      key={place}
+      stage={stage}
+      place={place}
+      marks={threadMarks.filter(({ threadId }) => tabThreads.some((tabThread) => tabThread.id === threadId && threadPlace(tabThread) === place))}
+      onOpen={(card) => openThread(place, card)}
+    />
+  );
+
   const returnLabel = opener?.place == null ? "Back" : `Back to ${module.unitLabel(opener.place.unitId)}`;
 
   return (
@@ -1142,12 +1183,16 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
             {signableParts.length === 0 ? "Nothing is signable." : `Signable: ${signableParts.join(", ")}.`}
             {threadsWaiting > 0 ? ` ${threadsWaiting} ${threadsWaiting === 1 ? "thread waits" : "threads wait"} for you.` : ""}
           </Typography>
-          {openStageThreads > 0 && !compact && (
+          {openStageThreads.length > 0 && !compact && (
             <Alert
               severity="warning"
-              action={activeTab === THREADS_TAB ? undefined : <Button color="inherit" size="small" onClick={() => setShownTab(THREADS_TAB)}>Show</Button>}
+              action={
+                <Button color="inherit" size="small" {...{ [THREAD_BUTTON]: true }} onClick={showOpenStageThreads}>
+                  {openStageThreads.length === 1 ? "Open" : "Show"}
+                </Button>
+              }
             >
-              {openStageThreads === 1 ? "An open thread on the stage keeps it from being complete." : `${openStageThreads} open threads on the stage keep it from being complete.`}
+              {openStageThreads.length === 1 ? "An open thread on the stage keeps it from being complete." : `${openStageThreads.length} open threads on the stage keep it from being complete.`}
             </Alert>
           )}
           <Slot name="stage" props={{ stage, preview: preview != null }} />
@@ -1238,17 +1283,9 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
               </Button>
             </ActionTooltip>
           )}
-          {activeTab === THREADS_TAB && (tabPlaces.length > 0 || threadsOnlyNow.length > 0) && (
-            <Box sx={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 1.5, alignItems: "stretch" }}>
-              {tabPlaces.map((place) => (
-                <ThreadCard
-                  key={place}
-                  stage={stage}
-                  place={place}
-                  marks={threadMarks.filter(({ threadId }) => tabThreads.some((tabThread) => tabThread.id === threadId && threadPlace(tabThread) === place))}
-                  onOpen={(card) => openThread(place, card)}
-                />
-              ))}
+          {activeTab === THREADS_TAB && (tabSections.open.length > 0 || threadsOnlyNow.length > 0) && (
+            <Box sx={THREAD_GRID}>
+              {tabSections.open.map(threadCard)}
               {threadsOnlyNow.map((mark) => (
                 <Box
                   key={mark.threadId}
@@ -1264,6 +1301,12 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
                 </Box>
               ))}
             </Box>
+          )}
+          {activeTab === THREADS_TAB && tabSections.resolved.length > 0 && (
+            <>
+              <Typography variant="subtitle2" sx={{ pt: 1.5 }}>Resolved</Typography>
+              <Box sx={THREAD_GRID}>{tabSections.resolved.map(threadCard)}</Box>
+            </>
           )}
         </Stack>
         </FrameScheduleProvider>
