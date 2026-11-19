@@ -1,7 +1,7 @@
 import { exactRecord, InvalidJsonError, isRecord, readFlag, readText } from "lib/json";
 import { type Address, isAddress, type ModulePieces, type PieceStore, serializeCanonical, type StoredItem } from "storage";
 import { SiblingModuleStores, type Store, WORKFLOW } from "store";
-import { coverageUnitId, impactUnitId, type ItemVersion, parseUnitId, phaseOf, shownItemOrder, type Thread, type UnitState, versionOf } from "workflow";
+import { coverageUnitId, impactUnitId, type ItemVersion, parseUnitId, phaseOf, shownItemOrder, type Thread, threadPlace, type UnitState, versionOf } from "workflow";
 
 /** What bringing an earlier state back would do to one item, coverage or impact. */
 export type UnitChange =
@@ -44,19 +44,20 @@ export type UnitDifference = UnitChange & {
 };
 
 /**
- * A thread on a removed unit whose messages or resolution bringing an
- * earlier state back would change: the messages only one of the two holds.
+ * A thread on a removed unit or on a stage itself whose messages or
+ * resolution bringing an earlier state back would change: the messages only
+ * one of the two holds.
  */
 export interface ThreadDifference {
   moduleId: string;
   module: string;
   stage: string;
   threadId: string;
-  /** The unit it was on. */
+  /** Where it shows: the unit it was on, or its own place for a thread on the stage itself. */
   unitId: string;
-  /** The name its unit had when it was removed. */
+  /** The name its unit had when it was removed, or that it is on the stage. */
   label: string;
-  /** What its unit said when it was removed. */
+  /** What its unit said when it was removed; empty for a thread on the stage itself. */
   text: string;
   /** The texts of its messages only the earlier state holds, which bringing it back would add. */
   messagesAdded: string[];
@@ -84,20 +85,9 @@ export interface ModuleDifference {
 }
 
 /**
- * A section of the project another module owns whose value differs: its
- * owner, and its value in the earlier state and now, which only the owner
- * reads.
- */
-export interface SectionDifference {
-  section: string;
-  then: unknown;
-  now: unknown;
-}
-
-/**
  * How an earlier state differs from the project now: its modules, whether
- * it has modules turned on, the sections other modules own, then unit
- * by unit and thread by thread on removed units, in the order the modules
+ * it has modules turned on, then unit by unit and thread by thread on
+ * removed units and on stages themselves, in the order the modules
  * and stages show them. `modulesEnabled` is the earlier state's, when it
  * differs.
  */
@@ -105,7 +95,6 @@ export interface StateDifference {
   same: boolean;
   modulesEnabled: boolean | null;
   modules: ModuleDifference[];
-  sections: SectionDifference[];
   units: UnitDifference[];
   threads: ThreadDifference[];
 }
@@ -167,8 +156,6 @@ export interface StoredModuleDifference {
 export interface StoredDifference {
   modulesEnabled: boolean | null;
   modules: StoredModuleDifference[];
-  /** The owners of the sections that differ; their values are read from the states. */
-  sections: string[];
   units: StoredUnitDifference[];
   threads: StoredThreadDifference[];
 }
@@ -257,15 +244,14 @@ function parseModuleDifference(value: unknown, label: string): StoredModuleDiffe
 
 /** A difference as a step keeps it, read; throws what is wrong with it, naming `label`. */
 export function parseStoredDifference(value: unknown, label: string): StoredDifference {
-  const fields = exactRecord(value, label, ["modulesEnabled", "modules", "sections", "units", "threads"]);
+  const fields = exactRecord(value, label, ["modulesEnabled", "modules", "units", "threads"]);
   if (fields.modulesEnabled !== null && typeof fields.modulesEnabled !== "boolean") throw new InvalidJsonError(`${label} modulesEnabled must be true, false or null.`);
-  for (const key of ["modules", "sections", "units", "threads"]) {
+  for (const key of ["modules", "units", "threads"]) {
     if (!Array.isArray(fields[key])) throw new InvalidJsonError(`${label} ${key} must be a list.`);
   }
   return {
     modulesEnabled: fields.modulesEnabled,
     modules: (fields.modules as unknown[]).map((module, index) => parseModuleDifference(module, `${label} module ${index + 1}`)),
-    sections: (fields.sections as unknown[]).map((section, index) => readText(section, `${label} section ${index + 1}`)),
     units: (fields.units as unknown[]).map((unit, index) => parseUnitDifference(unit, `${label} unit ${index + 1}`)),
     threads: (fields.threads as unknown[]).map((thread, index) => parseThreadDifference(thread, `${label} thread ${index + 1}`)),
   };
@@ -321,7 +307,8 @@ interface ThreadRead {
 
 /**
  * A module version's threads, read: those on units by unit, in the order
- * the module holds them, and those on removed units by thread.
+ * the module holds them, and those on removed units or on a stage itself
+ * by thread.
  */
 interface ThreadsRead {
   byUnit: Map<string, ThreadRead[]>;
@@ -425,7 +412,7 @@ export class StateComparer {
       const read: ThreadsRead = { byUnit: new Map(), removed: new Map(), stages: new Map() };
       for (const address of module.threads) {
         const thread = this.pieces.threadAt(address);
-        if (thread.removedUnit == null) read.byUnit.set(thread.unitId, [...(read.byUnit.get(thread.unitId) ?? []), { address, thread }]);
+        if (thread.removedUnit == null && thread.unitId != null) read.byUnit.set(thread.unitId, [...(read.byUnit.get(thread.unitId) ?? []), { address, thread }]);
         else read.removed.set(thread.id, { address, thread });
         read.stages.set(thread.stage, `${read.stages.get(thread.stage) ?? ""} ${address}`);
       }
@@ -528,7 +515,7 @@ export class StateComparer {
     return [...items, ...signed("coverage", coverageUnitId), ...signed("impact", impactUnitId)];
   }
 
-  /** The threads on removed units of one stage whose messages or resolution differ between `now` and `then`. */
+  /** The threads on removed units or on the stage itself of one stage whose messages or resolution differ between `now` and `then`. */
   private threadDifferences({ moduleId, stage, fromModule: nowModule, toModule: thenModule }: StagePair): StoredThreadDifference[] {
     const now = this.threadsOf(nowModule).removed;
     const then = this.threadsOf(thenModule).removed;
@@ -538,7 +525,7 @@ export class StateComparer {
       const inThen = then.get(threadId) ?? null;
       const inNow = now.get(threadId) ?? null;
       const shown = (inThen ?? inNow)!.thread;
-      if (shown.stage !== stage || holds(shown.unitId)) return [];
+      if (shown.stage !== stage || (shown.unitId != null && holds(shown.unitId))) return [];
       const messages = (read: ThreadRead | null) => read?.thread.messages.map((message) => serializeCanonical(message)) ?? [];
       const only = (read: ThreadRead | null, other: ThreadRead | null) => {
         const others = messages(other);
@@ -569,18 +556,9 @@ export class StateComparer {
     return {
       modulesEnabled: here !== there && enabledThen !== this.pieces.modulesEnabledAt(here) ? enabledThen : null,
       modules: this.moduleDifferences(here, there),
-      sections: this.sectionDifferences(here, there),
       units: pairs.flatMap((pair) => this.stageDifference(pair)),
       threads: pairs.flatMap((pair) => this.threadDifferences(pair)),
     };
-  }
-
-  /** The owners of the sections whose values differ between the states at `here` and `there`. */
-  private sectionDifferences(here: Address, there: Address): string[] {
-    if (here === there) return [];
-    const now = this.pieces.sectionsAt(here);
-    const then = this.pieces.sectionsAt(there);
-    return [...new Set([...Object.keys(then), ...Object.keys(now)])].filter((section) => serializeCanonical(then[section] ?? null) !== serializeCanonical(now[section] ?? null));
   }
 
   /**
@@ -624,9 +602,6 @@ export class StateComparer {
       return { nameNow: (inNow ?? inThen)!.name, nameThen: (inThen ?? inNow)!.name };
     };
     const modules = stored.modules.map((module): ModuleDifference => ({ ...module, ...named(module.moduleId) }));
-    const sectionsNow = this.pieces.sectionsAt(here);
-    const sectionsThen = this.pieces.sectionsAt(there);
-    const sections = stored.sections.map((section): SectionDifference => ({ section, then: sectionsThen[section] ?? null, now: sectionsNow[section] ?? null }));
     const modulesThen = this.modulesAt(there);
     const modulesNow = this.modulesAt(here);
     // Named as the earlier state names it, or as the project does now for a module only it holds.
@@ -659,8 +634,8 @@ export class StateComparer {
         module: moduleName(thread.moduleId),
         stage: thread.stage,
         threadId: thread.threadId,
-        unitId: shown.unitId,
-        label: shown.removedUnit?.name ?? "a removed item",
+        unitId: threadPlace(shown),
+        label: shown.unitId == null ? "Thread on the stage" : (shown.removedUnit?.name ?? "a removed item"),
         text: shown.removedUnit?.text ?? "",
         messagesAdded: texts(earlier, thread.messagesAdded),
         messagesRemoved: texts(current, thread.messagesRemoved),
@@ -668,7 +643,7 @@ export class StateComparer {
         onlyNow: earlier == null,
       };
     });
-    return { same: here === there, modulesEnabled: stored.modulesEnabled, modules, sections, units, threads };
+    return { same: here === there, modulesEnabled: stored.modulesEnabled, modules, units, threads };
   }
 
   /** The units a module's stage shows in the state at an address, in order, read once. */

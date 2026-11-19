@@ -43,6 +43,9 @@ export const signShortcut: ShortcutSpec = { key: "s" };
 /** Open the focused unit's threads, to request a change or reply. */
 export const threadShortcut: ShortcutSpec = { key: "c" };
 
+/** Request a change on the stage shown, in a thread of its own. */
+export const stageThreadShortcut: ShortcutSpec = { key: "c", shift: true };
+
 /** Resolve the open thread; the send key with Shift, so it works while the message is being written. */
 export const resolveShortcut: ShortcutSpec = { key: "Enter", mod: true, shift: true };
 

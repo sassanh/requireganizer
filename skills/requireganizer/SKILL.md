@@ -25,14 +25,18 @@ tool signs.
 
 - Give yourself a name with `name_yourself` before anything else: the one
   your user calls you by, or ask them.
-- Call `get_workflow_state` first, and again after anything changes. A stage
-  in its `stagesWaitingForYou` is one the person asks you to write next.
-  Pass that entry's `request` as `fulfils` in the `write_items` call that
-  completes it, which may change no item.
-- A stage in its `stagesToReviewForYou` is one the person asks you to
-  review. Check each item against the published rules of its kind, then
-  answer with `answer_review` and that entry's `request`, naming each item
-  that breaks a rule, the rule and how it breaks it, or none.
+- Call `get_workflow_state` first, and again after anything changes. Its
+  `threadsWaitingForYou` lists the requests the person gave you, each in its
+  thread: a change, or the writing or a review of the thread's stage, as its
+  `asks` says. Read each thread with `get_thread`.
+- For a request to write a stage, write it with `write_items`, then answer
+  the thread with a reply, in the `answers` of your last write or with
+  `reply_to_thread`.
+- For a request to review a stage, check each item against the published
+  rules of its kind, then answer the thread with `reply_to_thread`, giving
+  `findings`: each names an item, the rule exactly as `get_stage_rules`
+  publishes it, and how the item breaks it; give none when no item breaks a
+  rule.
 - When you cannot answer a request given to you, pass its request's id to
   `report_cannot_answer` with why.
 - Before writing a stage, read the rules of each kind of item it holds with
@@ -99,10 +103,15 @@ tool signs.
 
 ## Change requests from the person
 
-- Answer the threads `get_workflow_state` lists as waiting for you. To change
-  items, use `write_items` and name the thread in its `answers`, with a reply
-  saying what changed. To ask or to disagree, use `reply_to_thread`. Only the
-  person resolves a thread.
+- Answer the threads `get_workflow_state` lists as waiting for you, on an
+  item, coverage or impact or on a stage itself. To change items, use
+  `write_items` and name the thread in its `answers`, with a reply saying
+  what changed. To ask or to disagree, use `reply_to_thread`. Any reply of
+  yours to a request you have may give `findings`, with or without changes.
+  Only the person resolves a thread.
+- You may add a message to a thread whose request another agent has, or
+  that has none, but with no changes and no findings; the request stays
+  with the agent that has it.
 - A thread in a stage that your change to an earlier stage closes waits:
   change the earlier stage without answering it, and answer it once its
   stage is open again.

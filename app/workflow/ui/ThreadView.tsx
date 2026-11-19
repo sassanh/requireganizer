@@ -5,6 +5,9 @@ import { ClickAwayListener, Dialog, IconButton, Paper, Popper, Stack, Tooltip, T
 import { observer } from "mobx-react-lite";
 import { useState, type ReactNode } from "react";
 
+import type { WorkflowModule } from "../module";
+import type { Thread } from "../threads";
+import { threadPlace } from "../units";
 import { type MessagePlace, useWorkflowView } from "./context";
 import ThreadPanel from "./ThreadPanel";
 
@@ -40,23 +43,40 @@ const OVERLAY_MIN_HEIGHT = 360;
 /** A clicked thread button opens its own thread, so a click on one never counts as a click away. */
 export const THREAD_BUTTON = "data-thread-button";
 
+/** The threads at a place, as `threadPlace` names it: a unit's, one thread on the stage itself, or those of a unit that is gone. */
+export function threadsAt(module: WorkflowModule, stage: string, place: string): Thread[] {
+  return module.unitState(place) != null ? module.threadsOf(place) : module.threadsOfStage(stage).filter((thread) => threadPlace(thread) === place);
+}
+
+/** What the threads at a place are on: the unit, the stage itself, or the unit that is gone. */
+export function placeLabel(module: WorkflowModule, place: string, threads: readonly Thread[]): string {
+  if (module.unitState(place) != null) return module.unitLabel(place);
+  const first = threads[0];
+  return first?.unitId == null ? "the stage" : `${first.removedUnit?.name ?? module.unitLabel(first.unitId)}, removed`;
+}
+
 /**
- * One unit's threads, opened from its card: their messages, the reply or
- * change request box, and controls to dock the overlay and to close. The
- * docked form is the page's side panel.
+ * The threads at one place, opened from its card, or with no place the box
+ * that requests a change on the stage: their messages, the reply or change
+ * request box, and controls to dock the overlay and to close. The docked
+ * form is the page's side panel.
  */
 const ThreadView = observer(function ThreadView({
-  unitId,
+  stage,
+  place,
   form,
   anchor,
   stageOpen,
   autoFocus,
   focusMessage,
   onMessageFocused,
+  onShow,
   onDock,
   onClose,
 }: {
-  unitId: string;
+  stage: string;
+  /** Where the threads shown are, as `threadPlace` names it; null for the box that requests a change on the stage. */
+  place: string | null;
   form: ThreadForm;
   /** Where the overlay shows: the card's actions. */
   anchor: HTMLElement | null;
@@ -65,15 +85,22 @@ const ThreadView = observer(function ThreadView({
   /** A message to show and focus, such as the one an item was opened from. */
   focusMessage: MessagePlace | null;
   onMessageFocused: () => void;
+  /** Show the threads at another place, such as the thread a change request on the stage opened. */
+  onShow: (place: string) => void;
   onDock: () => void;
   /** Closes the thread; closing the docked form also undocks, so the next thread opens beside its card. */
   onClose: () => void;
 }) {
   const { module } = useWorkflowView();
+  const threads = place == null ? [] : threadsAt(module, stage, place);
+  const onUnit = place != null && module.unitState(place) != null;
+  if (place != null && !onUnit && threads.length === 0) return null;
   const body = (
     <Stack spacing={1} sx={{ p: 1.5, minHeight: 0, height: form === "overlay" ? undefined : "100%", maxHeight: "inherit" }}>
       <Stack direction="row" sx={{ alignItems: "center", gap: 0.5 }}>
-        <Typography variant="subtitle1" sx={{ fontWeight: 700, flexGrow: 1 }}>Thread on {module.unitLabel(unitId)}</Typography>
+        <Typography variant="subtitle1" sx={{ fontWeight: 700, flexGrow: 1 }}>
+          {place == null ? "Request a change on the stage" : `Thread on ${placeLabel(module, place, threads)}`}
+        </Typography>
         {form === "overlay" && (
           <Tooltip title="Dock at the right">
             <IconButton size="small" onClick={onDock}><ViewSidebar fontSize="small" /></IconButton>
@@ -84,13 +111,16 @@ const ThreadView = observer(function ThreadView({
         </Tooltip>
       </Stack>
       <ThreadPanel
-        key={unitId}
-        unitId={unitId}
-        threads={module.threadsOf(unitId)}
+        key={place}
+        stage={stage}
+        unitId={onUnit ? place : null}
+        opensOnStage={place == null}
+        threads={threads}
         stageOpen={stageOpen}
         autoFocus={autoFocus}
         focusMessage={focusMessage}
         onMessageFocused={onMessageFocused}
+        onThreadStarted={(threadId) => onShow(threadPlace({ id: threadId, unitId: null }))}
         onClose={onClose}
       />
     </Stack>

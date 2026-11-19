@@ -12,6 +12,15 @@ export function impactUnitId(stage: string, itemId: string): string {
   return `impact:${stage}:${itemId}`;
 }
 
+/**
+ * Where a thread shows in its stage: on its unit, or, for a thread on the
+ * stage itself, in a place of its own among the stage's threads, which
+ * names no unit.
+ */
+export function threadPlace(thread: { id: string; unitId: string | null }): string {
+  return thread.unitId ?? `stage-thread:${thread.id}`;
+}
+
 export function parseUnitId(unitId: string): UnitAddress {
   const [kind, stage, itemId, ...rest] = unitId.split(":");
   if ((kind === "coverage" || kind === "impact") && stage != null && itemId != null && rest.length === 0) {

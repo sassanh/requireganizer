@@ -10,7 +10,6 @@ import {
   PROJECT_SCHEMA_VERSION,
   type ModuleContent,
   type ModuleState,
-  type ProjectSections,
   type ProjectState,
   type StageContent,
   type StoredItem,
@@ -112,7 +111,7 @@ export class PieceStore {
     const modules = state.modules.map((module) => this.moduleAddress(module));
     return this.hold(
       "project",
-      { schemaVersion: PROJECT_SCHEMA_VERSION, modulesEnabled: state.modulesEnabled, modules, sections: state.sections },
+      { schemaVersion: PROJECT_SCHEMA_VERSION, modulesEnabled: state.modulesEnabled, modules },
       modules.map((address) => [address, "module"] as const),
     );
   }
@@ -195,11 +194,6 @@ export class PieceStore {
     });
   }
 
-  /** The sections of the state at an address, as its project piece holds them. */
-  sectionsAt(address: Address): ProjectSections {
-    return this.read(address).sections as ProjectSections;
-  }
-
   /** Whether the state at an address has its modules turned on. */
   modulesEnabledAt(address: Address): boolean {
     return this.read(address).modulesEnabled === true;
@@ -233,7 +227,7 @@ export class PieceStore {
     const known = this.moduleContents.get(moduleAddress) ?? null;
     const node = known == null ? this.moduleNode(moduleAddress) : this.read(moduleAddress);
     // A project holds a module that is not archived, so the module is read as one.
-    const [parsed] = parseProject({ schemaVersion: PROJECT_SCHEMA_VERSION, modulesEnabled: true, modules: [{ ...node, archivedAt: null }], sections: {} }, [known]).modules;
+    const [parsed] = parseProject({ schemaVersion: PROJECT_SCHEMA_VERSION, modulesEnabled: true, modules: [{ ...node, archivedAt: null }] }, [known]).modules;
     const read = { ...parsed!, archivedAt: node.archivedAt as string | null };
     this.recognise(read, moduleAddress);
     return read;

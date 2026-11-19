@@ -6,6 +6,8 @@ import type { Signer } from "./records";
 export type ThreadAuthor = Signer | { kind: "agent"; name: string };
 
 export interface ThreadMessage {
+  /** Names this message and no other, in every state of the project. */
+  id: string;
   author: ThreadAuthor;
   text: string;
   /** When it was written; null in an export made without thread times. */
@@ -16,32 +18,34 @@ export interface ThreadMessage {
   annotations?: Readonly<Record<string, unknown>>;
 }
 
-/**
- * A change request on one unit and the conversation that answers it. Only
- * the spec owner resolves it. It keeps its stage, and once its unit is gone
- * the unit's last name, so it stays readable from the stage.
- */
 /** A unit that is gone, as its threads keep it: its name and what it said when it was removed. */
 export interface RemovedUnit {
   name: string;
   text: string;
 }
 
+/**
+ * A change request on a stage or on one unit, and the conversation that
+ * answers it. Only the spec owner resolves it. It keeps its stage, and once
+ * its unit is gone the unit's last name, so it stays readable from the stage.
+ */
 export interface Thread {
   id: string;
-  unitId: string;
+  /** The unit it is on; null for a thread on the stage itself. */
+  unitId: string | null;
   stage: string;
-  /** The unit as it was when it was removed; null while the unit exists. */
+  /** The unit as it was when it was removed; null while the unit exists, and always for a thread on the stage itself. */
   removedUnit: RemovedUnit | null;
   messages: ThreadMessage[];
   /** Set once the spec owner resolved it; its time is null in an export made without thread times. */
   resolution: { at: string | null } | null;
 }
 
-/** A reply to a thread, as its answerer gives it. */
+/** A reply to a thread, as an agent gives it, with what another module says of it, kept with the message and never read here. */
 export interface ThreadAnswer {
   threadId: string;
   text: string;
+  annotations?: Readonly<Record<string, unknown>>;
 }
 
 export function authorLabel(author: ThreadAuthor): string {
@@ -55,9 +59,12 @@ export function authorLabel(author: ThreadAuthor): string {
   }
 }
 
-/** An open thread waits for the spec owner while its last message is not theirs. */
-export function waitsForSpecOwner(thread: Thread): boolean {
-  return thread.resolution == null && thread.messages.at(-1)?.author.kind !== "person";
+/**
+ * An open thread waits for the spec owner while its last message is not
+ * theirs and no agent has its change request, which `agentHasRequest` says.
+ */
+export function waitsForSpecOwner(thread: Thread, agentHasRequest: boolean): boolean {
+  return thread.resolution == null && !agentHasRequest && thread.messages.at(-1)?.author.kind !== "person";
 }
 
 /**
@@ -159,8 +166,8 @@ export function parseThreads(value: unknown): Thread[] {
   if (!Array.isArray(value)) throw new InvalidJsonError("Threads must be an array.");
   return value.map((entry, index) => {
     const label = `Thread ${index + 1}`;
-    if (!isRecord(entry) || typeof entry.id !== "string" || typeof entry.unitId !== "string" || typeof entry.stage !== "string") {
-      throw new InvalidJsonError(`${label} must have an id, a unit id and a stage.`);
+    if (!isRecord(entry) || typeof entry.id !== "string" || (entry.unitId !== null && typeof entry.unitId !== "string") || typeof entry.stage !== "string") {
+      throw new InvalidJsonError(`${label} must have an id, a unit id or null, and a stage.`);
     }
     if (!Array.isArray(entry.messages) || entry.messages.length === 0) {
       throw new InvalidJsonError(`${label} must have at least one message.`);
@@ -173,18 +180,20 @@ export function parseThreads(value: unknown): Thread[] {
     if (removedUnit != null && (!isRecord(removedUnit) || typeof removedUnit.name !== "string" || typeof removedUnit.text !== "string")) {
       throw new InvalidJsonError(`${label} removed unit must have a name and a text.`);
     }
+    if (removedUnit != null && entry.unitId === null) throw new InvalidJsonError(`${label} is on its stage, so it has no removed unit.`);
     return {
       id: entry.id,
-      unitId: entry.unitId,
+      unitId: entry.unitId as string | null,
       stage: entry.stage,
       removedUnit: removedUnit == null ? null : { name: removedUnit.name as string, text: removedUnit.text as string },
       resolution: resolution == null ? null : { at: resolution.at as string | null },
       messages: entry.messages.map((message, messageIndex) => {
         const messageLabel = `${label} message ${messageIndex + 1}`;
-        if (!isRecord(message) || typeof message.text !== "string" || (message.at !== null && typeof message.at !== "string")) {
-          throw new InvalidJsonError(`${messageLabel} must have a text, and a time or null.`);
+        if (!isRecord(message) || typeof message.id !== "string" || typeof message.text !== "string" || (message.at !== null && typeof message.at !== "string")) {
+          throw new InvalidJsonError(`${messageLabel} must have an id, a text, and a time or null.`);
         }
         return {
+          id: message.id,
           author: author(message.author, messageLabel),
           text: message.text,
           at: message.at as string | null,

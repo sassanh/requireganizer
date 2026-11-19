@@ -1,6 +1,6 @@
 "use client";
 
-import { Add, ArrowBack, Delete, Edit, KeyboardArrowDown, KeyboardArrowUp, MenuBook, Restore } from "@mui/icons-material";
+import { Add, AddComment, ArrowBack, Delete, Edit, KeyboardArrowDown, KeyboardArrowUp, MenuBook, Restore } from "@mui/icons-material";
 import {
   Alert,
   Autocomplete,
@@ -28,21 +28,20 @@ import { observer } from "mobx-react-lite";
 import { Fragment, type UIEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { ActionTooltip } from "actions/ActionHint";
-import { returnShortcut, signShortcut, threadShortcut } from "actions/actions";
+import { returnShortcut, signShortcut, stageThreadShortcut, threadShortcut } from "actions/actions";
 import { autoScrollBehavior } from "lib/scroll";
 
 import { type FieldDefinition, itemsFields, referenceRuleCondition } from "../definition";
 import type { CoverageState, ImpactState, ItemState, OutOfDateCause, UnitState, WorkflowModule } from "../module";
 import { revisionOf, textValue, type ItemVersion } from "../records";
-import { mentionMarkup, waitsForSpecOwner } from "../threads";
-import { STAGE_PROGRESS_LABELS, unitInPlaceOf, WAITING_CATEGORY_LABELS } from "../units";
+import { authorLabel, mentionMarkup, type Thread, waitsForSpecOwner } from "../threads";
+import { STAGE_PROGRESS_LABELS, threadPlace, unitInPlaceOf, WAITING_CATEGORY_LABELS } from "../units";
 import { perform, type RemovedUnitMark, type RevealRequest, shownWithRemoved, type ThreadMark, useWorkflowNavigation, useWorkflowView } from "./context";
 import { FrameSchedule, FrameScheduleProvider } from "./frameSchedule";
 import ItemChip, { ItemOption, useItemLabel } from "./ItemChip";
 import ItemEditor, { type EditorTarget } from "./ItemEditor";
-import { Slot } from "./slots";
-import ThreadPanel from "./ThreadPanel";
-import ThreadView, { useThreadForm } from "./ThreadView";
+import { Slot, useThreadsWithAgent } from "./slots";
+import ThreadView, { placeLabel, THREAD_BUTTON, threadsAt, useThreadForm } from "./ThreadView";
 import UnitFrame, { SignatureLine } from "./UnitFrame";
 import VersionDiff from "./VersionDiff";
 import WrittenText from "./WrittenText";
@@ -523,8 +522,9 @@ function isEditable(target: EventTarget | null): boolean {
 
 /**
  * The keys of the tabs holding what belongs to the whole stage rather than
- * to one kind: its coverages, its impacts, and the threads whose unit is
- * gone. Their prefix keeps them apart from the kinds' own names.
+ * to one kind: its coverages, its impacts, and its threads on the stage
+ * itself and on units that are gone. Their prefix keeps them apart from the
+ * kinds' own names.
  */
 const COVERAGES_TAB = "whole-stage:coverages";
 const IMPACTS_TAB = "whole-stage:impacts";
@@ -547,6 +547,75 @@ function ThreadMarkNote({ mark }: { mark: ThreadMark | null }) {
     </Stack>
   );
 }
+
+/**
+ * The threads at one place of the Threads tab, on the stage itself or on a
+ * unit that is gone, as a card that opens them: how the latest one stands,
+ * its request and who wrote in it last.
+ */
+const ThreadCard = observer(function ThreadCard({ stage, place, marks, onOpen }: { stage: string; place: string; marks: readonly (ThreadMark & { threadId: string })[]; onOpen: (card: HTMLElement) => void }) {
+  const { module } = useWorkflowView();
+  const threadsWithAgent = useThreadsWithAgent();
+  const threads = threadsAt(module, stage, place);
+  const shown = threads.find(({ resolution }) => resolution == null) ?? threads.at(-1);
+  if (shown == null) return null;
+  const request = shown.messages[0];
+  const latest = shown.messages.at(-1);
+  const waits = waitsForSpecOwner(shown, threadsWithAgent.has(shown.id));
+  return (
+    <Paper
+      variant="outlined"
+      role="button"
+      tabIndex={0}
+      data-unit-card={place}
+      {...{ [THREAD_BUTTON]: true }}
+      onClick={(event) => onOpen(event.currentTarget)}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        onOpen(event.currentTarget);
+      }}
+      sx={{
+        p: 1.5,
+        display: "flex",
+        flexDirection: "column",
+        gap: 1,
+        cursor: "pointer",
+        opacity: shown.resolution == null ? 1 : 0.6,
+        outline: "none",
+        "&:hover": { borderColor: "primary.main" },
+        "&:focus-visible": { boxShadow: (theme) => `0 0 0 2px ${theme.vars.palette.primary.main}` },
+      }}
+    >
+      <Stack direction="row" sx={{ alignItems: "center", gap: 1 }}>
+        <Chip
+          size="small"
+          variant={waits ? "filled" : "outlined"}
+          color={waits ? "warning" : shown.resolution == null ? "primary" : "default"}
+          label={shown.resolution != null ? "Resolved" : waits ? "Waits for you" : "Open"}
+        />
+        {shown.unitId != null && (
+          <Typography variant="subtitle2" noWrap sx={{ minWidth: 0 }}>
+            {placeLabel(module, place, threads)}
+          </Typography>
+        )}
+      </Stack>
+      {/* The request is a preview: a click on it opens the thread, where its mentions can be opened. */}
+      {request != null && (
+        <Box sx={{ display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", overflow: "hidden", pointerEvents: "none" }}>
+          <WrittenText text={request.text} />
+        </Box>
+      )}
+      {latest != null && (
+        <Typography variant="caption" color="text.secondary" sx={{ mt: "auto" }}>
+          {shown.messages.length} {shown.messages.length === 1 ? "message" : "messages"} · last by {authorLabel(latest.author)}
+          {latest.at == null ? "" : `, ${new Date(latest.at).toLocaleString()}`}
+        </Typography>
+      )}
+      {marks.map((mark) => <ThreadMarkNote key={mark.threadId} mark={mark} />)}
+    </Paper>
+  );
+});
 
 /** The tab that shows a unit: its own kind for an item, and the stage's coverages or impacts for those. */
 function tabOf(unit: { kind: UnitState["kind"]; itemKind?: string | null }): string {
@@ -587,7 +656,18 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
   const allUnits = module.stageUnits(stage);
   const coverages = allUnits.filter((unit): unit is CoverageState => unit.kind === "coverage");
   const impacts = allUnits.filter((unit): unit is ImpactState => unit.kind === "impact");
-  const orphanThreads = module.threadsOfStage(stage).filter(({ unitId }) => module.unitState(unitId) == null);
+  const threadsWithAgent = useThreadsWithAgent();
+  const openStageThreads = module.threadsOnStage(stage).filter(({ resolution }) => resolution == null).length;
+  /** The threads the Threads tab shows: those on the stage itself and those whose unit is gone. */
+  const tabThreads = module.threadsOfStage(stage).filter(({ unitId }) => unitId == null || module.unitState(unitId) == null);
+  /** Where the Threads tab's threads are, each place once, those with an open thread first. */
+  const tabPlaces = [...new Set(tabThreads.map(threadPlace))].sort(
+    (left, right) =>
+      Number(!tabThreads.some((thread) => threadPlace(thread) === left && thread.resolution == null)) -
+      Number(!tabThreads.some((thread) => threadPlace(thread) === right && thread.resolution == null)),
+  );
+  const waitingForYou = (threads: readonly Thread[]) => threads.filter((thread) => waitsForSpecOwner(thread, threadsWithAgent.has(thread.id))).length;
+  const threadsWaiting = module.threadsWaitingForSpecOwner(stage, threadsWithAgent).length;
   /** The threads on units neither state holds that a preview would change, and of those the ones its state lacks. */
   const threadMarks = preview?.threads(stage) ?? [];
   const threadsOnlyNow = threadMarks.filter(({ onlyNow }) => onlyNow);
@@ -597,7 +677,7 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
   const wholeTabs = [
     ...(coverages.length > 0 || marksIn(COVERAGES_TAB).length > 0 ? [COVERAGES_TAB] : []),
     ...(impacts.length > 0 || marksIn(IMPACTS_TAB).length > 0 ? [IMPACTS_TAB] : []),
-    ...(orphanThreads.length > 0 || threadsOnlyNow.length > 0 ? [THREADS_TAB] : []),
+    ...(summary.open || tabThreads.length > 0 || threadsOnlyNow.length > 0 ? [THREADS_TAB] : []),
   ];
   /** The tab shown: one the stage still has, or else the first kind's, which every stage has. */
   const activeTab = kindTabs.includes(shownTab) || wholeTabs.includes(shownTab) ? shownTab : firstKind;
@@ -618,8 +698,8 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
   useEffect(() => {
     if (shownTab !== activeTab) setShownTab(activeTab);
   }, [shownTab, activeTab]);
-  /** The unit whose threads are open, where the overlay shows, and whether its box takes the focus. */
-  const [thread, setThread] = useState<{ unitId: string; anchor: HTMLElement | null; autoFocus: boolean } | null>(null);
+  /** Where the threads open are, as `threadPlace` names it, or null for the box that requests a change on the stage; where the overlay shows; and whether its box takes the focus. */
+  const [thread, setThread] = useState<{ place: string | null; anchor: HTMLElement | null; autoFocus: boolean } | null>(null);
   const [chosenForm, setChosenForm] = useThreadForm();
   const narrow = useMediaQuery((theme) => theme.breakpoints.down("md"));
   const threadForm = narrow ? "full" : chosenForm;
@@ -766,13 +846,21 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
     if (next != null) showUnit(next.unitId);
   };
 
-  const openThread = (unitId: string, anchor: HTMLElement | null, autoFocus = true) => setThread({ unitId, anchor, autoFocus });
+  const openThread = (place: string, anchor: HTMLElement | null, autoFocus = true) => setThread({ place, anchor, autoFocus });
 
-  /** Close the open thread and give the focus back to its card. */
+  const stageRequestButton = useRef<HTMLButtonElement>(null);
+  /** Show the stage's threads, and the box that requests a change on the stage beside its button, once the tab has drawn it. */
+  const requestStageChange = () => {
+    setShownTab(THREADS_TAB);
+    requestAnimationFrame(() => setThread({ place: null, anchor: stageRequestButton.current, autoFocus: true }));
+  };
+
+  /** Close the open thread and give the focus back to its card, or to the button for the box that requests a change on the stage. */
   const closeThread = () => {
-    const unitId = thread?.unitId;
+    const place = thread?.place;
     setThread(null);
-    cards().find((card) => card.dataset.unitCard === unitId)?.focus({ preventScroll: true });
+    const opener = place == null ? stageRequestButton.current : cards().find((card) => card.dataset.unitCard === place);
+    opener?.focus({ preventScroll: true });
   };
 
   /** The unit with the focus, as the stage last saw it, so the focus can go to the one in its place should it go. */
@@ -789,8 +877,8 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
     focusedUnitRef.current = unitId;
     focused(unitId);
     if (thread == null) return;
-    if (unitId == null || unitId === thread.unitId) return;
-    setThread(threadForm === "docked" ? { unitId, anchor: null, autoFocus: false } : null);
+    if (unitId == null || unitId === thread.place) return;
+    setThread(threadForm === "docked" ? { place: unitId, anchor: null, autoFocus: false } : null);
   };
 
   const onKeyDown = (event: KeyboardEvent) => {
@@ -839,8 +927,14 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
           returnToOpener();
         }
         return;
+      case stageThreadShortcut.key.toUpperCase():
+        if (editable) {
+          event.preventDefault();
+          requestStageChange();
+        }
+        return;
       case threadShortcut.key:
-        if (unit != null && module.unitState(unit) != null && (editable || module.threadsOf(unit).length > 0)) {
+        if (unit != null && ((editable && module.unitState(unit) != null) || threadsAt(module, stage, unit).length > 0)) {
           event.preventDefault();
           const card = cards().find((candidate) => candidate.dataset.unitCard === unit);
           openThread(unit, card?.querySelector<HTMLElement>("[data-unit-actions]") ?? card ?? null);
@@ -859,17 +953,17 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
     const requested = module.unitState(revealRequest.unitId);
     const threadId = revealRequest.message?.threadId ?? null;
     const removedMark = preview?.removed(stage).find(({ unitId }) => unitId === revealRequest.unitId);
-    const onOrphan = (thread: { id: string; unitId: string }) =>
-      threadId == null ? thread.unitId === revealRequest.unitId : thread.id === threadId;
+    const onOrphan = (thread: { id: string; unitId: string | null }) =>
+      threadId == null ? threadPlace(thread) === revealRequest.unitId : thread.id === threadId;
     const tab = requested != null && requested.stage === stage
       ? tabOf(requested)
-      : orphanThreads.some(onOrphan) || threadsOnlyNow.some(({ threadId: id, unitId }) => onOrphan({ id, unitId }))
+      : tabThreads.some(onOrphan) || threadsOnlyNow.some(({ threadId: id, unitId }) => onOrphan({ id, unitId }))
         ? THREADS_TAB
         : removedMark == null
           ? null
           : tabOf({ kind: removedMark.unitKind, itemKind: removedMark.itemKind });
     if (tab != null) setShownTab(tab);
-  }, [revealRequest, module, stage, preview, orphanThreads, threadsOnlyNow]);
+  }, [revealRequest, module, stage, preview, tabThreads, threadsOnlyNow]);
 
   // The stage itself takes the focus when asked to, such as when undo puts it there.
   const { stageFocusRequest, stageFocused } = useWorkflowNavigation();
@@ -913,10 +1007,9 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
   useEffect(() => {
     if (revealRequest == null || handledRequest.current === revealRequest) return;
     const { unitId, message } = revealRequest;
-    if (message != null && module.unitState(unitId) == null) {
-      // The threads of a removed unit show in its stage itself, and focus the message there.
+    if (message != null && module.unitState(unitId) == null && !tabThreads.some(({ id }) => id === message.threadId)) {
       handledRequest.current = revealRequest;
-      if (!orphanThreads.some(({ id }) => id === message.threadId)) revealed(revealRequest);
+      revealed(revealRequest);
       return;
     }
     const card = cards().find((candidate) => candidate.dataset.unitCard === unitId);
@@ -925,7 +1018,7 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
     if (message == null) {
       revealed(revealRequest);
       reveal(card);
-    } else if (thread?.unitId !== unitId) {
+    } else if (thread?.place !== unitId) {
       reveal(card);
       openThread(unitId, card.querySelector<HTMLElement>("[data-unit-actions]") ?? card, false);
     }
@@ -1035,8 +1128,16 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
           {!compact && progressBar}
           <Typography variant="body2" color="text.secondary">
             {waitingParts.length === 0 ? "Nothing waits for a signature." : `Waiting for a signature: ${waitingParts.join(", ")}.`}
-            {summary.threadsWaitingForSpecOwner > 0 ? ` ${summary.threadsWaitingForSpecOwner} ${summary.threadsWaitingForSpecOwner === 1 ? "thread waits" : "threads wait"} for you.` : ""}
+            {threadsWaiting > 0 ? ` ${threadsWaiting} ${threadsWaiting === 1 ? "thread waits" : "threads wait"} for you.` : ""}
           </Typography>
+          {openStageThreads > 0 && !compact && (
+            <Alert
+              severity="warning"
+              action={activeTab === THREADS_TAB ? undefined : <Button color="inherit" size="small" onClick={() => setShownTab(THREADS_TAB)}>Show</Button>}
+            >
+              {openStageThreads === 1 ? "An open thread on the stage keeps it from being complete." : `${openStageThreads} open threads on the stage keep it from being complete.`}
+            </Alert>
+          )}
           <Slot name="stage" props={{ stage, preview: preview != null }} />
           {!summary.open && !compact && (
             <Alert severity="info">
@@ -1080,10 +1181,10 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
                     {wholeTabs.includes(IMPACTS_TAB) && (
                       <Tab value={IMPACTS_TAB} label={tabLabel("Impacts", notApprovedIn(IMPACTS_TAB), "not approved")} sx={{ minHeight: 40, textTransform: "none" }} />
                     )}
-                    {orphanThreads.length > 0 && (
+                    {wholeTabs.includes(THREADS_TAB) && (
                       <Tab
                         value={THREADS_TAB}
-                        label={tabLabel("Threads on removed units", orphanThreads.filter(waitsForSpecOwner).length, "waiting for you")}
+                        label={tabLabel("Threads", waitingForYou(tabThreads), "waiting for you")}
                         sx={{ minHeight: 40, textTransform: "none" }}
                       />
                     )}
@@ -1111,56 +1212,65 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
 
           {activeTab === COVERAGES_TAB && cardsOf(coverages, marksIn(COVERAGES_TAB), (state) => <CoverageCard key={state.unitId} state={state} controls={controls} />)}
           {activeTab === IMPACTS_TAB && cardsOf(impacts, marksIn(IMPACTS_TAB), (state) => <ImpactCard key={state.unitId} state={state} controls={controls} />)}
-          {activeTab === THREADS_TAB && orphanThreads.map((orphan) => (
-            <Box key={orphan.id} data-unit-card={orphan.unitId} tabIndex={0} sx={{ outline: "none", "&:focus-visible": { boxShadow: (theme) => `0 0 0 2px ${theme.vars.palette.primary.main}` } }}>
-              <Typography variant="subtitle2">{orphan.removedUnit?.name ?? module.unitLabel(orphan.unitId)}, removed</Typography>
-              {orphan.removedUnit != null && (
-                <Typography variant="body2" sx={{ color: "text.secondary", whiteSpace: "pre-wrap" }}>
-                  {orphan.removedUnit.text}
-                </Typography>
-              )}
-              <ThreadMarkNote mark={threadMarks.find(({ threadId }) => threadId === orphan.id) ?? null} />
-              <Paper variant="outlined" sx={{ p: 1.5, mt: 1 }}>
-                <ThreadPanel
-                  unitId={null}
-                  threads={[orphan]}
-                  stageOpen={editable}
-                  focusMessage={messageToFocus}
-                  onMessageFocused={messageFocused}
+          {activeTab === THREADS_TAB && editable && (
+            <ActionTooltip name="Request a change on the stage" shortcut={stageThreadShortcut}>
+              <Button
+                ref={stageRequestButton}
+                {...{ [THREAD_BUTTON]: true }}
+                startIcon={<AddComment />}
+                variant={thread != null && thread.place == null ? "contained" : "outlined"}
+                sx={{ alignSelf: "flex-start" }}
+                onClick={(event) => setThread({ place: null, anchor: event.currentTarget, autoFocus: true })}
+              >
+                Request a change on the stage
+              </Button>
+            </ActionTooltip>
+          )}
+          {activeTab === THREADS_TAB && (tabPlaces.length > 0 || threadsOnlyNow.length > 0) && (
+            <Box sx={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 1.5, alignItems: "stretch" }}>
+              {tabPlaces.map((place) => (
+                <ThreadCard
+                  key={place}
+                  stage={stage}
+                  place={place}
+                  marks={threadMarks.filter(({ threadId }) => tabThreads.some((tabThread) => tabThread.id === threadId && threadPlace(tabThread) === place))}
+                  onOpen={(card) => openThread(place, card)}
                 />
-              </Paper>
+              ))}
+              {threadsOnlyNow.map((mark) => (
+                <Box
+                  key={mark.threadId}
+                  data-unit-card={mark.unitId}
+                  tabIndex={0}
+                  sx={{ p: 1.5, border: 1, borderStyle: "dashed", borderColor: "error.main", borderRadius: 1, outline: "none", "&:focus-visible": { boxShadow: (theme) => `0 0 0 2px ${theme.vars.palette.primary.main}` } }}
+                >
+                  <Typography variant="subtitle2">{mark.label}, removed</Typography>
+                  <Typography variant="body2" sx={{ color: "text.secondary", whiteSpace: "pre-wrap" }}>
+                    {mark.text}
+                  </Typography>
+                  <ThreadMarkNote mark={mark} />
+                </Box>
+              ))}
             </Box>
-          ))}
-          {activeTab === THREADS_TAB && threadsOnlyNow.map((mark) => (
-            <Box
-              key={mark.threadId}
-              data-unit-card={mark.unitId}
-              tabIndex={0}
-              sx={{ p: 1.5, border: 1, borderStyle: "dashed", borderColor: "error.main", borderRadius: 1, outline: "none", "&:focus-visible": { boxShadow: (theme) => `0 0 0 2px ${theme.vars.palette.primary.main}` } }}
-            >
-              <Typography variant="subtitle2">{mark.label}, removed</Typography>
-              <Typography variant="body2" sx={{ color: "text.secondary", whiteSpace: "pre-wrap" }}>
-                {mark.text}
-              </Typography>
-              <ThreadMarkNote mark={mark} />
-            </Box>
-          ))}
+          )}
         </Stack>
         </FrameScheduleProvider>
         <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 3 }}>
-          Keyboard: j or ↓ next, k or ↑ previous, Shift+J or Shift+K next or previous waiting for a signature, g first, Shift+G last, s sign, Shift+S sign and go to the next waiting for a signature, c open the thread or request a change, Esc close it.
+          Keyboard: j or ↓ next, k or ↑ previous, Shift+J or Shift+K next or previous waiting for a signature, g first, Shift+G last, s sign, Shift+S sign and go to the next waiting for a signature, c open the thread or request a change, Shift+C request a change on the stage, Esc close it.
         </Typography>
         <RulesDialog stage={stage} kind={kindForRules} open={rulesOpen} onClose={() => setRulesOpen(false)} />
       </Box>
-      {thread != null && module.unitState(thread.unitId) != null && (
+      {thread != null && (
         <ThreadView
-          unitId={thread.unitId}
+          stage={stage}
+          place={thread.place}
           form={threadForm}
           anchor={thread.anchor}
           stageOpen={editable}
           autoFocus={thread.autoFocus}
           focusMessage={messageToFocus}
           onMessageFocused={messageFocused}
+          onShow={(place) => setThread({ ...thread, place })}
           onDock={() => setChosenForm("docked")}
           onClose={() => {
             if (threadForm === "docked") setChosenForm("overlay");

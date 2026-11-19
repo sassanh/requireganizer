@@ -14,15 +14,15 @@ export type WorkingPlace =
 
 /**
  * The requests agents have that a sign stands for: on a unit, its change
- * request; on a stage, its units' change requests and its requests to
- * write and to review; on a module, every request of the module.
+ * request; on a stage, its own and its units' change requests, requests to
+ * write and to review it among them; on a module, every request of the module.
  */
 export function requestsAt(view: DeskView, place: WorkingPlace): RequestState[] {
   return view.requests.filter((request) => {
     if (request.holder == null || request.moduleId !== place.moduleId) return false;
     switch (place.kind) {
       case "unit":
-        return request.thread?.unitId === place.unitId;
+        return request.thread.unitId === place.unitId;
       case "stage":
         return request.stage === place.stage;
       case "module":

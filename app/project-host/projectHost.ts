@@ -59,6 +59,7 @@ const PAGE_ACTION_KINDS = {
   restoreSigned: "edit",
   sign: "signature",
   requestChange: "thread message",
+  requestStageChange: "thread message",
   replyAsSpecOwner: "thread message",
   resolveThread: "thread resolution",
 } as const satisfies { readonly [Name in keyof Store]?: ChangeKind };
@@ -168,7 +169,8 @@ export class ProjectHost implements HostEndpoint {
       reportTimeZone: (timeZone) => session.reportTimeZone(timeZone),
       deleteProject: (projectId) => session.deleteProject(projectId),
       runStoreAction: (call) => {
-        if (this.shown != null) this.agents.clearStoreAction(this.shown.store, call.name, call.args, call.stopping);
+        const giveTo = call.giveTo ?? null;
+        if (this.shown != null) this.agents.clearStoreAction(this.shown.store, call.name, call.args, call.stopping, giveTo);
         // The stage is read before the action, which may remove the unit it starts from, such as a signed removal.
         const stage = call.focusMove == null ? null : (this.shown?.store.unitState(call.focusMove.from)?.stage ?? null);
         let focusMovedTo: FocusPlace | null = null;
@@ -176,6 +178,7 @@ export class ProjectHost implements HostEndpoint {
           focusMovedTo = this.focusAfter(call, stage);
           return focusMovedTo;
         });
+        if (this.shown != null) this.agents.storeActionDone(this.shown.store, call.name, call.args, result, giveTo);
         return { result, focusMovedTo };
       },
       runPersistence: (call) => this.runPersistence(call),

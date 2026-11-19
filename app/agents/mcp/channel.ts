@@ -13,14 +13,8 @@ export interface ChannelNotification {
 /** The channel event that tells a coding agent of a request given to it or stopped. */
 export function channelNotice(notice: AgentNotice): ChannelNotification["params"] {
   const { request } = notice;
-  const meta: Record<string, string> = { request: request.key };
+  const meta: Record<string, string> = { request: request.key, thread_id: request.thread.id, stage: request.stage, kind: request.kind };
   if (request.moduleName != null) meta.module = request.moduleName;
-  if (request.thread == null) {
-    meta.stage = request.stage;
-    meta.kind = request.kind;
-  } else {
-    meta.thread_id = request.thread.id;
-  }
   return notice.type === "given"
     ? { content: `The spec owner gives you a request: ${notice.summary}.`, meta }
     : { content: `The spec owner stopped your request: ${notice.summary}. Your answer to it no longer counts; leave it.`, meta: { ...meta, stopped: "true" } };

@@ -117,7 +117,8 @@ function checkItem(stage: string, value: unknown, label: string, ids: Set<string
 }
 
 function checkMessage(value: unknown, label: string): void {
-  const message = exactRecord(value, label, ["author", "text", "at"], ["withChanges", "annotations"]);
+  const message = exactRecord(value, label, ["id", "author", "text", "at"], ["withChanges", "annotations"]);
+  readText(message.id, `${label} id`);
   if (Object.hasOwn(message, "annotations") && !isRecord(message.annotations)) {
     throw new InvalidJsonError(`${label} annotations must be an object.`);
   }
@@ -132,8 +133,9 @@ function checkMessage(value: unknown, label: string): void {
 function checkThread(value: unknown, label: string): void {
   const thread = exactRecord(value, label, ["id", "unitId", "stage", "removedUnit", "messages", "resolution"]);
   readText(thread.id, `${label} id`);
-  readText(thread.unitId, `${label} unit id`);
+  if (thread.unitId !== null) readText(thread.unitId, `${label} unit id`);
   if (!WORKFLOW.isStage(thread.stage)) throw new InvalidJsonError(`${label} is in ${JSON.stringify(thread.stage)}, which is no stage.`);
+  if (thread.removedUnit !== null && thread.unitId === null) throw new InvalidJsonError(`${label} is on its stage, so it has no removed unit.`);
   if (thread.removedUnit !== null) {
     const removed = exactRecord(thread.removedUnit, `${label} removed unit`, ["name", "text"]);
     readText(removed.name, `${label} removed unit name`);
@@ -202,12 +204,11 @@ export function parseProject(value: unknown, knownContents: readonly (ModuleCont
       `This project uses schema ${JSON.stringify(value.schemaVersion)}. Requireganizer reads schema ${PROJECT_SCHEMA_VERSION} only.`,
     );
   }
-  const document = exactRecord(value, "The project", ["schemaVersion", "modulesEnabled", "modules", "sections"]);
+  const document = exactRecord(value, "The project", ["schemaVersion", "modulesEnabled", "modules"]);
   if (typeof document.modulesEnabled !== "boolean") throw new InvalidJsonError("The project must say whether modules are enabled.");
   if (!Array.isArray(document.modules) || document.modules.length === 0) throw new InvalidJsonError("The project must hold at least one module.");
-  if (!isRecord(document.sections)) throw new InvalidJsonError("The project's sections must be an object.");
   const modules: ModuleState[] = [];
   document.modules.forEach((entry, index) => modules.push(parseModule(entry, index, modules, knownContents[index] ?? null)));
   if (modules.every(({ archivedAt }) => archivedAt != null)) throw new InvalidJsonError("Every module of the project is archived.");
-  return { modulesEnabled: document.modulesEnabled, modules, sections: document.sections as Record<string, unknown> };
+  return { modulesEnabled: document.modulesEnabled, modules };
 }

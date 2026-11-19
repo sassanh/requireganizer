@@ -7,7 +7,6 @@ import type { Store } from "store";
 import type { AgentsClient } from "../client";
 import type { DeskView } from "../desk";
 import type { AttentionOffer, PointedPlace } from "../pointers";
-import type { ModuleRequests } from "../section";
 
 /** The Agents module as the page reads it: the host's agents and requests, the offers agents made, and the page's own readings of places. */
 export interface AgentsPageValue {
@@ -25,8 +24,8 @@ export interface AgentsPageValue {
   activeModuleName: string | null;
   /** The model of a module the page holds; null for one it holds none of. */
   moduleStore: (moduleId: string) => Store | null;
-  /** What the Agents module keeps of a module. */
-  requestsOf: (moduleId: string) => ModuleRequests;
+  /** Run `run`, giving the change request of each message of the spec owner's it sends to `to`, or to none. */
+  withRequestGivenTo: <Value>(to: string | null, run: () => Value) => Value;
 }
 
 export const agentsContext = createContext<AgentsPageValue | null>(null);

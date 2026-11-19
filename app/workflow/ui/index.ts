@@ -17,8 +17,8 @@ export {
   workflowViewContext,
   type WorkflowView,
 } from "./context";
-export { ItemPreviewProvider } from "./ItemChip";
+export { default as ItemChip, ItemPreviewProvider } from "./ItemChip";
 export { currentEntryKey, currentOpener, recordOpener, returnToOpener, subscribeToEntries } from "./openedFrom";
 export { default as StageNavigation } from "./StageNavigation";
 export { default as StageView } from "./StageView";
-export { type ThreadSendProps, useWorkflowSlots, type WorkflowSlots, workflowSlotsContext } from "./slots";
+export { type ThreadSendProps, useThreadsWithAgent, useWorkflowSlots, type WorkflowSlots, workflowSlotsContext } from "./slots";

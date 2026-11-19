@@ -9,6 +9,7 @@ import type { StageProgress } from "../units";
 import { STAGE_PROGRESS_LABELS } from "../units";
 import { useWorkflowView } from "./context";
 import { useIdleSince } from "./frameSchedule";
+import { useThreadsWithAgent } from "./slots";
 
 const PROGRESS_ICONS: Record<StageProgress, typeof CheckCircle> = {
   empty: RadioButtonUnchecked,
@@ -34,9 +35,11 @@ function StageButton({
   onSelect: (stage: string) => void;
   summary: StageSummary | null;
 }) {
-  const { workflow, preview } = useWorkflowView();
+  const { module, workflow, preview } = useWorkflowView();
+  const threadsWithAgent = useThreadsWithAgent();
   const isSelected = stage === selected;
   const marked = preview?.count(stage) ?? 0;
+  const waitingThreads = summary == null ? 0 : module.threadsWaitingForSpecOwner(stage, threadsWithAgent).length;
   const ProgressIcon = summary == null ? null : PROGRESS_ICONS[summary.progress];
   return (
     <ListItemButton
@@ -49,13 +52,13 @@ function StageButton({
         <Typography variant="subtitle2" sx={{ flexGrow: 1, fontWeight: isSelected ? 700 : 500 }}>
           {workflow.stage(stage).label}
         </Typography>
-        {summary != null && summary.threadsWaitingForSpecOwner > 0 && (
-          <Tooltip title={`${summary.threadsWaitingForSpecOwner} ${summary.threadsWaitingForSpecOwner === 1 ? "thread waits" : "threads wait"} for you`}>
+        {waitingThreads > 0 && (
+          <Tooltip title={`${waitingThreads} ${waitingThreads === 1 ? "thread waits" : "threads wait"} for you`}>
             <Box
               component="span"
               sx={{ minWidth: 20, px: 0.75, borderRadius: 10, bgcolor: "warning.main", color: "warning.contrastText", fontSize: 12, lineHeight: "20px", textAlign: "center" }}
             >
-              {summary.threadsWaitingForSpecOwner}
+              {waitingThreads}
             </Box>
           </Tooltip>
         )}

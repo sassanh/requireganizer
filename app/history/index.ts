@@ -1,6 +1,5 @@
 export { isTimeZone, ownTimeZone } from "./calendar";
 export {
-  type SectionDifference,
   type ChangedUnit,
   type LiveStoreOf,
   type ModelNowOf,

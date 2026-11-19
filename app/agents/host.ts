@@ -5,6 +5,7 @@ import type { ModuleRegistry, ProjectState } from "storage";
 import { SiblingModuleStores, type Store } from "store";
 import type { ItemChange } from "workflow";
 
+import { asksAnnotation } from "./annotations";
 import { AgentDesk, type AgentNotice, type DeskView, type SpecOwnerAction } from "./desk";
 import {
   type AgentCaller,
@@ -17,9 +18,9 @@ import {
 } from "./interface/tools";
 import type { RunAgent, RunAgentsSource } from "./internal/runAgents";
 import { RunAgentWorker } from "./internal/runner";
-import { type RequestModule, reviewAskProblem, stageRequestKey, writeAskProblem } from "./requests";
+import type { RunLog } from "./record";
+import { askText, type RequestModule, reviewAskProblem, writeAskProblem } from "./requests";
 import { type AgentId, AgentRoster, codingAgentId } from "./roster";
-import { AGENTS_SECTION, type AgentsSection, parseAgentsSection, requestsOfModule, withModuleRequests } from "./section";
 
 /** What a project host serves of the Agents module; the project protocol's host API extends it. */
 export interface AgentsHostApi {
@@ -44,19 +45,22 @@ export interface AgentsHostApi {
   /** Take requests back from the agents that have them. */
   stopRequests(keys: string[]): void;
   /**
-   * Ask for a stage of a module to be written, or reviewed, and give the
-   * request to `agentId`, or to none; refused while giving it concerns
-   * requests other agents have that `stopping` does not name.
+   * Ask for a stage of a module to be written, or reviewed, in a thread of
+   * its own on the stage, and give the request to `agentId`, or to none;
+   * refused while giving it concerns requests other agents have that
+   * `stopping` does not name.
    */
   askToWrite(moduleId: string, stage: string, agentId: AgentId | null, stopping?: string[]): void;
   askToReview(moduleId: string, stage: string, agentId: AgentId | null, stopping?: string[]): void;
   /** Withdraw a waiting request no agent has. */
   withdrawRequest(key: string): void;
+  /** The run logs kept with a request, oldest first. */
+  readRunLogs(key: string): RunLog[];
 }
 
 /** What a host sends its clients of the Agents module. */
 export type AgentsHostEvent =
-  /** The agents and the waiting requests, whole, whenever they change. */
+  /** The agents, the waiting requests and what threads and items show of requests, whole, whenever they change. */
   | { type: "agents"; view: DeskView }
   /** To the connection that is the agent only: a request given to it or stopped. */
   | { type: "agent-notice"; notice: AgentNotice };
@@ -67,10 +71,9 @@ export type ReplacingAction = Parameters<ProjectSession["stateAfter"]>[0];
 /** The open project's visible modules as requests are read from them: the shown one's live store, each other's as the session reads it. */
 export function requestModules(registry: ModuleRegistry | null, shown: Store | null, storeOf: (moduleId: string) => Store | null): RequestModule[] {
   if (registry == null || shown == null) return [];
-  const section = parseAgentsSection(registry.sections[AGENTS_SECTION]);
   return visibleModules(registry).flatMap((entry): RequestModule[] => {
     const store = entry.id === registry.activeModuleId ? shown : storeOf(entry.id);
-    return store == null ? [] : [{ id: entry.id, name: registry.modulesEnabled ? entry.name : null, store, requests: requestsOfModule(section, entry.id) }];
+    return store == null ? [] : [{ id: entry.id, name: registry.modulesEnabled ? entry.name : null, store }];
   });
 }
 
@@ -78,18 +81,18 @@ export function requestModules(registry: ModuleRegistry | null, shown: Store | n
 export function requestModulesOfState(state: ProjectState): RequestModule[] {
   const stores = new SiblingModuleStores();
   stores.linkState(state);
-  const section = parseAgentsSection(state.sections[AGENTS_SECTION]);
   return visibleModules(state).flatMap((entry): RequestModule[] => {
     const store = stores.storeOf(entry.id);
-    return store == null ? [] : [{ id: entry.id, name: state.modulesEnabled ? entry.name : null, store, requests: requestsOfModule(section, entry.id) }];
+    return store == null ? [] : [{ id: entry.id, name: state.modulesEnabled ? entry.name : null, store }];
   });
 }
 
 /**
  * A store action of the spec owner's as the requests agents have may
- * concern it; null for one that concerns none, such as a signature.
+ * concern it, a message given to `giveTo`; null for one that concerns
+ * none, such as a signature.
  */
-function storeAction(store: Store, moduleId: string, name: string, args: readonly unknown[]): SpecOwnerAction | null {
+function storeAction(store: Store, moduleId: string, name: string, args: readonly unknown[], giveTo: AgentId | null): SpecOwnerAction | null {
   const stageOfItem = (id: unknown) => (typeof id === "string" ? (store.locate(id)?.stage ?? null) : null);
   switch (name) {
     case "writeItems": {
@@ -106,13 +109,18 @@ function storeAction(store: Store, moduleId: string, name: string, args: readonl
     }
     case "resolveThread":
       return typeof args[0] === "string" ? { kind: "resolve thread", moduleId, threadId: args[0] } : null;
-    // A message the spec owner sends makes its thread's change request anew, given to no agent.
-    case "replyAsSpecOwner":
-      return typeof args[0] === "string" ? { kind: "send message", moduleId, threadId: args[0], to: null } : null;
-    case "requestChange": {
-      const thread = typeof args[0] === "string" ? store.openThreadOf(args[0]) : null;
-      return thread == null ? null : { kind: "send message", moduleId, threadId: thread.id, to: null };
+    // A message the spec owner sends makes its thread's change request anew, given to `giveTo` or to none.
+    case "replyAsSpecOwner": {
+      const thread = typeof args[0] === "string" ? store.threads.find(({ id }) => id === args[0]) : undefined;
+      return thread == null ? null : { kind: "send message", moduleId, stage: thread.stage, unitId: thread.unitId, threadId: thread.id, to: giveTo };
     }
+    case "requestChange": {
+      const unitId = typeof args[0] === "string" ? args[0] : null;
+      const stage = unitId == null ? null : store.unitState(unitId)?.stage;
+      return unitId == null || stage == null ? null : { kind: "send message", moduleId, stage, unitId, threadId: store.openThreadOf(unitId)?.id ?? null, to: giveTo };
+    }
+    case "requestStageChange":
+      return typeof args[0] === "string" ? { kind: "send message", moduleId, stage: args[0], unitId: null, threadId: null, to: giveTo } : null;
     default:
       return null;
   }
@@ -144,10 +152,14 @@ export class AgentsHost {
     private readonly broadcast: (view: DeskView) => void,
   ) {
     this.roster = new AgentRoster(runAgents);
-    this.desk = new AgentDesk(this.roster, () => {
-      const snapshot = session.getSnapshot();
-      return snapshot.status === "ready" ? requestModules(snapshot.registry, snapshot.store, session.otherModuleStore) : [];
-    });
+    this.desk = new AgentDesk(
+      this.roster,
+      () => {
+        const snapshot = session.getSnapshot();
+        return snapshot.status === "ready" ? requestModules(snapshot.registry, snapshot.store, session.otherModuleStore) : [];
+      },
+      (records) => session.keepAgentRequests(records),
+    );
     this.desk.subscribe(() => this.scheduleView());
     this.desk.subscribeNotices((agentId, notice) => this.tellers.get(agentId)?.(notice));
     const desk = this.desk;
@@ -185,25 +197,8 @@ export class AgentsHost {
       stopRequests: (keys) => desk.stopAll(keys),
       askToWrite: (moduleId, stage, agentId, stopping) => this.ask("write", moduleId, stage, agentId, stopping),
       askToReview: (moduleId, stage, agentId, stopping) => this.ask("review", moduleId, stage, agentId, stopping),
-      withdrawRequest: (key) => {
-        const request = desk.requireWithdrawable(key);
-        const summary = desk.summary(request);
-        this.changeSection(`Withdrew: ${summary}`, (section) =>
-          withModuleRequests(section, request.moduleId, (requests) => {
-            switch (request.kind) {
-              case "write":
-                return { ...requests, write: requests.write.filter(({ stage }) => stage !== request.stage) };
-              case "review":
-                return { ...requests, review: requests.review.filter(({ stage }) => stage !== request.stage) };
-              case "change": {
-                const { thread } = request;
-                const note = { threadId: thread!.id, message: thread!.message, at: new Date().toISOString() };
-                return { ...requests, withdrawn: [...requests.withdrawn, note] };
-              }
-            }
-          }),
-        );
-      },
+      withdrawRequest: (key) => desk.withdraw(key),
+      readRunLogs: (key) => desk.runLogs(key),
     };
     // An agent Requireganizer runs calls the same tools a coding agent does, as itself.
     this.stopWorker = new RunAgentWorker(this.desk, {
@@ -220,24 +215,54 @@ export class AgentsHost {
     return found;
   }
 
-  /** Change the Agents module's section of the project, as one step the spec owner or an agent makes. */
-  private changeSection(description: string, update: (section: AgentsSection) => AgentsSection, author: "spec owner" | { agent: string } = "spec owner"): void {
-    this.session.changeSection(AGENTS_SECTION, description, (value) => update(parseAgentsSection(value)), author);
+  /**
+   * Make a request to write or to review a stage, as a change request on
+   * that stage opening a thread of its own, and give it to `agentId`, or to
+   * none.
+   */
+  private ask(kind: "write" | "review", moduleId: string, stage: string, agentId: AgentId | null, stopping: readonly string[] | undefined): void {
+    const asked = this.requestModule(moduleId);
+    const { store } = asked;
+    if (!store.workflow.isStage(stage)) throw new UserFacingError(`There is no stage ${stage}.`);
+    const records = this.desk.requestRecords();
+    const problem = kind === "write" ? writeAskProblem(asked, records, stage) : reviewAskProblem(asked, records, stage);
+    if (problem != null) throw new UserFacingError(problem);
+    const label = store.workflow.stage(stage).label;
+    const args = [stage, askText(kind, label), asksAnnotation(kind)] as const;
+    this.clearSpecOwnerAction({ kind: "send message", moduleId, stage, unitId: null, threadId: null, to: agentId }, stopping);
+    const active = this.session.getSnapshot().registry?.activeModuleId;
+    const threadId = this.session.change(
+      "thread message",
+      () => (moduleId === active ? store.requestStageChange(...args) : this.session.changeOtherModule(moduleId, (other) => other.requestStageChange(...args))),
+      "spec owner",
+      undefined,
+      kind === "write" ? `Asked for the writing of ${label}` : `Asked for a review of ${label}`,
+    );
+    this.madeRequest(moduleId, threadId, agentId);
   }
 
-  /** Make a request to write or to review a stage, and give it to `agentId`, or to none. */
-  private ask(kind: "write" | "review", moduleId: string, stage: string, agentId: AgentId | null, stopping: readonly string[] | undefined): void {
-    const { store, requests } = this.requestModule(moduleId);
-    if (!store.workflow.isStage(stage)) throw new UserFacingError(`There is no stage ${stage}.`);
-    const problem = kind === "write" ? writeAskProblem(store, requests, stage) : reviewAskProblem(store, requests, stage);
-    if (problem != null) throw new UserFacingError(problem);
-    if (agentId != null) this.desk.clear({ kind: "make", moduleId, stage, agentId }, stopping);
-    const at = new Date().toISOString();
-    const label = store.workflow.stage(stage).label;
-    this.changeSection(kind === "write" ? `Asked for the writing of ${label}` : `Asked for a review of ${label}`, (section) =>
-      withModuleRequests(section, moduleId, (current) => ({ ...current, [kind]: [...current[kind], { stage, at }] })),
-    );
-    if (agentId != null) this.desk.give(stageRequestKey(kind, moduleId, { stage, at }), agentId);
+  /**
+   * Refuse an action of the spec owner's while it concerns requests agents
+   * have that `stopping` does not name, or while it gives a request to an
+   * agent it cannot go to; stop those `stopping` names.
+   */
+  private clearSpecOwnerAction(action: SpecOwnerAction, stopping: readonly string[] | undefined): void {
+    if (action.kind === "send message" && action.to != null) this.desk.requireGivable(action.moduleId, action.stage, action.to);
+    this.desk.clear(action, stopping);
+  }
+
+  /**
+   * The spec owner's message, the last of a thread, made a request: what
+   * waited in the thread before is made anew, and the new request goes to
+   * `to`, if any.
+   */
+  private madeRequest(moduleId: string, threadId: string, to: AgentId | null): void {
+    const { store } = this.requestModule(moduleId);
+    const message = store.threads.find(({ id }) => id === threadId)?.messages.at(-1);
+    if (message == null) return;
+    const key = this.desk.make(moduleId, threadId, message.id);
+    this.desk.settle();
+    if (to != null) this.desk.give(key, to);
   }
 
   /** The agents and the waiting requests as clients see them. */
@@ -266,7 +291,7 @@ export class AgentsHost {
     const projectId = snapshot.status === "ready" ? snapshot.activeProject.id : null;
     if (projectId !== this.openProjectId) {
       this.openProjectId = projectId;
-      this.desk.forget();
+      this.desk.load(projectId == null ? null : this.session.agentRequests());
     } else {
       this.desk.settle();
     }
@@ -278,11 +303,23 @@ export class AgentsHost {
     this.scheduleView();
   }
 
-  /** Refuse a store action of the spec owner's while it concerns requests agents have that `stopping` does not name; stop those it names. */
-  clearStoreAction(store: Store, name: string, args: readonly unknown[], stopping: readonly string[] | undefined): void {
+  /**
+   * Refuse a store action of the spec owner's while it concerns requests
+   * agents have that `stopping` does not name, or while it would give its
+   * request to an agent it cannot go to; stop those `stopping` names.
+   */
+  clearStoreAction(store: Store, name: string, args: readonly unknown[], stopping: readonly string[] | undefined, giveTo: AgentId | null): void {
     const moduleId = this.session.getSnapshot().registry?.activeModuleId;
-    const action = moduleId == null ? null : storeAction(store, moduleId, name, args);
-    if (action != null) this.desk.clear(action, stopping);
+    const action = moduleId == null ? null : storeAction(store, moduleId, name, args, giveTo);
+    if (action != null) this.clearSpecOwnerAction(action, stopping);
+  }
+
+  /** A store action of the spec owner's was carried out: a message of theirs made a request, given to `giveTo`, if any. */
+  storeActionDone(store: Store, name: string, args: readonly unknown[], result: unknown, giveTo: AgentId | null): void {
+    const moduleId = this.session.getSnapshot().registry?.activeModuleId;
+    if (moduleId == null) return;
+    const threadId = name === "replyAsSpecOwner" ? args[0] : name === "requestChange" || name === "requestStageChange" ? result : null;
+    if (typeof threadId === "string" && store.threads.some(({ id }) => id === threadId)) this.madeRequest(moduleId, threadId, giveTo);
   }
 
   /**
@@ -336,44 +373,7 @@ export class AgentsHost {
       });
       this.session.pointOut(places, text, this.agentName(caller));
     };
-    const author = { agent: this.agentName(caller) };
-    const agents: OpenModule = {
-      desk: this.desk,
-      moduleId: registry.activeModuleId,
-      fulfilWriting: (moduleId, stage) => {
-        const label = this.requestModule(moduleId).store.workflow.stage(stage).label;
-        const at = new Date().toISOString();
-        this.changeSection(
-          `Fulfilled the request to write ${label}`,
-          (section) =>
-            withModuleRequests(section, moduleId, (requests) => ({
-              ...requests,
-              write: requests.write.filter((ask) => ask.stage !== stage),
-              fulfilled: [...requests.fulfilled.filter((done) => done.stage !== stage), { stage, at }],
-            })),
-          author,
-        );
-      },
-      answerReview: (moduleId, stage, findings) => {
-        const { store } = this.requestModule(moduleId);
-        const answer = {
-          stage,
-          agent: author.agent,
-          at: new Date().toISOString(),
-          findings: findings.map(({ itemId, rule, how }) => ({ itemId, revision: store.itemState(itemId)!.revision, rule, how })),
-        };
-        this.changeSection(
-          `Answered the request to review ${store.workflow.stage(stage).label}`,
-          (section) =>
-            withModuleRequests(section, moduleId, (requests) => ({
-              ...requests,
-              review: requests.review.filter((ask) => ask.stage !== stage),
-              reviewAnswers: [...requests.reviewAnswers.filter((last) => last.stage !== stage), answer],
-            })),
-          author,
-        );
-      },
-    };
+    const agents: OpenModule = { desk: this.desk, moduleId: registry.activeModuleId };
     if (!registry.modulesEnabled) return { pointOut, ...agents };
     const moduleName = activeModule(registry)?.name;
     if (moduleName == null) return { pointOut, ...agents };

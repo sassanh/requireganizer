@@ -56,6 +56,8 @@ export interface StoreActionCall {
   focusMove?: SignatureFocusMove;
   /** The requests agents have that the spec owner confirmed stopping to carry the action out. */
   stopping?: string[];
+  /** For a message of the spec owner's in a thread: the agent its change request is given to as it is sent. */
+  giveTo?: string;
 }
 
 /** What a store action returned, and where it moved the spec owner's focus, as the step records it. */

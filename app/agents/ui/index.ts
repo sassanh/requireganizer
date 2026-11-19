@@ -9,4 +9,3 @@ export { default as SendButton } from "./SendButton";
 export { howLongAgo } from "./time";
 export { default as WaitingRequests, requestStatus } from "./WaitingRequests";
 export { default as WorkingSign, requestsAt, type WorkingPlace } from "./WorkingSign";
-export { type SectionLine, sectionDifferenceLines } from "./sectionDifference";

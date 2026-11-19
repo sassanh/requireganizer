@@ -11,14 +11,15 @@ import { SEND_SHORTCUT_SPEC } from "actions/shortcutText";
 import { autoScrollBehavior } from "lib/scroll";
 
 import { authorLabel, type Thread, waitsForSpecOwner } from "../threads";
+import { threadPlace } from "../units";
 import { type MessagePlace, messageAttributes, messageElement, perform, useWorkflowView } from "./context";
 import { useItemName } from "./ItemChip";
 import MentionField, { type MessageDraft, messageText } from "./MentionField";
-import { Slot, useWorkflowSlots } from "./slots";
+import { Slot, useThreadsWithAgent, useWorkflowSlots } from "./slots";
 import WrittenText from "./WrittenText";
 
-/** A thread's messages, each one focusable, so the page can return to the one an item was opened from. */
-function Messages({ thread }: { thread: Thread }) {
+/** A thread's messages, each one focusable, so the page can return to the one an item was opened from, each with what other modules show under it. */
+function Messages({ thread, preview }: { thread: Thread; preview: boolean }) {
   return (
     <Stack spacing={1} divider={<Divider flexItem />} sx={{ opacity: thread.resolution == null ? 1 : 0.6 }}>
       {thread.messages.map((message, index) => (
@@ -26,7 +27,7 @@ function Messages({ thread }: { thread: Thread }) {
           key={index}
           spacing={0.25}
           tabIndex={-1}
-          {...messageAttributes(thread, index)}
+          {...messageAttributes({ id: thread.id, unitId: threadPlace(thread) }, index)}
           sx={{ borderRadius: 1, outline: "none", "&:focus": { boxShadow: (theme) => `0 0 0 2px ${theme.vars.palette.primary.main}` } }}
         >
           <Typography variant="caption" color="text.secondary">
@@ -34,6 +35,7 @@ function Messages({ thread }: { thread: Thread }) {
             {message.withChanges ? " · with changes" : ""}
           </Typography>
           <WrittenText text={message.text} />
+          <Slot name="message" props={{ threadId: thread.id, messageId: message.id, preview }} />
         </Stack>
       ))}
     </Stack>
@@ -44,26 +46,36 @@ function Messages({ thread }: { thread: Thread }) {
 const drafts = new Map<string, MessageDraft | null>();
 
 /**
- * The threads on one unit: the resolved ones to read, the open one to
- * reply in and resolve, and the box that opens a change request.
+ * The threads on one unit, or one thread on a stage itself: the resolved
+ * ones to read, the open one to reply in and resolve, and the box that
+ * opens a change request, on the unit, or with `opensOnStage` on the stage
+ * itself in a thread of its own.
  */
 const ThreadPanel = observer(function ThreadPanel({
+  stage,
   unitId,
+  opensOnStage = false,
   threads,
   stageOpen,
   autoFocus = false,
   focusMessage = null,
   onMessageFocused,
+  onThreadStarted,
   onClose,
 }: {
-  /** The unit, or null when it is gone and only its threads remain. */
+  stage: string;
+  /** The unit, or null for a thread on the stage itself, or when the unit is gone and only its threads remain. */
   unitId: string | null;
+  /** With no thread open, the box opens a change request on the stage itself. */
+  opensOnStage?: boolean;
   threads: readonly Thread[];
   stageOpen: boolean;
   autoFocus?: boolean;
   /** A message to show and focus, if it is in these threads, such as the one an item was opened from. */
   focusMessage?: MessagePlace | null;
   onMessageFocused?: () => void;
+  /** A change request on the stage was sent, in the thread it opened. */
+  onThreadStarted?: (threadId: string) => void;
   onClose?: () => void;
 }) {
   const { module, preview } = useWorkflowView();
@@ -71,7 +83,8 @@ const ThreadPanel = observer(function ThreadPanel({
   const open = threads.find(({ resolution }) => resolution == null) ?? null;
   const resolved = threads.filter(({ resolution }) => resolution != null);
   const slots = useWorkflowSlots();
-  const draftKey = unitId ?? open?.id ?? "";
+  const threadsWithAgent = useThreadsWithAgent();
+  const draftKey = unitId ?? open?.id ?? (opensOnStage ? `stage:${stage}` : "");
   const [draft, setDraftState] = useState(() => drafts.get(draftKey) ?? null);
   const setDraft = (value: MessageDraft | null) => {
     drafts.set(draftKey, value);
@@ -86,11 +99,15 @@ const ThreadPanel = observer(function ThreadPanel({
     if (message.length === 0) return null;
     let threadId: string | null = null;
     const sent = await perform(async () => {
-      if (unitId == null) {
-        await module.replyAsSpecOwner(open!.id, message);
-        threadId = open!.id;
-      } else {
+      if (unitId != null) {
         threadId = (await module.requestChange(unitId, message)) as string;
+      } else if (open != null) {
+        await module.replyAsSpecOwner(open.id, message);
+        threadId = open.id;
+      } else {
+        const started = (await module.requestStageChange(stage, message)) as string;
+        threadId = started;
+        onThreadStarted?.(started);
       }
     }, "The message could not be sent.");
     if (!sent) return null;
@@ -135,17 +152,17 @@ const ThreadPanel = observer(function ThreadPanel({
         if (event.key !== SEND_SHORTCUT_SPEC.key || (!event.metaKey && !event.ctrlKey)) return;
         event.preventDefault();
         if (event.shiftKey) void resolve();
-        else if (slots.send != null) void slots.send.submit({ unitId, threadId: open?.id ?? null, send });
+        else if (slots.send != null) void slots.send.submit({ stage, unitId, threadId: open?.id ?? null, send });
         else void send();
       }}
     >
       {open != null && (
         <Typography
           variant="overline"
-          color={waitsForSpecOwner(open) ? "warning.main" : "text.secondary"}
+          color={waitsForSpecOwner(open, threadsWithAgent.has(open.id)) ? "warning.main" : "text.secondary"}
           sx={{ alignSelf: "flex-start", flexShrink: 0, px: 1, borderRadius: 1 }}
         >
-          {waitsForSpecOwner(open) ? "Open thread · waits for you" : "Open thread"}
+          {waitsForSpecOwner(open, threadsWithAgent.has(open.id)) ? "Open thread · waits for you" : "Open thread"}
         </Typography>
       )}
       {open != null && <Slot name="thread" props={{ threadId: open.id, preview: preview != null }} />}
@@ -155,14 +172,14 @@ const ThreadPanel = observer(function ThreadPanel({
             {resolvedShown ? "Hide" : "Show"} {resolved.length} resolved {resolved.length === 1 ? "thread" : "threads"}
           </Button>
         )}
-        {resolvedShown && resolved.map((thread) => <Messages key={thread.id} thread={thread} />)}
-        {open != null && <Messages thread={open} />}
+        {resolvedShown && resolved.map((thread) => <Messages key={thread.id} thread={thread} preview={preview != null} />)}
+        {open != null && <Messages thread={open} preview={preview != null} />}
       </Stack>
-      {stageOpen && (unitId != null || open != null) && (
+      {stageOpen && (unitId != null || open != null || opensOnStage) && (
         <Stack spacing={1} sx={{ flexShrink: 0, pt: 1 }}>
           <MentionField
             autoFocus={autoFocus}
-            label={open == null ? "Request a change" : "Reply"}
+            label={open != null ? "Reply" : opensOnStage ? "Request a change on the stage" : "Request a change"}
             value={draft}
             onChange={setDraft}
             onKeyDown={(event) => {
@@ -181,7 +198,7 @@ const ThreadPanel = observer(function ThreadPanel({
               </ActionTooltip>
             )}
             {slots.send != null ? (
-              slots.send.render({ label: sendLabel, disabled: messageText(draft, nameOf).trim().length === 0, unitId, threadId: open?.id ?? null, send })
+              slots.send.render({ label: sendLabel, disabled: messageText(draft, nameOf).trim().length === 0, stage, unitId, threadId: open?.id ?? null, send })
             ) : (
               <ActionTooltip name={sendLabel} shortcut={SEND_SHORTCUT_SPEC}>
                 <span>

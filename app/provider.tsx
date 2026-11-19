@@ -6,7 +6,7 @@ import { AppRouterCacheProvider } from "@mui/material-nextjs/v15-appRouter";
 import { saveAs } from "file-saver";
 import { memo, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
-import { AGENTS_SECTION, type AttentionOffer, browserRunAgents, parseAgentsSection, type PointedPlace, requestsOfModule } from "agents";
+import { type AttentionOffer, browserRunAgents, type PointedPlace } from "agents";
 import { agentsContext, type AgentsPageValue, AgentsWorkflowSlots } from "agents/ui";
 import Link from "components/Link";
 import { NoticeHost } from "components/NoticeHost";
@@ -233,13 +233,12 @@ export default function Providers({ children }: { children: React.ReactNode }) {
 
   const agentsValue = useMemo((): AgentsPageValue => {
     const stageLabel = (stage: string) => (WORKFLOW.isStage(stage) ? WORKFLOW.stage(stage).label : stage);
-    const section = parseAgentsSection(registry?.sections[AGENTS_SECTION]);
     const activeModuleId = registry?.activeModuleId ?? "";
     return {
       activeModuleId,
       activeModuleName: registry?.modulesEnabled ? (registry.modules.find(({ id }) => id === activeModuleId)?.name ?? null) : null,
       moduleStore: client.moduleStore,
-      requestsOf: (moduleId: string) => requestsOfModule(section, moduleId),
+      withRequestGivenTo: client.withRequestGivenTo,
       client: client.agents,
       view: agents,
       offers,

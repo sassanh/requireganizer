@@ -201,7 +201,6 @@ export interface StageSummary {
   approved: number;
   total: number;
   waiting: Record<WaitingCategory, number> & { coverages: number; impacts: number };
-  threadsWaitingForSpecOwner: number;
 }
 
 /** One change a writer makes to the spec: an item added, changed or removed. */
@@ -382,7 +381,9 @@ export function workflowModuleModel(workflow: Workflow) {
 
       const threadsOfUnit = cachedView(() => {
         const map = new Map<string, Thread[]>();
-        for (const thread of self.threads) map.set(thread.unitId, [...(map.get(thread.unitId) ?? []), thread]);
+        for (const thread of self.threads) {
+          if (thread.unitId != null) map.set(thread.unitId, [...(map.get(thread.unitId) ?? []), thread]);
+        }
         return map;
       });
 
@@ -395,6 +396,12 @@ export function workflowModuleModel(workflow: Workflow) {
       function openThreadOf(unitId: string): Thread | null {
         return threadsOf(unitId).find(({ resolution }) => resolution == null) ?? null;
       }
+
+      /** The threads on a stage itself, open and resolved, oldest first. */
+      const threadsOnStage = keyedView(
+        (stage: string): Thread[] => self.threads.filter((thread) => thread.unitId == null && thread.stage === stage),
+        comparer.structural,
+      );
 
       /** The items of a stage's single kinds, at most one of each, read once for every item that counts them. */
       const singleItems = keyedView((stage: string): Item[] => itemsOf(stage).filter((candidate) => workflow.kind(candidate.kind).single === true), comparer.shallow);
@@ -639,7 +646,7 @@ export function workflowModuleModel(workflow: Workflow) {
         }
         // A signed impact stays while a thread on it is open, so the thread keeps it from counting as approved.
         for (const thread of self.threads) {
-          if (thread.resolution != null || thread.stage !== stage) continue;
+          if (thread.resolution != null || thread.stage !== stage || thread.unitId == null) continue;
           const address = parseUnitId(thread.unitId);
           if (address.kind !== "impact" || asked.has(address.itemId)) continue;
           if (stored?.impacts.get(address.itemId) == null) continue;
@@ -691,7 +698,9 @@ export function workflowModuleModel(workflow: Workflow) {
       );
 
       const stageComplete = keyedView((stage: string): boolean =>
-        countedItems(stage).length > 0 && stageUnits(stage).every(({ approved }) => approved),
+        countedItems(stage).length > 0 &&
+        stageUnits(stage).every(({ approved }) => approved) &&
+        threadsOnStage(stage).every(({ resolution }) => resolution != null),
       );
 
       const stageOpen = keyedView((stage: string): boolean =>
@@ -860,6 +869,7 @@ export function workflowModuleModel(workflow: Workflow) {
         openThreadOf,
         currentBasisOf,
         threadsOf,
+        threadsOnStage,
         linkingItems,
         /** Every item of the module, in stage order. */
         get allItems(): Item[] {
@@ -991,8 +1001,15 @@ export function workflowModuleModel(workflow: Workflow) {
             approved: units.filter(({ approved }) => approved).length,
             total: units.length,
             waiting,
-            threadsWaitingForSpecOwner: self.threads.filter((thread) => thread.stage === stage && waitsForSpecOwner(thread)).length,
           };
+        },
+        /**
+         * The open threads on the stage and on its items, coverages and
+         * impacts that wait for the spec owner, given the threads whose
+         * change request an agent has.
+         */
+        threadsWaitingForSpecOwner(stage: string, threadsWithAgent: ReadonlySet<string>): Thread[] {
+          return self.threads.filter((thread) => thread.stage === stage && waitsForSpecOwner(thread, threadsWithAgent.has(thread.id)));
         },
         /** Whether every stage of the module is complete. */
         get isComplete(): boolean {
@@ -1068,7 +1085,7 @@ export function workflowModuleModel(workflow: Workflow) {
     .views((self) => ({
       /** What a removed item said when it was removed, as a thread on it keeps it; null for none. */
       removedItemText(itemId: string): string | null {
-        return self.threads.find((thread) => thread.removedUnit != null && parseUnitId(thread.unitId).itemId === itemId)?.removedUnit?.text ?? null;
+        return self.threads.find((thread) => thread.removedUnit != null && thread.unitId != null && parseUnitId(thread.unitId).itemId === itemId)?.removedUnit?.text ?? null;
       },
       /** A unit as the page names it: an item by its name, a coverage or an impact by the item it is on. */
       unitLabel(unitId: string): string {
@@ -1235,9 +1252,9 @@ export function workflowModuleModel(workflow: Workflow) {
       }
 
       function markThreadsRemoved(unitIds: ReadonlySet<string>): void {
-        if (!self.threads.some(({ unitId }) => unitIds.has(unitId))) return;
+        if (!self.threads.some(({ unitId }) => unitId != null && unitIds.has(unitId))) return;
         self.threads = self.threads.map((thread) =>
-          unitIds.has(thread.unitId) && thread.removedUnit == null
+          thread.unitId != null && unitIds.has(thread.unitId) && thread.removedUnit == null
             ? { ...thread, removedUnit: { name: self.unitLabel(thread.unitId), text: self.textOf(parseUnitId(thread.unitId).itemId) } }
             : thread,
         );
@@ -1546,16 +1563,11 @@ export function workflowModuleModel(workflow: Workflow) {
        * of an added item tied to the item its change added, with the
        * annotations its writer gives, kept and never read here.
        */
-      function postAnswers(
-        answers: readonly ThreadAnswer[],
-        author: ThreadAuthor,
-        annotations: ThreadMessage["annotations"],
-        changes: readonly ItemChange[] = [],
-        added: readonly string[] = [],
-      ) {
-        for (const { threadId, text } of answers) {
+      function postAnswers(answers: readonly ThreadAnswer[], author: ThreadAuthor, changes: readonly ItemChange[] = [], added: readonly string[] = []) {
+        for (const { threadId, text, annotations } of answers) {
           const tied = replaceAddedMentions(text, ({ change }) => mentionMarkup("", addedByChange(changes, added, change)!));
           addMessage(threadId, {
+            id: uuid(),
             author,
             text: keptMessageText(tied),
             at: new Date().toISOString(),
@@ -1597,7 +1609,7 @@ export function workflowModuleModel(workflow: Workflow) {
          * was. Throws every problem at once. The threads it answers are
          * checked against the module as the write leaves it.
          */
-        writeItems(changes: ItemChange[], replies: { answers: readonly ThreadAnswer[]; author: ThreadAuthor; annotations?: ThreadMessage["annotations"] } | null = null): ChangeOutcome {
+        writeItems(changes: ItemChange[], replies: { answers: readonly ThreadAnswer[]; author: ThreadAuthor } | null = null): ChangeOutcome {
           const answering = replies?.answers ?? [];
           const answerProblem = self.answerProblem(answering);
           if (answerProblem != null) throw new UserFacingError(answerProblem);
@@ -1636,7 +1648,7 @@ export function workflowModuleModel(workflow: Workflow) {
           }
           const { outcome } = applyAll(changes);
           settleRemovals();
-          if (replies != null) postAnswers(replies.answers, replies.author, replies.annotations, changes, outcome.added);
+          if (replies != null) postAnswers(replies.answers, replies.author, changes, outcome.added);
           return outcome;
         },
         /** Apply changes as far as they go, returning their problems: for a trial copy only. */
@@ -1751,7 +1763,7 @@ export function workflowModuleModel(workflow: Workflow) {
           if (state == null) throw new UserFacingError("That no longer exists.");
           requireOpen(state.stage, "change requests");
           if (text.trim().length === 0) throw new UserFacingError("Write what should change.");
-          const message = { author: SPEC_OWNER, text: keptMessage(text), at: new Date().toISOString() };
+          const message = { id: uuid(), author: SPEC_OWNER, text: keptMessage(text), at: new Date().toISOString() };
           const open = self.openThreadOf(unitId);
           if (open != null) {
             addMessage(open.id, message);
@@ -1761,12 +1773,26 @@ export function workflowModuleModel(workflow: Workflow) {
           self.threads = [...self.threads, thread];
           return thread.id;
         },
+        /**
+         * The spec owner asks for a change to a stage itself: always a new
+         * thread of its own, its message with the annotations another module
+         * gives it. Returns the thread's id.
+         */
+        requestStageChange(stage: string, text: string, annotations?: ThreadMessage["annotations"]): string {
+          if (!workflow.isStage(stage)) throw new UserFacingError(`There is no stage ${stage}.`);
+          requireOpen(stage, "change requests");
+          if (text.trim().length === 0) throw new UserFacingError("Write what should change.");
+          const message: ThreadMessage = { id: uuid(), author: SPEC_OWNER, text: keptMessage(text), at: new Date().toISOString(), ...(annotations == null ? {} : { annotations }) };
+          const thread: Thread = { id: uuid(), unitId: null, stage, removedUnit: null, messages: [message], resolution: null };
+          self.threads = [...self.threads, thread];
+          return thread.id;
+        },
         /** The spec owner replies in an open thread, including one whose unit is gone. */
         replyAsSpecOwner(threadId: string, text: string) {
           const thread = openThread(threadId);
           requireOpen(thread.stage, "thread replies");
           if (text.trim().length === 0) throw new UserFacingError("Write a reply.");
-          addMessage(threadId, { author: SPEC_OWNER, text: keptMessage(text), at: new Date().toISOString() });
+          addMessage(threadId, { id: uuid(), author: SPEC_OWNER, text: keptMessage(text), at: new Date().toISOString() });
         },
         /** The spec owner resolves a thread; only the spec owner does. */
         resolveThread(threadId: string) {
@@ -1776,12 +1802,12 @@ export function workflowModuleModel(workflow: Workflow) {
             candidate.id === threadId ? { ...candidate, resolution: { at: new Date().toISOString() } } : candidate,
           );
         },
-        /** Another than the spec owner replies, with no changes, with the annotations it gives; a reply with changes is part of writeItems. */
-        answerThreads(answers: ThreadAnswer[], author: ThreadAuthor, annotations?: ThreadMessage["annotations"]) {
+        /** Another than the spec owner replies, with no changes, each answer with the annotations it gives; a reply with changes is part of writeItems. */
+        answerThreads(answers: ThreadAnswer[], author: ThreadAuthor) {
           const problem = self.answerProblem(answers);
           if (problem != null) throw new UserFacingError(problem);
           for (const { text } of answers) checkMentions(text);
-          postAnswers(answers, author, annotations);
+          postAnswers(answers, author);
         },
       };
     })

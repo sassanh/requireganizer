@@ -19,7 +19,6 @@ export type ChangeKind =
   | "thread message"
   | "thread resolution"
   | "write of items"
-  | "section change"
   | "restore"
   | "import"
   | "opening a changed project"
@@ -31,7 +30,6 @@ const CHANGE_KINDS: readonly ChangeKind[] = [
   "thread message",
   "thread resolution",
   "write of items",
-  "section change",
   "restore",
   "import",
   "opening a changed project",
@@ -39,7 +37,6 @@ const CHANGE_KINDS: readonly ChangeKind[] = [
 ];
 
 const WHOLE_PROJECT_KINDS: ReadonlySet<ChangeKind> = new Set<ChangeKind>([
-  "section change",
   "restore",
   "import",
   "opening a changed project",

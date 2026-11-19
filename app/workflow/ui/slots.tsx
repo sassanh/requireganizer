@@ -2,8 +2,9 @@
 
 import { createContext, type ReactNode, useContext } from "react";
 
-/** Where a thread's message goes: the unit and the thread, if open, and how to send it. */
+/** Where a thread's message goes: its stage, the unit or null for the stage itself or a unit gone, the thread, if open, and how to send it. */
 export interface ThreadSendProps {
+  stage: string;
   unitId: string | null;
   threadId: string | null;
   /** Sends the message written and resolves to the thread it went to, or null when nothing was sent. */
@@ -24,6 +25,10 @@ export interface WorkflowSlots {
   unitNotes?: (props: { unitId: string; preview: boolean }) => ReactNode;
   /** Under an open thread's state. */
   thread?: (props: { threadId: string; preview: boolean }) => ReactNode;
+  /** Under a thread message, on lines of their own. */
+  message?: (props: { threadId: string; messageId: string; preview: boolean }) => ReactNode;
+  /** The threads whose change request an agent has, which therefore wait for no one but that agent. */
+  threadsWithAgent?: ReadonlySet<string>;
   /** In place of a thread's send button, and what its send key does. */
   send?: {
     render: (props: ThreadSendProps & { label: string; disabled: boolean }) => ReactNode;
@@ -34,7 +39,7 @@ export interface WorkflowSlots {
 
 export const workflowSlotsContext = createContext<WorkflowSlots>({});
 
-type ShownSlot = "stage" | "unit" | "unitNotes" | "thread";
+type ShownSlot = "stage" | "unit" | "unitNotes" | "thread" | "message";
 
 /** What fills a slot, or nothing while no module fills it. */
 export function Slot<Name extends ShownSlot>({ name, props }: { name: Name; props: Parameters<NonNullable<WorkflowSlots[Name]>>[0] }) {
@@ -45,4 +50,11 @@ export function Slot<Name extends ShownSlot>({ name, props }: { name: Name; prop
 /** The slots the page filled, such as to show a send button of its own. */
 export function useWorkflowSlots(): WorkflowSlots {
   return useContext(workflowSlotsContext);
+}
+
+const NO_THREADS: ReadonlySet<string> = new Set();
+
+/** The threads whose change request an agent has, as the page that fills the slots says; none while no module says. */
+export function useThreadsWithAgent(): ReadonlySet<string> {
+  return useContext(workflowSlotsContext).threadsWithAgent ?? NO_THREADS;
 }

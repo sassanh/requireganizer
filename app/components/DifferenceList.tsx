@@ -3,7 +3,6 @@
 import { Box, CircularProgress, Tooltip, Typography } from "@mui/material";
 import { Fragment, type ReactElement, useEffect, useState } from "react";
 
-import { type SectionLine, sectionDifferenceLines } from "agents/ui";
 import type { ModuleChange, ModuleDifference, PreviewTarget, StateDifference, ThreadDifference, UnitDifference } from "history";
 import { getUserFacingErrorMessage } from "lib/errors";
 import { useProject } from "projectContext";
@@ -25,8 +24,6 @@ const MODULE_SIGNS: Record<ModuleChange, { sign: string; color: string; name: Re
   "bring back": { sign: "+", color: "success.main", name: { step: "brought back from the archive", "bringing back": "would be brought back from the archive" } },
   rename: { sign: "~", color: "warning.main", name: { step: "renamed", "bringing back": "would be renamed" } },
 };
-
-const LINE_COLORS: Record<SectionLine["sign"], string> = { "+": "success.main", "−": "error.main", "~": "warning.main" };
 
 /**
  * A module as a change to it names it. A renamed one reads from its name in
@@ -59,11 +56,7 @@ export default function DifferenceList({
   reading: Reading;
 }) {
   const projectWide = difference.modules.length > 0 || difference.modulesEnabled != null;
-  const { modules } = useProject();
-  const sectionLines = difference.sections.flatMap(({ section, then, now }) =>
-    sectionDifferenceLines(section, then, now, (stage) => (WORKFLOW.isStage(stage) ? WORKFLOW.stage(stage).label : stage), (moduleId) => (withModules ? (modules.find(({ id }) => id === moduleId)?.name ?? null) : null)),
-  );
-  if (!projectWide && sectionLines.length === 0 && difference.units.length === 0 && difference.threads.length === 0) {
+  if (!projectWide && difference.units.length === 0 && difference.threads.length === 0) {
     if (reading === "step") return null;
     return (
       <Typography variant="caption" sx={{ color: "text.secondary" }}>
@@ -105,20 +98,6 @@ export default function DifferenceList({
                 </Typography>
               );
             })}
-          </Box>
-        </>
-      )}
-      {sectionLines.length > 0 && (
-        <>
-          <Typography variant="caption" sx={{ color: "text.secondary" }}>
-            Requests
-          </Typography>
-          <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", columnGap: 1, rowGap: 0.25, minWidth: 0 }}>
-            {sectionLines.map((line, index) => (
-              <Typography key={index} variant="caption" sx={{ color: LINE_COLORS[line.sign], whiteSpace: "nowrap" }}>
-                {line.sign} {line.text}
-              </Typography>
-            ))}
           </Box>
         </>
       )}

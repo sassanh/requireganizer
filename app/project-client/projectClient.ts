@@ -204,6 +204,8 @@ export class ProjectClient {
   private previewRequest = 0;
   /** Where the store actions forwarded now move the spec owner's focus, and where the host answers that each moved it. */
   private focusMove: { move: SignatureFocusMove; movedTo: Promise<FocusPlace | null>[] } | null = null;
+  /** The agent the change request of a message the spec owner sends now is given to. */
+  private giveTo: string | null = null;
   /** What `getPreview` hands out, the same object until the preview changes. */
   private shownPreview: ShownPreview | null = null;
   private snapshot: ProjectSessionSnapshot;
@@ -431,6 +433,20 @@ export class ProjectClient {
     return moves.findLast((place) => place != null)?.unitId ?? null;
   };
 
+  /**
+   * Run `run`, giving the change request of each message of the spec
+   * owner's it sends to `to`, in the same act as sending it; to none for null.
+   */
+  withRequestGivenTo = <Value>(to: string | null, run: () => Value): Value => {
+    const previous = this.giveTo;
+    this.giveTo = to;
+    try {
+      return run();
+    } finally {
+      this.giveTo = previous;
+    }
+  };
+
   dismissOffer = (offerId: string): Promise<void> => this.request("dismissOffer", offerId);
 
   /** The earlier state shown in place of the project now; notified through `subscribe`. */
@@ -567,6 +583,7 @@ export class ProjectClient {
       return Promise.reject(error);
     }
     const focusMove = this.focusMove?.move;
+    const giveTo = this.giveTo;
     const outcome = this.agents.confirmed(storeActionName(call.name), (stopping) =>
       this.request("runStoreAction", {
         store,
@@ -574,6 +591,7 @@ export class ProjectClient {
         name: call.name,
         args,
         ...(focusMove == null ? {} : { focusMove }),
+        ...(giveTo == null ? {} : { giveTo }),
         ...(stopping == null ? {} : { stopping }),
       }),
     );

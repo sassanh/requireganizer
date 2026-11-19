@@ -4,6 +4,7 @@ import { type AgentNotice, type DeskView, RequestsConcernedError, type RequestSt
 import type { AgentsHostApi, AgentsHostEvent } from "./host";
 import type { AgentCaller, AgentToolDescription } from "./interface/tools";
 import type { RunAgent } from "./internal/runAgents";
+import type { RunLog } from "./record";
 import type { AgentId } from "./roster";
 
 /** How a client sends one of the Agents module's requests to its host. */
@@ -22,6 +23,7 @@ const STORE_ACTION_NAMES: Partial<Record<string, string>> = {
   resolveThread: "resolve the thread",
   replyAsSpecOwner: "send the message",
   requestChange: "send the message",
+  requestStageChange: "send the message",
 };
 
 /** A store action as a confirmation names it. */
@@ -37,7 +39,7 @@ export function storeActionName(name: string): string {
  * and hands it the host's agents events.
  */
 export class AgentsClient {
-  private view: DeskView = { agents: [], requests: [] };
+  private view: DeskView = { agents: [], requests: [], notes: [], findings: [], asks: [] };
   private readonly noticeListeners = new Set<(notice: AgentNotice) => void>();
   /** For a client that is a coding agent: the agent it is, and the name it asks for again on each new connection. */
   private agent: { agentId: AgentId | null; name: string | null } | null = null;
@@ -146,4 +148,7 @@ export class AgentsClient {
 
   /** Withdraw a waiting request no agent has. */
   withdrawRequest = (key: string): Promise<void> => this.request("withdrawRequest", key);
+
+  /** The run logs kept with a request, oldest first. */
+  readRunLogs = (key: string): Promise<RunLog[]> => this.request("readRunLogs", key);
 }

@@ -1,9 +1,9 @@
-import { Agent, type AgentTool, type StreamFn } from "@earendil-works/pi-agent-core";
-
+import { Agent, type AgentEvent, type AgentTool, type StreamFn } from "@earendil-works/pi-agent-core";
 
 import type { AgentDesk, AgentNotice } from "../desk";
 import { providerStream } from "./gateway";
 import { gatewayModel } from "./model";
+import { disclosedThinking } from "./thinking";
 import { replyRulesText } from "../interface/replyRules";
 import type { AgentToolDescription } from "../interface/tools";
 import { type AgentRequest, requestPrompt } from "../requests";
@@ -21,9 +21,11 @@ function systemPrompt(name: string): string {
 
 /**
  * Has each agent Requireganizer runs answer every request given to it,
- * with the AI provider and the model set for that agent. A request it is
- * stopped on is dropped at once; one its provider fails on goes back to no
- * agent, with why.
+ * with the AI provider and the model set for that agent, keeping with the
+ * request each call it makes through the agent interface and the reasoning
+ * its provider discloses. A run ends once the agent no longer has the
+ * request, whether it answered it or was stopped; one its provider fails on
+ * goes back to no agent, with why.
  */
 export class RunAgentWorker {
   private readonly running = new Map<string, Agent>();
@@ -38,17 +40,20 @@ export class RunAgentWorker {
   /** Start answering; returns how to stop. */
   start(): () => void {
     const stop = this.desk.subscribeNotices((agentId, notice) => this.heard(agentId, notice));
-    // A request whose agent is removed is no agent's: its run stops.
-    const stopWatchingAgents = this.desk.roster.subscribe(() => {
+    // A request no agent has any more, answered, or whose agent was removed, ends its run.
+    const endRuns = () => {
       for (const [key, agent] of this.running) {
         if (this.desk.holderOf(key) != null) continue;
         agent.abort();
         this.running.delete(key);
       }
-    });
+    };
+    const stopWatchingAgents = this.desk.roster.subscribe(endRuns);
+    const stopWatchingRequests = this.desk.subscribe(endRuns);
     return () => {
       stop();
       stopWatchingAgents();
+      stopWatchingRequests();
       for (const agent of this.running.values()) agent.abort();
       this.running.clear();
     };
@@ -77,14 +82,33 @@ export class RunAgentWorker {
         label: description.name,
         description: description.description,
         parameters: description.inputSchema as unknown as AgentTool["parameters"],
-        execute: async (_toolCallId, params) => ({
-          content: [{ type: "text", text: await this.access.call(agentId, description.name, params as Record<string, unknown>) }],
-          details: {},
-        }),
+        execute: async (_toolCallId, params) => {
+          const sent = params as Record<string, unknown>;
+          const log = (got: string, refused: boolean) =>
+            this.desk.logRun(request.key, agentId, { kind: "call", at: new Date().toISOString(), tool: description.name, sent, got, refused });
+          let got: string;
+          try {
+            got = await this.access.call(agentId, description.name, sent);
+          } catch (error) {
+            log(error instanceof Error ? error.message : String(error), true);
+            throw error;
+          }
+          log(got, false);
+          return { content: [{ type: "text", text: got }], details: {} };
+        },
       }));
       const agent = new Agent({
         initialState: { systemPrompt: systemPrompt(settings.name), model: gatewayModel(settings.model, settings.provider.baseUrl), tools },
         streamFn: this.streamFor(settings.provider.apiKey),
+      });
+      // The reasoning of each answer of the provider comes before the calls it makes.
+      agent.subscribe((event: AgentEvent) => {
+        if (event.type !== "message_end" || event.message.role !== "assistant") return;
+        for (const block of event.message.content) {
+          if (block.type !== "thinking") continue;
+          const text = disclosedThinking(block);
+          if (text.length > 0) this.desk.logRun(request.key, agentId, { kind: "reasoning", at: new Date().toISOString(), text });
+        }
       });
       this.running.set(request.key, agent);
       await agent.prompt(requestPrompt(request, summary));

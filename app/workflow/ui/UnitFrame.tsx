@@ -13,7 +13,7 @@ import { waitsForSpecOwner } from "../threads";
 import { NOT_APPROVED_REASON_LABELS, type NotApprovedReason } from "../units";
 import { useWorkflowView } from "./context";
 import { FRAME_PLACEHOLDER_HEIGHT, useFrameContentShown } from "./frameSchedule";
-import { Slot } from "./slots";
+import { Slot, useThreadsWithAgent } from "./slots";
 import { THREAD_BUTTON } from "./ThreadView";
 
 /** Who gave a signature and when, and whether it still counts. */
@@ -77,7 +77,8 @@ const UnitFrame = observer(function UnitFrame({
   const mark = preview?.of(unitId) ?? null;
   const threads = module.threadsOf(unitId);
   const open = threads.find(({ resolution }) => resolution == null);
-  const waitsForYou = open != null && waitsForSpecOwner(open);
+  const threadsWithAgent = useThreadsWithAgent();
+  const waitsForYou = open != null && waitsForSpecOwner(open, threadsWithAgent.has(open.id));
   const threadTitle = open == null ? "" : waitsForYou ? "Waits for you" : "Open thread";
   const threadLabel = threads.length > 0 ? "Thread" : "Request a change";
   return (
