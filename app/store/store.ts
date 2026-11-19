@@ -26,9 +26,11 @@ export const Store = workflowModuleModel(WORKFLOW)
 
 export type Store = Instance<typeof Store>;
 
-/** The one way a module's content, read by `parseProject`, becomes a live store. */
-export function createModuleStore(content: ModuleContent): Store {
-  return Store.create(content as unknown as SnapshotIn<typeof Store>);
+/** The one way a module's content, read by `parseProject`, becomes a live store; with `inPreview`, a store of an earlier state shown in a preview. */
+export function createModuleStore(content: ModuleContent, { inPreview = false }: { inPreview?: boolean } = {}): Store {
+  const store = Store.create(content as unknown as SnapshotIn<typeof Store>);
+  if (inPreview) store.markInPreview();
+  return store;
 }
 
 export const storeContext = createContext<Store>(null!);

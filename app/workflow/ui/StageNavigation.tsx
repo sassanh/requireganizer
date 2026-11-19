@@ -9,6 +9,7 @@ import type { StageProgress } from "../units";
 import { STAGE_PROGRESS_LABELS } from "../units";
 import { useWorkflowView } from "./context";
 import { useIdleSince } from "./frameSchedule";
+import { type SignatureState, stageSignatureState } from "./signatureState";
 import { useThreadsWithAgent } from "./slots";
 
 const PROGRESS_ICONS: Record<StageProgress, typeof CheckCircle> = {
@@ -17,10 +18,11 @@ const PROGRESS_ICONS: Record<StageProgress, typeof CheckCircle> = {
   complete: CheckCircle,
 };
 
-const PROGRESS_COLORS: Record<StageProgress, "disabled" | "warning" | "success"> = {
-  empty: "disabled",
-  "in-progress": "warning",
-  complete: "success",
+/** The colour a stage's progress icon shows its state in, as a unit's card edge does. */
+const STATE_ICON_COLORS: Record<SignatureState, "action" | "warning" | "success"> = {
+  approved: "success",
+  signable: "warning",
+  "not-signable": "action",
 };
 
 /** One stage to choose: its label and what a preview marks in it, then, once known, its state and its approvals. */
@@ -80,7 +82,7 @@ function StageButton({
         )}
         {summary != null && ProgressIcon != null && (
           <Tooltip title={STAGE_PROGRESS_LABELS[summary.progress]}>
-            <ProgressIcon fontSize="small" color={PROGRESS_COLORS[summary.progress]} />
+            <ProgressIcon fontSize="small" color={STATE_ICON_COLORS[stageSignatureState(summary)]} />
           </Tooltip>
         )}
       </Stack>
@@ -123,6 +125,7 @@ const StageNavigation = observer(function StageNavigation({
   const stateShown = useIdleSince(preview == null ? null : module);
   const summaries = stateShown ? workflow.stageIds.map((stage) => module.stageSummary(stage)) : null;
   const needsAttention = summaries?.filter(({ open, progress }) => open && progress !== "complete") ?? [];
+  const holdsSignable = summaries?.some((summary) => stageSignatureState(summary) === "signable") === true;
   return (
     <Stack sx={{ width: 280, flexShrink: 0, gap: 1, p: 1.5, overflowY: "auto" }}>
       {summaries != null && (
@@ -130,7 +133,7 @@ const StageNavigation = observer(function StageNavigation({
           direction="row"
           sx={{ alignItems: "center", gap: 1, p: 1, borderRadius: 1, bgcolor: module.isComplete ? "success.light" : "action.hover" }}
         >
-          {module.isComplete ? <CheckCircle color="success" /> : <Timelapse color="warning" />}
+          {module.isComplete ? <CheckCircle color="success" /> : <Timelapse color={holdsSignable ? "warning" : "action"} />}
           <Typography variant="subtitle2">{module.isComplete ? "Every stage is complete" : "Not every stage is complete"}</Typography>
         </Stack>
       )}

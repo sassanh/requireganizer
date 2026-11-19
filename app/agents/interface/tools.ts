@@ -670,7 +670,7 @@ const workflowStateTool: AgentTool = {
   description: {
     name: "get_workflow_state",
     description:
-      "Get a module's workflow state: the one the spec owner has open, or the one module names. It says whether every stage is complete, and for each stage whether it is open (every stage it builds on is complete, so it can be written, signed and discussed) or closed, its progress (empty, in progress, complete), how many of its items, coverages and impacts are approved out of how many, what in it waits for a signature, and its open threads. Its open threads include those on the stage itself. threadsWaitingForYou lists the change requests of the module you read that are given to you, each by its request id, its thread and what it asks: a change, or the writing or a review of the thread's stage. Items are named by the codes of codesVersion. Pass module to read another module's state.",
+      "Get a module's workflow state: the one the spec owner has open, or the one module names. It says whether every stage is complete, and for each stage whether it is open (every stage it builds on is complete, so it can be written, signed and discussed) or closed, its progress (empty, in progress, complete), how many of its items, coverages and impacts are approved out of how many, what in it is signable, and its open threads. Its open threads include those on the stage itself. threadsWaitingForYou lists the change requests of the module you read that are given to you, each by its request id, its thread and what it asks: a change, or the writing or a review of the thread's stage. Items are named by the codes of codesVersion. Pass module to read another module's state.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   inModule: true,
@@ -686,7 +686,7 @@ const workflowStateTool: AgentTool = {
         state: summary.open ? "open" : "closed",
         progress: STAGE_PROGRESS_LABELS[summary.progress],
         approved: `${summary.approved} of ${summary.total}`,
-        waitingForSignature: summary.waiting,
+        signable: summary.signable,
         openThreads: store.threadsOfStage(stage).filter(({ resolution }) => resolution == null).map((thread) => threadView(store, thread, statusOf(open, agent))),
       };
     });
@@ -922,7 +922,7 @@ const writeTool: AgentTool = {
         ? [`Replied to ${answers.length === 1 ? "one thread" : `${answers.length} threads`}, answering ${answers.length === 1 ? "its request" : "their requests"}; the spec owner reads the replies and resolves the threads.`]
         : []),
       ...(pointer == null ? [] : [pointOut(store, open, pointer, changes, outcome.added)]),
-      "The spec owner signs these in Requireganizer; get_workflow_state shows what waits for a signature.",
+      "The spec owner signs these in Requireganizer; get_workflow_state shows what is signable.",
     ];
     if (store.codesVersion !== versionBefore) lines.push(`Codes may have moved (codesVersion ${store.codesVersion}): read get_items again before naming items.`);
     return lines.join("\n");

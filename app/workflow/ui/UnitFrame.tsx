@@ -13,6 +13,7 @@ import { waitsForSpecOwner } from "../threads";
 import { NOT_APPROVED_REASON_LABELS, type NotApprovedReason } from "../units";
 import { useWorkflowView } from "./context";
 import { FRAME_PLACEHOLDER_HEIGHT, useFrameContentShown } from "./frameSchedule";
+import { SIGNATURE_STATE_CHIP_VARIANT, SIGNATURE_STATE_EDGE, SIGNATURE_STATE_PALETTE, signatureStateOf } from "./signatureState";
 import { Slot, useThreadsWithAgent } from "./slots";
 import { THREAD_BUTTON } from "./ThreadView";
 
@@ -34,11 +35,15 @@ export function SignatureLine({ signature, counts, what = "Signed" }: { signatur
  * it is not approved, its signature, and the sign and thread actions,
  * reachable from the keyboard while the frame has focus. The thread opens
  * outside the frame, so new messages never change the frame's height.
- * A reason with a note shows it on hover and on keyboard focus. In a
- * preview, the frame says what bringing its state back would do to the
- * unit, and offers no signing. In a stage of many units the frame is there
- * from the start, to focus and to scroll to, and shows its content when the
- * stage's schedule says so.
+ * A reason with a note shows it on hover and on keyboard focus. The frame's
+ * left edge is green once it is approved, orange while it is signable, and a
+ * neutral grey while it is neither, such as in a closed stage, in a preview,
+ * or while it waits on something else. A reason a signature would settle
+ * shows orange; every other reason stays neutral. In a preview, the frame
+ * says what bringing its state back would do to the unit, and offers no
+ * signing. In a stage of many units the frame is there from the start, to
+ * focus and to scroll to, and shows its content when the stage's schedule
+ * says so.
  */
 const UnitFrame = observer(function UnitFrame({
   unitId,
@@ -47,7 +52,6 @@ const UnitFrame = observer(function UnitFrame({
   approved,
   reasons,
   reasonNotes = {},
-  signable,
   signLabel = "Sign",
   stageOpen,
   onOpenThread,
@@ -62,7 +66,6 @@ const UnitFrame = observer(function UnitFrame({
   approved: boolean;
   reasons: readonly NotApprovedReason[];
   reasonNotes?: Partial<Record<NotApprovedReason, ReactNode>>;
-  signable: boolean;
   signLabel?: string;
   stageOpen: boolean;
   /** Opens the unit's threads beside the given element. */
@@ -75,10 +78,17 @@ const UnitFrame = observer(function UnitFrame({
   const frame = useRef<HTMLDivElement>(null);
   const contentShown = useFrameContentShown(unitId, frame);
   const mark = preview?.of(unitId) ?? null;
+  const signable = module.signable(unitId);
+  const state = signatureStateOf(approved, signable);
+  /** The reasons a signature would settle, so their chips show orange while the others stay neutral. */
+  const settles = new Set(signable ? module.signatureSettles(unitId) : []);
   const threads = module.threadsOf(unitId);
   const open = threads.find(({ resolution }) => resolution == null);
   const threadsWithAgent = useThreadsWithAgent();
   const waitsForYou = open != null && waitsForSpecOwner(open, threadsWithAgent.has(open.id));
+  /** The thread button is orange while the open thread waits for you, neutral while it waits on an agent, and a normal action once no thread is open. */
+  const threadVariant = open == null ? "text" : waitsForYou ? "contained" : "outlined";
+  const threadColor = open == null ? "primary" : waitsForYou ? "warning" : "inherit";
   const threadTitle = open == null ? "" : waitsForYou ? "Waits for you" : "Open thread";
   const threadLabel = threads.length > 0 ? "Thread" : "Request a change";
   return (
@@ -90,7 +100,7 @@ const UnitFrame = observer(function UnitFrame({
       sx={{
         p: 1.5,
         borderLeft: 4,
-        borderLeftColor: approved ? "success.main" : "warning.main",
+        borderLeftColor: SIGNATURE_STATE_EDGE[state],
         outline: "none",
         "&:focus-visible, &:focus-within": { boxShadow: (theme) => `0 0 0 2px ${theme.vars.palette.primary.main}` },
         minHeight: contentShown ? undefined : FRAME_PLACEHOLDER_HEIGHT,
@@ -121,7 +131,8 @@ const UnitFrame = observer(function UnitFrame({
           <Chip size="small" color="success" icon={<Check />} label="Approved" />
         ) : (
           reasons.map((reason) => {
-            const chip = <Chip key={reason} size="small" variant="outlined" color="warning" label={NOT_APPROVED_REASON_LABELS[reason]} tabIndex={reasonNotes[reason] == null ? undefined : 0} />;
+            const reasonState = settles.has(reason) ? "signable" : "not-signable";
+            const chip = <Chip key={reason} size="small" variant={SIGNATURE_STATE_CHIP_VARIANT[reasonState]} color={SIGNATURE_STATE_PALETTE[reasonState]} label={NOT_APPROVED_REASON_LABELS[reason]} tabIndex={reasonNotes[reason] == null ? undefined : 0} />;
             return reasonNotes[reason] == null ? chip : <Tooltip key={reason} title={reasonNotes[reason]} describeChild>{chip}</Tooltip>;
           })
         )}
@@ -137,7 +148,8 @@ const UnitFrame = observer(function UnitFrame({
             <Button
               {...{ [THREAD_BUTTON]: true }}
               size="small"
-              color={waitsForYou ? "warning" : "primary"}
+              variant={threadVariant}
+              color={threadColor}
               startIcon={<Comment />}
               onClick={(event) => onOpenThread(event.currentTarget.closest<HTMLElement>("[data-unit-actions]") ?? event.currentTarget)}
             >
@@ -145,7 +157,7 @@ const UnitFrame = observer(function UnitFrame({
             </Button>
           </ActionTooltip>
         )}
-        {signable && preview == null && (
+        {signable && (
           <ActionTooltip name={signLabel} shortcut={signShortcut}>
             <Button size="small" variant="contained" startIcon={<Check />} onClick={onSign}>
               {signLabel}

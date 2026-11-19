@@ -656,7 +656,7 @@ export class ProjectClient {
     const openable = state.modules.filter((module) => module.archivedAt == null);
     const shown = openable.find((module) => module.id === moduleId) ?? openable[0]!;
     const registry: ModuleRegistry = { ...state, activeModuleId: shown.id };
-    const store = createModuleStore(shown.content);
+    const store = createModuleStore(shown.content, { inPreview: true });
     addMiddleware(
       store,
       (call, next, abort) => {
@@ -665,7 +665,7 @@ export class ProjectClient {
       },
       false,
     );
-    const siblingStores = this.preview?.siblingStores ?? new SiblingModuleStores();
+    const siblingStores = this.preview?.siblingStores ?? new SiblingModuleStores({ inPreview: true });
     this.local(() => siblingStores.applyModuleContext(store, registry));
     const kept = this.preview;
     this.preview = { target, difference, state, registry, store, siblingStores };

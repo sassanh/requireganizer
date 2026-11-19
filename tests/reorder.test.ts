@@ -13,7 +13,7 @@ function itemOf(store: Store, stage: string, code: string): string {
 function signAll(store: Store, stage: string): void {
   for (let round = 0; round < 5; round += 1) {
     for (const unit of store.stageUnits(stage)) {
-      if (store.isSignable(unit.unitId)) store.sign(unit.unitId, store.signingCovers(unit.unitId)!);
+      if (store.signable(unit.unitId)) store.sign(unit.unitId, store.signingCovers(unit.unitId)!);
     }
   }
 }

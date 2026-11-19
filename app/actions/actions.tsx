@@ -37,7 +37,7 @@ export const stepsShortcut: ShortcutSpec = { key: "h" };
 /** Open the list of restore points. */
 export const restorePointsShortcut: ShortcutSpec = { key: "r" };
 
-/** Sign the focused unit; with Shift, focus then moves to the next one waiting for a signature. */
+/** Sign the focused unit; with Shift, focus then moves to the next signable one. */
 export const signShortcut: ShortcutSpec = { key: "s" };
 
 /** Open the focused unit's threads, to request a change or reply. */

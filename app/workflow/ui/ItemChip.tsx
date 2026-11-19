@@ -7,6 +7,7 @@ import { createContext, type FocusEvent, type MouseEvent, type ReactNode, useCon
 import type { NamedItem, OutOfDateCause } from "../module";
 import { LINK_REASON_LABELS, type LinkReason, REMOVED_ITEM } from "../units";
 import { placeOf, useOpenUnit, useWorkflowView } from "./context";
+import { SIGNATURE_STATE_CHIP_VARIANT, SIGNATURE_STATE_PALETTE, signatureStateOf } from "./signatureState";
 import VersionDiff from "./VersionDiff";
 import WrittenText from "./WrittenText";
 
@@ -31,7 +32,7 @@ export function useItemLabel(): (id: string, options?: { detail?: string; reason
   };
 }
 
-/** A named item at a glance: its code, kind, how it changed when that is known, its text, stage and whether it is approved. */
+/** A named item at a glance: its code, kind, how it changed when that is known, its text, stage, and whether it is approved or signable. */
 function ItemPreview({ item, change }: { item: NamedItem; change: OutOfDateCause["change"] }) {
   const { workflow } = useWorkflowView();
   return (
@@ -43,7 +44,7 @@ function ItemPreview({ item, change }: { item: NamedItem; change: OutOfDateCause
       {change != null && <VersionDiff kind={item.kind} signed={change.from} current={change.to} caption="Since the version referenced here" />}
       <WrittenText text={item.text} />
       <Typography variant="caption">
-        {workflow.stage(item.stage).label} · {item.approved ? "Approved" : item.phase === "removed" ? "Removed" : "Not approved"}
+        {workflow.stage(item.stage).label} · {item.approved ? "Approved" : item.phase === "removed" ? "Removed" : item.signable ? "Signable" : "Not approved"}
       </Typography>
     </Stack>
   );
@@ -150,9 +151,11 @@ function usePreview(content: () => ReactNode) {
  * Every place the page names an item shows it as this chip: hovering or
  * focusing it previews the item, in the page's one item preview, which lets
  * the pointer through to the chips beneath it, and clicking it or pressing
- * Enter on it opens the item in its stage and module. With `reasons`, the item makes
- * the item naming it out of date, and the chip says why in the warning
- * colour; with `change`, the preview shows how the item changed.
+ * Enter on it opens the item in its stage and module. Its colour shows the
+ * item's own state: green once it is approved, orange while it is signable,
+ * and the normal grey otherwise. With `reasons`, the label says why the item
+ * makes the item naming it out of date; with `change`, the preview shows how
+ * the item changed.
  */
 const ItemChip = observer(function ItemChip({
   itemId,
@@ -174,8 +177,8 @@ const ItemChip = observer(function ItemChip({
   const openUnit = useOpenUnit();
   const label = useItemLabel();
   const named = module.namedItem(itemId);
-  const cause = reasons.length > 0;
-  const look = { size: "small", variant: cause ? "filled" : "outlined", color: cause ? "warning" : "default" } as const;
+  const state = signatureStateOf(named?.approved === true, named?.signable === true);
+  const look = { size: "small", variant: SIGNATURE_STATE_CHIP_VARIANT[state], color: SIGNATURE_STATE_PALETTE[state] } as const;
   const removedText = named == null ? module.removedItemText(itemId) : null;
   const preview = usePreview(() => (named == null ? <WrittenText text={removedText ?? ""} /> : <ItemPreview item={named} change={change} />));
   if (named == null) {

@@ -13,7 +13,7 @@ function itemOf(store: Store, stage: string, code: string): string {
 function signAll(store: Store, stage: string): void {
   for (let round = 0; round < 5; round += 1) {
     for (const unit of store.stageUnits(stage)) {
-      if (store.isSignable(unit.unitId)) store.sign(unit.unitId, store.signingCovers(unit.unitId)!);
+      if (store.signable(unit.unitId)) store.sign(unit.unitId, store.signingCovers(unit.unitId)!);
     }
   }
 }
@@ -60,6 +60,21 @@ describe("workflow engine", () => {
     assert.equal(store.textOf(feature), "Order: Stages in order.");
   });
 
+  it("names the reasons a signature settles, and none while the stage is closed", () => {
+    const store = Store.create({});
+    specified(store);
+    const capability = itemOf(store, "capabilities", "CAP-01");
+    const feature = itemOf(store, "features-and-target-users", "FEA-01");
+    store.writeItems([{ type: "change", item: capability, content: { description: "Stages in a row." } }]);
+    // The feature's stage waits for Capabilities, so the feature is not signable yet.
+    assert.equal(store.signable(feature), false);
+    assert.deepEqual(store.signatureSettles(feature), []);
+    signAll(store, "capabilities");
+    // Once the stage opens, the new basis of the capability is what a signature settles.
+    assert.equal(store.signable(feature), true);
+    assert.deepEqual(store.signatureSettles(feature), ["out-of-date"]);
+  });
+
   it("names an item of this module or another, and tells listed links from counted ones", () => {
     const store = Store.create({});
     const other = Store.create({});
@@ -80,6 +95,7 @@ describe("workflow engine", () => {
       stage: "capabilities",
       phase: "active",
       approved: true,
+      signable: false,
     });
     assert.deepEqual(store.namedItem(elsewhere), {
       id: elsewhere,
@@ -91,6 +107,7 @@ describe("workflow engine", () => {
       stage: "module-overview",
       phase: "active",
       approved: false,
+      signable: true,
     });
     assert.equal(store.namedItem("gone"), null);
 

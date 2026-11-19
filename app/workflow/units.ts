@@ -32,14 +32,14 @@ export function parseUnitId(unitId: string): UnitAddress {
 /**
  * Where signing a unit moves the focus: from `from`, among the units its
  * stage showed before the signature, in `shownBefore`, to the next one,
- * wrapping around, that is not approved, or with `toWaiting` that waits for
- * a signature. The page sends it with the signature, so the step records
- * the move with the change.
+ * wrapping around, that is not approved, or with `toSignable` that is
+ * signable. The page sends it with the signature, so the step records the
+ * move with the change.
  */
 export interface SignatureFocusMove {
   from: string;
   shownBefore: string[];
-  toWaiting: boolean;
+  toSignable: boolean;
 }
 
 /**
@@ -84,10 +84,10 @@ export const LINK_REASON_LABELS: Record<LinkReason, string> = {
 /** Where an item stands in its life: kept, proposed for removal, or removed while impacts on its removal wait. */
 export type ItemPhase = "active" | "proposed-removal" | "removed";
 
-/** What in a stage waits for a signature, each item counted once. */
-export type WaitingCategory = "new" | "changed" | "out-of-date" | "proposed-removal";
+/** What a signable item would be signed as, each item counted once. */
+export type SignableCategory = "new" | "changed" | "out-of-date" | "proposed-removal";
 
-export const WAITING_CATEGORY_LABELS: Record<WaitingCategory, string> = {
+export const SIGNABLE_CATEGORY_LABELS: Record<SignableCategory, string> = {
   new: "new",
   changed: "changed",
   "out-of-date": "out of date",

@@ -31,6 +31,9 @@ interface CacheEntry {
 export class SiblingModuleStores {
   private readonly cache = new Map<string, CacheEntry>();
 
+  /** With `inPreview`, the stores are of an earlier state shown in a preview. */
+  constructor(private readonly options: { inPreview?: boolean } = {}) {}
+
   private storeFor(entry: ModuleState): Store | null {
     const hit = this.cache.get(entry.id);
     if (hit?.content === entry.content) return hit.store;
@@ -41,7 +44,7 @@ export class SiblingModuleStores {
     }
     let created: Store;
     try {
-      created = createModuleStore(entry.content);
+      created = createModuleStore(entry.content, this.options);
     } catch (error) {
       console.error(`Module “${entry.name}” could not be read.`, error);
       return null;

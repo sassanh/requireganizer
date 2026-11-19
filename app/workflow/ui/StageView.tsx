@@ -35,11 +35,12 @@ import { type FieldDefinition, itemsFields, referenceRuleCondition } from "../de
 import type { CoverageState, ImpactState, ItemState, OutOfDateCause, UnitState, WorkflowModule } from "../module";
 import { revisionOf, textValue, type ItemVersion } from "../records";
 import { authorLabel, mentionMarkup, type Thread, waitsForSpecOwner } from "../threads";
-import { STAGE_PROGRESS_LABELS, threadPlace, unitInPlaceOf, WAITING_CATEGORY_LABELS } from "../units";
+import { SIGNABLE_CATEGORY_LABELS, STAGE_PROGRESS_LABELS, threadPlace, unitInPlaceOf } from "../units";
 import { perform, type RemovedUnitMark, type RevealRequest, shownWithRemoved, type ThreadMark, useWorkflowNavigation, useWorkflowView } from "./context";
 import { FrameSchedule, FrameScheduleProvider } from "./frameSchedule";
 import ItemChip, { ItemOption, useItemLabel } from "./ItemChip";
 import ItemEditor, { type EditorTarget } from "./ItemEditor";
+import { SIGNATURE_STATE_PALETTE, signatureStateOf, stageSignatureState } from "./signatureState";
 import { Slot, useThreadsWithAgent } from "./slots";
 import ThreadView, { placeLabel, THREAD_BUTTON, threadsAt, useThreadForm } from "./ThreadView";
 import UnitFrame, { SignatureLine } from "./UnitFrame";
@@ -134,6 +135,8 @@ function CauseLines({ causes }: { causes: readonly OutOfDateCause[] }) {
 
 const ItemCard = observer(function ItemCard({ state, controls }: { state: ItemState; controls: CardControls }) {
   const { module, workflow, preview } = useWorkflowView();
+  const signable = module.signable(state.unitId);
+  const cardState = signatureStateOf(state.approved, signable);
   const mark = preview?.of(state.unitId) ?? null;
   const definition = workflow.kind(state.itemKind);
   // What the item causes for other units shows only outside a preview, which shows what an earlier state holds.
@@ -157,7 +160,6 @@ const ItemCard = observer(function ItemCard({ state, controls }: { state: ItemSt
       approved={state.approved}
       reasons={removed ? [] : state.reasons}
       reasonNotes={state.outOfDateCauses.length === 0 ? {} : { "out-of-date": <CauseLines causes={state.outOfDateCauses} /> }}
-      signable={module.isSignable(state.unitId)}
       signLabel={state.phase === "proposed-removal" ? "Sign removal" : state.outOfDate && state.signatureCounts ? "Sign as it is" : "Sign"}
       stageOpen={controls.stageOpen}
       onOpenThread={(anchor) => controls.openThread(state.unitId, anchor)}
@@ -188,7 +190,15 @@ const ItemCard = observer(function ItemCard({ state, controls }: { state: ItemSt
         )
       }
     >
-      {state.phase === "proposed-removal" && <Alert severity="warning" sx={{ mb: 1 }}>Proposed for removal: signing removes it.</Alert>}
+      {state.phase === "proposed-removal" && (
+        <Alert
+          severity={signable ? "warning" : "info"}
+          icon={signable ? undefined : false}
+          sx={signable ? { mb: 1 } : { mb: 1, bgcolor: "action.hover", color: "text.secondary" }}
+        >
+          Proposed for removal: signing removes it.
+        </Alert>
+      )}
       {removed && (
         <Alert severity="info" sx={{ mb: 1 }}>
           Removed. It leaves the stage once every impact on its removal is signed
@@ -215,7 +225,7 @@ const ItemCard = observer(function ItemCard({ state, controls }: { state: ItemSt
       )}
       <Box sx={{ mt: 1 }}>
         {signed == null ? (
-          <Chip size="small" color="info" label="New: never signed" />
+          <Chip size="small" color={SIGNATURE_STATE_PALETTE[cardState]} label="New: never signed" />
         ) : (
           <>
             <SignatureLine signature={state.signature} counts={state.signatureCounts} />
@@ -270,7 +280,6 @@ const CoverageCard = observer(function CoverageCard({ state, controls }: { state
       }
       approved={state.approved}
       reasons={state.reasons}
-      signable={module.isSignable(state.unitId)}
       signLabel="Sign: fully covered"
       stageOpen={controls.stageOpen}
       onOpenThread={(anchor) => controls.openThread(state.unitId, anchor)}
@@ -325,7 +334,6 @@ const ImpactCard = observer(function ImpactCard({ state, controls }: { state: Im
       }
       approved={state.approved}
       reasons={state.reasons}
-      signable={module.isSignable(state.unitId)}
       signLabel="Sign: nothing relies on it unreferenced"
       stageOpen={controls.stageOpen}
       onOpenThread={(anchor) => controls.openThread(state.unitId, anchor)}
@@ -591,7 +599,7 @@ const ThreadCard = observer(function ThreadCard({ stage, place, marks, onOpen }:
         <Chip
           size="small"
           variant={waits ? "filled" : "outlined"}
-          color={waits ? "warning" : shown.resolution == null ? "primary" : "default"}
+          color={waits ? "warning" : "default"}
           label={shown.resolution != null ? "Resolved" : waits ? "Waits for you" : "Open"}
         />
         {shown.unitId != null && (
@@ -630,18 +638,18 @@ function tabOf(unit: { kind: UnitState["kind"]; itemKind?: string | null }): str
 }
 
 /**
- * One stage: its state, progress and what waits for a signature, then its
+ * One stage: its state, progress and what in it is signable, then its
  * tab bar. The kinds' tabs come first; to their right, apart from them, a
  * tab holds the stage's coverages, one its impacts and one its threads on
  * removed units, each while the stage has any. A kind's tab shows that
  * kind's items, its add button and its published rules; a whole-stage tab
  * shows what no one kind holds. j and k move between the units shown,
- * Shift+J and Shift+K between those that wait for a signature, whatever tab
- * they are in, g and Shift+G to the first and last, s signs the focused one
- * (Shift+S then moves to the next unit that waits for a signature) and c
- * opens its threads, where a change request is written. An open thread shows
- * beside its card, docked at the right, where it follows the focused card,
- * or full screen on a narrow screen.
+ * Shift+J and Shift+K between the signable ones, whatever tab they are in,
+ * g and Shift+G to the first and last, s signs the focused one (Shift+S then
+ * moves to the next signable unit) and c opens its threads, where a change
+ * request is written. An open thread shows beside its card, docked at the
+ * right, where it follows the focused card, or full screen on a narrow
+ * screen.
  */
 const StageView = observer(function StageView({ stage }: { stage: string }) {
   const { module, workflow, preview } = useWorkflowView();
@@ -812,12 +820,13 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
 
   const { focused, withFocusMove } = useWorkflowNavigation();
 
-  /** Sign a unit, then move to the next unit that is not approved, or with `toWaiting` the next that waits for a signature. */
-  const sign = async (unitId: string, toWaiting = false) => {
+  /** Sign a signable unit, then move to the next unit that is not approved, or with `toSignable` the next that is signable. */
+  const sign = async (unitId: string, toSignable = false) => {
+    if (!module.signable(unitId)) return;
     const actionsAt = actionsTopOf(unitId);
     // The order the person saw, across the stage's tabs: a signature can move its own unit, such as a removed item to the end of its kind's tab.
     // The move goes with the signature: the project works out once where it moves the focus, the step records that for redo, and the page goes there.
-    const focusMove = { from: unitId, shownBefore: orderedUnits().map(({ unitId: id }) => id), toWaiting };
+    const focusMove = { from: unitId, shownBefore: orderedUnits().map(({ unitId: id }) => id), toSignable };
     let next: string | null = null;
     const signed = await perform(async () => {
       next = await withFocusMove(focusMove, () => module.sign(unitId, module.signingCovers(unitId) ?? ""));
@@ -837,12 +846,12 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
     reveal(next);
   };
 
-  /** Move to the next or previous unit that waits for a signature, across the stage's tabs and wrapping around. */
-  const moveToWaiting = (direction: 1 | -1) => {
+  /** Move to the next or previous signable unit, across the stage's tabs and wrapping around. */
+  const moveToSignable = (direction: 1 | -1) => {
     const all = orderedUnits();
     const index = all.findIndex(({ unitId }) => unitId === focusedUnit());
     const ordered = direction === 1 ? [...all.slice(index + 1), ...all.slice(0, index + 1)] : [...all.slice(0, Math.max(index, 0)).reverse(), ...all.slice(Math.max(index, 0)).reverse()];
-    const next = ordered.find((unit) => module.waitsForSignature(unit));
+    const next = ordered.find((unit) => module.signable(unit.unitId));
     if (next != null) showUnit(next.unitId);
   };
 
@@ -898,11 +907,11 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
       }
       case "J":
         event.preventDefault();
-        moveToWaiting(1);
+        moveToSignable(1);
         return;
       case "K":
         event.preventDefault();
-        moveToWaiting(-1);
+        moveToSignable(-1);
         return;
       case "j":
       case "ArrowDown":
@@ -916,7 +925,7 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
         return;
       case signShortcut.key:
       case signShortcut.key.toUpperCase():
-        if (unit != null && preview == null && module.isSignable(unit)) {
+        if (unit != null && module.signable(unit)) {
           event.preventDefault();
           void sign(unit, event.shiftKey);
         }
@@ -1046,13 +1055,13 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
     }),
     [stage, module, stageOpen],
   );
-  const waitingParts = (Object.entries(WAITING_CATEGORY_LABELS) as [keyof typeof WAITING_CATEGORY_LABELS, string][])
-    .filter(([category]) => summary.waiting[category] > 0)
-    .map(([category, label]) => `${summary.waiting[category]} ${label}`);
-  if (summary.waiting.coverages > 0) waitingParts.push(`${summary.waiting.coverages} ${summary.waiting.coverages === 1 ? "coverage" : "coverages"}`);
-  if (summary.waiting.impacts > 0) waitingParts.push(`${summary.waiting.impacts} ${summary.waiting.impacts === 1 ? "impact" : "impacts"}`);
+  const signableParts = (Object.entries(SIGNABLE_CATEGORY_LABELS) as [keyof typeof SIGNABLE_CATEGORY_LABELS, string][])
+    .filter(([category]) => summary.signable[category] > 0)
+    .map(([category, label]) => `${summary.signable[category]} ${label}`);
+  if (summary.signable.coverages > 0) signableParts.push(`${summary.signable.coverages} ${summary.signable.coverages === 1 ? "coverage" : "coverages"}`);
+  if (summary.signable.impacts > 0) signableParts.push(`${summary.signable.impacts} ${summary.signable.impacts === 1 ? "impact" : "impacts"}`);
   const items = units.filter((unit): unit is ItemState => unit.kind === "item");
-  const waitingShown = orderedUnits().some((unit) => module.waitsForSignature(unit));
+  const signableShown = signableParts.length > 0;
   const progressBar = (
     <Stack direction="row" sx={{ alignItems: "center", gap: 1, flexGrow: 1 }}>
       <LinearProgress
@@ -1064,11 +1073,11 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
       <Typography variant="subtitle2" sx={{ whiteSpace: "nowrap" }}>
         {summary.approved} of {summary.total} approved
       </Typography>
-      <Tooltip title="Previous unit waiting for a signature (Shift+K)">
-        <span><IconButton size="small" aria-label="Previous unit waiting for a signature" disabled={!waitingShown} onClick={() => moveToWaiting(-1)}><KeyboardArrowUp fontSize="small" /></IconButton></span>
+      <Tooltip title="Previous signable unit (Shift+K)">
+        <span><IconButton size="small" aria-label="Previous signable unit" disabled={!signableShown} onClick={() => moveToSignable(-1)}><KeyboardArrowUp fontSize="small" /></IconButton></span>
       </Tooltip>
-      <Tooltip title="Next unit waiting for a signature (Shift+J)">
-        <span><IconButton size="small" aria-label="Next unit waiting for a signature" disabled={!waitingShown} onClick={() => moveToWaiting(1)}><KeyboardArrowDown fontSize="small" /></IconButton></span>
+      <Tooltip title="Next signable unit (Shift+J)">
+        <span><IconButton size="small" aria-label="Next signable unit" disabled={!signableShown} onClick={() => moveToSignable(1)}><KeyboardArrowDown fontSize="small" /></IconButton></span>
       </Tooltip>
     </Stack>
   );
@@ -1079,17 +1088,20 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
       {definition.kinds.length > 1 ? `Rules of ${workflow.kind(kindForRules).plural.toLowerCase()}` : "Rules"}
     </Button>
   );
+  /** The tabs holding a signable unit. */
+  const tabsHoldingSignable = new Set(allUnits.filter((unit) => module.signable(unit.unitId)).map((unit) => tabOf(unit)));
   /**
    * Each tab's label, with a badge counting what keeps the stage from
    * completing: the tab's units not approved, or its threads waiting for the
-   * spec owner. Only a count worth showing gets a badge; MUI hides a zero
-   * badge through a transform of its own, which the badge's placement below
-   * would override.
+   * spec owner. The badge is orange when the tab holds something signable or
+   * a thread waiting for the spec owner, and neutral otherwise. Only a count
+   * worth showing gets a badge; MUI hides a zero badge through a transform of
+   * its own, which the badge's placement below would override.
    */
-  const tabLabel = (label: string, count: number, counting: string) =>
+  const tabLabel = (label: string, count: number, counting: string, marked: boolean) =>
     count > 0 ? (
       <Badge
-        color="warning"
+        color={marked ? "warning" : "default"}
         badgeContent={count}
         aria-label={`${label}, ${count} ${counting}`}
         sx={{ pr: 2, "& .MuiBadge-badge": { right: 0, top: "50%", transform: "translateY(-50%)" } }}
@@ -1122,12 +1134,12 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
             <Typography variant={compact ? "subtitle1" : "h5"} sx={{ flexGrow: compact ? 0 : 1 }}>{definition.label}</Typography>
             {compact && progressBar}
             <Chip size={compact ? "small" : "medium"} label={summary.open ? "Open" : "Closed"} color={summary.open ? "primary" : "default"} variant="outlined" />
-            <Chip size={compact ? "small" : "medium"} label={STAGE_PROGRESS_LABELS[summary.progress]} color={summary.progress === "complete" ? "success" : summary.progress === "empty" ? "default" : "warning"} />
+            <Chip size={compact ? "small" : "medium"} label={STAGE_PROGRESS_LABELS[summary.progress]} color={SIGNATURE_STATE_PALETTE[stageSignatureState(summary)]} />
             {!tabbed && rulesButton}
           </Stack>
           {!compact && progressBar}
           <Typography variant="body2" color="text.secondary">
-            {waitingParts.length === 0 ? "Nothing waits for a signature." : `Waiting for a signature: ${waitingParts.join(", ")}.`}
+            {signableParts.length === 0 ? "Nothing is signable." : `Signable: ${signableParts.join(", ")}.`}
             {threadsWaiting > 0 ? ` ${threadsWaiting} ${threadsWaiting === 1 ? "thread waits" : "threads wait"} for you.` : ""}
           </Typography>
           {openStageThreads > 0 && !compact && (
@@ -1158,7 +1170,7 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
                   <Tab
                     key={kind.kind}
                     value={kind.kind}
-                    label={tabLabel(kind.plural, notApprovedIn(kind.kind), "not approved")}
+                    label={tabLabel(kind.plural, notApprovedIn(kind.kind), "not approved", tabsHoldingSignable.has(kind.kind))}
                     sx={{ minHeight: 40, textTransform: "none" }}
                   />
                 ))}
@@ -1176,15 +1188,15 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
                     sx={{ flexShrink: 1, minWidth: 0, minHeight: 40 }}
                   >
                     {wholeTabs.includes(COVERAGES_TAB) && (
-                      <Tab value={COVERAGES_TAB} label={tabLabel("Coverages", notApprovedIn(COVERAGES_TAB), "not approved")} sx={{ minHeight: 40, textTransform: "none" }} />
+                      <Tab value={COVERAGES_TAB} label={tabLabel("Coverages", notApprovedIn(COVERAGES_TAB), "not approved", tabsHoldingSignable.has(COVERAGES_TAB))} sx={{ minHeight: 40, textTransform: "none" }} />
                     )}
                     {wholeTabs.includes(IMPACTS_TAB) && (
-                      <Tab value={IMPACTS_TAB} label={tabLabel("Impacts", notApprovedIn(IMPACTS_TAB), "not approved")} sx={{ minHeight: 40, textTransform: "none" }} />
+                      <Tab value={IMPACTS_TAB} label={tabLabel("Impacts", notApprovedIn(IMPACTS_TAB), "not approved", tabsHoldingSignable.has(IMPACTS_TAB))} sx={{ minHeight: 40, textTransform: "none" }} />
                     )}
                     {wholeTabs.includes(THREADS_TAB) && (
                       <Tab
                         value={THREADS_TAB}
-                        label={tabLabel("Threads", waitingForYou(tabThreads), "waiting for you")}
+                        label={tabLabel("Threads", waitingForYou(tabThreads), "waiting for you", true)}
                         sx={{ minHeight: 40, textTransform: "none" }}
                       />
                     )}
@@ -1256,7 +1268,7 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
         </Stack>
         </FrameScheduleProvider>
         <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 3 }}>
-          Keyboard: j or ↓ next, k or ↑ previous, Shift+J or Shift+K next or previous waiting for a signature, g first, Shift+G last, s sign, Shift+S sign and go to the next waiting for a signature, c open the thread or request a change, Shift+C request a change on the stage, Esc close it.
+          Keyboard: j or ↓ next, k or ↑ previous, Shift+J or Shift+K next or previous signable, g first, Shift+G last, s sign, Shift+S sign and go to the next signable, c open the thread or request a change, Shift+C request a change on the stage, Esc close it.
         </Typography>
         <RulesDialog stage={stage} kind={kindForRules} open={rulesOpen} onClose={() => setRulesOpen(false)} />
       </Box>

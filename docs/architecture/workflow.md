@@ -34,7 +34,9 @@ A stage is open while every stage it builds on, directly or through other stages
 
 A signature covers the exact version it was given for: an item's content, references and dependencies; a coverage's item and the items referencing it; an impact's item version or its removal. It records who gave it. An item, coverage or impact is approved while a signature on it counts, no thread on it is open, and, for an item, it is neither out of date nor proposed for removal.
 
-Removing a signed item proposes its removal, which waits for a signature; an item never signed is removed at once. An item changed since its last signature, or proposed for removal, can be returned to the signed version.
+An item, a proposed removal, a coverage or an impact is signable while its stage is open, no preview is shown, and a signature would record something new: no signature on it counts or, for an item, it rests on an older version of an item it references or depends on. A signature is offered only on what is signable.
+
+Removing a signed item proposes its removal, which is signable; an item never signed is removed at once. An item changed since its last signature, or proposed for removal, can be returned to the signed version.
 
 ## Out of date
 

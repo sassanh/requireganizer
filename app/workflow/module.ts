@@ -48,9 +48,9 @@ import {
   type LinkReason,
   type NotApprovedReason,
   parseUnitId,
+  type SignableCategory,
   type SignatureFocusMove,
   type StageProgress,
-  type WaitingCategory,
 } from "./units";
 
 export const ItemModel = types.model("Item", {
@@ -88,6 +88,8 @@ export type Stage = Instance<typeof StageModel>;
 export interface ModuleLookup {
   locateItem(id: string): { version: ItemVersion; kind: string; stage: string; phase: ItemPhase } | null;
   itemStanding(id: string): { approved: boolean; outOfDate: boolean } | null;
+  /** Whether that module's item is signable. */
+  signable(id: string): boolean;
   codeOf(id: string): string | null;
   /** An item's text as it is now, after its kind's prefix, or nothing for an item it does not hold. */
   textOf(id: string): string;
@@ -121,6 +123,8 @@ export interface NamedItem {
   stage: string;
   phase: ItemPhase;
   approved: boolean;
+  /** Whether it is signable, on its own stage in its own module. */
+  signable: boolean;
 }
 
 /** How the page and the agent interface name an item: its code, or "Module/CODE" for an item of another module than the one read. */
@@ -169,8 +173,8 @@ export interface ItemState extends UnitStateBase {
   currentBasis: Record<string, string>;
   outOfDateCauses: OutOfDateCause[];
   outOfDate: boolean;
-  /** What it waits for a signature as, or null when it does not wait for one. */
-  waiting: WaitingCategory | null;
+  /** What a signature now would record it as, or null when it would record nothing new. */
+  signsAs: SignableCategory | null;
 }
 
 export interface CoverageState extends UnitStateBase {
@@ -200,7 +204,8 @@ export interface StageSummary {
   progress: StageProgress;
   approved: number;
   total: number;
-  waiting: Record<WaitingCategory, number> & { coverages: number; impacts: number };
+  /** What in it is signable, each item counted once. */
+  signable: Record<SignableCategory, number> & { coverages: number; impacts: number };
 }
 
 /** One change a writer makes to the spec: an item added, changed or removed. */
@@ -338,6 +343,8 @@ export function workflowModuleModel(workflow: Workflow) {
     .volatile(() => ({
       /** The project's other modules, which dependencies may name. */
       linkedModules: [] as LinkedModule[],
+      /** Whether this is an earlier state of the module, shown in a preview, in which nothing is signable. */
+      inPreview: false,
     }))
     .views((self) => {
       const itemsOf = (stage: string): readonly Item[] => self.stages.get(stage)?.items ?? [];
@@ -522,7 +529,7 @@ export function workflowModuleModel(workflow: Workflow) {
           if (phase === "proposed-removal") reasons.push("proposed-removal");
         }
         const currentBasis = currentBasisOf(item);
-        const waiting: WaitingCategory | null =
+        const signsAs: SignableCategory | null =
           phase === "proposed-removal"
             ? "proposed-removal"
             : phase === "removed"
@@ -531,7 +538,7 @@ export function workflowModuleModel(workflow: Workflow) {
                 ? "new"
                 : !signatureCounts
                   ? "changed"
-                  : outOfDate && !sameBasis(item.basis, currentBasis)
+                  : !sameBasis(item.basis, currentBasis)
                     ? "out-of-date"
                     : null;
         return finish<ItemState>({
@@ -551,7 +558,7 @@ export function workflowModuleModel(workflow: Workflow) {
           outOfDate,
           openThread,
           reasons: phase === "removed" ? ["proposed-removal"] : reasons,
-          waiting,
+          signsAs,
         });
       }, comparer.structural);
 
@@ -719,19 +726,32 @@ export function workflowModuleModel(workflow: Workflow) {
         }
       }
 
-      /** Whether the spec owner can sign the unit now. */
-      function isSignable(unitId: string): boolean {
+      /**
+       * Whether a unit is signable: its stage is open, this is not an
+       * earlier state shown in a preview, and a signature would record
+       * something new. Every offer of a signature, every mark of what is
+       * signable and every count of it reads this alone.
+       */
+      function signable(unitId: string): boolean {
         const state = unitState(unitId);
-        if (state == null || !stageOpen(state.stage)) return false;
-        switch (state.kind) {
-          case "item":
-            if (state.phase === "proposed-removal") return true;
-            if (state.phase === "removed") return false;
-            return !state.signatureCounts || !sameBasis(locate(state.itemId)!.item.basis, state.currentBasis);
-          case "coverage":
-          case "impact":
-            return !state.signatureCounts;
-        }
+        if (state == null || self.inPreview || !stageOpen(state.stage)) return false;
+        return state.kind === "item" ? state.signsAs != null : !state.signatureCounts;
+      }
+
+      /**
+       * The reasons a signature now would settle; none unless the unit is
+       * signable. Signing a removal removes the item, settling every reason.
+       * Signing an item rebases it on the current versions of its links, so
+       * out of date settles only when every cause is a change, and never
+       * while a link is removed, unapproved or out of date itself.
+       */
+      function signatureSettles(unitId: string): NotApprovedReason[] {
+        const state = unitState(unitId);
+        if (state == null || !signable(unitId)) return [];
+        if (state.kind !== "item") return ["no-signature"];
+        if (state.phase === "proposed-removal") return state.reasons;
+        const onlyChanges = state.outOfDateCauses.every(({ reasons }) => reasons.every((reason) => reason === "changed"));
+        return state.reasons.filter((reason) => reason === "no-signature" || (reason === "out-of-date" && onlyChanges));
       }
 
       /**
@@ -864,7 +884,8 @@ export function workflowModuleModel(workflow: Workflow) {
         stageComplete,
         stageOpen,
         unitState,
-        isSignable,
+        signable,
+        signatureSettles,
         signingCovers,
         openThreadOf,
         currentBasisOf,
@@ -878,9 +899,6 @@ export function workflowModuleModel(workflow: Workflow) {
       };
     })
     .views((self) => {
-      const waitsForSignature = (unit: UnitState): boolean =>
-        unit.kind === "item" ? unit.waiting != null : !unit.signatureCounts;
-
       const progress = (stage: string): StageProgress => {
         const counted = self.stageUnits(stage).filter(({ kind }) => kind === "item");
         if (counted.length === 0) return "empty";
@@ -926,6 +944,7 @@ export function workflowModuleModel(workflow: Workflow) {
             : { version: self.versionOf(id)!, kind: located.item.kind, stage: located.stage, phase: phaseOf(located.item.removal) };
         },
         itemStanding: (id) => self.itemStanding(id),
+        signable: (id) => self.signable(id),
         codeOf: (id) => self.codeOf(id),
         textOf: (id) => self.textOf(id),
         itemNamed,
@@ -959,12 +978,12 @@ export function workflowModuleModel(workflow: Workflow) {
         stageProgress: progress,
         unitsInShownOrder,
         /** The unit a signature moves the focus to, once given; null when no unit is left to move to. */
-        unitAfterSigning({ from, shownBefore, toWaiting }: SignatureFocusMove): string | null {
+        unitAfterSigning({ from, shownBefore, toSignable }: SignatureFocusMove): string | null {
           const index = shownBefore.indexOf(from);
           return (
             [...shownBefore.slice(index + 1), ...shownBefore.slice(0, Math.max(index, 0))].find((unitId) => {
-              const state = self.unitState(unitId);
-              return state != null && (toWaiting ? waitsForSignature(state) : !state.approved);
+              if (toSignable) return self.signable(unitId);
+              return self.unitState(unitId)?.approved === false;
             }) ?? null
           );
         },
@@ -984,15 +1003,13 @@ export function workflowModuleModel(workflow: Workflow) {
           ];
         },
         stagesNotReferencing,
-        /** Whether the unit still waits for a signature, as each stage counts it. */
-        waitsForSignature,
         stageSummary(stage: string): StageSummary {
           const units = self.stageUnits(stage);
-          const waiting = { new: 0, changed: 0, "out-of-date": 0, "proposed-removal": 0, coverages: 0, impacts: 0 };
+          const signable = { new: 0, changed: 0, "out-of-date": 0, "proposed-removal": 0, coverages: 0, impacts: 0 };
           for (const unit of units) {
-            if (!waitsForSignature(unit)) continue;
-            if (unit.kind === "item") waiting[unit.waiting!] += 1;
-            else waiting[unit.kind === "coverage" ? "coverages" : "impacts"] += 1;
+            if (!self.signable(unit.unitId)) continue;
+            if (unit.kind === "item") signable[unit.signsAs!] += 1;
+            else signable[unit.kind === "coverage" ? "coverages" : "impacts"] += 1;
           }
           return {
             stage,
@@ -1000,7 +1017,7 @@ export function workflowModuleModel(workflow: Workflow) {
             progress: progress(stage),
             approved: units.filter(({ approved }) => approved).length,
             total: units.length,
-            waiting,
+            signable,
           };
         },
         /**
@@ -1078,6 +1095,7 @@ export function workflowModuleModel(workflow: Workflow) {
             stage: linked.stage,
             phase: linked.phase,
             approved: source.itemStanding(id)?.approved === true,
+            signable: source.signable(id),
           };
         },
       };
@@ -1588,6 +1606,10 @@ export function workflowModuleModel(workflow: Workflow) {
         setLinkedModules(modules: LinkedModule[]) {
           self.linkedModules = modules;
         },
+        /** Mark this as an earlier state of the module, shown in a preview. */
+        markInPreview() {
+          self.inPreview = true;
+        },
         /**
          * Delete every item whose removal is signed, as if every impact on
          * its removal were settled. For a copy of the module that leaves out
@@ -1712,7 +1734,7 @@ export function workflowModuleModel(workflow: Workflow) {
           if (self.signingCovers(unitId) !== shown) {
             throw new UserFacingError(`${self.unitLabel(unitId)} changed since it was shown, so it was not signed. Read it again, then sign.`);
           }
-          if (!self.isSignable(unitId)) return;
+          if (!self.signable(unitId)) return;
           const node = stageNode(state.stage);
           switch (state.kind) {
             case "item": {
@@ -1843,9 +1865,10 @@ export function workflowModuleModel(workflow: Workflow) {
 /**
  * The actions after which a stage that became complete is not recorded as
  * becoming so then: reading another state in, linking the other modules,
- * which only shows a completion they already held, and the recording itself.
+ * which only shows a completion they already held, marking an earlier state
+ * shown in a preview, and the recording itself.
  */
-const NOT_RECORDING_COMPLETIONS = new Set(["recordCompletions", "setLinkedModules", "afterCreate"]);
+const NOT_RECORDING_COMPLETIONS = new Set(["recordCompletions", "setLinkedModules", "markInPreview", "afterCreate"]);
 
 export type WorkflowModuleModel = ReturnType<typeof workflowModuleModel>;
 export type WorkflowModule = Instance<WorkflowModuleModel>;
