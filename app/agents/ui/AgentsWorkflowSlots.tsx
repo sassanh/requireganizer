@@ -63,7 +63,7 @@ const StageRequests = observer(function StageRequests({ stage }: { stage: string
     ...(asks?.write ?? []).map((later) => (
       <SendButton
         key={later}
-        label={`Ask for the writing of ${stageLabel(later)}`}
+        label={`Write ${stageLabel(later)}`}
         {...agentsFor(view, store, activeModuleId, later)}
         onSend={(to) => attempt(() => client.askToWrite(activeModuleId, later, to), "The stage could not be asked for.")}
       />
@@ -72,7 +72,7 @@ const StageRequests = observer(function StageRequests({ stage }: { stage: string
       ? [
           <SendButton
             key="review"
-            label="Ask for a review"
+            label="Review"
             {...agentsFor(view, store, activeModuleId, stage)}
             onSend={(to) => attempt(() => client.askToReview(activeModuleId, stage, to), "The review could not be asked for.")}
           />,

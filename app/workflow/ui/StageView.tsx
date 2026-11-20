@@ -749,7 +749,6 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
   const [rulesOpen, setRulesOpen] = useState(false);
   const [compact, setCompact] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const headerRef = useRef<HTMLDivElement>(null);
   const { opener, returnToOpener, revealRequest, revealed } = useWorkflowNavigation();
   /** The unit a switch of tab is made to show, around which the tab's first frames are. */
   const tabTarget = useRef<string | null>(null);
@@ -773,9 +772,9 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
   }, [frames]);
 
   /**
-   * Focus a unit's card and scroll it into view clear of the sticky header, with a margin on either side.
+   * Focus a unit's card and scroll it into view inside the items' area, with a margin on either side.
    * With `actionsAt`, the card's actions are put at that height instead, so they land where the
-   * pointer already is, unless that would hide the top of the card under the header.
+   * pointer already is, unless that would put the top of the card above the area.
    */
   const reveal = (card: HTMLElement | undefined, actionsAt?: number) => {
     const container = containerRef.current;
@@ -783,7 +782,7 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
     card.focus({ preventScroll: true });
     const place = () => {
       const margin = 16;
-      const top = (headerRef.current ?? container).getBoundingClientRect().bottom + margin;
+      const top = container.getBoundingClientRect().top + margin;
       const bottom = container.getBoundingClientRect().bottom - margin;
       const { top: cardTop, bottom: cardBottom } = card.getBoundingClientRect();
       const actions = card.querySelector("[data-unit-actions]");
@@ -805,7 +804,7 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
       ?.querySelector("[data-unit-actions]")
       ?.getBoundingClientRect().top;
 
-  // The gap between the two thresholds keeps the header from flickering as its own height changes.
+  // The gap between the two thresholds keeps the header from flickering at the boundary.
   const onScroll = (event: UIEvent<HTMLDivElement>) => {
     const scrolled = event.currentTarget.scrollTop;
     if (!compact && scrolled > 64) setCompact(true);
@@ -1158,11 +1157,12 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
 
   return (
     <Stack direction="row" sx={{ flexGrow: 1, minWidth: 0, minHeight: 0 }}>
-      <Box ref={containerRef} tabIndex={-1} aria-label={definition.label} onScroll={onScroll} onFocus={(event) => followFocus(event.target)} sx={{ flexGrow: 1, minWidth: 0, overflowY: "auto", p: 2, pt: 0, outline: "none" }}>
+      {/* The header sits outside the items' scroller, so its height changing as it turns
+          compact never moves the scroll position or the items under the person's eyes. */}
+      <Stack onFocus={(event) => followFocus(event.target)} sx={{ flexGrow: 1, minWidth: 0, minHeight: 0 }}>
         <Stack
-          ref={headerRef}
           spacing={compact ? 0.5 : 1}
-          sx={{ position: "sticky", top: 0, zIndex: 2, bgcolor: "background.default", mx: -2, px: 2, pt: compact ? 1 : 2, pb: compact ? 1.5 : 2, mb: compact ? 1.5 : 0, borderBottom: 1, borderColor: compact ? "divider" : "transparent" }}
+          sx={{ flexShrink: 0, px: 2, pt: compact ? 1 : 2, pb: compact ? 1.5 : 2, borderBottom: 1, borderColor: compact ? "divider" : "transparent" }}
         >
           <Stack direction="row" sx={{ alignItems: "center", gap: 1, flexWrap: "wrap" }}>
             {opener != null && (
@@ -1179,10 +1179,13 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
             {!tabbed && rulesButton}
           </Stack>
           {!compact && progressBar}
-          <Typography variant="body2" color="text.secondary">
-            {signableParts.length === 0 ? "Nothing is signable." : `Signable: ${signableParts.join(", ")}.`}
-            {threadsWaiting > 0 ? ` ${threadsWaiting} ${threadsWaiting === 1 ? "thread waits" : "threads wait"} for you.` : ""}
-          </Typography>
+          <Stack direction="row" sx={{ alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+            <Typography variant="body2" color="text.secondary" sx={{ flexGrow: 1, minWidth: 0 }}>
+              {signableParts.length === 0 ? "Nothing is signable." : `Signable: ${signableParts.join(", ")}.`}
+              {threadsWaiting > 0 ? ` ${threadsWaiting} ${threadsWaiting === 1 ? "thread waits" : "threads wait"} for you.` : ""}
+            </Typography>
+            <Slot name="stage" props={{ stage, preview: preview != null }} />
+          </Stack>
           {openStageThreads.length > 0 && !compact && (
             <Alert
               severity="warning"
@@ -1195,7 +1198,6 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
               {openStageThreads.length === 1 ? "An open thread on the stage keeps it from being complete." : `${openStageThreads.length} open threads on the stage keep it from being complete.`}
             </Alert>
           )}
-          <Slot name="stage" props={{ stage, preview: preview != null }} />
           {!summary.open && !compact && (
             <Alert severity="info">
               Closed until {workflow.upstreamStages(stage).filter((upstream) => !module.stageComplete(upstream)).map((upstream) => workflow.stage(upstream).label).join(" and ")} {workflow.upstreamStages(stage).filter((upstream) => !module.stageComplete(upstream)).length === 1 ? "is" : "are"} complete. Its work stays readable.
@@ -1251,70 +1253,71 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
             </Stack>
           )}
         </Stack>
+        <Box ref={containerRef} tabIndex={-1} aria-label={definition.label} onScroll={onScroll} sx={{ flexGrow: 1, minHeight: 0, minWidth: 0, overflowY: "auto", px: 2, pb: 2, outline: "none" }}>
+          <FrameScheduleProvider value={frames}>
+          <Stack spacing={1.5}>
+            {cardsOf([...items, ...removedItems], marksIn(activeTab), (state) => <ItemCard key={state.unitId} state={state} controls={controls} />)}
+            {editable && kindShown && (
+              <Stack direction="row" sx={{ gap: 1, flexWrap: "wrap" }}>
+                {definition.kinds
+                  .filter((kind) => kind.kind === activeTab && (!kind.single || !module.itemsOf(stage).some((item) => item.kind === kind.kind && item.removal == null)))
+                  .map((kind) => (
+                    <Button key={kind.kind} startIcon={<Add />} variant={editor?.itemId == null && editor?.kind === kind.kind ? "contained" : "outlined"} onClick={() => requestEditor({ stage, kind: kind.kind, itemId: null })}>
+                      Add {kind.label.toLowerCase()}
+                    </Button>
+                  ))}
+              </Stack>
+            )}
 
-        <FrameScheduleProvider value={frames}>
-        <Stack spacing={1.5}>
-          {cardsOf([...items, ...removedItems], marksIn(activeTab), (state) => <ItemCard key={state.unitId} state={state} controls={controls} />)}
-          {editable && kindShown && (
-            <Stack direction="row" sx={{ gap: 1, flexWrap: "wrap" }}>
-              {definition.kinds
-                .filter((kind) => kind.kind === activeTab && (!kind.single || !module.itemsOf(stage).some((item) => item.kind === kind.kind && item.removal == null)))
-                .map((kind) => (
-                  <Button key={kind.kind} startIcon={<Add />} variant={editor?.itemId == null && editor?.kind === kind.kind ? "contained" : "outlined"} onClick={() => requestEditor({ stage, kind: kind.kind, itemId: null })}>
-                    Add {kind.label.toLowerCase()}
-                  </Button>
-                ))}
-            </Stack>
-          )}
-
-          {activeTab === COVERAGES_TAB && cardsOf(coverages, marksIn(COVERAGES_TAB), (state) => <CoverageCard key={state.unitId} state={state} controls={controls} />)}
-          {activeTab === IMPACTS_TAB && cardsOf(impacts, marksIn(IMPACTS_TAB), (state) => <ImpactCard key={state.unitId} state={state} controls={controls} />)}
-          {activeTab === THREADS_TAB && editable && (
-            <ActionTooltip name="Request a change on the stage" shortcut={stageThreadShortcut}>
-              <Button
-                ref={stageRequestButton}
-                {...{ [THREAD_BUTTON]: true }}
-                startIcon={<AddComment />}
-                variant={thread != null && thread.place == null ? "contained" : "outlined"}
-                sx={{ alignSelf: "flex-start" }}
-                onClick={(event) => setThread({ place: null, anchor: event.currentTarget, autoFocus: true })}
-              >
-                Request a change on the stage
-              </Button>
-            </ActionTooltip>
-          )}
-          {activeTab === THREADS_TAB && (tabSections.open.length > 0 || threadsOnlyNow.length > 0) && (
-            <Box sx={THREAD_GRID}>
-              {tabSections.open.map(threadCard)}
-              {threadsOnlyNow.map((mark) => (
-                <Box
-                  key={mark.threadId}
-                  data-unit-card={mark.unitId}
-                  tabIndex={0}
-                  sx={{ p: 1.5, border: 1, borderStyle: "dashed", borderColor: "error.main", borderRadius: 1, outline: "none", "&:focus-visible": { boxShadow: (theme) => `0 0 0 2px ${theme.vars.palette.primary.main}` } }}
+            {activeTab === COVERAGES_TAB && cardsOf(coverages, marksIn(COVERAGES_TAB), (state) => <CoverageCard key={state.unitId} state={state} controls={controls} />)}
+            {activeTab === IMPACTS_TAB && cardsOf(impacts, marksIn(IMPACTS_TAB), (state) => <ImpactCard key={state.unitId} state={state} controls={controls} />)}
+            {activeTab === THREADS_TAB && editable && (
+              <ActionTooltip name="Request a change on the stage" shortcut={stageThreadShortcut}>
+                <Button
+                  ref={stageRequestButton}
+                  {...{ [THREAD_BUTTON]: true }}
+                  startIcon={<AddComment />}
+                  variant={thread != null && thread.place == null ? "contained" : "outlined"}
+                  sx={{ alignSelf: "flex-start" }}
+                  onClick={(event) => setThread({ place: null, anchor: event.currentTarget, autoFocus: true })}
                 >
-                  <Typography variant="subtitle2">{mark.label}, removed</Typography>
-                  <Typography variant="body2" sx={{ color: "text.secondary", whiteSpace: "pre-wrap" }}>
-                    {mark.text}
-                  </Typography>
-                  <ThreadMarkNote mark={mark} />
-                </Box>
-              ))}
-            </Box>
-          )}
-          {activeTab === THREADS_TAB && tabSections.resolved.length > 0 && (
-            <>
-              <Typography variant="subtitle2" sx={{ pt: 1.5 }}>Resolved</Typography>
-              <Box sx={THREAD_GRID}>{tabSections.resolved.map(threadCard)}</Box>
-            </>
-          )}
-        </Stack>
-        </FrameScheduleProvider>
-        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 3 }}>
-          Keyboard: j or ↓ next, k or ↑ previous, Shift+J or Shift+K next or previous signable, g first, Shift+G last, s sign, Shift+S sign and go to the next signable, c open the thread or request a change, Shift+C request a change on the stage, Esc close it.
-        </Typography>
-        <RulesDialog stage={stage} kind={kindForRules} open={rulesOpen} onClose={() => setRulesOpen(false)} />
-      </Box>
+                  Request a change on the stage
+                </Button>
+              </ActionTooltip>
+            )}
+            {activeTab === THREADS_TAB && (tabSections.open.length > 0 || threadsOnlyNow.length > 0) && (
+              <Box sx={THREAD_GRID}>
+                {tabSections.open.map(threadCard)}
+                {threadsOnlyNow.map((mark) => (
+                  <Box
+                    key={mark.threadId}
+                    data-unit-card={mark.unitId}
+                    tabIndex={0}
+                    sx={{ p: 1.5, border: 1, borderStyle: "dashed", borderColor: "error.main", borderRadius: 1, outline: "none", "&:focus-visible": { boxShadow: (theme) => `0 0 0 2px ${theme.vars.palette.primary.main}` } }}
+                  >
+                    <Typography variant="subtitle2">{mark.label}, removed</Typography>
+                    <Typography variant="body2" sx={{ color: "text.secondary", whiteSpace: "pre-wrap" }}>
+                      {mark.text}
+                    </Typography>
+                    <ThreadMarkNote mark={mark} />
+                  </Box>
+                ))}
+              </Box>
+            )}
+            {activeTab === THREADS_TAB && tabSections.resolved.length > 0 && (
+              <>
+                <Typography variant="subtitle2" sx={{ pt: 1.5 }}>Resolved</Typography>
+                <Box sx={THREAD_GRID}>{tabSections.resolved.map(threadCard)}</Box>
+              </>
+            )}
+          </Stack>
+          </FrameScheduleProvider>
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 3 }}>
+            Keyboard: j or ↓ next, k or ↑ previous, Shift+J or Shift+K next or previous signable, g first, Shift+G last, s sign, Shift+S sign and go to the next signable, c open the thread or request a change, Shift+C request a change on the stage, Esc close it.
+          </Typography>
+          <RulesDialog stage={stage} kind={kindForRules} open={rulesOpen} onClose={() => setRulesOpen(false)} />
+        </Box>
+      </Stack>
       {thread != null && (
         <ThreadView
           stage={stage}
