@@ -1,20 +1,20 @@
 import { UserFacingError } from "lib/errors";
 
-import { type AgentNotice, type DeskView, RequestsConcernedError, type RequestState } from "./desk";
+import { type AgentNotice, type DeskView, ThreadsConcernedError, type WaitingThreadState } from "./desk";
 import type { AgentsHostApi, AgentsHostEvent } from "./host";
 import type { AgentCaller, AgentToolDescription } from "./interface/tools";
 import type { RunAgent } from "./internal/runAgents";
 import type { RunLog } from "./record";
 import type { AgentId } from "./roster";
 
-/** How a client sends one of the Agents module's requests to its host. */
+/** How a client sends one of the Agents module's calls to its host. */
 export type AgentsRequest = <Name extends keyof AgentsHostApi>(
   name: Name,
   ...args: Parameters<AgentsHostApi[Name]>
 ) => Promise<Awaited<ReturnType<AgentsHostApi[Name]>>>;
 
-/** Asks the spec owner whether to stop the requests an action concerns; resolves to the keys to stop, or null to give the action up. */
-export type Confirmer = (requests: readonly RequestState[], action: string) => Promise<string[] | null>;
+/** Asks the spec owner whether to stop the agents working on the threads an action concerns; resolves to the keys of those to stop, or null to give the action up. */
+export type Confirmer = (threads: readonly WaitingThreadState[], action: string) => Promise<string[] | null>;
 
 /** What a store action of the spec owner's does, as a confirmation names it. */
 const STORE_ACTION_NAMES: Partial<Record<string, string>> = {
@@ -22,8 +22,8 @@ const STORE_ACTION_NAMES: Partial<Record<string, string>> = {
   restoreSigned: "return to the signed version",
   resolveThread: "resolve the thread",
   replyAsSpecOwner: "send the message",
-  requestChange: "send the message",
-  requestStageChange: "send the message",
+  messageUnit: "send the message",
+  openStageThread: "send the message",
 };
 
 /** A store action as a confirmation names it. */
@@ -33,13 +33,13 @@ export function storeActionName(name: string): string {
 
 /**
  * The Agents module as a client of a project host holds it: the agents and
- * waiting requests the host sends, the agent this client is when it is a
- * coding agent, and the confirmation the spec owner gives before an action
- * that concerns requests agents have. The project client sends its requests
- * and hands it the host's agents events.
+ * threads waiting for an agent the host sends, the agent this client is
+ * when it is a coding agent, and the confirmation the spec owner gives
+ * before an action that concerns threads agents have. The project client
+ * sends its calls and hands it the host's agents events.
  */
 export class AgentsClient {
-  private view: DeskView = { agents: [], requests: [], notes: [], findings: [], asks: [] };
+  private view: DeskView = { agents: [], waiting: [], notes: [], findings: [], asks: [] };
   private readonly noticeListeners = new Set<(notice: AgentNotice) => void>();
   /** For a client that is a coding agent: the agent it is, and the name it asks for again on each new connection. */
   private agent: { agentId: AgentId | null; name: string | null } | null = null;
@@ -47,11 +47,11 @@ export class AgentsClient {
 
   constructor(
     private readonly request: AgentsRequest,
-    /** Tell the client's subscribers that the agents or the waiting requests changed. */
+    /** Tell the client's subscribers that the agents or the waiting threads changed. */
     private readonly changed: () => void,
   ) {}
 
-  /** The agents and the waiting requests. */
+  /** The agents and the threads waiting for an agent. */
   getView = (): DeskView => this.view;
 
   /** Take an agents event from the host. */
@@ -87,33 +87,33 @@ export class AgentsClient {
     );
   }
 
-  /** Connect as a coding agent: the host tells this client of each request given to it or stopped. */
+  /** Connect as a coding agent: the host tells this client of each thread assigned to it and of each time it is stopped. */
   actAsAgent = (): void => {
     this.agent ??= { agentId: null, name: null };
   };
 
-  /** Hear of each request given to this client's agent or stopped. */
+  /** Hear of each thread assigned to this client's agent and of each time it is stopped. */
   subscribeNotices = (listener: (notice: AgentNotice) => void): (() => void) => {
     this.noticeListeners.add(listener);
     return () => this.noticeListeners.delete(listener);
   };
 
-  /** Let the page ask the spec owner to confirm stopping the requests an action concerns. */
+  /** Let the page ask the spec owner to confirm stopping the agents an action concerns. */
   setConfirmer = (confirmer: Confirmer | null): void => {
     this.confirmer = confirmer;
   };
 
   /**
-   * Carry out an action the host refuses while it concerns requests agents
-   * have: ask the spec owner, then send it again with the requests they
-   * confirmed stopping. Rejects when they give it up.
+   * Carry out an action the host refuses while it concerns threads agents
+   * have: ask the spec owner, then send it again with the threads whose
+   * agents they confirmed stopping. Rejects when they give it up.
    */
   confirmed = async <Value>(action: string, send: (stopping?: string[]) => Promise<Value>): Promise<Value> => {
     try {
       return await send();
     } catch (error) {
-      if (!(error instanceof RequestsConcernedError) || this.confirmer == null) throw error;
-      const stopping = await this.confirmer(error.requests, action);
+      if (!(error instanceof ThreadsConcernedError) || this.confirmer == null) throw error;
+      const stopping = await this.confirmer(error.threads, action);
       if (stopping == null) throw new UserFacingError(`Gave up: ${action}.`);
       return send(stopping);
     }
@@ -133,22 +133,22 @@ export class AgentsClient {
 
   removeRunAgent = (agentId: AgentId): Promise<void> => this.request("removeRunAgent", agentId);
 
-  giveRequest = (key: string, agentId: AgentId): Promise<void> =>
-    this.confirmed("give the request", (stopping) => this.request("giveRequest", key, agentId, stopping));
+  assignThread = (key: string, agentId: AgentId): Promise<void> =>
+    this.confirmed("assign the thread", (stopping) => this.request("assignThread", key, agentId, stopping));
 
-  stopRequests = (keys: string[]): Promise<void> => this.request("stopRequests", keys);
+  stopAgents = (keys: string[]): Promise<void> => this.request("stopAgents", keys);
 
-  /** Ask for a stage of a module to be written, giving the request to `agentId`, or to none. */
+  /** Ask for a stage of a module to be written, assigning the thread to `agentId`, or to none. */
   askToWrite = (moduleId: string, stage: string, agentId: AgentId | null): Promise<void> =>
     this.confirmed("ask for the writing", (stopping) => this.request("askToWrite", moduleId, stage, agentId, stopping));
 
-  /** Ask for a stage of a module to be reviewed, giving the request to `agentId`, or to none. */
+  /** Ask for a stage of a module to be reviewed, assigning the thread to `agentId`, or to none. */
   askToReview = (moduleId: string, stage: string, agentId: AgentId | null): Promise<void> =>
     this.confirmed("ask for the review", (stopping) => this.request("askToReview", moduleId, stage, agentId, stopping));
 
-  /** Withdraw a waiting request no agent has. */
-  withdrawRequest = (key: string): Promise<void> => this.request("withdrawRequest", key);
+  /** Withdraw a waiting thread no agent has from waiting. */
+  withdrawThread = (key: string): Promise<void> => this.request("withdrawThread", key);
 
-  /** The run logs kept with a request, oldest first. */
+  /** The run logs kept with a wait, oldest first. */
   readRunLogs = (key: string): Promise<RunLog[]> => this.request("readRunLogs", key);
 }

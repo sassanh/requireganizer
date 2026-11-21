@@ -37,17 +37,17 @@ function Entry({ entry }: { entry: RunLogEntry }) {
 }
 
 /**
- * One run log kept with a request: the agent and when it had the request,
+ * One run log kept with a thread: the agent and when it had the thread,
  * then every call it made with what it sent and got back, and its
  * reasoning, in the order they happened. Read from the host when opened.
  */
-export default function RunLogDialog({ requestKey, index, onClose }: { requestKey: string; index: number; onClose: () => void }) {
+export default function RunLogDialog({ waitKey, index, onClose }: { waitKey: string; index: number; onClose: () => void }) {
   const { client } = useAgents();
   const [log, setLog] = useState<RunLog | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   useEffect(() => {
     let current = true;
-    client.readRunLogs(requestKey).then(
+    client.readRunLogs(waitKey).then(
       (logs) => {
         if (current) setLog(logs[index] ?? null);
       },
@@ -58,13 +58,13 @@ export default function RunLogDialog({ requestKey, index, onClose }: { requestKe
     return () => {
       current = false;
     };
-  }, [client, requestKey, index]);
+  }, [client, waitKey, index]);
   return (
     <Dialog open onClose={onClose} fullWidth maxWidth="md" scroll="paper">
       <DialogTitle>{log == null ? "Run log" : `Run log: ${log.agent}, ${at(log.from)} – ${log.until == null ? "has it now" : at(log.until)}`}</DialogTitle>
       <DialogContent dividers>
         {problem != null && <Alert severity="error">{problem}</Alert>}
-        {log != null && log.entries.length === 0 && <Typography color="text.secondary">The agent made no call while it had the request.</Typography>}
+        {log != null && log.entries.length === 0 && <Typography color="text.secondary">The agent made no call while it had the thread.</Typography>}
         {log != null && (
           <Stack spacing={1.5} divider={<Divider flexItem />}>
             {log.entries.map((entry, place) => (

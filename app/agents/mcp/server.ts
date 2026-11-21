@@ -59,7 +59,7 @@ function reachHost(client: ProjectClient, waitMs: number): Promise<void> {
 
 function instructionsFor(url: string | null, mustName: boolean): string {
   const where = url == null ? "in Requireganizer" : `at ${url}`;
-  return `${mustName ? `${NAME_YOURSELF_TEXT} ` : ""}Requireganizer holds the spec the spec owner signs for this project, stage by stage, each item traced to what it builds on. Read it before building: get_workflow_state shows which stages are open; get_stage_rules gives the published rules of each kind of item a stage holds, and get_items reads a stage's items by code. Write, change and remove items with write_items; the spec owner signs them ${where}, and no tool signs. A channel event names the request it is about by its id, its thread_id, its stage, what it asks (kind: a change, or to write or to review the stage), and while the project has modules its module: pass that module to each tool that takes one, such as get_items, get_thread, reply_to_thread and write_items. Every request waits in its thread: read it with get_thread. For a request to write or to review a stage, read the rules of its kinds of item with get_stage_rules and the items with get_items. Answer a request with a reply in its thread, with reply_to_thread, or with write_items and its answers; a reply of yours to a request you have may give findings, each naming an item, a published rule of its kind that it breaks, and how. Your reply ends your having the request. When you cannot answer a request given to you, pass its id to report_cannot_answer. To point the spec owner to a set of items, coverages and impacts that need them, pass pointTo with write_items or reply_to_thread, with one text of at most 80 characters saying why. ${replyRulesText()}`;
+  return `${mustName ? `${NAME_YOURSELF_TEXT} ` : ""}Requireganizer holds the spec the spec owner signs for this project, stage by stage, each item traced to what it builds on. Read it before building: get_workflow_state shows which stages are open; get_stage_rules gives the published rules of each kind of item a stage holds, and get_items reads a stage's items by code. Write, change and remove items with write_items; the spec owner signs them ${where}, and no tool signs. A channel event names the thread the spec owner assigned you by its thread_id; its id, which is not the thread's, is what you pass to report_cannot_answer; and it gives its stage, what it asks (kind: message, an answer to the spec owner's message; write or review, the writing or a review of the stage), and while the project has modules its module: pass that module to each tool that takes one, such as get_items, get_thread, reply_to_thread and write_items. Read the thread with get_thread. For a thread asking to write or to review a stage, read the rules of its kinds of item with get_stage_rules and the items with get_items. Answer a thread with a reply in it, with reply_to_thread, or with write_items and its answers; a reply of yours to a thread assigned to you may give findings, each naming an item, a published rule of its kind that it breaks, and how. Your reply ends the thread's assignment to you. When you cannot answer a thread assigned to you, pass its id to report_cannot_answer. To point the spec owner to a set of items, coverages and impacts that need them, pass pointTo with write_items or reply_to_thread, with one text of at most 80 characters saying why. ${replyRulesText()}`;
 }
 
 export interface McpService {
@@ -87,7 +87,7 @@ export async function serveMcp(options: {
   transport: Transport;
   /** How often a call still running tells the client so; ten seconds unless given. */
   progressIntervalMs?: number;
-  /** How long a request waits for the project's host; fifteen seconds unless given. */
+  /** How long a call waits for the project's host; fifteen seconds unless given. */
   hostWaitMs?: number;
 }): Promise<McpService> {
   const { link } = options;
@@ -167,7 +167,7 @@ export async function serveMcp(options: {
       );
     }, TOOL_LIST_CHECK_DELAY_MS);
   };
-  // The agent hears of each request given to it, and of each one stopped, as it happens; one heard before the client initialized waits for it.
+  // The agent hears of each thread assigned to it, and of each time it is stopped, as it happens; one heard before the client initialized waits for it.
   let initialized = false;
   const unheard: AgentNotice[] = [];
   const tell = (notice: AgentNotice) => {

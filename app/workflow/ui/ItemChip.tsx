@@ -6,7 +6,7 @@ import { createContext, type FocusEvent, type MouseEvent, type ReactNode, useCon
 
 import type { NamedItem, OutOfDateCause } from "../module";
 import { LINK_REASON_LABELS, type LinkReason, REMOVED_ITEM } from "../units";
-import { placeOf, useOpenUnit, useWorkflowView } from "./context";
+import { type MessagePlace, placeOf, useOpenUnit, useWorkflowView } from "./context";
 import { SIGNATURE_STATE_CHIP_VARIANT, SIGNATURE_STATE_PALETTE, signatureStateOf } from "./signatureState";
 import VersionDiff from "./VersionDiff";
 import WrittenText from "./WrittenText";
@@ -155,7 +155,9 @@ function usePreview(content: () => ReactNode) {
  * item's own state: green once it is approved, orange while it is signable,
  * and the normal grey otherwise. With `reasons`, the label says why the item
  * makes the item naming it out of date; with `change`, the preview shows how
- * the item changed.
+ * the item changed. With `as`, it stands for the item's coverage or an
+ * impact on it, which it names and opens instead; with `thread`, opening
+ * it opens that thread there.
  */
 const ItemChip = observer(function ItemChip({
   itemId,
@@ -163,6 +165,8 @@ const ItemChip = observer(function ItemChip({
   reasons = [],
   change = null,
   opens = true,
+  as = null,
+  thread = null,
   onDelete,
 }: {
   itemId: string;
@@ -171,6 +175,9 @@ const ItemChip = observer(function ItemChip({
   change?: OutOfDateCause["change"];
   /** False where opening the item would leave work behind, such as in an editor. */
   opens?: boolean;
+  as?: { kind: "coverage" | "impact"; unitId: string; stage: string } | null;
+  /** The thread opening it opens, with the focus on that message. */
+  thread?: MessagePlace | null;
   onDelete?: (event: unknown) => void;
 }) {
   const { module } = useWorkflowView();
@@ -181,13 +188,20 @@ const ItemChip = observer(function ItemChip({
   const look = { size: "small", variant: SIGNATURE_STATE_CHIP_VARIANT[state], color: SIGNATURE_STATE_PALETTE[state] } as const;
   const removedText = named == null ? module.removedItemText(itemId) : null;
   const preview = usePreview(() => (named == null ? <WrittenText text={removedText ?? ""} /> : <ItemPreview item={named} change={change} />));
-  if (named == null) {
-    return <Chip {...look} {...(removedText == null ? {} : preview)} label={label(itemId)} onDelete={onDelete} />;
-  }
+  const shownLabel = `${as == null ? "" : as.kind === "coverage" ? "Coverage of " : "Impact of "}${label(itemId, { detail, reasons })}`;
+  const target = as ?? (named == null ? null : { unitId: named.id, stage: named.stage });
   const open = (event: MouseEvent<HTMLElement>) => {
-    openUnit({ module: named.module?.id ?? null, stage: named.stage, unitId: named.id }, placeOf(event.currentTarget));
+    if (target != null) openUnit({ module: named?.module?.id ?? null, stage: target.stage, unitId: target.unitId, message: thread }, placeOf(event.currentTarget));
   };
-  return <Chip {...look} {...preview} label={label(itemId, { detail, reasons })} onClick={opens ? open : undefined} onDelete={onDelete} />;
+  return (
+    <Chip
+      {...look}
+      {...(named == null && removedText == null ? {} : preview)}
+      label={shownLabel}
+      onClick={opens && target != null ? open : undefined}
+      onDelete={onDelete}
+    />
+  );
 });
 
 /** An item offered in a list to choose from: its chip, then its whole text, wrapped rather than cut. */

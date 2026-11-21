@@ -19,7 +19,7 @@ Requireganizer is a Next.js application with a MobX State Tree project model. Th
 | Test design (`app/test-design/`) | The Boundary and Abstract tests stages, their kinds, questions and rules. |
 | Store (`app/store/`) | Composes the workflow from both modules' stages, with the examples published with each kind's rules. |
 | Project server (`server/`) | Serve one project from its file: the host with the file adapter, the WebSocket link its pages connect to, and the static interface. One process serves a project at a time; any other process that needs the project connects to it, and takes over when it stops. |
-| MCP server (`server/mcp.ts`, `app/ai-agent/agent-access.ts`) | Serve a project to a coding agent through tools; as a Claude Code channel, announce each change request and stage the spec owner asks the agent for. |
+| MCP server (`server/mcp.ts`, `app/ai-agent/agent-access.ts`) | Serve a project to a coding agent through tools; as a Claude Code channel, announce each thread the spec owner assigns the agent. |
 
 ## A change
 

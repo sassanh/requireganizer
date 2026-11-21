@@ -68,7 +68,7 @@ export class AgentRoster {
     ];
   }
 
-  /** The agents a request can be given to now: every agent that has a name. */
+  /** The agents a thread can be assigned to now: every agent that has a name. */
   available(): (AgentView & { name: string })[] {
     return this.list().filter((agent): agent is AgentView & { name: string } => agent.name != null);
   }
@@ -150,7 +150,7 @@ export class AgentRoster {
     this.runAgents.save(this.runAgents.read().map((kept) => (kept.id === current.id ? changed : kept)));
   }
 
-  /** Remove an agent Requireganizer runs; it is no longer available, so no request is its any more. */
+  /** Remove an agent Requireganizer runs; it is no longer available, so no thread is its any more. */
   removeRunAgent(id: AgentId): void {
     const current = this.runAgent(id);
     if (current == null) return;

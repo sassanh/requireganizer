@@ -6,7 +6,7 @@ import {
   onSnapshot,
 } from "mobx-state-tree";
 
-import { AgentsHost, RequestsConcernedError, type RunAgentsSource } from "agents";
+import { AgentsHost, ThreadsConcernedError, type RunAgentsSource } from "agents";
 import {
   type ClientMessage,
   type HostApi,
@@ -35,7 +35,7 @@ import type { Store } from "store";
 import { uuid } from "utilities";
 
 function wireError(error: unknown): WireError {
-  if (error instanceof RequestsConcernedError) return { name: error.name, message: error.message, concerned: error.requests };
+  if (error instanceof ThreadsConcernedError) return { name: error.name, message: error.message, concerned: error.threads };
   return error instanceof Error
     ? { name: error.name, message: error.message }
     : { name: "Error", message: String(error) };
@@ -58,8 +58,8 @@ const PAGE_ACTION_KINDS = {
   writeItems: "edit",
   restoreSigned: "edit",
   sign: "signature",
-  requestChange: "thread message",
-  requestStageChange: "thread message",
+  messageUnit: "thread message",
+  openStageThread: "thread message",
   replyAsSpecOwner: "thread message",
   resolveThread: "thread resolution",
 } as const satisfies { readonly [Name in keyof Store]?: ChangeKind };
@@ -95,7 +95,7 @@ export class ProjectHost implements HostEndpoint {
   private sentContents = new Map<string, ModuleContent>();
   private pendingPatches: IJsonPatch[] = [];
   private flushScheduled = false;
-  /** The agents of the project, the requests they have, and the agent interface. */
+  /** The agents of the project, the threads they have, and the agent interface. */
   readonly agents: AgentsHost;
 
   constructor(session: ProjectSession, runAgents: RunAgentsSource) {
@@ -169,8 +169,8 @@ export class ProjectHost implements HostEndpoint {
       reportTimeZone: (timeZone) => session.reportTimeZone(timeZone),
       deleteProject: (projectId) => session.deleteProject(projectId),
       runStoreAction: (call) => {
-        const giveTo = call.giveTo ?? null;
-        if (this.shown != null) this.agents.clearStoreAction(this.shown.store, call.name, call.args, call.stopping, giveTo);
+        const assignTo = call.assignTo ?? null;
+        if (this.shown != null) this.agents.clearStoreAction(this.shown.store, call.name, call.args, call.stopping, assignTo);
         // The stage is read before the action, which may remove the unit it starts from, such as a signed removal.
         const stage = call.focusMove == null ? null : (this.shown?.store.unitState(call.focusMove.from)?.stage ?? null);
         let focusMovedTo: FocusPlace | null = null;
@@ -178,7 +178,7 @@ export class ProjectHost implements HostEndpoint {
           focusMovedTo = this.focusAfter(call, stage);
           return focusMovedTo;
         });
-        if (this.shown != null) this.agents.storeActionDone(this.shown.store, call.name, call.args, result, giveTo);
+        if (this.shown != null) this.agents.storeActionDone(this.shown.store, call.name, call.args, result, assignTo);
         return { result, focusMovedTo };
       },
       runPersistence: (call) => this.runPersistence(call),

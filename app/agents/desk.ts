@@ -4,45 +4,45 @@ import { UserFacingError } from "lib/errors";
 import { uuid } from "utilities";
 
 import { findingsOf } from "./annotations";
-import { parseRequestRecords, type RequestRecord, type RunLog, type RunLogEntry } from "./record";
+import { parseWaitRecords, type RunLog, type RunLogEntry, type WaitRecord } from "./record";
+import type { AgentId, AgentRoster, AgentView } from "./roster";
 import {
-  type AgentRequest,
   endIn,
   makesReadOnly,
-  readOnlyRequest,
-  requestSummary,
-  type RequestModule,
+  type ProjectModule,
+  readOnlyThread,
   reviewAskProblem,
   stagesToAskAfter,
-  waitingRequests,
-} from "./requests";
-import type { AgentId, AgentRoster, AgentView } from "./roster";
+  threadSummary,
+  type WaitingThread,
+  waitingThreads,
+} from "./waiting";
 
-/** What an agent is told about a request of its. */
+/** What an agent is told of a thread: that it was assigned to it, or that it was stopped working on it. */
 export type AgentNotice =
-  | { type: "given"; request: AgentRequest; summary: string }
-  | { type: "stopped"; request: AgentRequest; summary: string };
+  | { type: "assigned"; waiting: WaitingThread; summary: string }
+  | { type: "stopped"; waiting: WaitingThread; summary: string };
 
-/** A waiting request as the spec owner sees it. */
-export interface RequestState extends AgentRequest {
+/** A thread waiting for an agent as the spec owner sees it. */
+export interface WaitingThreadState extends WaitingThread {
   /** What it asks, in one line. */
   summary: string;
   /** The agent that has it and since when; null while no agent has it. */
   holder: { agentId: AgentId; name: string; since: string } | null;
-  /** Why the agent it was last given to failed to answer it, until it is given again. */
+  /** Why the agent it was last assigned to failed to answer it, until it is assigned again. */
   failure: string | null;
-  /** The agents it can be given to now: none while an agent has it or its stage is closed. */
-  givableTo: AgentId[];
-  /** Its stage is open; a request in a closed stage is given once the stage opens. */
+  /** The agents it can be assigned to now: none while an agent has it or its stage is closed. */
+  assignableTo: AgentId[];
+  /** Its stage is open; a thread in a closed stage can be assigned once the stage opens. */
   stageOpen: boolean;
 }
 
-/** What a thread shows of a request made in it beside its messages: that it was withdrawn and when, and the run logs kept with it. */
-export interface RequestNote {
+/** What a thread shows of a wait in it beside its messages: that it was withdrawn and when, and the run logs kept with it. */
+export interface WaitNote {
   key: string;
   moduleId: string;
   threadId: string;
-  /** The message that made it. */
+  /** The message that set the thread waiting. */
   messageId: string;
   withdrawnAt: string | null;
   runLogs: { agent: string; from: string; until: string | null }[];
@@ -69,32 +69,32 @@ export interface StageAsks {
   review: boolean;
 }
 
-/** The agents, the waiting requests, what threads and items show of requests, and what each stage may ask for, as the page shows them. */
+/** The agents, the threads waiting for an agent, what threads and items show of them, and what each stage may ask for, as the page shows them. */
 export interface DeskView {
   agents: AgentView[];
-  requests: RequestState[];
-  notes: RequestNote[];
+  waiting: WaitingThreadState[];
+  notes: WaitNote[];
   findings: FindingView[];
   asks: StageAsks[];
 }
 
 /**
- * An action of the spec owner's that may concern requests agents have,
- * asked about before it is carried out.
+ * An action of the spec owner's that may concern threads agents have, asked
+ * about before it is carried out.
  */
 export type SpecOwnerAction =
   | { kind: "resolve thread"; moduleId: string; threadId: string }
   /**
    * A message in a thread, or one opening a thread, on a unit or on the
-   * stage itself; its change request made anew and given to `to`, or to none.
+   * stage itself; it sets the thread waiting anew, assigned to `to`, or to none.
    */
   | { kind: "send message"; moduleId: string; stage: string; unitId: string | null; threadId: string | null; to: AgentId | null }
   | { kind: "change items"; moduleId: string; stages: readonly string[] }
-  | { kind: "give"; key: string; agentId: AgentId }
+  | { kind: "assign"; key: string; agentId: AgentId }
   /** Undo, redo or going to a step: the modules as the move would leave them. */
-  | { kind: "move in history"; after: readonly RequestModule[] };
+  | { kind: "move in history"; after: readonly ProjectModule[] };
 
-/** An agent's write of items, as the requests agents have may refuse it. */
+/** An agent's write of items, as the threads agents have may refuse it. */
 export interface AgentWrite {
   moduleId: string;
   /** The stages its changes change. */
@@ -106,18 +106,18 @@ export interface AgentWrite {
 }
 
 /**
- * An action of the spec owner's refused because it concerns requests agents
- * have: carried out once the spec owner confirms stopping them.
+ * An action of the spec owner's refused because it concerns threads agents
+ * have: carried out once the spec owner confirms stopping those agents.
  */
-export class RequestsConcernedError extends UserFacingError {
-  constructor(readonly requests: RequestState[]) {
-    super(`This concerns ${requests.length === 1 ? "a request an agent has" : "requests agents have"}: ${requests.map(({ summary }) => summary).join("; ")}. Stop ${requests.length === 1 ? "it" : "them"} first.`);
-    this.name = "RequestsConcernedError";
+export class ThreadsConcernedError extends UserFacingError {
+  constructor(readonly threads: WaitingThreadState[]) {
+    super(`This concerns ${threads.length === 1 ? "a thread an agent has" : "threads agents have"}: ${threads.map(({ summary }) => summary).join("; ")}. Stop ${threads.length === 1 ? "that agent" : "those agents"} first.`);
+    this.name = "ThreadsConcernedError";
   }
 }
 
 /** A stage's items as a change to them is told apart, signatures left out: signing changes no item. */
-function itemsOf(store: RequestModule["store"], stage: string): string {
+function itemsOf(store: ProjectModule["store"], stage: string): string {
   const node = store.stages.get(stage);
   return node == null ? "[]" : JSON.stringify(getSnapshot(node).items.map(({ id, kind, content, references, dependencies }) => [id, kind, content, references, dependencies]));
 }
@@ -125,14 +125,15 @@ function itemsOf(store: RequestModule["store"], stage: string): string {
 const now = () => new Date().toISOString();
 
 /**
- * The open project's requests: what each one was made by, how it ended and
- * its run logs, kept beside the project through `keep`, which no undo, redo
- * or step gone to moves; and which agent has each, kept in memory only, so
- * a project that opens has every request no agent's. Whether a request
- * waits is read from the record and the modules each time.
+ * The open project's threads waiting for an agent: the message that set
+ * each wait, how it ended and its run logs, kept beside the project through
+ * `keep`, which no undo, redo or step gone to moves; and which agent has
+ * each, kept in memory only, so a project that opens has every waiting
+ * thread no agent's. Whether a thread waits is read from the record and the
+ * modules each time.
  */
 export class AgentDesk {
-  private records: RequestRecord[] = [];
+  private records: WaitRecord[] = [];
   private readonly held = new Map<string, { agentId: AgentId; since: string }>();
   private readonly failures = new Map<string, string>();
   private readonly listeners = new Set<() => void>();
@@ -141,9 +142,9 @@ export class AgentDesk {
   constructor(
     readonly roster: AgentRoster,
     /** The open project's modules; none while no project is open. */
-    private readonly modules: () => readonly RequestModule[],
-    /** Keep the requests beside the open project. */
-    private readonly keep: (records: readonly RequestRecord[]) => void,
+    private readonly modules: () => readonly ProjectModule[],
+    /** Keep the waits beside the open project. */
+    private readonly keep: (records: readonly WaitRecord[]) => void,
   ) {
     roster.subscribe(() => this.releaseUnavailable());
   }
@@ -153,7 +154,7 @@ export class AgentDesk {
     return () => this.listeners.delete(listener);
   }
 
-  /** Hear of each request given to an agent and of each one stopped, for the agent to be told. */
+  /** Hear of each thread assigned to an agent and of each agent stopped, for the agent to be told. */
   subscribeNotices(listener: (agentId: AgentId, notice: AgentNotice) => void): () => void {
     this.noticeListeners.add(listener);
     return () => this.noticeListeners.delete(listener);
@@ -168,16 +169,16 @@ export class AgentDesk {
   }
 
   /** Change the records and keep them. */
-  private save(records: RequestRecord[]): void {
+  private save(records: WaitRecord[]): void {
     this.records = records;
     this.keep(records);
   }
 
-  private update(key: string, change: (record: RequestRecord) => RequestRecord): void {
+  private update(key: string, change: (record: WaitRecord) => WaitRecord): void {
     this.save(this.records.map((record) => (record.id === key ? change(record) : record)));
   }
 
-  /** The request's run log open now, if one is, closed. */
+  /** The wait's run log open now, if one is, closed. */
   private closeRunLog(key: string): void {
     const record = this.records.find(({ id }) => id === key);
     if (record == null || !record.runLogs.some(({ until }) => until == null)) return;
@@ -185,156 +186,157 @@ export class AgentDesk {
     this.update(key, (found) => ({ ...found, runLogs: found.runLogs.map((log) => (log.until == null ? { ...log, until: at } : log)) }));
   }
 
-  /** No agent has the request any more. */
+  /** No agent has the thread any more. */
   private release(key: string): void {
     this.held.delete(key);
     this.closeRunLog(key);
   }
 
-  /** An agent that is no longer available has no request; its run logs end. */
+  /** An agent that is no longer available has no thread; its run logs end. */
   private releaseUnavailable(): void {
     for (const [key, { agentId }] of [...this.held]) if (!this.roster.isAvailable(agentId)) this.release(key);
     this.changed();
   }
 
   /**
-   * The project opened, with the requests its record kept: every waiting
-   * request is no agent's, and a run log still open ends with its last entry.
+   * The project opened, with the waits its record kept: every thread waiting
+   * for an agent is no agent's, and a run log still open ends with its last
+   * entry.
    */
   load(value: unknown): void {
     this.held.clear();
     this.failures.clear();
-    this.records = parseRequestRecords(value).map((record) => ({
+    this.records = parseWaitRecords(value).map((record) => ({
       ...record,
       runLogs: record.runLogs.map((log) => (log.until == null ? { ...log, until: log.entries.at(-1)?.at ?? log.from } : log)),
     }));
     this.changed();
   }
 
-  private module(moduleId: string): RequestModule {
+  private module(moduleId: string): ProjectModule {
     const found = this.modules().find(({ id }) => id === moduleId);
     if (found == null) throw new UserFacingError("That module is no longer open.");
     return found;
   }
 
-  /** The requests made in the open project, ended or not. */
-  requestRecords(): readonly RequestRecord[] {
+  /** The waits of the open project, ended or not. */
+  waitRecords(): readonly WaitRecord[] {
     return this.records;
   }
 
-  waiting(): AgentRequest[] {
-    return waitingRequests(this.modules(), this.records);
+  waiting(): WaitingThread[] {
+    return waitingThreads(this.modules(), this.records);
   }
 
-  private waitingRequest(key: string): AgentRequest {
-    const request = this.waiting().find((candidate) => candidate.key === key);
-    if (request == null) throw new UserFacingError("That request no longer waits.");
-    return request;
+  private waitingThread(key: string): WaitingThread {
+    const waiting = this.waiting().find((candidate) => candidate.key === key);
+    if (waiting == null) throw new UserFacingError("That thread no longer waits for an agent.");
+    return waiting;
   }
 
-  /** The change request that waits in a thread, if one does. */
-  waitingIn(moduleId: string, threadId: string): AgentRequest | null {
-    return this.waiting().find((request) => request.moduleId === moduleId && request.thread.id === threadId) ?? null;
+  /** The wait of a thread, if it waits for an agent. */
+  waitingIn(moduleId: string, threadId: string): WaitingThread | null {
+    return this.waiting().find((waiting) => waiting.moduleId === moduleId && waiting.thread.id === threadId) ?? null;
   }
 
-  /** The waiting request with this id that an agent has; refused when it no longer waits or another agent has it. */
-  requireHeldRequest(agentId: AgentId, key: string): AgentRequest {
-    const request = this.waitingRequest(key);
-    if (this.holderOf(key)?.agentId !== agentId) throw new UserFacingError("That request is not yours, so only the agent that has it can answer it.");
-    return request;
+  /** The waiting thread with this key that an agent has; refused when it no longer waits or another agent has it. */
+  requireHeld(agentId: AgentId, key: string): WaitingThread {
+    const waiting = this.waitingThread(key);
+    if (this.holderOf(key)?.agentId !== agentId) throw new UserFacingError("That thread is not assigned to you, so only the agent it is assigned to can answer it.");
+    return waiting;
   }
 
-  summary(request: AgentRequest): string {
-    return requestSummary(request, this.module(request.moduleId).store);
+  summary(waiting: WaitingThread): string {
+    return threadSummary(waiting, this.module(waiting.moduleId).store);
   }
 
-  /** The agent that has a request and since when; null while no agent has it. */
+  /** The agent that has a waiting thread and since when; null while no agent has it. */
   holderOf(key: string): { agentId: AgentId; since: string } | null {
     const holding = this.held.get(key);
     return holding == null || !this.roster.isAvailable(holding.agentId) ? null : holding;
   }
 
-  /** Every waiting request an agent has. */
-  heldRequests(): (AgentRequest & { agentId: AgentId; since: string })[] {
-    return this.waiting().flatMap((request) => {
-      const holding = this.holderOf(request.key);
-      return holding == null ? [] : [{ ...request, ...holding }];
+  /** Every waiting thread an agent has. */
+  heldThreads(): (WaitingThread & { agentId: AgentId; since: string })[] {
+    return this.waiting().flatMap((waiting) => {
+      const holding = this.holderOf(waiting.key);
+      return holding == null ? [] : [{ ...waiting, ...holding }];
     });
   }
 
-  /** The request on a stage itself that makes a stage read-only to all but the agent that has it: one on that stage or on a stage it builds on. */
-  readOnlyBy(moduleId: string, stage: string, held = this.heldRequests()): (AgentRequest & { agentId: AgentId }) | null {
-    return readOnlyRequest(held, this.module(moduleId).store, moduleId, stage);
+  /** The thread on a stage itself that makes a stage read-only to all but the agent that has it: one on that stage or on a stage it builds on. */
+  readOnlyBy(moduleId: string, stage: string, held = this.heldThreads()): (WaitingThread & { agentId: AgentId }) | null {
+    return readOnlyThread(held, this.module(moduleId).store, moduleId, stage);
   }
 
-  /** The agents a request can be given to now. */
-  givableTo(request: AgentRequest, held = this.heldRequests()): AgentId[] {
-    if (this.holderOf(request.key) != null) return [];
-    const { store } = this.module(request.moduleId);
-    if (!store.stageOpen(request.stage)) return [];
-    const readOnly = this.readOnlyBy(request.moduleId, request.stage, held);
+  /** The agents a waiting thread can be assigned to now. */
+  assignableTo(waiting: WaitingThread, held = this.heldThreads()): AgentId[] {
+    if (this.holderOf(waiting.key) != null) return [];
+    const { store } = this.module(waiting.moduleId);
+    if (!store.stageOpen(waiting.stage)) return [];
+    const readOnly = this.readOnlyBy(waiting.moduleId, waiting.stage, held);
     const available = this.roster.available().map(({ id }) => id);
     return readOnly == null ? available : available.filter((id) => id === readOnly.agentId);
   }
 
   /**
-   * A request in a stage of a module may go to an agent: the agent is
-   * available, the stage is open, and no other agent's request on a stage
+   * A thread in a stage of a module may be assigned to an agent: the agent
+   * is available, the stage is open, and no other agent's thread on a stage
    * itself makes the stage read-only.
    */
-  requireGivable(moduleId: string, stage: string, agentId: AgentId): void {
+  requireAssignable(moduleId: string, stage: string, agentId: AgentId): void {
     if (this.roster.nameOf(agentId) == null) throw new UserFacingError("That agent is no longer available.");
     const { store } = this.module(moduleId);
-    if (!store.stageOpen(stage)) throw new UserFacingError(`${store.workflow.stage(stage).label} is closed, so its requests can be given once it opens.`);
+    if (!store.stageOpen(stage)) throw new UserFacingError(`${store.workflow.stage(stage).label} is closed, so its threads can be assigned once it opens.`);
     const readOnly = this.readOnlyBy(moduleId, stage);
     if (readOnly != null && readOnly.agentId !== agentId) {
-      throw new UserFacingError(`${this.summary(readOnly)} is with ${this.roster.nameOf(readOnly.agentId)}, so this request can go to that agent only.`);
+      throw new UserFacingError(`${this.summary(readOnly)} is with ${this.roster.nameOf(readOnly.agentId)}, so this thread can be assigned to that agent only.`);
     }
   }
 
-  /** The spec owner's message `messageId` in a thread made a request; returns its id. Whatever waited in the thread before is made anew, once settled. */
-  make(moduleId: string, threadId: string, messageId: string): string {
-    const record: RequestRecord = { id: uuid(), moduleId, threadId, messageId, madeAt: now(), ended: null, runLogs: [] };
+  /** The spec owner's message `messageId` in a thread set it waiting; returns the wait's key. Whatever waited in the thread before ends once settled. */
+  setWaiting(moduleId: string, threadId: string, messageId: string): string {
+    const record: WaitRecord = { id: uuid(), moduleId, threadId, messageId, since: now(), ended: null, runLogs: [] };
     this.save([...this.records, record]);
     this.changed();
     return record.id;
   }
 
   /**
-   * Give a waiting request no agent has to an available agent. Refused for a
-   * request whose stage is closed, for a unit or stage another agent's
-   * request on a stage itself makes read-only, and while requests of other
+   * Assign a waiting thread no agent has to an available agent. Refused for
+   * a thread whose stage is closed, for a unit or stage another agent's
+   * thread on a stage itself makes read-only, and while threads of other
    * agents would be made read-only by it: the spec owner stops those first.
    */
-  give(key: string, agentId: AgentId): void {
-    const request = this.waitingRequest(key);
+  assign(key: string, agentId: AgentId): void {
+    const waiting = this.waitingThread(key);
     const holder = this.holderOf(key);
-    if (holder != null) throw new UserFacingError(`${this.roster.nameOf(holder.agentId)} has that request. Stop it first.`);
-    this.requireGivable(request.moduleId, request.stage, agentId);
+    if (holder != null) throw new UserFacingError(`${this.roster.nameOf(holder.agentId)} has that thread. Stop it first.`);
+    this.requireAssignable(waiting.moduleId, waiting.stage, agentId);
     const name = this.roster.nameOf(agentId)!;
-    const concerned = this.concernedBy({ kind: "give", key, agentId });
+    const concerned = this.concernedBy({ kind: "assign", key, agentId });
     if (concerned.length > 0) {
-      throw new UserFacingError(`Stop first what other agents have there: ${concerned.map(({ summary }) => summary).join("; ")}.`);
+      throw new UserFacingError(`Stop first the agents working there: ${concerned.map(({ summary }) => summary).join("; ")}.`);
     }
     const since = now();
     this.held.set(key, { agentId, since });
     this.failures.delete(key);
-    // What an agent Requireganizer runs does with the request is kept with it from now on.
+    // What an agent Requireganizer runs does with the thread is kept with it from now on.
     if (this.roster.runAgent(agentId) != null) {
       this.update(key, (record) => ({ ...record, runLogs: [...record.runLogs, { agent: name, from: since, until: null, entries: [] }] }));
     }
     this.changed();
-    this.notify(agentId, { type: "given", request, summary: this.summary(request) });
+    this.notify(agentId, { type: "assigned", waiting, summary: this.summary(waiting) });
   }
 
-  /** Take a request back from the agent that has it, which is told so; the request still waits. */
+  /** Stop the agent working on a thread, which is told so; the thread still waits for an agent. */
   stop(key: string): void {
     const holder = this.holderOf(key);
     this.release(key);
     if (holder == null) return;
     this.changed();
-    const request = this.waiting().find((candidate) => candidate.key === key);
-    if (request != null) this.notify(holder.agentId, { type: "stopped", request, summary: this.summary(request) });
+    const waiting = this.waiting().find((candidate) => candidate.key === key);
+    if (waiting != null) this.notify(holder.agentId, { type: "stopped", waiting, summary: this.summary(waiting) });
   }
 
   stopAll(keys: readonly string[]): void {
@@ -342,20 +344,20 @@ export class AgentDesk {
   }
 
   /**
-   * The agent that has a request failed to answer it, such as when its AI
-   * provider failed or it reported it cannot: the request is no agent's
-   * and still waits, shown with why until it is given again.
+   * The agent that has a thread failed to answer it, such as when its AI
+   * provider failed or it reported it cannot: the thread is no agent's and
+   * still waits, shown with why until it is assigned again.
    */
   fail(key: string, agentId: AgentId, why: string): void {
     const holder = this.holderOf(key);
-    if (holder?.agentId !== agentId) throw new UserFacingError("That request is not yours, so only the agent that has it can report it.");
-    if (why.trim().length === 0) throw new UserFacingError("Say why the request cannot be answered.");
+    if (holder?.agentId !== agentId) throw new UserFacingError("That thread is not assigned to you, so only the agent it is assigned to can report it.");
+    if (why.trim().length === 0) throw new UserFacingError("Say why the thread cannot be answered.");
     this.release(key);
     this.failures.set(key, why.trim());
     this.changed();
   }
 
-  /** The agent that has a request replied in its thread: it no longer waits, and no agent has it. */
+  /** The agent that has a thread replied in it: it no longer waits, and no agent has it. */
   answered(key: string): void {
     this.release(key);
     this.update(key, (record) => ({ ...record, ended: { how: "answered", at: now() } }));
@@ -363,23 +365,24 @@ export class AgentDesk {
   }
 
   /**
-   * Withdraw a waiting request no agent has: it no longer waits, and its
-   * thread shows that it was withdrawn and when. The project does not change.
+   * Withdraw a thread no agent has from waiting for an agent: it no longer
+   * waits, and it shows that it was withdrawn and when. The project does not
+   * change.
    */
   withdraw(key: string): void {
-    this.waitingRequest(key);
+    this.waitingThread(key);
     const holder = this.holderOf(key);
-    if (holder != null) throw new UserFacingError(`${this.roster.nameOf(holder.agentId)} has that request. Stop it before withdrawing it.`);
+    if (holder != null) throw new UserFacingError(`${this.roster.nameOf(holder.agentId)} has that thread. Stop it before withdrawing the thread.`);
     this.failures.delete(key);
     this.update(key, (record) => ({ ...record, ended: { how: "withdrawn", at: now() } }));
     this.changed();
   }
 
   /**
-   * Once a change is made, end each request its thread's resolution or a
-   * later message of the spec owner's ended, and let go of what no longer
-   * waits. A request whose message the change took back is left as it is,
-   * so that bringing the message back brings it back.
+   * Once a change is made, end each wait its thread's resolution or a later
+   * message of the spec owner's ended, and let go of what no longer waits.
+   * A wait whose message the change took back is left as it is, so that
+   * bringing the message back brings it back.
    */
   settle(): void {
     const modules = this.modules();
@@ -404,7 +407,7 @@ export class AgentDesk {
     if (dropped) this.changed();
   }
 
-  /** Keep what an agent Requireganizer runs did with a request it has; nothing once it no longer has it. */
+  /** Keep what an agent Requireganizer runs did with a thread it has; nothing once it no longer has it. */
   logRun(key: string, agentId: AgentId, entry: RunLogEntry): void {
     if (this.holderOf(key)?.agentId !== agentId) return;
     this.update(key, (record) => ({
@@ -413,12 +416,12 @@ export class AgentDesk {
     }));
   }
 
-  /** The run logs kept with a request, oldest first. */
+  /** The run logs kept with a wait, oldest first. */
   runLogs(key: string): RunLog[] {
     return this.records.find(({ id }) => id === key)?.runLogs ?? [];
   }
 
-  /** Why the requests other agents have refuse an agent's write; empty when they do not. */
+  /** Why the threads other agents have refuse an agent's write; empty when they do not. */
   writeProblems(agentId: AgentId, write: AgentWrite): string[] {
     const { store } = this.module(write.moduleId);
     const label = (stage: string) => store.workflow.stage(stage).label;
@@ -429,101 +432,101 @@ export class AgentDesk {
         problems.push(`${label(stage)} takes changes only from ${this.roster.nameOf(readOnly.agentId)} while it has “${this.summary(readOnly)}”.`);
       }
     }
-    for (const request of this.heldRequests()) {
-      if (request.moduleId !== write.moduleId || request.agentId === agentId || !write.closes.includes(request.stage)) continue;
-      problems.push(`This write closes ${label(request.stage)}, where ${this.roster.nameOf(request.agentId)} has “${this.summary(request)}”.`);
+    for (const waiting of this.heldThreads()) {
+      if (waiting.moduleId !== write.moduleId || waiting.agentId === agentId || !write.closes.includes(waiting.stage)) continue;
+      problems.push(`This write closes ${label(waiting.stage)}, where ${this.roster.nameOf(waiting.agentId)} has “${this.summary(waiting)}”.`);
     }
     for (const threadId of write.answers) {
-      const request = this.waitingIn(write.moduleId, threadId);
-      if (request == null) problems.push(`No change request waits in thread ${threadId}, so no write answers it. Add a message with reply_to_thread instead.`);
-      else if (this.holderOf(request.key)?.agentId !== agentId) problems.push(`The change request of thread ${threadId} is not yours, so you may add a message to it but not answer it with changes.`);
+      const waiting = this.waitingIn(write.moduleId, threadId);
+      if (waiting == null) problems.push(`Thread ${threadId} does not wait for an agent, so no write answers it. Add a message with reply_to_thread instead.`);
+      else if (this.holderOf(waiting.key)?.agentId !== agentId) problems.push(`Thread ${threadId} is not assigned to you, so you may add a message to it but not answer it with changes.`);
     }
     return problems;
   }
 
-  /** The requests other agents have in a stage or in a stage building on it, which a request on that stage itself, given to `agentId`, would make read-only. */
-  private madeReadOnly(held: ReturnType<AgentDesk["heldRequests"]>, moduleId: string, stage: string, agentId: AgentId): typeof held {
+  /** The threads other agents have in a stage or in a stage building on it, which a thread on that stage itself, assigned to `agentId`, would make read-only. */
+  private madeReadOnly(held: ReturnType<AgentDesk["heldThreads"]>, moduleId: string, stage: string, agentId: AgentId): typeof held {
     const { workflow } = this.module(moduleId).store;
-    return held.filter((request) => request.moduleId === moduleId && request.agentId !== agentId && (request.stage === stage || workflow.buildsOn(request.stage, stage)));
+    return held.filter((waiting) => waiting.moduleId === moduleId && waiting.agentId !== agentId && (waiting.stage === stage || workflow.buildsOn(waiting.stage, stage)));
   }
 
   /**
-   * The requests agents have that an action of the spec owner's would end,
-   * whose stage it would close, whose read-only stage it would change, or
-   * that would be in a stage it makes read-only to another agent: the
-   * spec owner confirms stopping them before it is carried out.
+   * The threads agents have whose wait an action of the spec owner's would
+   * end, whose stage it would close, whose read-only stage it would change,
+   * or that would be in a stage it makes read-only to another agent: the
+   * spec owner confirms stopping those agents before it is carried out.
    */
-  concernedBy(action: SpecOwnerAction): RequestState[] {
-    const held = this.heldRequests();
+  concernedBy(action: SpecOwnerAction): WaitingThreadState[] {
+    const held = this.heldThreads();
     const concerned = (() => {
       switch (action.kind) {
         case "resolve thread":
-          return held.filter((request) => request.moduleId === action.moduleId && request.thread.id === action.threadId);
+          return held.filter((waiting) => waiting.moduleId === action.moduleId && waiting.thread.id === action.threadId);
         case "send message": {
-          const ended = held.filter((request) => request.moduleId === action.moduleId && action.threadId != null && request.thread.id === action.threadId && request.agentId !== action.to);
+          const ended = held.filter((waiting) => waiting.moduleId === action.moduleId && action.threadId != null && waiting.thread.id === action.threadId && waiting.agentId !== action.to);
           if (action.to == null || action.unitId != null) return ended;
-          const readOnly = this.madeReadOnly(held, action.moduleId, action.stage, action.to).filter((request) => !ended.includes(request) && request.thread.id !== action.threadId);
+          const readOnly = this.madeReadOnly(held, action.moduleId, action.stage, action.to).filter((waiting) => !ended.includes(waiting) && waiting.thread.id !== action.threadId);
           return [...ended, ...readOnly];
         }
         case "change items": {
           const { store } = this.module(action.moduleId);
           const { workflow } = store;
-          return held.filter((request) => {
-            if (request.moduleId !== action.moduleId) return false;
-            const readOnlyHere = makesReadOnly(request) && action.stages.some((stage) => stage === request.stage || workflow.buildsOn(stage, request.stage));
-            const closes = action.stages.some((stage) => store.stageComplete(stage) && workflow.buildsOn(request.stage, stage));
+          return held.filter((waiting) => {
+            if (waiting.moduleId !== action.moduleId) return false;
+            const readOnlyHere = makesReadOnly(waiting) && action.stages.some((stage) => stage === waiting.stage || workflow.buildsOn(stage, waiting.stage));
+            const closes = action.stages.some((stage) => store.stageComplete(stage) && workflow.buildsOn(waiting.stage, stage));
             return readOnlyHere || closes;
           });
         }
-        case "give": {
-          const given = this.waitingRequest(action.key);
-          return makesReadOnly(given) ? this.madeReadOnly(held, given.moduleId, given.stage, action.agentId) : [];
+        case "assign": {
+          const assigned = this.waitingThread(action.key);
+          return makesReadOnly(assigned) ? this.madeReadOnly(held, assigned.moduleId, assigned.stage, action.agentId) : [];
         }
         case "move in history": {
-          const waitingAfter = new Set(waitingRequests(action.after, this.records).map(({ key }) => key));
-          return held.filter((request) => {
-            const before = this.module(request.moduleId).store;
-            const after = action.after.find(({ id }) => id === request.moduleId)?.store;
-            if (after == null || !waitingAfter.has(request.key)) return true;
-            if (before.stageOpen(request.stage) && !after.stageOpen(request.stage)) return true;
-            if (!makesReadOnly(request)) return false;
+          const waitingAfter = new Set(waitingThreads(action.after, this.records).map(({ key }) => key));
+          return held.filter((waiting) => {
+            const before = this.module(waiting.moduleId).store;
+            const after = action.after.find(({ id }) => id === waiting.moduleId)?.store;
+            if (after == null || !waitingAfter.has(waiting.key)) return true;
+            if (before.stageOpen(waiting.stage) && !after.stageOpen(waiting.stage)) return true;
+            if (!makesReadOnly(waiting)) return false;
             return before.workflow.stageIds.some((stage) => {
-              if (stage !== request.stage && !before.workflow.buildsOn(stage, request.stage)) return false;
+              if (stage !== waiting.stage && !before.workflow.buildsOn(stage, waiting.stage)) return false;
               return itemsOf(before, stage) !== itemsOf(after, stage);
             });
           });
         }
       }
     })();
-    return concerned.map((request) => this.state(request, held));
+    return concerned.map((waiting) => this.state(waiting, held));
   }
 
-  private state(request: AgentRequest, held: ReturnType<AgentDesk["heldRequests"]>): RequestState {
-    const holding = this.holderOf(request.key);
+  private state(waiting: WaitingThread, held: ReturnType<AgentDesk["heldThreads"]>): WaitingThreadState {
+    const holding = this.holderOf(waiting.key);
     return {
-      ...request,
-      summary: this.summary(request),
+      ...waiting,
+      summary: this.summary(waiting),
       holder: holding == null ? null : { ...holding, name: this.roster.nameOf(holding.agentId)! },
-      failure: this.failures.get(request.key) ?? null,
-      givableTo: this.givableTo(request, held),
-      stageOpen: this.module(request.moduleId).store.stageOpen(request.stage),
+      failure: this.failures.get(waiting.key) ?? null,
+      assignableTo: this.assignableTo(waiting, held),
+      stageOpen: this.module(waiting.moduleId).store.stageOpen(waiting.stage),
     };
   }
 
   /**
    * Let an action of the spec owner's be carried out: refused while it
-   * concerns requests agents have, unless `stopping` names each of them,
-   * which are then stopped.
+   * concerns threads agents have, unless `stopping` names each of them,
+   * whose agents are then stopped.
    */
   clear(action: SpecOwnerAction, stopping: readonly string[] = []): void {
     const concerned = this.concernedBy(action);
     const unconfirmed = concerned.filter(({ key }) => !stopping.includes(key));
-    if (unconfirmed.length > 0) throw new RequestsConcernedError(concerned);
+    if (unconfirmed.length > 0) throw new ThreadsConcernedError(concerned);
     this.stopAll(concerned.map(({ key }) => key));
   }
 
   /** Every finding the replies of the open project's modules give, whatever module the item it names is of. */
-  private findings(modules: readonly RequestModule[]): FindingView[] {
+  private findings(modules: readonly ProjectModule[]): FindingView[] {
     return modules.flatMap((module) =>
       module.store.threads.flatMap((thread) =>
         thread.messages.flatMap(({ id, author, at, ...message }) =>
@@ -535,8 +538,8 @@ export class AgentDesk {
 
   view(): DeskView {
     const modules = this.modules();
-    const held = this.heldRequests();
-    const notes = this.records.flatMap((record): RequestNote[] => {
+    const held = this.heldThreads();
+    const notes = this.records.flatMap((record): WaitNote[] => {
       const withdrawnAt = record.ended?.how === "withdrawn" ? record.ended.at : null;
       if (withdrawnAt == null && record.runLogs.length === 0) return [];
       return [{ key: record.id, moduleId: record.moduleId, threadId: record.threadId, messageId: record.messageId, withdrawnAt, runLogs: record.runLogs.map(({ agent, from, until }) => ({ agent, from, until })) }];
@@ -548,6 +551,6 @@ export class AgentDesk {
         return write.length === 0 && !review ? [] : [{ moduleId: module.id, stage, write, review }];
       }),
     );
-    return { agents: this.roster.list(), requests: this.waiting().map((request) => this.state(request, held)), notes, findings: this.findings(modules), asks };
+    return { agents: this.roster.list(), waiting: this.waiting().map((waiting) => this.state(waiting, held)), notes, findings: this.findings(modules), asks };
   }
 }

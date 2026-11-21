@@ -26,27 +26,26 @@ tool signs.
 - Give yourself a name with `name_yourself` before anything else: the one
   your user calls you by, or ask them.
 - Call `get_workflow_state` first, and again after anything changes. Its
-  `threadsWaitingForYou` lists the requests the person gave you, each in its
-  thread: a change, or the writing or a review of the thread's stage, as its
-  `asks` says. Read each thread with `get_thread`.
-- For a request to write a stage, write it with `write_items`, then answer
-  the thread with a reply, in the `answers` of your last write or with
+  `threadsAssignedToYou` lists the threads the person assigned you, each with
+  its `id`: an answer to their message, or the writing or a review of the
+  thread's stage, as its `asks` says. Read each thread with `get_thread`.
+- For a thread asking to write a stage, write it with `write_items`, then
+  answer the thread with a reply, in the `answers` of your last write or with
   `reply_to_thread`.
-- For a request to review a stage, check each item against the published
+- For a thread asking to review a stage, check each item against the published
   rules of its kind, then answer the thread with `reply_to_thread`, giving
   `findings`: each names an item, the rule exactly as `get_stage_rules`
   publishes it, and how the item breaks it; give none when no item breaks a
   rule.
-- When you cannot answer a request given to you, pass its request's id to
-  `report_cannot_answer` with why.
+- When you cannot answer a thread assigned to you, pass its `id`, which
+  names its module, to `report_cannot_answer` with why.
 - Before writing a stage, read the rules of each kind of item it holds with
   `get_stage_rules`, and follow them: the person signs against the same
   rules.
 - To work on a module other than the one the person has open, pass `module`
   to a tool that takes one, named by `get_workflow_state` under
-  `otherModules` or by a request given to you. Codes and `codesVersion` are
-  then that module's. The tools that answer a request take its id, which
-  names its module.
+  `otherModules` or by a thread assigned to you. Codes and `codesVersion` are
+  then that module's.
 - Read items with `get_items` again before changing or citing them, rather
   than relying on an earlier read: codes are positions and move.
 
@@ -101,25 +100,25 @@ tool signs.
 - When you lack the information a stage needs, ask the person. Do not invent
   scope.
 
-## Change requests from the person
+## Threads from the person
 
-- Answer the threads `get_workflow_state` lists as waiting for you, on an
+- Answer the threads `get_workflow_state` lists as assigned to you, on an
   item, coverage or impact or on a stage itself. To change items, use
   `write_items` and name the thread in its `answers`, with a reply saying
   what changed. To ask or to disagree, use `reply_to_thread`. Any reply of
-  yours to a request you have may give `findings`, with or without changes.
-  Only the person resolves a thread.
-- You may add a message to a thread whose request another agent has, or
-  that has none, but with no changes and no findings; the request stays
-  with the agent that has it.
+  yours to a thread assigned to you may give `findings`, with or without
+  changes. Only the person resolves a thread.
+- You may add a message to a thread assigned to another agent, or to none,
+  but with no changes and no findings; the thread stays with the agent it is
+  assigned to.
 - A thread in a stage that your change to an earlier stage closes waits:
   change the earlier stage without answering it, and answer it once its
   stage is open again.
 - Answer a thread in the thread only. Its reply is where you tell the person
   what changed or what waits; do not repeat, summarize or announce it in your
   conversation with them.
-- Each reply speaks only to its thread's request and makes sense read on its
-  own.
+- Each reply speaks only to what its thread asks and makes sense read on
+  its own.
 - Give an item's code in a reply only inside a marked mention of that item:
   `[CODE](item:ID)`, with the code and id `get_items` gives the item, or
   `[Module name/CODE](item:ID)` for an item of another module than the

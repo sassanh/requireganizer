@@ -9,12 +9,11 @@ import { ActionTooltip } from "actions/ActionHint";
 import { signShortcut, threadShortcut } from "actions/actions";
 
 import { signerLabel, type SignatureRecord } from "../records";
-import { waitsForSpecOwner } from "../threads";
 import { NOT_APPROVED_REASON_LABELS, type NotApprovedReason } from "../units";
 import { useWorkflowView } from "./context";
 import { FRAME_PLACEHOLDER_HEIGHT, useFrameContentShown } from "./frameSchedule";
 import { SIGNATURE_STATE_CHIP_VARIANT, SIGNATURE_STATE_EDGE, SIGNATURE_STATE_PALETTE, signatureStateOf } from "./signatureState";
-import { Slot, useThreadsWithAgent } from "./slots";
+import { Slot, useWaitsForSpecOwner } from "./slots";
 import { THREAD_BUTTON } from "./ThreadView";
 
 /** Who gave a signature and when, and whether it still counts. */
@@ -84,13 +83,13 @@ const UnitFrame = observer(function UnitFrame({
   const settles = new Set(signable ? module.signatureSettles(unitId) : []);
   const threads = module.threadsOf(unitId);
   const open = threads.find(({ resolution }) => resolution == null);
-  const threadsWithAgent = useThreadsWithAgent();
-  const waitsForYou = open != null && waitsForSpecOwner(open, threadsWithAgent.has(open.id));
-  /** The thread button is orange while the open thread waits for you, neutral while it waits on an agent, and a normal action once no thread is open. */
+  const waitsForSpecOwner = useWaitsForSpecOwner();
+  const waitsForYou = open != null && waitsForSpecOwner(open);
+  /** The thread button is orange while the open thread waits for you, neutral while it waits for someone else, and a normal action once no thread is open. */
   const threadVariant = open == null ? "text" : waitsForYou ? "contained" : "outlined";
   const threadColor = open == null ? "primary" : waitsForYou ? "warning" : "inherit";
   const threadTitle = open == null ? "" : waitsForYou ? "Waits for you" : "Open thread";
-  const threadLabel = threads.length > 0 ? "Thread" : "Request a change";
+  const threadLabel = threads.length > 0 ? "Thread" : "New thread";
   return (
     <Paper
       ref={frame}

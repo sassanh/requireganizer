@@ -7,6 +7,9 @@ import type { ModuleChange, ModuleDifference, PreviewTarget, StateDifference, Th
 import { getUserFacingErrorMessage } from "lib/errors";
 import { useProject } from "projectContext";
 import { WORKFLOW } from "store";
+import { ItemPreviewProvider, ThreadOwner } from "workflow/ui";
+
+import InModule from "./InModule";
 
 /** What a list reads: what a step changed, or what bringing an earlier state back would change. */
 type Reading = "step" | "bringing back";
@@ -38,6 +41,38 @@ export function differingParts(unit: Extract<UnitDifference, { change: "change" 
   return [unit.content ? "text" : null, unit.signature ? "signature" : null, unit.threads ? "threads" : null, unit.place == null ? null : "place"]
     .filter((part) => part != null)
     .join(", ");
+}
+
+/**
+ * A thread whose messages or resolution differ: what it is on, a stage or a
+ * removed item, as the way to it in the project now, while its module is
+ * there.
+ */
+function ChangedThread({ thread, reading }: { thread: ThreadDifference; reading: Reading }) {
+  const { moduleStore, modulesEnabled } = useProject();
+  const store = moduleStore(thread.moduleId);
+  // A thread on the stage itself keeps no text of a unit.
+  const onStage = thread.text === "";
+  const changed = `${onStage ? `The thread on ${WORKFLOW.stage(thread.stage).label}` : `The thread on the removed item “${thread.text}”`} ${CHANGE_SIGNS.change.name[reading]}`;
+  return (
+    <Box component="span" aria-label={changed} sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, minWidth: 0, maxWidth: "100%", color: "warning.main" }}>
+      <Typography variant="caption">~ thread on</Typography>
+      {store == null ? (
+        <Typography variant="caption" noWrap>
+          {onStage ? WORKFLOW.stage(thread.stage).label : `“${thread.text}”`}
+        </Typography>
+      ) : (
+        <InModule store={store} moduleId={thread.moduleId}>
+          <ItemPreviewProvider>
+            <ThreadOwner
+              thread={{ id: thread.threadId, stage: thread.stage, unitId: onStage ? null : thread.unitId, removedUnit: onStage ? null : { name: thread.label, text: thread.text } }}
+              moduleName={modulesEnabled ? thread.module : null}
+            />
+          </ItemPreviewProvider>
+        </InModule>
+      )}
+    </Box>
+  );
 }
 
 /**
@@ -123,16 +158,7 @@ export default function DifferenceList({
               );
             })}
             {group.threads.map((thread) => (
-              <Tooltip key={thread.threadId} title={thread.text} describeChild>
-                <Typography
-                  variant="caption"
-                  tabIndex={0}
-                  sx={{ color: "warning.main", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%" }}
-                  aria-label={`The thread on the removed item “${thread.text}” ${CHANGE_SIGNS.change.name[reading]}`}
-                >
-                  ~ thread on “{thread.text}”
-                </Typography>
-              </Tooltip>
+              <ChangedThread key={thread.threadId} thread={thread} reading={reading} />
             ))}
           </Box>
         </Fragment>

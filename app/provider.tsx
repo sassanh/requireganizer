@@ -237,8 +237,9 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     return {
       activeModuleId,
       activeModuleName: registry?.modulesEnabled ? (registry.modules.find(({ id }) => id === activeModuleId)?.name ?? null) : null,
+      modules: moduleSummaries(registry).map(({ id, name }) => ({ id, name: registry?.modulesEnabled ? name : null })),
       moduleStore: client.moduleStore,
-      withRequestGivenTo: client.withRequestGivenTo,
+      withAssignment: client.withAssignment,
       client: client.agents,
       view: agents,
       offers,

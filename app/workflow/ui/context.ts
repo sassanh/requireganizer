@@ -92,11 +92,12 @@ export function useWorkflowView(): WorkflowView {
   return view;
 }
 
-/** Where a unit shows: its module, or null for the module the page shows, its stage, and the unit. */
+/** Where a unit shows: its module, or null for the module the page shows, its stage, and the unit, as `threadPlace` names a thread's; with `message`, its thread open with the focus on that message. */
 export interface UnitPlace {
   module: string | null;
   stage: string;
   unitId: string;
+  message?: MessagePlace | null;
 }
 
 /** A message of a thread, by the thread and the message's place in it. */

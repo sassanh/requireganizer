@@ -6,28 +6,42 @@ import { useState } from "react";
 
 import type { AgentId } from "../roster";
 
-/** The agent a request goes to with no choice made: the one agent it can go to, if exactly one; else none. */
-export function agentWithNoChoice(agents: readonly { id: AgentId }[]): AgentId | null {
-  return agents.length === 1 ? agents[0]!.id : null;
+type Agent = { id: AgentId; name: string };
+
+/**
+ * The agent a thread is assigned to as the spec owner sends a message in it
+ * with no other choice made: the agent that last replied in it, while it is
+ * available, else the only available agent, while exactly one is, else
+ * none; never one of `available` the thread cannot be assigned to now.
+ */
+export function preferredAgent(available: readonly Agent[], assignable: readonly Agent[], lastReplier: string | null): AgentId | null {
+  const can = (agent: Agent | undefined) => agent != null && assignable.some(({ id }) => id === agent.id);
+  const replied = lastReplier == null ? undefined : available.find(({ name }) => name === lastReplier);
+  if (can(replied)) return replied!.id;
+  const only = available.length === 1 ? available[0] : undefined;
+  return can(only) ? only!.id : null;
 }
 
 /**
- * Makes a request and gives it to an agent in the same act. With exactly
- * one agent to give it to, it goes to that agent unless the spec owner
- * chooses none from the chevron; with more, the chevron lists every one.
- * A note, when given, says why fewer agents are offered than are available.
+ * Sends a message and assigns its thread in the same act. The button itself
+ * sends to the preferred agent, or to none; the chevron lists every other
+ * agent the thread can be assigned to, and no agent. A note, when given,
+ * says why fewer agents are offered than are available.
  */
 export default function SendButton({
   label,
   agents,
+  preferred,
   note = null,
   disabled = false,
   onSend,
 }: {
-  /** What sending does, such as "Send change request". */
+  /** What sending does, such as "Send". */
   label: string;
-  /** The agents the request can be given to now. */
-  agents: readonly { id: AgentId; name: string }[];
+  /** The agents the thread can be assigned to now. */
+  agents: readonly Agent[];
+  /** The agent the button itself sends to; null for none. */
+  preferred: AgentId | null;
   note?: string | null;
   disabled?: boolean;
   onSend: (to: AgentId | null) => void;
@@ -35,7 +49,6 @@ export default function SendButton({
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const menuOpen = anchor != null;
   const closeMenu = () => setAnchor(null);
-  const only = agents.length === 1 ? agents[0]! : null;
   const send = (to: AgentId | null) => {
     closeMenu();
     onSend(to);
@@ -47,6 +60,8 @@ export default function SendButton({
       </Button>
     );
   }
+  const chosen = agents.find(({ id }) => id === preferred) ?? null;
+  const others = agents.filter((agent) => agent !== chosen);
   return (
     <Stack direction="row" sx={{ alignItems: "center", gap: 1 }}>
       {note != null && (
@@ -55,21 +70,20 @@ export default function SendButton({
         </Typography>
       )}
       <ButtonGroup size="small" variant="contained" disabled={disabled}>
-        <Button startIcon={<Send />} onClick={() => send(agentWithNoChoice(agents))}>
-          {only == null ? `${label} to no agent` : `${label} to ${only.name}`}
+        <Button startIcon={<Send />} onClick={() => send(chosen?.id ?? null)}>
+          {chosen == null ? `${label} to no agent` : `${label} to ${chosen.name}`}
         </Button>
-        <Button aria-label={only == null ? `${label} to an agent` : `${label} to no agent`} aria-haspopup="menu" aria-expanded={menuOpen} onClick={(event) => setAnchor(event.currentTarget.parentElement)}>
+        <Button aria-label={`${label} to another agent`} aria-haspopup="menu" aria-expanded={menuOpen} onClick={(event) => setAnchor(event.currentTarget.parentElement)}>
           <ArrowDropDown />
         </Button>
       </ButtonGroup>
       <Menu anchorEl={anchor} open={menuOpen} onClose={closeMenu}>
-        {only == null ? (
-          agents.map((agent) => (
-            <MenuItem key={agent.id} onClick={() => send(agent.id)}>
-              <ListItemText>{`${label} to ${agent.name}`}</ListItemText>
-            </MenuItem>
-          ))
-        ) : (
+        {others.map((agent) => (
+          <MenuItem key={agent.id} onClick={() => send(agent.id)}>
+            <ListItemText>{`${label} to ${agent.name}`}</ListItemText>
+          </MenuItem>
+        ))}
+        {chosen != null && (
           <MenuItem onClick={() => send(null)}>
             <ListItemText>{`${label} to no agent`}</ListItemText>
           </MenuItem>

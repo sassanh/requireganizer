@@ -11,86 +11,83 @@ import { parseUnitId, revisionOf } from "workflow";
 import { ItemChip, type ThreadSendProps, type WorkflowSlots, workflowSlotsContext } from "workflow/ui";
 
 import type { DeskView, FindingView } from "../desk";
-import { readOnlyRequest } from "../requests";
 import type { AgentId } from "../roster";
+import { readOnlyThread } from "../waiting";
+import { attempt } from "./attempt";
 import { type AgentsPageValue, useAgents } from "./context";
 import RunLogDialog from "./RunLogDialog";
-import SendButton, { agentWithNoChoice } from "./SendButton";
-import { howLongAgo } from "./time";
-import { requestStatus } from "./WaitingRequests";
+import SendButton, { preferredAgent } from "./SendButton";
+import { WaitControls } from "./ThreadList";
+import { howLongAgo, howLongSince } from "./time";
 import WorkingSign from "./WorkingSign";
 
-function attempt(request: () => Promise<unknown>, fallback: string): void {
-  request().catch((error: unknown) => notify(getUserFacingErrorMessage(error, fallback), "error"));
+type Agent = { id: AgentId; name: string };
+
+/** Every available agent. */
+function availableAgents(view: DeskView): Agent[] {
+  return view.agents.flatMap((agent) => (agent.name == null ? [] : [{ id: agent.id, name: agent.name }]));
 }
 
 /**
- * The agents a request in a stage can be given to as it is made: the one
- * whose request on a stage itself makes the stage read-only, with why, else
- * every available agent.
+ * The agents a thread in a stage can be assigned to as a message is sent in
+ * it: the one whose thread on a stage itself makes the stage read-only, with
+ * why, else every available agent.
  */
-function agentsFor(view: DeskView, store: Store, moduleId: string, stage: string): { agents: { id: AgentId; name: string }[]; note: string | null } {
-  const readOnly = readOnlyRequest(
-    view.requests.filter((request) => request.holder != null),
+function agentsFor(view: DeskView, store: Store, moduleId: string, stage: string): { agents: Agent[]; note: string | null } {
+  const readOnly = readOnlyThread(
+    view.waiting.filter((waiting) => waiting.holder != null),
     store,
     moduleId,
     stage,
   );
-  const available = view.agents.flatMap((agent) => (agent.name == null ? [] : [{ id: agent.id, name: agent.name }]));
+  const available = availableAgents(view);
   if (readOnly == null) return { agents: available, note: null };
   const { agentId, name } = readOnly.holder!;
-  return { agents: available.filter(({ id }) => id === agentId), note: `Only ${name} can take requests here while it has “${readOnly.summary}”.` };
+  return { agents: available.filter(({ id }) => id === agentId), note: `Only ${name} can be assigned threads here while it has “${readOnly.summary}”.` };
 }
 
-/** Send a message in a thread, giving its change request to `to`, or to none, in the same act. */
+/** Send a message in a thread, assigning the thread to `to`, or to none, in the same act. */
 async function sendTo(agents: AgentsPageValue, send: () => Promise<string | null>, to: AgentId | null): Promise<void> {
-  await agents.withRequestGivenTo(to, send);
+  await agents.withAssignment(to, send);
 }
 
 /**
  * Under a stage's header: the sign that an agent works there and, from a
  * complete stage, a way to ask for the writing of each stage building on it
- * that may be asked, and to ask for a review of the stage. Each request is
- * made in a thread of its own on the stage it asks for.
+ * that may be asked, and to ask for a review of the stage. Each ask opens a
+ * thread of its own on the stage it asks for.
  */
-const StageRequests = observer(function StageRequests({ stage }: { stage: string }) {
+const StageAsks = observer(function StageAsks({ stage }: { stage: string }) {
   const agents = useAgents();
   const { client, view, activeModuleId, stageLabel } = agents;
   const store = agents.moduleStore(activeModuleId);
   if (store == null) return null;
   const asks = view.asks.find((entry) => entry.moduleId === activeModuleId && entry.stage === stage);
+  const available = availableAgents(view);
+  const sendButton = (key: string, label: string, asked: string, onSend: (to: AgentId | null) => void) => {
+    const choices = agentsFor(view, store, activeModuleId, asked);
+    return <SendButton key={key} label={label} {...choices} preferred={preferredAgent(available, choices.agents, null)} onSend={onSend} />;
+  };
   const parts: ReactNode[] = [
-    ...(asks?.write ?? []).map((later) => (
-      <SendButton
-        key={later}
-        label={`Write ${stageLabel(later)}`}
-        {...agentsFor(view, store, activeModuleId, later)}
-        onSend={(to) => attempt(() => client.askToWrite(activeModuleId, later, to), "The stage could not be asked for.")}
-      />
-    )),
+    ...(asks?.write ?? []).map((later) =>
+      sendButton(later, `Write ${stageLabel(later)}`, later, (to) => attempt(() => client.askToWrite(activeModuleId, later, to), "The stage could not be asked for.")),
+    ),
     ...(asks?.review === true
-      ? [
-          <SendButton
-            key="review"
-            label="Review"
-            {...agentsFor(view, store, activeModuleId, stage)}
-            onSend={(to) => attempt(() => client.askToReview(activeModuleId, stage, to), "The review could not be asked for.")}
-          />,
-        ]
+      ? [sendButton("review", "Review", stage, (to) => attempt(() => client.askToReview(activeModuleId, stage, to), "The review could not be asked for."))]
       : []),
   ];
   return (
     <Stack direction="row" sx={{ alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-      <WorkingSign view={view} place={{ kind: "stage", moduleId: activeModuleId, stage }} onStop={(keys) => attempt(() => client.stopRequests(keys), "The requests could not be stopped.")} />
+      <WorkingSign view={view} place={{ kind: "stage", moduleId: activeModuleId, stage }} onStop={(keys) => attempt(() => client.stopAgents(keys), "The agents could not be stopped.")} />
       {parts}
     </Stack>
   );
 });
 
 /** Beside a unit's actions: the sign that an agent works on it. */
-const UnitRequests = observer(function UnitRequests({ unitId }: { unitId: string }) {
+const UnitWorking = observer(function UnitWorking({ unitId }: { unitId: string }) {
   const { client, view, activeModuleId } = useAgents();
-  return <WorkingSign view={view} place={{ kind: "unit", moduleId: activeModuleId, unitId }} onStop={(keys) => attempt(() => client.stopRequests(keys), "The request could not be stopped.")} />;
+  return <WorkingSign view={view} place={{ kind: "unit", moduleId: activeModuleId, unitId }} onStop={(keys) => attempt(() => client.stopAgents(keys), "The agent could not be stopped.")} />;
 });
 
 /** Whether the item a finding names changed since the finding was given; false once the item is gone. */
@@ -126,24 +123,27 @@ const UnitFindings = observer(function UnitFindings({ unitId }: { unitId: string
   );
 });
 
-/** Under an open thread's state: whether its change request waits and who has it. */
-const ThreadRequests = observer(function ThreadRequests({ threadId }: { threadId: string }) {
+/** Under an open thread's state: while it waits for an agent, for how long, which agent has it, and the ways to assign it, stop the agent or withdraw it. */
+const ThreadWaiting = observer(function ThreadWaiting({ threadId }: { threadId: string }) {
   const agents = useAgents();
-  const request = agents.view.requests.find(({ moduleId, thread }) => moduleId === agents.activeModuleId && thread.id === threadId);
-  if (request == null) return null;
+  const waiting = agents.view.waiting.find(({ moduleId, thread }) => moduleId === agents.activeModuleId && thread.id === threadId);
+  if (waiting == null) return null;
   return (
-    <Typography variant="caption" color={request.failure == null ? "text.secondary" : "error"}>
-      {requestStatus(request)}
-      {request.failure == null ? "" : ` · ${request.failure}`}
-    </Typography>
+    <Stack spacing={0.25}>
+      <Typography variant="caption" color="text.secondary">
+        Waits for an agent {howLongSince(waiting.since)}
+      </Typography>
+      <WaitControls waiting={waiting} />
+    </Stack>
   );
 });
 
 /**
  * Under a thread message: the findings it gives, each item as a marked
  * mention shows it, marked once the item changed since; and, under a
- * message of the spec owner's that made a request, that the request was
- * withdrawn and when, and a way to open each run log kept with it.
+ * message of the spec owner's that set the thread waiting, that it was
+ * withdrawn from waiting and when, and a way to open each run log kept with
+ * it.
  */
 const MessageNotes = observer(function MessageNotes({ threadId, messageId }: { threadId: string; messageId: string }) {
   const agents = useAgents();
@@ -179,23 +179,31 @@ const MessageNotes = observer(function MessageNotes({ threadId, messageId }: { t
           ))}
           {note.withdrawnAt != null && (
             <Typography variant="caption" color="text.secondary">
-              Change request withdrawn {howLongAgo(note.withdrawnAt)}
+              Withdrawn from waiting for an agent {howLongAgo(note.withdrawnAt)}
             </Typography>
           )}
         </Stack>
       ))}
-      {runLog != null && <RunLogDialog requestKey={runLog.key} index={runLog.index} onClose={() => setRunLog(null)} />}
+      {runLog != null && <RunLogDialog waitKey={runLog.key} index={runLog.index} onClose={() => setRunLog(null)} />}
     </Stack>
   );
 });
 
-/** The agents a thread's change request can be given to as its message is sent, with why when fewer than are available. */
-function threadChoices(agents: AgentsPageValue, { stage }: ThreadSendProps): ReturnType<typeof agentsFor> {
+/**
+ * The agents a thread can be assigned to as a message is sent in it, with
+ * why when fewer than are available, and the one the send button itself
+ * assigns it to.
+ */
+function threadChoices(agents: AgentsPageValue, { stage, threadId }: ThreadSendProps): { agents: Agent[]; note: string | null; preferred: AgentId | null } {
   const store = agents.moduleStore(agents.activeModuleId);
-  return store == null ? { agents: [], note: null } : agentsFor(agents.view, store, agents.activeModuleId, stage);
+  if (store == null) return { agents: [], note: null, preferred: null };
+  const choices = agentsFor(agents.view, store, agents.activeModuleId, stage);
+  const thread = threadId == null ? undefined : store.threads.find(({ id }) => id === threadId);
+  const lastReplier = thread?.messages.findLast(({ author }) => author.kind === "agent")?.author;
+  return { ...choices, preferred: preferredAgent(availableAgents(agents.view), choices.agents, lastReplier?.kind === "agent" ? lastReplier.name : null) };
 }
 
-/** The thread's send button: it sends the message and gives its change request to the agent chosen, or to none. */
+/** The thread's send button: it sends the message and assigns the thread to the agent chosen, or to none. */
 const ThreadSend = observer(function ThreadSend({ label, disabled, ...props }: ThreadSendProps & { label: string; disabled: boolean }) {
   const agents = useAgents();
   return (
@@ -203,7 +211,7 @@ const ThreadSend = observer(function ThreadSend({ label, disabled, ...props }: T
       label={label}
       {...threadChoices(agents, props)}
       disabled={disabled}
-      onSend={(to) => attempt(() => sendTo(agents, props.send, to), "The request could not be given.")}
+      onSend={(to) => attempt(() => sendTo(agents, props.send, to), "The message could not be sent.")}
     />
   );
 });
@@ -211,25 +219,31 @@ const ThreadSend = observer(function ThreadSend({ label, disabled, ...props }: T
 /**
  * The Agents module's parts of the workflow's stage, unit, thread and
  * message views, filled in the slots the workflow leaves for other modules,
- * and the threads whose change request an agent has. Nothing shows in a
+ * and whom each thread waiting for an agent waits for. Nothing shows in a
  * preview of an earlier state.
  */
 export default function AgentsWorkflowSlots({ children }: { children: ReactNode }) {
   const agents = useAgents();
   const slots = useMemo<WorkflowSlots>(
     () => ({
-      stage: ({ stage, preview }) => (preview ? null : <StageRequests stage={stage} />),
-      unit: ({ unitId, preview }) => (preview ? null : <UnitRequests unitId={unitId} />),
+      stage: ({ stage, preview }) => (preview ? null : <StageAsks stage={stage} />),
+      unit: ({ unitId, preview }) => (preview ? null : <UnitWorking unitId={unitId} />),
       unitNotes: ({ unitId, preview }) => (preview ? null : <UnitFindings unitId={unitId} />),
-      thread: ({ threadId, preview }) => (preview ? null : <ThreadRequests threadId={threadId} />),
+      thread: ({ threadId, preview }) => (preview ? null : <ThreadWaiting threadId={threadId} />),
       message: ({ threadId, messageId, preview }) => (preview ? null : <MessageNotes threadId={threadId} messageId={messageId} />),
-      threadsWithAgent: new Set(agents.view.requests.filter(({ moduleId, holder }) => moduleId === agents.activeModuleId && holder != null).map(({ thread }) => thread.id)),
+      // A thread waiting for an agent waits for the spec owner while no agent has it, for them to assign it. Thread ids are unique across modules.
+      threadWaits: new Map(
+        agents.view.waiting.map(({ thread, holder }) => [
+          thread.id,
+          holder == null ? { forSpecOwner: true, who: "Waits for you to assign it" } : { forSpecOwner: false, who: `${holder.name} has it` },
+        ]),
+      ),
       send: {
         render: (props) => <ThreadSend {...props} />,
-        // The send key does what the send button's main part does.
+        // The send key does what the send button itself does.
         submit: (props) =>
-          sendTo(agents, props.send, agentWithNoChoice(threadChoices(agents, props).agents)).catch((error: unknown) =>
-            notify(getUserFacingErrorMessage(error, "The request could not be given."), "error"),
+          sendTo(agents, props.send, threadChoices(agents, props).preferred).catch((error: unknown) =>
+            notify(getUserFacingErrorMessage(error, "The message could not be sent."), "error"),
           ),
       },
     }),

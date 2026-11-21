@@ -4,7 +4,6 @@ import { Add, AddComment, ArrowBack, Delete, Edit, KeyboardArrowDown, KeyboardAr
 import {
   Alert,
   Autocomplete,
-  Badge,
   Box,
   Button,
   Chip,
@@ -34,15 +33,18 @@ import { autoScrollBehavior } from "lib/scroll";
 import { type FieldDefinition, itemsFields, referenceRuleCondition } from "../definition";
 import type { CoverageState, ImpactState, ItemState, OutOfDateCause, UnitState, WorkflowModule } from "../module";
 import { revisionOf, textValue, type ItemVersion } from "../records";
-import { authorLabel, mentionMarkup, type Thread, waitsForSpecOwner } from "../threads";
+import { inListOrder, mentionMarkup, type Thread } from "../threads";
 import { SIGNABLE_CATEGORY_LABELS, STAGE_PROGRESS_LABELS, threadPlace, unitInPlaceOf } from "../units";
-import { perform, type RemovedUnitMark, type RevealRequest, shownWithRemoved, type ThreadMark, useWorkflowNavigation, useWorkflowView } from "./context";
+import { type MessagePlace, perform, type RemovedUnitMark, type RevealRequest, shownWithRemoved, type ThreadMark, useWorkflowNavigation, useWorkflowView } from "./context";
+import CountedLabel from "./CountedLabel";
 import { FrameSchedule, FrameScheduleProvider } from "./frameSchedule";
 import ItemChip, { ItemOption, useItemLabel } from "./ItemChip";
 import ItemEditor, { type EditorTarget } from "./ItemEditor";
 import { SIGNATURE_STATE_PALETTE, signatureStateOf, stageSignatureState } from "./signatureState";
-import { Slot, useThreadsWithAgent } from "./slots";
-import ThreadView, { placeLabel, THREAD_BUTTON, threadsAt, useThreadForm } from "./ThreadView";
+import { Slot, useWaitsForSpecOwner } from "./slots";
+import ThreadCard, { THREAD_GRID, ThreadMarkNote } from "./ThreadCard";
+import ThreadRow from "./ThreadRow";
+import ThreadView, { THREAD_BUTTON, threadsAt, useThreadForm } from "./ThreadView";
 import UnitFrame, { SignatureLine } from "./UnitFrame";
 import VersionDiff from "./VersionDiff";
 import WrittenText from "./WrittenText";
@@ -306,20 +308,20 @@ const CoverageCard = observer(function CoverageCard({ state, controls }: { state
 const ImpactCard = observer(function ImpactCard({ state, controls }: { state: ImpactState; controls: CardControls }) {
   const { module, workflow } = useWorkflowView();
   const kind = module.locate(state.itemId)?.item.kind ?? null;
-  const [requesting, setRequesting] = useState(false);
+  const [asking, setAsking] = useState(false);
   const [target, setTarget] = useState<string | null>(null);
   const label = module.unitLabel(state.unitId).replace(/^impact of /, "");
   const named = module.namedItem(state.itemId);
   const candidates = module.itemsOf(state.stage).filter(({ removal }) => removal == null);
-  const request = async () => {
+  const ask = async () => {
     if (target == null) return;
     const changed = named == null ? label : mentionMarkup(named.name, named.id);
     const sent = await perform(
-      () => module.requestChange(target, `Reference ${changed}: this item relies on its ${state.after == null ? "removal" : "change"} without referencing it.`),
-      "The change request could not be sent.",
+      () => module.messageUnit(target, `Reference ${changed}: this item relies on its ${state.after == null ? "removal" : "change"} without referencing it.`),
+      "The message could not be sent.",
     );
     if (sent) {
-      setRequesting(false);
+      setAsking(false);
       setTarget(null);
     }
   };
@@ -340,8 +342,8 @@ const ImpactCard = observer(function ImpactCard({ state, controls }: { state: Im
       onSign={() => controls.sign(state.unitId)}
       actions={
         controls.stageOpen && (
-          <Button size="small" onClick={() => setRequesting(!requesting)}>
-            Request a missing reference
+          <Button size="small" onClick={() => setAsking(!asking)}>
+            Ask for the missing reference
           </Button>
         )
       }
@@ -370,7 +372,7 @@ const ImpactCard = observer(function ImpactCard({ state, controls }: { state: Im
         </Box>
       </Stack>
       {state.after != null && kind != null && <Box sx={{ mt: 1 }}><VersionDiff kind={kind} signed={state.before} current={state.after} /></Box>}
-      {requesting && (
+      {asking && (
         <Stack direction="row" sx={{ gap: 1, mt: 1, alignItems: "center" }}>
           <Autocomplete
             size="small"
@@ -383,8 +385,8 @@ const ImpactCard = observer(function ImpactCard({ state, controls }: { state: Im
             onChange={(_event, value) => setTarget(value)}
             renderInput={(params) => <TextField {...params} label="Item missing the reference" />}
           />
-          <Button size="small" variant="contained" disabled={target == null} onClick={() => void request()}>
-            Request
+          <Button size="small" variant="contained" disabled={target == null} onClick={() => void ask()}>
+            Send
           </Button>
         </Stack>
       )}
@@ -441,10 +443,15 @@ function wordList(names: readonly string[], joiner: "and" | "or"): string {
   return names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} ${joiner} ${names.at(-1)}`;
 }
 
-/** One kind's published rules: its question first, then its stage's place, its fields and links, its rules, the shared rules and its examples. */
-function RulesDialog({ stage, kind, open, onClose }: { stage: string; kind: string; open: boolean; onClose: () => void }) {
+/**
+ * The published rules of a stage's kinds, opened at one, each other kind a
+ * tab away: its question first, then its stage's place, its fields and
+ * links, its rules, the shared rules and its examples.
+ */
+function RulesDialog({ stage, initialKind, onClose }: { stage: string; initialKind: string; onClose: () => void }) {
   const { workflow } = useWorkflowView();
   const stageDefinition = workflow.stage(stage);
+  const [kind, setKind] = useState(initialKind);
   const definition = workflow.kind(kind);
   const published = workflow.publishedRules(kind);
   const label = (name: string) => workflow.kind(name).label.toLowerCase();
@@ -463,8 +470,15 @@ function RulesDialog({ stage, kind, open, onClose }: { stage: string; kind: stri
     ...(definition.dependsOnSingle ?? []).map((name) => `Each counts as depending on the ${label(name)}, without listing it.`),
   ]);
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+    <Dialog open onClose={onClose} maxWidth="md" fullWidth>
       <DialogTitle>{definition.plural}: published rules</DialogTitle>
+      {stageDefinition.kinds.length > 1 && (
+        <Tabs value={kind} onChange={(_event, chosen: string) => setKind(chosen)} variant="scrollable" scrollButtons="auto" aria-label="Kinds of item" sx={{ px: 2, borderBottom: 1, borderColor: "divider" }}>
+          {stageDefinition.kinds.map((each) => (
+            <Tab key={each.kind} value={each.kind} label={each.plural} sx={{ textTransform: "none" }} />
+          ))}
+        </Tabs>
+      )}
       <DialogContent>
         <Typography variant="subtitle1">The question {definition.single ? "it answers" : "each answers"}</Typography>
         <Typography variant="body1" sx={{ fontWeight: 600, mb: 2 }}>{published.question}</Typography>
@@ -536,116 +550,7 @@ function isEditable(target: EventTarget | null): boolean {
  */
 const COVERAGES_TAB = "whole-stage:coverages";
 const IMPACTS_TAB = "whole-stage:impacts";
-const THREADS_TAB = "whole-stage:threads";
-
-/** What bringing a previewed state back would do to a thread on a unit neither state holds. */
-function ThreadMarkNote({ mark }: { mark: ThreadMark | null }) {
-  if (mark == null) return null;
-  const quoted = (texts: readonly string[]) => texts.map((text) => `“${text.length > 80 ? `${text.slice(0, 80)}…` : text}”`).join(", ");
-  return (
-    <Stack sx={{ mt: 0.5, gap: 0.25 }}>
-      {mark.onlyNow && <Typography variant="caption" sx={{ color: "error.main" }}>Bringing this back would remove this thread.</Typography>}
-      {!mark.onlyNow && mark.messagesAdded.length > 0 && (
-        <Typography variant="caption" sx={{ color: "success.main" }}>Would add: {quoted(mark.messagesAdded)}</Typography>
-      )}
-      {!mark.onlyNow && mark.messagesRemoved.length > 0 && (
-        <Typography variant="caption" sx={{ color: "error.main" }}>Would remove: {quoted(mark.messagesRemoved)}</Typography>
-      )}
-      {mark.resolutionDiffers && <Typography variant="caption" sx={{ color: "warning.main" }}>Would change whether it is resolved.</Typography>}
-    </Stack>
-  );
-}
-
-/**
- * The threads at one place of the Threads tab, on the stage itself or on a
- * unit that is gone, as a card that opens them: how the latest one stands,
- * its request and who wrote in it last.
- */
-const ThreadCard = observer(function ThreadCard({ stage, place, marks, onOpen }: { stage: string; place: string; marks: readonly (ThreadMark & { threadId: string })[]; onOpen: (card: HTMLElement) => void }) {
-  const { module } = useWorkflowView();
-  const threadsWithAgent = useThreadsWithAgent();
-  const threads = threadsAt(module, stage, place);
-  const shown = threads.find(({ resolution }) => resolution == null) ?? threads.at(-1);
-  if (shown == null) return null;
-  const request = shown.messages[0];
-  const latest = shown.messages.at(-1);
-  const waits = waitsForSpecOwner(shown, threadsWithAgent.has(shown.id));
-  return (
-    <Paper
-      variant="outlined"
-      role="button"
-      tabIndex={0}
-      data-unit-card={place}
-      {...{ [THREAD_BUTTON]: true }}
-      onClick={(event) => onOpen(event.currentTarget)}
-      onKeyDown={(event) => {
-        if (event.key !== "Enter" && event.key !== " ") return;
-        event.preventDefault();
-        onOpen(event.currentTarget);
-      }}
-      sx={{
-        p: 1.5,
-        display: "flex",
-        flexDirection: "column",
-        gap: 1,
-        cursor: "pointer",
-        opacity: shown.resolution == null ? 1 : 0.6,
-        outline: "none",
-        "&:hover": { borderColor: "primary.main" },
-        "&:focus-visible": { boxShadow: (theme) => `0 0 0 2px ${theme.vars.palette.primary.main}` },
-      }}
-    >
-      <Stack direction="row" sx={{ alignItems: "center", gap: 1 }}>
-        <Chip
-          size="small"
-          variant={waits ? "filled" : "outlined"}
-          color={waits ? "warning" : "default"}
-          label={shown.resolution != null ? "Resolved" : waits ? "Waits for you" : "Open"}
-        />
-        {shown.unitId != null && (
-          <Typography variant="subtitle2" noWrap sx={{ minWidth: 0 }}>
-            {placeLabel(module, place, threads)}
-          </Typography>
-        )}
-      </Stack>
-      {/* The request is a preview: a click on it opens the thread, where its mentions can be opened. */}
-      {request != null && (
-        <Box sx={{ display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", overflow: "hidden", pointerEvents: "none" }}>
-          <WrittenText text={request.text} />
-        </Box>
-      )}
-      {latest != null && (
-        <Typography variant="caption" color="text.secondary" sx={{ mt: "auto" }}>
-          {shown.messages.length} {shown.messages.length === 1 ? "message" : "messages"} · last by {authorLabel(latest.author)}
-          {latest.at == null ? "" : `, ${new Date(latest.at).toLocaleString()}`}
-        </Typography>
-      )}
-      {marks.map((mark) => <ThreadMarkNote key={mark.threadId} mark={mark} />)}
-    </Paper>
-  );
-});
-
-/**
- * Where the Threads tab's threads are, each place once: those with an open
- * thread, then those with none, each newest first by when its latest thread
- * started. Threads with no time, as in an export made without thread times,
- * keep the order they were opened in, newest first too.
- */
-function threadSections(threads: readonly Thread[]): { open: string[]; resolved: string[] } {
-  const places = new Map<string, { started: string; index: number; open: boolean }>();
-  threads.forEach((thread, index) => {
-    const place = threadPlace(thread);
-    const before = places.get(place);
-    places.set(place, { started: thread.messages[0]?.at ?? "", index, open: (before?.open ?? false) || thread.resolution == null });
-  });
-  const newestFirst = [...places].sort(([, left], [, right]) => right.started.localeCompare(left.started) || right.index - left.index);
-  return {
-    open: newestFirst.filter(([, { open }]) => open).map(([place]) => place),
-    resolved: newestFirst.filter(([, { open }]) => !open).map(([place]) => place),
-  };
-}
-
-const THREAD_GRID = { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 1.5, alignItems: "stretch" } as const;
+const RESOLVED_TAB = "whole-stage:resolved";
 
 /** The tab that shows a unit: its own kind for an item, and the stage's coverages or impacts for those. */
 function tabOf(unit: { kind: UnitState["kind"]; itemKind?: string | null }): string {
@@ -660,16 +565,18 @@ function tabOf(unit: { kind: UnitState["kind"]; itemKind?: string | null }): str
 }
 
 /**
- * One stage: its state, progress and what in it is signable, then its
- * tab bar. The kinds' tabs come first; to their right, apart from them, a
- * tab holds the stage's coverages, one its impacts and one its threads on
- * removed units, each while the stage has any. A kind's tab shows that
- * kind's items, its add button and its published rules; a whole-stage tab
+ * One stage: its name with the way to its published rules, its state,
+ * progress and what in it is signable, a row for each open thread on it or
+ * on its units, then its tab bar. The kinds' tabs come first; to their
+ * right, apart from them, a tab holds the stage's coverages and one its
+ * impacts, each where the stage can hold any, and last one its resolved
+ * threads. Every tab shows at all times, saying when it holds nothing. A
+ * kind's tab shows that kind's items and its add button; a whole-stage tab
  * shows what no one kind holds. j and k move between the units shown,
  * Shift+J and Shift+K between the signable ones, whatever tab they are in,
  * g and Shift+G to the first and last, s signs the focused one (Shift+S then
- * moves to the next signable unit) and c opens its threads, where a change
- * request is written. An open thread shows beside its card, docked at the
+ * moves to the next signable unit) and c opens its threads, where a message
+ * is written. An open thread shows beside its card or row, docked at the
  * right, where it follows the focused card, or full screen on a narrow
  * screen.
  */
@@ -686,30 +593,30 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
   const allUnits = module.stageUnits(stage);
   const coverages = allUnits.filter((unit): unit is CoverageState => unit.kind === "coverage");
   const impacts = allUnits.filter((unit): unit is ImpactState => unit.kind === "impact");
-  const threadsWithAgent = useThreadsWithAgent();
-  /** The threads the Threads tab shows: those on the stage itself and those whose unit is gone. */
-  const tabThreads = module.threadsOfStage(stage).filter(({ unitId }) => unitId == null || module.unitState(unitId) == null);
-  const tabSections = threadSections(tabThreads);
-  /** The open threads on the stage itself, by place, in the order the Threads tab shows them. */
-  const openStageThreads = tabSections.open.filter((place) => tabThreads.some((thread) => thread.unitId == null && thread.resolution == null && threadPlace(thread) === place));
-  const waitingForYou = (threads: readonly Thread[]) => threads.filter((thread) => waitsForSpecOwner(thread, threadsWithAgent.has(thread.id))).length;
-  const threadsWaiting = module.threadsWaitingForSpecOwner(stage, threadsWithAgent).length;
+  const waitsForSpecOwner = useWaitsForSpecOwner();
+  const stageThreads = module.threadsOfStage(stage);
+  /** The stage's threads in the order threads are listed: each open one a row of the header, at a place of its own, and each resolved one a card of the Resolved tab. */
+  const listedThreads = inListOrder(stageThreads, (listed) => listed);
+  const openPlaces = listedThreads.flatMap((listed) => (listed.resolution == null ? [threadPlace(listed)] : []));
+  const resolvedThreads = listedThreads.filter((listed) => listed.resolution != null);
+  const threadsWaiting = stageThreads.filter(waitsForSpecOwner).length;
   /** The threads on units neither state holds that a preview would change, and of those the ones its state lacks. */
   const threadMarks = preview?.threads(stage) ?? [];
   const threadsOnlyNow = threadMarks.filter(({ onlyNow }) => onlyNow);
   const kindTabs = definition.kinds.map(({ kind }) => kind);
-  /** The tabs of what belongs to the whole stage, each while the stage holds any, after the kinds' tabs. */
   const marksIn = (tab: string) => removedMarks.filter((entry) => entry.tab === tab).map(({ mark }) => mark);
+  /**
+   * The tabs of what belongs to the whole stage, after the kinds' tabs:
+   * coverages where its kinds cover any kind, impacts where it builds on a
+   * stage, and resolved threads.
+   */
   const wholeTabs = [
-    ...(coverages.length > 0 || marksIn(COVERAGES_TAB).length > 0 ? [COVERAGES_TAB] : []),
-    ...(impacts.length > 0 || marksIn(IMPACTS_TAB).length > 0 ? [IMPACTS_TAB] : []),
-    ...(summary.open || tabThreads.length > 0 || threadsOnlyNow.length > 0 ? [THREADS_TAB] : []),
+    ...(definition.kinds.some(({ covers }) => (covers ?? []).length > 0) ? [COVERAGES_TAB] : []),
+    ...(definition.buildsOn.length > 0 ? [IMPACTS_TAB] : []),
+    RESOLVED_TAB,
   ];
-  /** The tab shown: one the stage still has, or else the first kind's, which every stage has. */
-  const activeTab = kindTabs.includes(shownTab) || wholeTabs.includes(shownTab) ? shownTab : firstKind;
+  const activeTab = shownTab;
   const kindShown = kindTabs.includes(activeTab);
-  /** Whether the stage needs a tab bar: one kind and nothing whole-stage to show needs none. */
-  const tabbed = kindTabs.length + wholeTabs.length > 1;
   const units = allUnits.filter((unit) => tabOf(unit) === activeTab);
   /** Every removed item the stage still shows, its card at the end of its kind's tab. */
   const removedStates = module.itemsOf(stage).flatMap((item) => {
@@ -719,13 +626,8 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
   const removedItems = removedStates.filter((state) => state.itemKind === activeTab);
   /** Every unit the stage shows, in the order its tabs show them: each kind's items and removed items, then its coverages and impacts. */
   const orderedUnits = (): UnitState[] => module.unitsInShownOrder(stage);
-  // A whole-stage tab whose units are gone gives way to the first kind's tab
-  // for good, so that it cannot take the view over when such a unit comes back.
-  useEffect(() => {
-    if (shownTab !== activeTab) setShownTab(activeTab);
-  }, [shownTab, activeTab]);
-  /** Where the threads open are, as `threadPlace` names it, or null for the box that requests a change on the stage; where the overlay shows; and whether its box takes the focus. */
-  const [thread, setThread] = useState<{ place: string | null; anchor: HTMLElement | null; autoFocus: boolean } | null>(null);
+  /** Where the threads open are, as `threadPlace` names it, or null for the box that opens a thread on the stage; where the overlay shows; and whether its box takes the focus. */
+  const [thread, setThread] = useState<{ place: string | null; anchor: HTMLElement | null; autoFocus: boolean; message?: MessagePlace } | null>(null);
   const [chosenForm, setChosenForm] = useThreadForm();
   const narrow = useMediaQuery((theme) => theme.breakpoints.down("md"));
   const threadForm = narrow ? "full" : chosenForm;
@@ -872,33 +774,25 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
     if (next != null) showUnit(next.unitId);
   };
 
-  const openThread = (place: string, anchor: HTMLElement | null, autoFocus = true) => setThread({ place, anchor, autoFocus });
+  const openThread = (place: string, anchor: HTMLElement | null, autoFocus = true, message?: MessagePlace) => setThread({ place, anchor, autoFocus, message });
 
-  /** Lead to the open threads on the stage itself: the only one opened beside its card, or of several the newest focused in the Threads tab. */
-  const showOpenStageThreads = () => {
-    const place = openStageThreads[0];
-    if (place == null) return;
-    setShownTab(THREADS_TAB);
-    // The card exists once the tab's content has drawn.
-    requestAnimationFrame(() => {
-      const card = cards().find((candidate) => candidate.dataset.unitCard === place);
-      reveal(card);
-      if (openStageThreads.length === 1) openThread(place, card ?? null);
-    });
-  };
+  const newThreadButton = useRef<HTMLButtonElement>(null);
+  /** Show the box that opens a thread on the stage, beside the header's button for it. */
+  const openNewThread = () => setThread({ place: null, anchor: newThreadButton.current, autoFocus: true });
 
-  const stageRequestButton = useRef<HTMLButtonElement>(null);
-  /** Show the stage's threads, and the box that requests a change on the stage beside its button, once the tab has drawn it. */
-  const requestStageChange = () => {
-    setShownTab(THREADS_TAB);
-    requestAnimationFrame(() => setThread({ place: null, anchor: stageRequestButton.current, autoFocus: true }));
-  };
+  const headerRef = useRef<HTMLDivElement>(null);
+  /** The header's row of the open thread at a place, if it shows one. */
+  const threadRow = (place: string) =>
+    Array.from(headerRef.current?.querySelectorAll<HTMLElement>("[data-thread-row]") ?? []).find((row) => row.dataset.threadRow === place);
 
-  /** Close the open thread and give the focus back to its card, or to the button for the box that requests a change on the stage. */
+  /** Close the open thread and give the focus back to its card or row, or to the button for the box that opens a thread on the stage. */
   const closeThread = () => {
     const place = thread?.place;
     setThread(null);
-    const opener = place == null ? stageRequestButton.current : cards().find((card) => card.dataset.unitCard === place);
+    const opener =
+      place == null
+        ? newThreadButton.current
+        : (cards().find((card) => card.dataset.unitCard === place) ?? threadRow(place)?.querySelector<HTMLElement>('[role="button"]'));
     opener?.focus({ preventScroll: true });
   };
 
@@ -969,7 +863,7 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
       case stageThreadShortcut.key.toUpperCase():
         if (editable) {
           event.preventDefault();
-          requestStageChange();
+          openNewThread();
         }
         return;
       case threadShortcut.key:
@@ -986,23 +880,22 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
   // to by the browser's history, is revealed once its card shows; a thread
   // message, in its thread, opened beside the card.
   // A unit to reveal in another tab shows once its tab does, as does a
-  // thread message whose unit is gone.
+  // resolved thread whose unit is gone or that is on the stage itself; an
+  // open one is in the header.
   useEffect(() => {
     if (revealRequest == null) return;
     const requested = module.unitState(revealRequest.unitId);
-    const threadId = revealRequest.message?.threadId ?? null;
     const removedMark = preview?.removed(stage).find(({ unitId }) => unitId === revealRequest.unitId);
-    const onOrphan = (thread: { id: string; unitId: string | null }) =>
-      threadId == null ? threadPlace(thread) === revealRequest.unitId : thread.id === threadId;
     const tab = requested != null && requested.stage === stage
       ? tabOf(requested)
-      : tabThreads.some(onOrphan) || threadsOnlyNow.some(({ threadId: id, unitId }) => onOrphan({ id, unitId }))
-        ? THREADS_TAB
+      : (!openPlaces.includes(revealRequest.unitId) && resolvedThreads.some((resolved) => threadPlace(resolved) === revealRequest.unitId)) ||
+          threadsOnlyNow.some(({ unitId }) => unitId === revealRequest.unitId)
+        ? RESOLVED_TAB
         : removedMark == null
           ? null
           : tabOf({ kind: removedMark.unitKind, itemKind: removedMark.itemKind });
     if (tab != null) setShownTab(tab);
-  }, [revealRequest, module, stage, preview, tabThreads, threadsOnlyNow]);
+  }, [revealRequest, module, stage, preview, openPlaces, resolvedThreads, threadsOnlyNow]);
 
   // The stage itself takes the focus when asked to, such as when undo puts it there.
   const { stageFocusRequest, stageFocused } = useWorkflowNavigation();
@@ -1046,13 +939,25 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
   useEffect(() => {
     if (revealRequest == null || handledRequest.current === revealRequest) return;
     const { unitId, message } = revealRequest;
-    if (message != null && module.unitState(unitId) == null && !tabThreads.some(({ id }) => id === message.threadId)) {
+    if (message != null && module.unitState(unitId) == null && !stageThreads.some(({ id }) => id === message.threadId)) {
       handledRequest.current = revealRequest;
       revealed(revealRequest);
       return;
     }
     const card = cards().find((candidate) => candidate.dataset.unitCard === unitId);
-    if (card == null) return;
+    if (card == null) {
+      // An open thread on the stage itself or on a removed unit is a row of the header.
+      const row = threadRow(unitId);
+      if (row == null) return;
+      handledRequest.current = revealRequest;
+      if (message == null) {
+        revealed(revealRequest);
+        row.querySelector<HTMLElement>('[role="button"]')?.focus();
+      } else if (thread?.place !== unitId) {
+        openThread(unitId, row, false);
+      }
+      return;
+    }
     handledRequest.current = revealRequest;
     if (message == null) {
       revealed(revealRequest);
@@ -1114,42 +1019,34 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
   /** The kind whose rules the Rules button shows: the shown one, or the first while a whole-stage tab is shown. */
   const kindForRules = kindShown ? activeTab : firstKind;
   const rulesButton = (
-    <Button size={compact || tabbed ? "small" : "medium"} startIcon={<MenuBook />} onClick={() => setRulesOpen(true)}>
+    <Button size="small" startIcon={<MenuBook />} onClick={() => setRulesOpen(true)}>
       {definition.kinds.length > 1 ? `Rules of ${workflow.kind(kindForRules).plural.toLowerCase()}` : "Rules"}
     </Button>
   );
   /** The tabs holding a signable unit. */
   const tabsHoldingSignable = new Set(allUnits.filter((unit) => module.signable(unit.unitId)).map((unit) => tabOf(unit)));
-  /**
-   * Each tab's label, with a badge counting what keeps the stage from
-   * completing: the tab's units not approved, or its threads waiting for the
-   * spec owner. The badge is orange when the tab holds something signable or
-   * a thread waiting for the spec owner, and neutral otherwise. Only a count
-   * worth showing gets a badge; MUI hides a zero badge through a transform of
-   * its own, which the badge's placement below would override.
-   */
-  const tabLabel = (label: string, count: number, counting: string, marked: boolean) =>
-    count > 0 ? (
-      <Badge
-        color={marked ? "warning" : "default"}
-        badgeContent={count}
-        aria-label={`${label}, ${count} ${counting}`}
-        sx={{ pr: 2, "& .MuiBadge-badge": { right: 0, top: "50%", transform: "translateY(-50%)" } }}
-      >
-        {label}
-      </Badge>
-    ) : (
-      label
+  /** A tab of units, counting them, marked while it holds something signable. */
+  const unitsTab = (tab: string, label: string) => {
+    const count = allUnits.filter((unit) => tabOf(unit) === tab).length;
+    const attention = tabsHoldingSignable.has(tab) ? "holds signable units" : null;
+    return (
+      <Tab
+        key={tab}
+        value={tab}
+        aria-label={`${label}, ${count}${attention == null ? "" : `, ${attention}`}`}
+        label={<CountedLabel label={label} count={count} attention={attention} />}
+        sx={{ minHeight: 40, textTransform: "none" }}
+      />
     );
-  const notApprovedIn = (tab: string) => allUnits.filter((unit) => tabOf(unit) === tab && !unit.approved).length;
+  };
 
-  const threadCard = (place: string) => (
+  /** A resolved thread's card, which opens the threads at its place with the focus on its last message. */
+  const threadCard = (resolved: Thread) => (
     <ThreadCard
-      key={place}
-      stage={stage}
-      place={place}
-      marks={threadMarks.filter(({ threadId }) => tabThreads.some((tabThread) => tabThread.id === threadId && threadPlace(tabThread) === place))}
-      onOpen={(card) => openThread(place, card)}
+      key={resolved.id}
+      thread={resolved}
+      marks={threadMarks.filter(({ threadId }) => threadId === resolved.id)}
+      onOpen={(card) => openThread(threadPlace(resolved), card, false, { threadId: resolved.id, index: resolved.messages.length - 1 })}
     />
   );
 
@@ -1161,6 +1058,7 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
           compact never moves the scroll position or the items under the person's eyes. */}
       <Stack onFocus={(event) => followFocus(event.target)} sx={{ flexGrow: 1, minWidth: 0, minHeight: 0 }}>
         <Stack
+          ref={headerRef}
           spacing={compact ? 0.5 : 1}
           sx={{ flexShrink: 0, px: 2, pt: compact ? 1 : 2, pb: compact ? 1.5 : 2, borderBottom: 1, borderColor: compact ? "divider" : "transparent" }}
         >
@@ -1172,11 +1070,11 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
                 </Button>
               </ActionTooltip>
             )}
-            <Typography variant={compact ? "subtitle1" : "h5"} sx={{ flexGrow: compact ? 0 : 1 }}>{definition.label}</Typography>
-            {compact && progressBar}
+            <Typography variant={compact ? "subtitle1" : "h5"}>{definition.label}</Typography>
+            {rulesButton}
+            {compact ? progressBar : <Box sx={{ flexGrow: 1 }} />}
             <Chip size={compact ? "small" : "medium"} label={summary.open ? "Open" : "Closed"} color={summary.open ? "primary" : "default"} variant="outlined" />
             <Chip size={compact ? "small" : "medium"} label={STAGE_PROGRESS_LABELS[summary.progress]} color={SIGNATURE_STATE_PALETTE[stageSignatureState(summary)]} />
-            {!tabbed && rulesButton}
           </Stack>
           {!compact && progressBar}
           <Stack direction="row" sx={{ alignItems: "center", gap: 1, flexWrap: "wrap" }}>
@@ -1185,78 +1083,72 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
               {threadsWaiting > 0 ? ` ${threadsWaiting} ${threadsWaiting === 1 ? "thread waits" : "threads wait"} for you.` : ""}
             </Typography>
             <Slot name="stage" props={{ stage, preview: preview != null }} />
-          </Stack>
-          {openStageThreads.length > 0 && !compact && (
-            <Alert
-              severity="warning"
-              action={
-                <Button color="inherit" size="small" {...{ [THREAD_BUTTON]: true }} onClick={showOpenStageThreads}>
-                  {openStageThreads.length === 1 ? "Open" : "Show"}
+            <ActionTooltip name="New thread on the stage" shortcut={stageThreadShortcut}>
+              <span>
+                <Button
+                  ref={newThreadButton}
+                  size="small"
+                  {...{ [THREAD_BUTTON]: true }}
+                  startIcon={<AddComment />}
+                  variant={thread != null && thread.place == null ? "contained" : "outlined"}
+                  disabled={!editable}
+                  onClick={openNewThread}
+                >
+                  New thread
                 </Button>
-              }
-            >
-              {openStageThreads.length === 1 ? "An open thread on the stage keeps it from being complete." : `${openStageThreads.length} open threads on the stage keep it from being complete.`}
-            </Alert>
+              </span>
+            </ActionTooltip>
+          </Stack>
+          {openPlaces.length > 0 && (
+            <Stack spacing={0.5} aria-label="Open threads">
+              {openPlaces.map((place) => (
+                <ThreadRow key={place} stage={stage} place={place} onOpenHere={(anchor) => openThread(place, anchor)} />
+              ))}
+            </Stack>
           )}
           {!summary.open && !compact && (
             <Alert severity="info">
               Closed until {workflow.upstreamStages(stage).filter((upstream) => !module.stageComplete(upstream)).map((upstream) => workflow.stage(upstream).label).join(" and ")} {workflow.upstreamStages(stage).filter((upstream) => !module.stageComplete(upstream)).length === 1 ? "is" : "are"} complete. Its work stays readable.
             </Alert>
           )}
-          {tabbed && (
-            <Stack direction="row" sx={{ alignItems: "center", gap: 1, borderBottom: 1, borderColor: "divider" }}>
-              <Tabs
-                value={kindShown ? activeTab : false}
-                onChange={(_event, tab: string) => setShownTab(tab)}
-                variant="scrollable"
-                scrollButtons="auto"
-                aria-label="Kinds of item"
-                sx={{ flexGrow: 1, minWidth: 0, minHeight: 40 }}
-              >
-                {definition.kinds.map((kind) => (
-                  <Tab
-                    key={kind.kind}
-                    value={kind.kind}
-                    label={tabLabel(kind.plural, notApprovedIn(kind.kind), "not approved", tabsHoldingSignable.has(kind.kind))}
-                    sx={{ minHeight: 40, textTransform: "none" }}
-                  />
-                ))}
-              </Tabs>
-              {kindShown && rulesButton}
-              {wholeTabs.length > 0 && (
-                <>
-                  <Divider orientation="vertical" flexItem sx={{ my: 1 }} />
-                  <Tabs
-                    value={kindShown ? false : activeTab}
-                    onChange={(_event, tab: string) => setShownTab(tab)}
-                    variant="scrollable"
-                    scrollButtons={false}
-                    aria-label="The whole stage"
-                    sx={{ flexShrink: 1, minWidth: 0, minHeight: 40 }}
-                  >
-                    {wholeTabs.includes(COVERAGES_TAB) && (
-                      <Tab value={COVERAGES_TAB} label={tabLabel("Coverages", notApprovedIn(COVERAGES_TAB), "not approved", tabsHoldingSignable.has(COVERAGES_TAB))} sx={{ minHeight: 40, textTransform: "none" }} />
-                    )}
-                    {wholeTabs.includes(IMPACTS_TAB) && (
-                      <Tab value={IMPACTS_TAB} label={tabLabel("Impacts", notApprovedIn(IMPACTS_TAB), "not approved", tabsHoldingSignable.has(IMPACTS_TAB))} sx={{ minHeight: 40, textTransform: "none" }} />
-                    )}
-                    {wholeTabs.includes(THREADS_TAB) && (
-                      <Tab
-                        value={THREADS_TAB}
-                        label={tabLabel("Threads", waitingForYou(tabThreads), "waiting for you", true)}
-                        sx={{ minHeight: 40, textTransform: "none" }}
-                      />
-                    )}
-                  </Tabs>
-                </>
-              )}
-            </Stack>
-          )}
+          <Stack direction="row" sx={{ alignItems: "center", gap: 1, borderBottom: 1, borderColor: "divider" }}>
+            <Tabs
+              value={kindShown ? activeTab : false}
+              onChange={(_event, tab: string) => setShownTab(tab)}
+              variant="scrollable"
+              scrollButtons="auto"
+              aria-label="Kinds of item"
+              sx={{ flexGrow: 1, minWidth: 0, minHeight: 40 }}
+            >
+              {definition.kinds.map((kind) => unitsTab(kind.kind, kind.plural))}
+            </Tabs>
+            <Divider orientation="vertical" flexItem sx={{ my: 1 }} />
+            <Tabs
+              value={kindShown ? false : activeTab}
+              onChange={(_event, tab: string) => setShownTab(tab)}
+              variant="scrollable"
+              scrollButtons={false}
+              aria-label="The whole stage"
+              sx={{ flexShrink: 1, minWidth: 0, minHeight: 40 }}
+            >
+              {wholeTabs.includes(COVERAGES_TAB) && unitsTab(COVERAGES_TAB, "Coverages")}
+              {wholeTabs.includes(IMPACTS_TAB) && unitsTab(IMPACTS_TAB, "Impacts")}
+              <Tab
+                value={RESOLVED_TAB}
+                aria-label={`Resolved threads, ${resolvedThreads.length}`}
+                label={<CountedLabel label="Resolved" count={resolvedThreads.length} />}
+                sx={{ minHeight: 40, textTransform: "none" }}
+              />
+            </Tabs>
+          </Stack>
         </Stack>
         <Box ref={containerRef} tabIndex={-1} aria-label={definition.label} onScroll={onScroll} sx={{ flexGrow: 1, minHeight: 0, minWidth: 0, overflowY: "auto", px: 2, pb: 2, outline: "none" }}>
           <FrameScheduleProvider value={frames}>
           <Stack spacing={1.5}>
             {cardsOf([...items, ...removedItems], marksIn(activeTab), (state) => <ItemCard key={state.unitId} state={state} controls={controls} />)}
+            {kindShown && items.length + removedItems.length + marksIn(activeTab).length === 0 && (
+              <Typography variant="body2" color="text.secondary">No {workflow.kind(activeTab).plural.toLowerCase()}.</Typography>
+            )}
             {editable && kindShown && (
               <Stack direction="row" sx={{ gap: 1, flexWrap: "wrap" }}>
                 {definition.kinds
@@ -1270,24 +1162,19 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
             )}
 
             {activeTab === COVERAGES_TAB && cardsOf(coverages, marksIn(COVERAGES_TAB), (state) => <CoverageCard key={state.unitId} state={state} controls={controls} />)}
-            {activeTab === IMPACTS_TAB && cardsOf(impacts, marksIn(IMPACTS_TAB), (state) => <ImpactCard key={state.unitId} state={state} controls={controls} />)}
-            {activeTab === THREADS_TAB && editable && (
-              <ActionTooltip name="Request a change on the stage" shortcut={stageThreadShortcut}>
-                <Button
-                  ref={stageRequestButton}
-                  {...{ [THREAD_BUTTON]: true }}
-                  startIcon={<AddComment />}
-                  variant={thread != null && thread.place == null ? "contained" : "outlined"}
-                  sx={{ alignSelf: "flex-start" }}
-                  onClick={(event) => setThread({ place: null, anchor: event.currentTarget, autoFocus: true })}
-                >
-                  Request a change on the stage
-                </Button>
-              </ActionTooltip>
+            {activeTab === COVERAGES_TAB && coverages.length + marksIn(COVERAGES_TAB).length === 0 && (
+              <Typography variant="body2" color="text.secondary">No coverages.</Typography>
             )}
-            {activeTab === THREADS_TAB && (tabSections.open.length > 0 || threadsOnlyNow.length > 0) && (
+            {activeTab === IMPACTS_TAB && cardsOf(impacts, marksIn(IMPACTS_TAB), (state) => <ImpactCard key={state.unitId} state={state} controls={controls} />)}
+            {activeTab === IMPACTS_TAB && impacts.length + marksIn(IMPACTS_TAB).length === 0 && (
+              <Typography variant="body2" color="text.secondary">No impacts.</Typography>
+            )}
+            {activeTab === RESOLVED_TAB && resolvedThreads.length + threadsOnlyNow.length === 0 && (
+              <Typography variant="body2" color="text.secondary">No resolved threads.</Typography>
+            )}
+            {activeTab === RESOLVED_TAB && resolvedThreads.length + threadsOnlyNow.length > 0 && (
               <Box sx={THREAD_GRID}>
-                {tabSections.open.map(threadCard)}
+                {resolvedThreads.map(threadCard)}
                 {threadsOnlyNow.map((mark) => (
                   <Box
                     key={mark.threadId}
@@ -1304,18 +1191,12 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
                 ))}
               </Box>
             )}
-            {activeTab === THREADS_TAB && tabSections.resolved.length > 0 && (
-              <>
-                <Typography variant="subtitle2" sx={{ pt: 1.5 }}>Resolved</Typography>
-                <Box sx={THREAD_GRID}>{tabSections.resolved.map(threadCard)}</Box>
-              </>
-            )}
           </Stack>
           </FrameScheduleProvider>
           <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 3 }}>
-            Keyboard: j or ↓ next, k or ↑ previous, Shift+J or Shift+K next or previous signable, g first, Shift+G last, s sign, Shift+S sign and go to the next signable, c open the thread or request a change, Shift+C request a change on the stage, Esc close it.
+            Keyboard: j or ↓ next, k or ↑ previous, Shift+J or Shift+K next or previous signable, g first, Shift+G last, s sign, Shift+S sign and go to the next signable, c open the thread or start one, Shift+C new thread on the stage, Esc close it.
           </Typography>
-          <RulesDialog stage={stage} kind={kindForRules} open={rulesOpen} onClose={() => setRulesOpen(false)} />
+          {rulesOpen && <RulesDialog stage={stage} initialKind={kindForRules} onClose={() => setRulesOpen(false)} />}
         </Box>
       </Stack>
       {thread != null && (
@@ -1326,7 +1207,7 @@ const StageView = observer(function StageView({ stage }: { stage: string }) {
           anchor={thread.anchor}
           stageOpen={editable}
           autoFocus={thread.autoFocus}
-          focusMessage={messageToFocus}
+          focusMessage={messageToFocus ?? thread.message ?? null}
           onMessageFocused={messageFocused}
           onShow={(place) => setThread({ ...thread, place })}
           onDock={() => setChosenForm("docked")}

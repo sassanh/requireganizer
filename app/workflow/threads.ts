@@ -25,8 +25,8 @@ export interface RemovedUnit {
 }
 
 /**
- * A change request on a stage or on one unit, and the conversation that
- * answers it. Only the spec owner resolves it. It keeps its stage, and once
+ * Messages on a stage or on one unit, from the spec owner's first message
+ * until they resolve it; only the spec owner resolves it. It keeps its stage, and once
  * its unit is gone the unit's last name, so it stays readable from the stage.
  */
 export interface Thread {
@@ -61,10 +61,27 @@ export function authorLabel(author: ThreadAuthor): string {
 
 /**
  * An open thread waits for the spec owner while its last message is not
- * theirs and no agent has its change request, which `agentHasRequest` says.
+ * theirs, unless another module says whom it waits for: `said` is then true
+ * for the spec owner and false for someone else, such as one who has it.
  */
-export function waitsForSpecOwner(thread: Thread, agentHasRequest: boolean): boolean {
-  return thread.resolution == null && !agentHasRequest && thread.messages.at(-1)?.author.kind !== "person";
+export function waitsForSpecOwner(thread: Thread, said?: boolean): boolean {
+  return thread.resolution == null && (said ?? thread.messages.at(-1)?.author.kind !== "person");
+}
+
+/**
+ * Entries in the order threads are listed, each by its thread: open threads
+ * by the time of their last message, oldest first, then resolved threads by
+ * when they were resolved, latest first. Those with no time, as in an export
+ * made without thread times, keep the order given, before the open threads
+ * and after the resolved.
+ */
+export function inListOrder<Entry>(entries: readonly Entry[], threadOf: (entry: Entry) => Thread): Entry[] {
+  const lastMessageAt = (entry: Entry) => threadOf(entry).messages.at(-1)?.at ?? "";
+  const resolvedAt = (entry: Entry) => threadOf(entry).resolution?.at ?? "";
+  return [
+    ...entries.filter((entry) => threadOf(entry).resolution == null).sort((left, right) => lastMessageAt(left).localeCompare(lastMessageAt(right))),
+    ...entries.filter((entry) => threadOf(entry).resolution != null).sort((left, right) => resolvedAt(right).localeCompare(resolvedAt(left))),
+  ];
 }
 
 /**

@@ -4,7 +4,7 @@ export const MENTION_MARKUP_TEXT =
 
 /** The rules every reply of an agent follows. */
 export const REPLY_RULES: readonly string[] = [
-  "it speaks only to its thread's request;",
+  "it speaks only to what its thread asks;",
   "it makes sense read on its own;",
   "it gives an item's code only inside a marked mention of that item; and",
   "it names each item that no longer exists when the reply is sent by what the item said, never by a code.",

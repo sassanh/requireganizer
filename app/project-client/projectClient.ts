@@ -6,7 +6,7 @@ import {
   type SnapshotIn,
 } from "mobx-state-tree";
 
-import { AgentsClient, type AgentsHostApi, type AgentsRequest, RequestsConcernedError, storeActionName } from "agents";
+import { AgentsClient, type AgentsHostApi, type AgentsRequest, ThreadsConcernedError, storeActionName } from "agents";
 import {
   addressOf,
   type ClientConnection,
@@ -53,7 +53,7 @@ const FIRST_RECONNECT_DELAY_MS = 500;
 const MAX_RECONNECT_DELAY_MS = 8000;
 
 function errorFromWire(error: WireError): Error {
-  if (error.concerned != null) return new RequestsConcernedError(error.concerned);
+  if (error.concerned != null) return new ThreadsConcernedError(error.concerned);
   if (error.name === "UserFacingError") return new UserFacingError(error.message);
   const rebuilt = new Error(error.message);
   rebuilt.name = error.name;
@@ -189,7 +189,7 @@ export class ProjectClient {
   private hostInfo: HostInfo = {
     storage: { singleProject: false, name: "storage" },
   };
-  /** The agents and the waiting requests, the agent this client is, and the spec owner's confirmations. */
+  /** The agents and the threads waiting for one, the agent this client is, and the spec owner's confirmations. */
   readonly agents = new AgentsClient(
     ((name: keyof AgentsHostApi, ...args: unknown[]) => this.request(name, ...(args as never))) as AgentsRequest,
     () => {
@@ -204,8 +204,8 @@ export class ProjectClient {
   private previewRequest = 0;
   /** Where the store actions forwarded now move the spec owner's focus, and where the host answers that each moved it. */
   private focusMove: { move: SignatureFocusMove; movedTo: Promise<FocusPlace | null>[] } | null = null;
-  /** The agent the change request of a message the spec owner sends now is given to. */
-  private giveTo: string | null = null;
+  /** The agent the thread of a message the spec owner sends now is assigned to. */
+  private assignTo: string | null = null;
   /** What `getPreview` hands out, the same object until the preview changes. */
   private shownPreview: ShownPreview | null = null;
   private snapshot: ProjectSessionSnapshot;
@@ -434,16 +434,16 @@ export class ProjectClient {
   };
 
   /**
-   * Run `run`, giving the change request of each message of the spec
+   * Run `run`, assigning the thread of each message of the spec
    * owner's it sends to `to`, in the same act as sending it; to none for null.
    */
-  withRequestGivenTo = <Value>(to: string | null, run: () => Value): Value => {
-    const previous = this.giveTo;
-    this.giveTo = to;
+  withAssignment = <Value>(to: string | null, run: () => Value): Value => {
+    const previous = this.assignTo;
+    this.assignTo = to;
     try {
       return run();
     } finally {
-      this.giveTo = previous;
+      this.assignTo = previous;
     }
   };
 
@@ -583,7 +583,7 @@ export class ProjectClient {
       return Promise.reject(error);
     }
     const focusMove = this.focusMove?.move;
-    const giveTo = this.giveTo;
+    const assignTo = this.assignTo;
     const outcome = this.agents.confirmed(storeActionName(call.name), (stopping) =>
       this.request("runStoreAction", {
         store,
@@ -591,7 +591,7 @@ export class ProjectClient {
         name: call.name,
         args,
         ...(focusMove == null ? {} : { focusMove }),
-        ...(giveTo == null ? {} : { giveTo }),
+        ...(assignTo == null ? {} : { assignTo }),
         ...(stopping == null ? {} : { stopping }),
       }),
     );

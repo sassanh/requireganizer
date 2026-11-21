@@ -46,6 +46,6 @@ An item is out of date while an item it references or depends on has changed sin
 
 A coverage is one signature per item of a covered kind: the items referencing it cover it fully. An impact is asked in a stage for each upstream item changed or removed since the stage took it in: no approved item of the stage relies on the change without referencing the item.
 
-## Change requests
+## Threads
 
-A change request opens a thread on an item, a coverage or an impact, with at most one open thread per unit. The answerer replies alone or with changes to any items, and only the spec owner resolves a thread.
+The spec owner opens a thread with a message on a stage, an item, a coverage or an impact, with at most one open thread per unit and any number on a stage. Each message of theirs sets the thread waiting for an agent, which they assign it to as they send it or later. The agent that has it replies alone or with changes to any items, and only the spec owner resolves a thread.

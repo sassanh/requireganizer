@@ -8,7 +8,7 @@ import type { AgentsClient } from "../client";
 import type { DeskView } from "../desk";
 import type { AttentionOffer, PointedPlace } from "../pointers";
 
-/** The Agents module as the page reads it: the host's agents and requests, the offers agents made, and the page's own readings of places. */
+/** The Agents module as the page reads it: the host's agents and waiting threads, the offers agents made, and the page's own readings of places. */
 export interface AgentsPageValue {
   client: AgentsClient;
   view: DeskView;
@@ -22,10 +22,12 @@ export interface AgentsPageValue {
   /** The module the page shows, and its name while the project has modules turned on. */
   activeModuleId: string;
   activeModuleName: string | null;
+  /** Every module of the open project, each with its name while the project has modules turned on. */
+  modules: readonly { id: string; name: string | null }[];
   /** The model of a module the page holds; null for one it holds none of. */
   moduleStore: (moduleId: string) => Store | null;
-  /** Run `run`, giving the change request of each message of the spec owner's it sends to `to`, or to none. */
-  withRequestGivenTo: <Value>(to: string | null, run: () => Value) => Value;
+  /** Run `run`, assigning the thread of each message of the spec owner's it sends to `to`, or to none. */
+  withAssignment: <Value>(to: string | null, run: () => Value) => Value;
 }
 
 export const agentsContext = createContext<AgentsPageValue | null>(null);

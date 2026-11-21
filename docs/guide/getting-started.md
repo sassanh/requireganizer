@@ -39,7 +39,7 @@ claude plugin install requireganizer --marketplace sassanh/requireganizer
 
 Other agents run `npx -y requireganizer mcp` in the repository. The Skill is in `skills/requireganizer/`.
 
-The agent reads each stage's items and each kind's published rules, writes items, and answers your change requests. Only you sign, in the page.
+The agent reads each stage's items and each kind's published rules, writes items, and answers the threads you assign it. Only you sign, in the page.
 
 When no other process serves the project, the agent's process serves it, page included, and prints the address to its log.
 
@@ -70,4 +70,4 @@ The documentation uses the GitHub Pages base path `/requireganizer/`.
 
 1. Create a project. Its first module opens at Module Overview.
 2. Write the purpose, or ask the coding agent to write it, then sign it.
-3. Go through the stages in order: read each kind's rules, have items written, request changes where they fall short, and sign each item, coverage and impact.
+3. Go through the stages in order: read each kind's rules, have items written, open a thread where they fall short, and sign each item, coverage and impact.

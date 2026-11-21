@@ -10,7 +10,7 @@ import { STAGE_PROGRESS_LABELS } from "../units";
 import { useWorkflowView } from "./context";
 import { useIdleSince } from "./frameSchedule";
 import { type SignatureState, stageSignatureState } from "./signatureState";
-import { useThreadsWithAgent } from "./slots";
+import { useWaitsForSpecOwner } from "./slots";
 
 const PROGRESS_ICONS: Record<StageProgress, typeof CheckCircle> = {
   empty: RadioButtonUnchecked,
@@ -38,10 +38,10 @@ function StageButton({
   summary: StageSummary | null;
 }) {
   const { module, workflow, preview } = useWorkflowView();
-  const threadsWithAgent = useThreadsWithAgent();
+  const waitsForSpecOwner = useWaitsForSpecOwner();
   const isSelected = stage === selected;
   const marked = preview?.count(stage) ?? 0;
-  const waitingThreads = summary == null ? 0 : module.threadsWaitingForSpecOwner(stage, threadsWithAgent).length;
+  const waitingThreads = summary == null ? 0 : module.threadsOfStage(stage).filter(waitsForSpecOwner).length;
   const ProgressIcon = summary == null ? null : PROGRESS_ICONS[summary.progress];
   return (
     <ListItemButton

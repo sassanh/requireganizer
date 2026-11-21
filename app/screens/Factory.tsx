@@ -64,7 +64,7 @@ const Factory = observer(function Factory() {
   const [stageFocusRequest, setStageFocusRequest] = useState<object | null>(null);
   useEffect(
     () =>
-      subscribePlaceRequests(({ place, leavePreview }) => {
+      subscribePlaceRequests(({ place, leavePreview, message }) => {
         const query = new URLSearchParams(window.location.search);
         if (leavePreview) query.delete("preview");
         if (modulesEnabled) query.set("module", place.moduleId);
@@ -73,8 +73,8 @@ const Factory = observer(function Factory() {
           setRevealRequest(null);
           setStageFocusRequest({});
         } else {
-          router.push(unitHref(pathname, query.toString(), { step: place.stage, unit: place.unitId }), { scroll: false });
-          setRevealRequest({ unitId: place.unitId, message: null });
+          router.push(unitHref(pathname, query.toString(), { step: place.stage, unit: place.unitId, message }), { scroll: false });
+          setRevealRequest({ unitId: place.unitId, message });
         }
       }),
     [modulesEnabled, pathname, router],
@@ -110,8 +110,9 @@ const Factory = observer(function Factory() {
       if (from != null) window.history.replaceState(null, "", unitHref(path, search, { step: shownStage, unit: from.unitId, message: from.message }));
       recordOpener(from);
       // The page reveals the unit itself; Next's own scroll and focus would take the focus from it.
-      router.push(unitHref(path, search, { ...(place.module == null ? {} : { module: place.module }), step: place.stage, unit: place.unitId }), { scroll: false });
-      setRevealRequest({ unitId: place.unitId, message: null });
+      const message = place.message ?? null;
+      router.push(unitHref(path, search, { ...(place.module == null ? {} : { module: place.module }), step: place.stage, unit: place.unitId, message }), { scroll: false });
+      setRevealRequest({ unitId: place.unitId, message });
     },
     [router],
   );

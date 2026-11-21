@@ -279,16 +279,16 @@ interface IssuedWrite {
   address: Address;
   history: ProjectHistory;
   offers: readonly AttentionOffer[];
-  requests: unknown;
+  waits: unknown;
   name: string;
 }
 
-function issuedWriteOf(address: Address, history: ProjectHistory, offers: readonly AttentionOffer[], requests: unknown, project: ProjectIdentity): IssuedWrite {
-  return { address, history, offers, requests, name: project.name };
+function issuedWriteOf(address: Address, history: ProjectHistory, offers: readonly AttentionOffer[], waits: unknown, project: ProjectIdentity): IssuedWrite {
+  return { address, history, offers, waits, name: project.name };
 }
 
 function sameIssuedWrite(left: IssuedWrite | null, right: IssuedWrite): boolean {
-  if (left == null || left.address !== right.address || left.name !== right.name || left.offers !== right.offers || left.requests !== right.requests) return false;
+  if (left == null || left.address !== right.address || left.name !== right.name || left.offers !== right.offers || left.waits !== right.waits) return false;
   return (Object.keys(right.history) as (keyof ProjectHistory)[]).every((key) => left.history[key] === right.history[key]);
 }
 
@@ -392,8 +392,8 @@ export class ProjectSession {
   /** What a change within the one running says it was, for a step its outer change does not describe. */
   private innerDescription: string | null = null;
   private offers: AttentionOffer[] = [];
-  /** The spec owner's requests to agents and their run logs, as the Agents module keeps them; never undone. */
-  private requests: unknown = null;
+  /** The threads waiting for an agent and their run logs, as the Agents module keeps them; never undone. */
+  private waits: unknown = null;
 
   private unsubscribeStore: (() => void) | null = null;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -593,16 +593,16 @@ export class ProjectSession {
     this.pointed = { places: [...places], text, from };
   };
 
-  /** The open project's requests to agents, as the Agents module last kept them; null for none. */
-  agentRequests = (): unknown => this.requests;
+  /** The open project's threads waiting for an agent, as the Agents module last kept them; null for none. */
+  agentWaits = (): unknown => this.waits;
 
   /**
-   * Keep the open project's requests to agents, beside the project and
+   * Keep the open project's threads waiting for an agent, beside the project and
    * apart from its history, so that no undo, redo or step gone to moves them.
    */
-  keepAgentRequests = (value: unknown): void => {
-    if (this.readyState() == null || value === this.requests) return;
-    this.requests = value;
+  keepAgentWaits = (value: unknown): void => {
+    if (this.readyState() == null || value === this.waits) return;
+    this.waits = value;
     this.scheduleWrite();
   };
 
@@ -667,8 +667,8 @@ export class ProjectSession {
     const address = this.pieces.addressOf(current);
     const history = this.keeper.history;
     const offers = this.offers;
-    const requests = this.requests;
-    const issued = issuedWriteOf(address, history, offers, requests, state.project);
+    const waits = this.waits;
+    const issued = issuedWriteOf(address, history, offers, waits, state.project);
     if (sameIssuedWrite(this.issued, issued)) return;
     this.issued = issued;
     const pieces = [...this.pieces.reachable([address, ...this.keeper.roots()])]
@@ -688,8 +688,8 @@ export class ProjectSession {
         state: current,
         address,
         pieces,
-        writing: { lastWritten, writing: address, history, offers, requests },
-        written: { lastWritten: address, writing: null, history, offers, requests },
+        writing: { lastWritten, writing: address, history, offers, waits },
+        written: { lastWritten: address, writing: null, history, offers, waits },
         overOutsideChange: over != null,
       })
       .then(
@@ -1107,7 +1107,7 @@ export class ProjectSession {
     // Starting, the stored project becomes the one last written, with no steps.
     const kept = opening.kind === "start" || history == null ? EMPTY_HISTORY : history;
     this.offers = opening.kind === "start" ? [] : offersOf(record);
-    this.requests = opening.kind === "start" ? null : (record?.requests ?? null);
+    this.waits = opening.kind === "start" ? null : (record?.waits ?? null);
     this.written = opening.kind === "start" || record == null ? NOTHING_WRITTEN : { lastWritten: record.lastWritten, writing: record.writing };
     this.outsideChange = opening.kind === "outside change" ? opening.change : null;
     this.keeper = new HistoryKeeper(this.pieces, { ...kept, currentState: shownAddress, timeZone: this.reportedTimeZone ?? kept.timeZone });
@@ -1117,7 +1117,7 @@ export class ProjectSession {
     // opening, unless opening changes its history.
     this.issued =
       opening.kind === "open stored" && this.written.writing == null && this.written.lastWritten != null
-        ? issuedWriteOf(this.written.lastWritten, kept, this.offers, this.requests, project)
+        ? issuedWriteOf(this.written.lastWritten, kept, this.offers, this.waits, project)
         : null;
     this.focus = null;
     this.showState(project, shown);
@@ -1311,7 +1311,7 @@ export class ProjectSession {
     }
     if (stored.kind !== "readable") {
       // It changed again meanwhile, into one that cannot be opened.
-      this.outsideChange = storedProjectChange(stored, { ...this.written, history: null, offers: null, requests: null });
+      this.outsideChange = storedProjectChange(stored, { ...this.written, history: null, offers: null, waits: null });
       this.publish();
       throw new UserFacingError(stored.kind === "missing" ? `${this.persistence.traits.name} was removed.` : stored.problem);
     }
@@ -1360,7 +1360,7 @@ export class ProjectSession {
     this.keeper = new HistoryKeeper(this.pieces);
     this.written = NOTHING_WRITTEN;
     this.offers = [];
-    this.requests = null;
+    this.waits = null;
     this.storedPieces = new Set();
     this.restorePointPieces = null;
     this.closeProject({ write: false });
@@ -1805,8 +1805,8 @@ export class ProjectSession {
       state,
       address,
       pieces: [...pieces.reachable([address])].map((piece) => [piece, pieces.get(piece)!.bytes] as const),
-      writing: { lastWritten: null, writing: address, history, offers: [], requests: null },
-      written: { lastWritten: address, writing: null, history, offers: [], requests: null },
+      writing: { lastWritten: null, writing: address, history, offers: [], waits: null },
+      written: { lastWritten: address, writing: null, history, offers: [], waits: null },
       overOutsideChange: false,
     });
   }

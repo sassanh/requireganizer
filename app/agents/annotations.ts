@@ -16,8 +16,8 @@ export interface Finding {
   how: string;
 }
 
-/** What a request made in a thread asks: a change, or the writing or a review of the thread's stage. */
-export type RequestKind = "change" | "write" | "review";
+/** What a thread asks of the agent it is assigned to: an answer to the spec owner's message, or the writing or a review of the thread's stage. */
+export type AskKind = "message" | "write" | "review";
 
 function own(message: Pick<ThreadMessage, "annotations">): Record<string, unknown> | null {
   const value = message.annotations?.[OWN];
@@ -30,12 +30,13 @@ export function asksAnnotation(kind: "write" | "review"): Readonly<Record<string
 }
 
 /**
- * What the requests of a thread ask: what its first message asked, for a
- * thread opened by a request to write or to review its stage, else a change.
+ * What a thread asks: what its first message asked, for a thread opened by
+ * asking for its stage to be written or reviewed, else an answer to the
+ * spec owner's message.
  */
-export function threadAsks(thread: Thread): RequestKind {
+export function threadAsks(thread: Thread): AskKind {
   const asks = own(thread.messages[0]!)?.asks;
-  return asks === "write" || asks === "review" ? asks : "change";
+  return asks === "write" || asks === "review" ? asks : "message";
 }
 
 /** The annotation of an agent's reply that gives findings; none when it gives none. */

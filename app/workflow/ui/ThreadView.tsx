@@ -49,7 +49,7 @@ export function threadsAt(module: WorkflowModule, stage: string, place: string):
 }
 
 /** What the threads at a place are on: the unit, the stage itself, or the unit that is gone. */
-export function placeLabel(module: WorkflowModule, place: string, threads: readonly Thread[]): string {
+function placeLabel(module: WorkflowModule, place: string, threads: readonly Thread[]): string {
   if (module.unitState(place) != null) return module.unitLabel(place);
   const first = threads[0];
   return first?.unitId == null ? "the stage" : `${first.removedUnit?.name ?? module.unitLabel(first.unitId)}, removed`;
@@ -57,7 +57,7 @@ export function placeLabel(module: WorkflowModule, place: string, threads: reado
 
 /**
  * The threads at one place, opened from its card, or with no place the box
- * that requests a change on the stage: their messages, the reply or change
+ * that opens a thread on the stage: their messages, the reply or message
  * request box, and controls to dock the overlay and to close. The docked
  * form is the page's side panel.
  */
@@ -75,7 +75,7 @@ const ThreadView = observer(function ThreadView({
   onClose,
 }: {
   stage: string;
-  /** Where the threads shown are, as `threadPlace` names it; null for the box that requests a change on the stage. */
+  /** Where the threads shown are, as `threadPlace` names it; null for the box that opens a thread on the stage. */
   place: string | null;
   form: ThreadForm;
   /** Where the overlay shows: the card's actions. */
@@ -85,7 +85,7 @@ const ThreadView = observer(function ThreadView({
   /** A message to show and focus, such as the one an item was opened from. */
   focusMessage: MessagePlace | null;
   onMessageFocused: () => void;
-  /** Show the threads at another place, such as the thread a change request on the stage opened. */
+  /** Show the threads at another place, such as the thread just opened on the stage. */
   onShow: (place: string) => void;
   onDock: () => void;
   /** Closes the thread; closing the docked form also undocks, so the next thread opens beside its card. */
@@ -99,7 +99,7 @@ const ThreadView = observer(function ThreadView({
     <Stack spacing={1} sx={{ p: 1.5, minHeight: 0, height: form === "overlay" ? undefined : "100%", maxHeight: "inherit" }}>
       <Stack direction="row" sx={{ alignItems: "center", gap: 0.5 }}>
         <Typography variant="subtitle1" sx={{ fontWeight: 700, flexGrow: 1 }}>
-          {place == null ? "Request a change on the stage" : `Thread on ${placeLabel(module, place, threads)}`}
+          {place == null ? "New thread on the stage" : `Thread on ${placeLabel(module, place, threads)}`}
         </Typography>
         {form === "overlay" && (
           <Tooltip title="Dock at the right">

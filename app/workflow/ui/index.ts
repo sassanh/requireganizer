@@ -17,8 +17,12 @@ export {
   workflowViewContext,
   type WorkflowView,
 } from "./context";
+export { default as CountedLabel } from "./CountedLabel";
 export { default as ItemChip, ItemPreviewProvider } from "./ItemChip";
 export { currentEntryKey, currentOpener, recordOpener, returnToOpener, subscribeToEntries } from "./openedFrom";
 export { default as StageNavigation } from "./StageNavigation";
 export { default as StageView } from "./StageView";
-export { type ThreadSendProps, useThreadsWithAgent, useWorkflowSlots, type WorkflowSlots, workflowSlotsContext } from "./slots";
+export { default as ThreadCard, THREAD_GRID } from "./ThreadCard";
+export { default as ThreadOwner } from "./ThreadOwner";
+export { default as ThreadRow } from "./ThreadRow";
+export { type ThreadSendProps, useWaitsForSpecOwner, useWorkflowSlots, type WorkflowSlots, workflowSlotsContext } from "./slots";

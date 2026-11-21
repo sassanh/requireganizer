@@ -33,8 +33,8 @@ import {
 
 import { type Finding, findingsAnnotation, findingsOf, threadAsks } from "../annotations";
 import type { AgentDesk } from "../desk";
-import type { AgentRequest } from "../requests";
 import { type AgentId, codingAgentId } from "../roster";
+import type { WaitingThread } from "../waiting";
 import { replyRulesText } from "./replyRules";
 
 type RecordContent = ItemContent;
@@ -67,7 +67,7 @@ export interface OtherModule {
 /**
  * What an agent works on: the module the person has open, named while the
  * project has modules, every other module by its name, and how to add one;
- * and the agents of the project with the requests they have. Nothing here
+ * and the agents of the project with the threads they have. Nothing here
  * moves the spec owner's page.
  */
 export interface OpenModule {
@@ -79,9 +79,9 @@ export interface OpenModule {
   /** Point the spec owner to a set of units with one text, offered as one and browsed one by one. */
   pointOut?: (units: readonly PointedUnit[], text: string) => void;
   /**
-   * The project's agents and the requests they have, and the open module's
-   * id as it names them. Without them no request is any agent's, and an
-   * agent works as before agents had requests.
+   * The project's agents and the threads they have, and the open module's
+   * id as it names them. Without them no thread is any agent's, and an
+   * agent works as before threads were assigned.
    */
   desk?: AgentDesk;
   moduleId?: string;
@@ -98,7 +98,7 @@ export interface AgentCaller {
 
 type Arguments = Record<string, unknown>;
 
-/** The agent calling as the requests it may have know it: null while the project has no desk. */
+/** The agent calling as the threads it may have know it: null while the project has no desk. */
 interface CallingAgent {
   id: AgentId;
   /** The name its messages are signed with. */
@@ -110,14 +110,14 @@ interface AgentTool {
   /** Takes `module`, to work on another module than the open one; its schema gets the property. */
   inModule?: boolean;
   /**
-   * The argument naming the request this call is about. The call then works
-   * on that request's module, whatever the module the spec owner has open or
-   * the call names.
+   * The argument naming, by its id, the thread assigned to the calling agent
+   * that this call is about. The call then works on that thread's module,
+   * whatever the module the spec owner has open or the call names.
    */
-  request?: { argument: string };
+  assigned?: { argument: string };
   /** The kind of change a call makes, as its step names it; null for a tool that only reads. */
   makes: ChangeKind | null;
-  run(store: Store, args: Arguments, open: OpenModule, caller: AgentCaller, agent: CallingAgent | null, request: AgentRequest | null): string;
+  run(store: Store, args: Arguments, open: OpenModule, caller: AgentCaller, agent: CallingAgent | null, assigned: WaitingThread | null): string;
 }
 
 function stringArgument(args: Arguments, name: string): string {
@@ -249,7 +249,7 @@ function threadView(store: Store, thread: Thread, status: ThreadStatus): Record<
     threadId: thread.id,
     ...threadUnit(store, thread),
     stage: thread.stage,
-    ...(thread.unitId == null && threadAsks(thread) !== "change" ? { asks: `${threadAsks(thread)} the stage` } : {}),
+    ...(thread.unitId == null && threadAsks(thread) !== "message" ? { asks: `${threadAsks(thread)} the stage` } : {}),
     status: status(thread),
     messages: thread.messages.map((message) => {
       const findings = findingsOf(message);
@@ -432,7 +432,7 @@ function parseFindings(store: Store, value: unknown, label: string): Finding[] {
 const FINDINGS_PROPERTY = {
   type: "array",
   description:
-    "Only from the agent that has the thread's change request: what the reply finds wrong with items, each naming an item of any module, a published rule of its kind that it breaks, and how. The spec owner sees each finding with the reply, and on its item while the item is unchanged. A finding that names no item, no published rule of its item's kind, or not how the item breaks it, refuses the whole call and changes nothing.",
+    "Only from the agent the thread is assigned to: what the reply finds wrong with items, each naming an item of any module, a published rule of its kind that it breaks, and how. The spec owner sees each finding with the reply, and on its item while the item is unchanged. A finding that names no item, no published rule of its item's kind, or not how the item breaks it, refuses the whole call and changes nothing.",
   items: {
     type: "object",
     properties: {
@@ -591,62 +591,61 @@ function outcomeLines(store: Store, outcome: ChangeOutcome, codesBefore: Readonl
 
 const STAGE_PROPERTY = { type: "string", description: "A stage id, as get_workflow_state lists them." };
 
-/** The desk and the open module's id as it names requests; null while the project has none. */
+/** The desk and the open module's id as it names waiting threads; null while the project has none. */
 function deskOf(open: OpenModule): { desk: AgentDesk; moduleId: string } | null {
   return open.desk == null || open.moduleId == null ? null : { desk: open.desk, moduleId: open.moduleId };
 }
 
-/** The change request that waits in a thread of the module a call works on and the agent that has it; null when none waits. */
-function requestIn(open: OpenModule, thread: Thread): { request: AgentRequest; holder: AgentId | null } | null {
+/** The wait of a thread of the module a call works on and the agent that has it; null when the thread does not wait for an agent. */
+function waitOf(open: OpenModule, thread: Thread): { waiting: WaitingThread; holder: AgentId | null } | null {
   const found = deskOf(open);
-  const request = found == null ? null : found.desk.waitingIn(found.moduleId, thread.id);
-  return request == null ? null : { request, holder: found!.desk.holderOf(request.key)?.agentId ?? null };
+  const waiting = found == null ? null : found.desk.waitingIn(found.moduleId, thread.id);
+  return waiting == null ? null : { waiting, holder: found!.desk.holderOf(waiting.key)?.agentId ?? null };
 }
 
-/** The change request of a thread that the calling agent has; null when it has none there. */
-function heldByCaller(open: OpenModule, agent: CallingAgent | null, thread: Thread): AgentRequest | null {
-  const found = requestIn(open, thread);
-  return found != null && agent != null && found.holder === agent.id ? found.request : null;
+/** The wait of a thread assigned to the calling agent; null when the thread is not assigned to it. */
+function heldByCaller(open: OpenModule, agent: CallingAgent | null, thread: Thread): WaitingThread | null {
+  const found = waitOf(open, thread);
+  return found != null && agent != null && found.holder === agent.id ? found.waiting : null;
 }
 
 /** Whom each thread waits for, as the calling agent reads it. */
 function statusOf(open: OpenModule, agent: CallingAgent | null): ThreadStatus {
   return (thread) => {
     if (thread.resolution != null) return "resolved";
-    const found = requestIn(open, thread);
-    if (found != null && agent != null && found.holder === agent.id) return "waiting for you";
-    if (waitsForSpecOwner(thread, found?.holder != null)) return "waiting for the spec owner";
-    if (found == null) return "open; its change request was answered";
-    return found.holder == null ? "its change request waits for the spec owner to give it to an agent" : "its change request is with another agent";
+    const found = waitOf(open, thread);
+    if (found == null) return waitsForSpecOwner(thread) ? "waiting for the spec owner" : "open; no agent is to answer it";
+    if (found.holder == null) return "waiting for the spec owner to assign it to an agent";
+    return agent != null && found.holder === agent.id ? "waiting for you" : "assigned to another agent";
   };
 }
 
-/** The change requests the calling agent has in the module a call works on, each with its thread. */
-function requestsOfCaller(store: Store, open: OpenModule, agent: CallingAgent | null): { thread: Thread; request: AgentRequest }[] {
+/** The threads assigned to the calling agent in the module a call works on, each with its wait. */
+function assignedToCaller(store: Store, open: OpenModule, agent: CallingAgent | null): { thread: Thread; waiting: WaitingThread }[] {
   const found = deskOf(open);
   if (found == null || agent == null) return [];
   return found.desk
-    .heldRequests()
-    .filter((request) => request.moduleId === found.moduleId && request.agentId === agent.id)
-    .flatMap((request) => {
-      const thread = store.threads.find(({ id }) => id === request.thread.id);
-      return thread == null ? [] : [{ thread, request }];
+    .heldThreads()
+    .filter((waiting) => waiting.moduleId === found.moduleId && waiting.agentId === agent.id)
+    .flatMap((waiting) => {
+      const thread = store.threads.find(({ id }) => id === waiting.thread.id);
+      return thread == null ? [] : [{ thread, waiting }];
     });
 }
 
 /**
- * The request a tool call names, held by the calling agent; null when the
- * tool names none or the call names none.
+ * The thread a tool call names by its id, assigned to the calling agent;
+ * null when the tool names none or the call names none.
  */
-function requestNamedBy(tool: AgentTool, args: Arguments, open: OpenModule, agent: CallingAgent | null): AgentRequest | null {
-  const named = tool.request;
+function assignedNamedBy(tool: AgentTool, args: Arguments, open: OpenModule, agent: CallingAgent | null): WaitingThread | null {
+  const named = tool.assigned;
   if (named == null) return null;
   const value = args[named.argument];
   if (value == null) return null;
-  if (typeof value !== "string") throw new UserFacingError(`${named.argument} must be a request's id.`);
+  if (typeof value !== "string") throw new UserFacingError(`${named.argument} must be the id given with a thread assigned to you.`);
   const found = deskOf(open);
-  if (found == null || agent == null) throw new UserFacingError("No request is any agent's in this project.");
-  return found.desk.requireHeldRequest(agent.id, value);
+  if (found == null || agent == null) throw new UserFacingError("No thread is assigned to any agent in this project.");
+  return found.desk.requireHeld(agent.id, value);
 }
 
 /** The stages a write would close: open before it and closed after, tried on a copy of the module. */
@@ -670,12 +669,12 @@ const workflowStateTool: AgentTool = {
   description: {
     name: "get_workflow_state",
     description:
-      "Get a module's workflow state: the one the spec owner has open, or the one module names. It says whether every stage is complete, and for each stage whether it is open (every stage it builds on is complete, so it can be written, signed and discussed) or closed, its progress (empty, in progress, complete), how many of its items, coverages and impacts are approved out of how many, what in it is signable, and its open threads. Its open threads include those on the stage itself. threadsWaitingForYou lists the change requests of the module you read that are given to you, each by its request id, its thread and what it asks: a change, or the writing or a review of the thread's stage. Items are named by the codes of codesVersion. Pass module to read another module's state.",
+      "Get a module's workflow state: the one the spec owner has open, or the one module names. It says whether every stage is complete, and for each stage whether it is open (every stage it builds on is complete, so it can be written, signed and discussed) or closed, its progress (empty, in progress, complete), how many of its items, coverages and impacts are approved out of how many, what in it is signable, and its open threads. Its open threads include those on the stage itself. threadsAssignedToYou lists the threads of the module you read that the spec owner assigned to you, each with the id you pass back, its thread and what it asks: an answer to the spec owner's message, or the writing or a review of the thread's stage. Items are named by the codes of codesVersion. Pass module to read another module's state.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   inModule: true,
   run: (store, _args, open, _caller, agent) => {
-    const mine = requestsOfCaller(store, open, agent);
+    const mine = assignedToCaller(store, open, agent);
     const stages = store.workflow.stageIds.map((stage) => {
       const summary = store.stageSummary(stage);
       const definition = store.workflow.stage(stage);
@@ -696,9 +695,9 @@ const workflowStateTool: AgentTool = {
       codesVersion: store.codesVersion,
       complete: store.isComplete,
       stages,
-      threadsWaitingForYou: mine.map(({ thread, request }) => ({
-        request: request.key,
-        asks: request.kind === "change" ? "a change" : `${request.kind} the stage`,
+      threadsAssignedToYou: mine.map(({ thread, waiting }) => ({
+        id: waiting.key,
+        asks: waiting.kind === "message" ? "an answer to the spec owner's message" : `${waiting.kind} the stage`,
         threadId: thread.id,
         ...threadUnit(store, thread),
         stage: thread.stage,
@@ -808,7 +807,7 @@ const threadTool: AgentTool = {
   description: {
     name: "get_thread",
     description:
-      "Read one thread, open or resolved: whom it waits for; what it is on, a unit or the stage itself, and for a thread opened by a request to write or to review its stage, what it asks; every message, with who wrote it, when, and the findings it gives, each with its item, the rule and how, and whether the item changed since; for an item, the item as get_items gives it; for a removed unit, what it said when it was removed (removedUnitText), by which a reply names it. A marked mention in a message reads [CODE](item:ID), by the item's code now, or as [removed item](item:ID) once its item is gone; any other code in a message is plain text. A channel event about a request names its thread.",
+      "Read one thread, open or resolved: whom it waits for; what it is on, a unit or the stage itself, and for a thread opened by asking for its stage to be written or reviewed, what it asks; every message, with who wrote it, when, and the findings it gives, each with its item, the rule and how, and whether the item changed since; for an item, the item as get_items gives it; for a removed unit, what it said when it was removed (removedUnitText), by which a reply names it. A marked mention in a message reads [CODE](item:ID), by the item's code now, or as [removed item](item:ID) once its item is gone; any other code in a message is plain text. A channel event about a thread assigned to you names the thread.",
     inputSchema: {
       type: "object",
       properties: { threadId: { type: "string", description: "The thread to read." } },
@@ -843,7 +842,7 @@ const threadsTool: AgentTool = {
 const ANSWERS_PROPERTY = {
   type: "array",
   description:
-    `The open threads whose change requests you have that these changes answer, each with a reply telling the spec owner what changed, and the findings it gives. get_workflow_state lists them. Your reply ends your having the request. A thread in a stage these changes close is answered once that stage is open again. The codes of marked mentions are those of the codesVersion you send, before this write. ${replyRulesText()}`,
+    `The open threads assigned to you that these changes answer, each with a reply telling the spec owner what changed, and the findings it gives. get_workflow_state lists them. Your reply ends the thread's assignment to you. A thread in a stage these changes close is answered once that stage is open again. The codes of marked mentions are those of the codesVersion you send, before this write. ${replyRulesText()}`,
   items: {
     type: "object",
     properties: { threadId: { type: "string" }, reply: { type: "string", minLength: 1 }, findings: FINDINGS_PROPERTY },
@@ -858,7 +857,7 @@ const writeTool: AgentTool = {
   description: {
     name: "write_items",
     description:
-      "Write, change and remove items of any open stages, all or none, following the published rules of each kind of item, from get_stage_rules. Name items by the codes of the codesVersion you send. An item missing a required field, referencing none of a kind it must reference, or breaking a rule of its kind (such as a name another item already has, a value of the wrong type, or an operation a step does not offer), is refused with each problem; the rules are checked once all the changes are applied, so their order does not matter. One write never changes a stage together with a stage that builds on it: change the earlier stage, and the later one once the earlier is complete again. Items added in one write cannot name each other by code: write an item, then those that choose it. An added or changed item rests on the current versions of what it references and depends on; an item changed to exactly what it was stays as it was. Removing a signed item proposes its removal, which the spec owner signs; an item never signed is removed at once. Changing an item proposed for removal withdraws the removal, even when the change leaves it exactly as it was. A reference links to an item of a stage this stage builds on; a dependency links to an item of the same stage, or of another module as \"Module name/CODE\" in the same stage or one it builds on. The reply names each item by the code you named it by, with its new code where that moved, and an added item by its new code. Pass answers to reply, with findings, to the threads whose change requests you have that these changes answer, and pointTo to point the spec owner to one item, coverage or impact that needs them. Only the spec owner signs and resolves threads.",
+      "Write, change and remove items of any open stages, all or none, following the published rules of each kind of item, from get_stage_rules. Name items by the codes of the codesVersion you send. An item missing a required field, referencing none of a kind it must reference, or breaking a rule of its kind (such as a name another item already has, a value of the wrong type, or an operation a step does not offer), is refused with each problem; the rules are checked once all the changes are applied, so their order does not matter. One write never changes a stage together with a stage that builds on it: change the earlier stage, and the later one once the earlier is complete again. Items added in one write cannot name each other by code: write an item, then those that choose it. An added or changed item rests on the current versions of what it references and depends on; an item changed to exactly what it was stays as it was. Removing a signed item proposes its removal, which the spec owner signs; an item never signed is removed at once. Changing an item proposed for removal withdraws the removal, even when the change leaves it exactly as it was. A reference links to an item of a stage this stage builds on; a dependency links to an item of the same stage, or of another module as \"Module name/CODE\" in the same stage or one it builds on. The reply names each item by the code you named it by, with its new code where that moved, and an added item by its new code. Pass answers to reply, with findings, to the threads assigned to you that these changes answer, and pointTo to point the spec owner to one item, coverage or impact that needs them. Only the spec owner signs and resolves threads.",
     inputSchema: {
       type: "object",
       properties: {
@@ -898,7 +897,7 @@ const writeTool: AgentTool = {
     const found = deskOf(open);
     if (found != null && agent != null) {
       const stages = stagesChangedBy(store, changes);
-      const othersHold = found.desk.heldRequests().some((request) => request.moduleId === found.moduleId && request.agentId !== agent.id);
+      const othersHold = found.desk.heldThreads().some((waiting) => waiting.moduleId === found.moduleId && waiting.agentId !== agent.id);
       const problems = found.desk.writeProblems(agent.id, {
         moduleId: found.moduleId,
         stages,
@@ -907,19 +906,19 @@ const writeTool: AgentTool = {
       });
       if (problems.length > 0) throw new UserFacingError(problems.join("\n"));
     } else if (answers.length > 0) {
-      throw new UserFacingError("No change request is any agent's in this project, so no write answers a thread. Add a message with reply_to_thread instead.");
+      throw new UserFacingError("No thread is assigned to any agent in this project, so no write answers a thread. Add a message with reply_to_thread instead.");
     }
-    // Each thread answered is one whose change request this agent has, as the desk checked.
+    // Each thread answered is one assigned to this agent, as the desk checked.
     const answered = answers.map(({ threadId }) => found!.desk.waitingIn(found!.moduleId, threadId)!);
     const versionBefore = store.codesVersion;
     const codesBefore = codesNow(store);
     const name = agent?.name ?? caller.name;
     const outcome = store.writeItems(changes, answers.length === 0 ? null : { answers, author: { kind: "agent", name } });
-    for (const request of answered) found!.desk.answered(request.key);
+    for (const waiting of answered) found!.desk.answered(waiting.key);
     const lines = [
       ...outcomeLines(store, outcome, codesBefore),
       ...(answers.length > 0
-        ? [`Replied to ${answers.length === 1 ? "one thread" : `${answers.length} threads`}, answering ${answers.length === 1 ? "its request" : "their requests"}; the spec owner reads the replies and resolves the threads.`]
+        ? [`Replied to ${answers.length === 1 ? "one thread, answering it" : `${answers.length} threads, answering them`}; the spec owner reads the replies and resolves the threads.`]
         : []),
       ...(pointer == null ? [] : [pointOut(store, open, pointer, changes, outcome.added)]),
       "The spec owner signs these in Requireganizer; get_workflow_state shows what is signable.",
@@ -982,7 +981,7 @@ const replyTool: AgentTool = {
   description: {
     name: "reply_to_thread",
     description:
-      `Add a message to an open thread of an open stage, on a unit or on the stage itself, without changing items, such as to ask what the spec owner means, to say why the unit should stay as it is, or to answer a request to review a stage with findings. A message of the agent that has the thread's change request answers it, which ends its having it; any other agent's leaves it waiting with the agent that has it, and may give no findings. To answer with changes, use write_items with answers. Pass pointTo to point the spec owner to a set of items, coverages and impacts that need them. Only the spec owner resolves a thread. ${replyRulesText()}`,
+      `Add a message to an open thread of an open stage, on a unit or on the stage itself, without changing items, such as to ask what the spec owner means, to say why the unit should stay as it is, or to answer a thread asking to review a stage with findings. A message of the agent the thread is assigned to answers it, which ends the assignment; any other agent's leaves it waiting with the agent it is assigned to, and may give no findings. To answer with changes, use write_items with answers. Pass pointTo to point the spec owner to a set of items, coverages and impacts that need them. Only the spec owner resolves a thread. ${replyRulesText()}`,
     inputSchema: {
       type: "object",
       properties: {
@@ -1001,17 +1000,17 @@ const replyTool: AgentTool = {
     const findings = parseFindings(store, args.findings, "The reply");
     const pointer = parsePointer(store, open, args.pointTo, []);
     const thread = store.threads.find(({ id }) => id === reply.threadId);
-    // Only the agent that has the thread's change request answers it, and only it gives findings; any other agent's message leaves it waiting.
+    // Only the agent the thread is assigned to answers it, and only it gives findings; any other agent's message leaves it waiting.
     const answering = thread == null ? null : heldByCaller(open, agent, thread);
     if (findings.length > 0 && answering == null) {
-      throw new UserFacingError(`The change request of thread ${reply.threadId} is not yours, so you may add a message to it but give no findings.`);
+      throw new UserFacingError(`Thread ${reply.threadId} is not assigned to you, so you may add a message to it but give no findings.`);
     }
     const name = agent?.name ?? caller.name;
     const annotations = findingsAnnotation(findings);
     store.answerThreads([annotations == null ? reply : { ...reply, annotations }], { kind: "agent", name });
     if (answering != null) deskOf(open)!.desk.answered(answering.key);
     return [
-      answering == null ? "Replied. The change request, if one waits, still waits." : "Replied, answering the request; it no longer waits, and the spec owner reads your reply.",
+      answering == null ? "Replied. If the thread waits for an agent, it still does." : "Replied, answering the thread; it no longer waits for an agent, and the spec owner reads your reply.",
       ...(pointer == null ? [] : [pointOut(store, open, pointer, [], [])]),
     ].join("\n");
   },
@@ -1042,13 +1041,13 @@ const NAME_TOOL = "name_yourself";
 
 /** What a coding agent that has no name is told, as it connects and whenever it calls another tool. */
 export const NAME_YOURSELF_TEXT =
-  `Before anything else, give yourself a name with ${NAME_TOOL}: take it from your conversation with your user, or ask your user for one when that conversation gives none. The spec owner gives each request to an agent by its name.`;
+  `Before anything else, give yourself a name with ${NAME_TOOL}: take it from your conversation with your user, or ask your user for one when that conversation gives none. The spec owner assigns each thread to an agent by its name.`;
 
 const nameYourselfTool: AgentTool = {
   makes: null,
   description: {
     name: NAME_TOOL,
-    description: `Give yourself the name the spec owner gives you requests by, once, as you connect. ${NAME_YOURSELF_TEXT} A name is refused when it is empty or another available agent has it, letters of either case counting as the same.`,
+    description: `Give yourself the name the spec owner assigns you threads by, once, as you connect. ${NAME_YOURSELF_TEXT} A name is refused when it is empty or another available agent has it, letters of either case counting as the same.`,
     inputSchema: {
       type: "object",
       properties: { name: { type: "string", minLength: 1, description: "Your name, such as the one your user calls you by." } },
@@ -1060,34 +1059,34 @@ const nameYourselfTool: AgentTool = {
     if (open.desk == null || caller.connection == null) throw new UserFacingError("Only a connected coding agent names itself.");
     const name = stringArgument(args, "name");
     open.desk.roster.nameCodingAgent(caller.connection, name);
-    return `You are “${name.trim()}”. The spec owner can now give you requests; each one given to you arrives as a channel event. Call get_workflow_state to start.`;
+    return `You are “${name.trim()}”. The spec owner can now assign you threads; each one assigned to you arrives as a channel event. Call get_workflow_state to start.`;
   },
 };
 
 const reportCannotAnswerTool: AgentTool = {
   inModule: false,
-  request: { argument: "request" },
+  assigned: { argument: "id" },
   makes: null,
   description: {
     name: "report_cannot_answer",
     description:
-      "Report that you cannot answer a request you have, with a text saying why, such as a question only the spec owner can settle. The request goes back to no agent and still waits; the spec owner sees your text with it until they give it again. Name the request by its id, as get_workflow_state or the message that gives it to you gives it.",
+      "Report that you cannot answer a thread assigned to you, with a text saying why, such as a question only the spec owner can settle. The thread is then no agent's and still waits for an agent; the spec owner sees your text with it until they assign it again. Pass the id field that get_workflow_state or the channel event gives with the thread, not its thread_id.",
     inputSchema: {
       type: "object",
       properties: {
-        request: { type: "string", description: "The request you cannot answer, as get_workflow_state or the message that gives it to you gives it." },
+        id: { type: "string", description: "The id field get_workflow_state or the channel event gives with the thread you cannot answer, not its thread_id." },
         reason: { type: "string", minLength: 1, description: "Why you cannot answer it, for the spec owner." },
       },
-      required: ["request", "reason"],
+      required: ["id", "reason"],
       additionalProperties: false,
     },
   },
-  run: (_store, args, open, _caller, agent, request) => {
+  run: (_store, args, open, _caller, agent, assigned) => {
     const found = deskOf(open);
-    if (found == null || agent == null) throw new UserFacingError("No request is any agent's in this project.");
-    if (request == null) throw new UserFacingError("Name the request you cannot answer, as get_workflow_state or the message that gives it to you gives it.");
-    found.desk.fail(request.key, agent.id, stringArgument(args, "reason"));
-    return "Reported. The request is no agent's now and waits for the spec owner to give it again.";
+    if (found == null || agent == null) throw new UserFacingError("No thread is assigned to any agent in this project.");
+    if (assigned == null) throw new UserFacingError("Pass the id get_workflow_state or the channel event gives with the thread you cannot answer.");
+    found.desk.fail(assigned.key, agent.id, stringArgument(args, "reason"));
+    return "Reported. The thread is no agent's now and waits for the spec owner to assign it again.";
   },
 };
 
@@ -1142,9 +1141,9 @@ function describedTool(tool: AgentTool, open: OpenModule): AgentToolDescription 
 }
 
 /**
- * Run a tool on the request's module when it names one, else on the module
- * `args.module` names, else on the open one; another module is read as it
- * is, or changed without being shown.
+ * Run a tool on the module of the assigned thread it names, if it names
+ * one, else on the module `args.module` names, else on the open one; another
+ * module is read as it is, or changed without being shown.
  */
 function runInModule(
   tool: AgentTool,
@@ -1153,22 +1152,22 @@ function runInModule(
   open: OpenModule,
   caller: AgentCaller,
   agent: CallingAgent | null,
-  request: AgentRequest | null,
+  assigned: WaitingThread | null,
 ): string {
   const { module: named, ...rest } = args;
   if (named != null && typeof named !== "string") throw new UserFacingError("module must be a module's name.");
-  if (request?.moduleName != null && named != null && named !== request.moduleName) {
-    throw new UserFacingError(`The request this call answers is in module “${request.moduleName}”, not “${named}”.`);
+  if (assigned?.moduleName != null && named != null && named !== assigned.moduleName) {
+    throw new UserFacingError(`The thread this call is about is in module “${assigned.moduleName}”, not “${named}”.`);
   }
-  const name = request?.moduleName ?? named ?? null;
-  if (!tool.inModule && request == null) return tool.run(shown, rest, open, caller, agent, request);
-  if (request != null && request.moduleId === open.moduleId) return tool.run(shown, rest, open, caller, agent, request);
-  if (request != null && name == null) throw new UserFacingError("The request this call answers is in a module this call cannot reach.");
-  if (name == null || name === open.moduleName) return tool.run(shown, rest, open, caller, agent, request);
+  const name = assigned?.moduleName ?? named ?? null;
+  if (!tool.inModule && assigned == null) return tool.run(shown, rest, open, caller, agent, assigned);
+  if (assigned != null && assigned.moduleId === open.moduleId) return tool.run(shown, rest, open, caller, agent, assigned);
+  if (assigned != null && name == null) throw new UserFacingError("The thread this call is about is in a module this call cannot reach.");
+  if (name == null || name === open.moduleName) return tool.run(shown, rest, open, caller, agent, assigned);
   if (open.otherModule == null) throw new UserFacingError("This project has no other module.");
   const other = open.otherModule(name);
   const scoped: OpenModule = { ...open, moduleName: other.name, moduleId: other.id };
-  const run = (store: Store) => tool.run(store, rest, scoped, caller, agent, request);
+  const run = (store: Store) => tool.run(store, rest, scoped, caller, agent, assigned);
   return tool.makes == null ? run(other.store) : other.change(run);
 }
 
@@ -1206,8 +1205,8 @@ export function callAgentTool(
 ): string {
   const tool = toolNamed(name, open);
   const agent = callingAgent(open, caller, name);
-  const request = requestNamedBy(tool, args, open, agent);
-  const result = runInModule(tool, store, args, open, caller, agent, request);
+  const assigned = assignedNamedBy(tool, args, open, agent);
+  const result = runInModule(tool, store, args, open, caller, agent, assigned);
   // What the call answered or withdrew is no agent's, even if undo makes it wait again.
   open.desk?.settle();
   return result;

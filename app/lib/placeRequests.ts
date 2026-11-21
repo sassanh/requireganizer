@@ -3,19 +3,21 @@ import type { FocusPlace } from "history";
 /**
  * A request to show a place of the project in its module and stage with the
  * focus on it, from wherever the page is: after undo or redo, at a mark of a
- * preview, or for an offer of the coding agent's. With `leavePreview`, the
- * page shows the project now first.
+ * preview, for an offer of the coding agent's, or for a thread waiting for
+ * an agent. With `leavePreview`, the page shows the project now first. With
+ * `message`, the thread at the place opens with the focus on that message.
  */
 export interface PlaceRequest {
   place: FocusPlace;
   leavePreview: boolean;
+  message: { threadId: string; index: number } | null;
 }
 
 const listeners = new Set<(request: PlaceRequest) => void>();
 
 /** Ask the page showing the project to show a place, focused. */
-export function requestPlace(place: FocusPlace, options: { leavePreview?: boolean } = {}): void {
-  const request = { place, leavePreview: options.leavePreview ?? false };
+export function requestPlace(place: FocusPlace, options: { leavePreview?: boolean; message?: PlaceRequest["message"] } = {}): void {
+  const request = { place, leavePreview: options.leavePreview ?? false, message: options.message ?? null };
   for (const listener of listeners) listener(request);
 }
 

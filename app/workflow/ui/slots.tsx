@@ -1,6 +1,8 @@
 "use client";
 
-import { createContext, type ReactNode, useContext } from "react";
+import { createContext, type ReactNode, useCallback, useContext } from "react";
+
+import { type Thread, waitsForSpecOwner } from "../threads";
 
 /** Where a thread's message goes: its stage, the unit or null for the stage itself or a unit gone, the thread, if open, and how to send it. */
 export interface ThreadSendProps {
@@ -27,8 +29,12 @@ export interface WorkflowSlots {
   thread?: (props: { threadId: string; preview: boolean }) => ReactNode;
   /** Under a thread message, on lines of their own. */
   message?: (props: { threadId: string; messageId: string; preview: boolean }) => ReactNode;
-  /** The threads whose change request an agent has, which therefore wait for no one but that agent. */
-  threadsWithAgent?: ReadonlySet<string>;
+  /**
+   * Whom open threads wait for, by thread id, where another module says it
+   * in place of their last message: whether the spec owner, and whom in a
+   * few words, such as "Ada has it".
+   */
+  threadWaits?: ReadonlyMap<string, ThreadWait>;
   /** In place of a thread's send button, and what its send key does. */
   send?: {
     render: (props: ThreadSendProps & { label: string; disabled: boolean }) => ReactNode;
@@ -52,9 +58,33 @@ export function useWorkflowSlots(): WorkflowSlots {
   return useContext(workflowSlotsContext);
 }
 
-const NO_THREADS: ReadonlySet<string> = new Set();
+/** Whom an open thread waits for: whether the spec owner, and whom in a few words. */
+export interface ThreadWait {
+  forSpecOwner: boolean;
+  who: string;
+}
 
-/** The threads whose change request an agent has, as the page that fills the slots says; none while no module says. */
-export function useThreadsWithAgent(): ReadonlySet<string> {
-  return useContext(workflowSlotsContext).threadsWithAgent ?? NO_THREADS;
+const NO_WAITS: ReadonlyMap<string, ThreadWait> = new Map();
+
+/**
+ * Whom an open thread waits for, with what the page's modules say of it:
+ * the one reading behind every mark, count and row of threads waiting for
+ * the spec owner.
+ */
+export function useThreadWait(): (thread: Thread) => ThreadWait {
+  const said = useContext(workflowSlotsContext).threadWaits ?? NO_WAITS;
+  return useCallback(
+    (thread: Thread) => {
+      const wait = said.get(thread.id);
+      const forSpecOwner = waitsForSpecOwner(thread, wait?.forSpecOwner);
+      return { forSpecOwner, who: wait?.who ?? (forSpecOwner ? "Waits for you" : "Waits for a reply") };
+    },
+    [said],
+  );
+}
+
+/** Whether an open thread waits for the spec owner, as `useThreadWait` reads it. */
+export function useWaitsForSpecOwner(): (thread: Thread) => boolean {
+  const waitOf = useThreadWait();
+  return useCallback((thread: Thread) => waitOf(thread).forSpecOwner, [waitOf]);
 }

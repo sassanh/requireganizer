@@ -1,6 +1,6 @@
 import type { IJsonPatch } from "mobx-state-tree";
 
-import type { AgentsHostApi, AgentsHostEvent, RequestState } from "agents";
+import type { AgentsHostApi, AgentsHostEvent, WaitingThreadState } from "agents";
 import type { FocusPlace, ListedRestorePoint, ListedSteps, PreviewTarget, StateDifference, StepListTarget } from "history";
 import type { ProjectIdentity } from "lib/projectStorage";
 import type { ClientPersistence, StorageTraits } from "persistence";
@@ -54,10 +54,10 @@ export interface StoreActionCall {
   args: unknown[];
   /** Where the action moves the spec owner's focus, for one that does, such as a signature. */
   focusMove?: SignatureFocusMove;
-  /** The requests agents have that the spec owner confirmed stopping to carry the action out. */
+  /** The threads agents have whose agents the spec owner confirmed stopping to carry the action out. */
   stopping?: string[];
-  /** For a message of the spec owner's in a thread: the agent its change request is given to as it is sent. */
-  giveTo?: string;
+  /** For a message of the spec owner's in a thread: the agent the thread is assigned to as it is sent. */
+  assignTo?: string;
 }
 
 /** What a store action returned, and where it moved the spec owner's focus, as the step records it. */
@@ -110,7 +110,7 @@ export interface HostApi extends AgentsHostApi {
   importNewProject(text: string, fileName: string): Promise<ProjectIdentity>;
   /** Open here the project another session holds, once it has written what it had. */
   takeOverProject(): Promise<void>;
-  /** Replace the open project with the one an exported file's text holds, as a step of kind import; refused as undo is while it concerns requests agents have. */
+  /** Replace the open project with the one an exported file's text holds, as a step of kind import; refused as undo is while it concerns threads agents have. */
   importProjectFile(text: string, fileName: string, stopping?: string[]): Promise<void>;
   /** The export of the open project, or of one of its restore points, as the bytes of its file. */
   exportProject(options: ExportOptions, restorePointId?: string): Promise<string>;
@@ -122,7 +122,7 @@ export interface HostApi extends AgentsHostApi {
   leaveProjectRemoved(): Promise<void>;
   /**
    * Undo the current step; not itself a step. Resolves to where the focus
-   * goes, or null to leave it. Refused while it concerns requests agents
+   * goes, or null to leave it. Refused while it concerns threads agents
    * have that `stopping` does not name; this holds for redo and goTo too.
    */
   undo(stopping?: string[]): Promise<FocusPlace | null>;
@@ -170,8 +170,8 @@ export interface RequestMessage {
 export interface WireError {
   name: string;
   message: string;
-  /** For an action refused because it concerns requests agents have: those requests. */
-  concerned?: RequestState[];
+  /** For an action refused because it concerns threads agents have: those threads. */
+  concerned?: WaitingThreadState[];
 }
 
 export type ResponseMessage = { type: "response"; id: number } & (

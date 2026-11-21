@@ -39,7 +39,6 @@ import {
   mentionsIn,
   replaceAddedMentions,
   type ThreadMessage,
-  waitsForSpecOwner,
 } from "./threads";
 import {
   coverageUnitId,
@@ -1020,14 +1019,6 @@ export function workflowModuleModel(workflow: Workflow) {
             signable,
           };
         },
-        /**
-         * The open threads on the stage and on its items, coverages and
-         * impacts that wait for the spec owner, given the threads whose
-         * change request an agent has.
-         */
-        threadsWaitingForSpecOwner(stage: string, threadsWithAgent: ReadonlySet<string>): Thread[] {
-          return self.threads.filter((thread) => thread.stage === stage && waitsForSpecOwner(thread, threadsWithAgent.has(thread.id)));
-        },
         /** Whether every stage of the module is complete. */
         get isComplete(): boolean {
           return workflow.stageIds.every((stage) => self.stageComplete(stage));
@@ -1779,12 +1770,12 @@ export function workflowModuleModel(workflow: Workflow) {
           item.dependencies = cast([...signed.dependencies]);
           item.basis = state.signature.basis;
         },
-        /** The spec owner asks for a change to a unit: a new thread, or the next message of its open one. Returns the thread's id. */
-        requestChange(unitId: string, text: string): string {
+        /** The spec owner writes a message on a unit: a new thread, or the next message of its open one. Returns the thread's id. */
+        messageUnit(unitId: string, text: string): string {
           const state = self.unitState(unitId);
           if (state == null) throw new UserFacingError("That no longer exists.");
-          requireOpen(state.stage, "change requests");
-          if (text.trim().length === 0) throw new UserFacingError("Write what should change.");
+          requireOpen(state.stage, "new messages");
+          if (text.trim().length === 0) throw new UserFacingError("Write a message.");
           const message = { id: uuid(), author: SPEC_OWNER, text: keptMessage(text), at: new Date().toISOString() };
           const open = self.openThreadOf(unitId);
           if (open != null) {
@@ -1796,14 +1787,14 @@ export function workflowModuleModel(workflow: Workflow) {
           return thread.id;
         },
         /**
-         * The spec owner asks for a change to a stage itself: always a new
+         * The spec owner opens a thread on a stage itself: always a new
          * thread of its own, its message with the annotations another module
          * gives it. Returns the thread's id.
          */
-        requestStageChange(stage: string, text: string, annotations?: ThreadMessage["annotations"]): string {
+        openStageThread(stage: string, text: string, annotations?: ThreadMessage["annotations"]): string {
           if (!workflow.isStage(stage)) throw new UserFacingError(`There is no stage ${stage}.`);
-          requireOpen(stage, "change requests");
-          if (text.trim().length === 0) throw new UserFacingError("Write what should change.");
+          requireOpen(stage, "new threads");
+          if (text.trim().length === 0) throw new UserFacingError("Write a message.");
           const message: ThreadMessage = { id: uuid(), author: SPEC_OWNER, text: keptMessage(text), at: new Date().toISOString(), ...(annotations == null ? {} : { annotations }) };
           const thread: Thread = { id: uuid(), unitId: null, stage, removedUnit: null, messages: [message], resolution: null };
           self.threads = [...self.threads, thread];

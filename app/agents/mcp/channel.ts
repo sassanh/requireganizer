@@ -10,12 +10,12 @@ export interface ChannelNotification {
   params: { content: string; meta: Record<string, string> };
 }
 
-/** The channel event that tells a coding agent of a request given to it or stopped. */
+/** The channel event that tells a coding agent of a thread assigned to it, or that it was stopped working on one. */
 export function channelNotice(notice: AgentNotice): ChannelNotification["params"] {
-  const { request } = notice;
-  const meta: Record<string, string> = { request: request.key, thread_id: request.thread.id, stage: request.stage, kind: request.kind };
-  if (request.moduleName != null) meta.module = request.moduleName;
-  return notice.type === "given"
-    ? { content: `The spec owner gives you a request: ${notice.summary}.`, meta }
-    : { content: `The spec owner stopped your request: ${notice.summary}. Your answer to it no longer counts; leave it.`, meta: { ...meta, stopped: "true" } };
+  const { waiting } = notice;
+  const meta: Record<string, string> = { id: waiting.key, thread_id: waiting.thread.id, stage: waiting.stage, kind: waiting.kind };
+  if (waiting.moduleName != null) meta.module = waiting.moduleName;
+  return notice.type === "assigned"
+    ? { content: `The spec owner assigned you a thread: ${notice.summary}.`, meta }
+    : { content: `The spec owner stopped you working on a thread: ${notice.summary}. Your answer to it no longer counts; leave it.`, meta: { ...meta, stopped: "true" } };
 }

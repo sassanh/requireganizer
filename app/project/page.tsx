@@ -16,7 +16,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 
 import { switchModuleShortcut } from "actions/actions";
-import { AgentsControls, AttentionOffers, ModuleWorkingSign, RequestConfirmationHost } from "agents/ui";
+import { AgentsControls, AttentionOffers, ModuleWorkingSign, StopConfirmationHost } from "agents/ui";
 import {
   HistoryControls,
   PreviewControls,
@@ -338,7 +338,7 @@ function Home() {
         </Box>
       </Stack>
       <AttentionOffers />
-      <RequestConfirmationHost />
+      <StopConfirmationHost />
       <OutsideChangeDialog />
       <ModuleSwitcherDialog open={modulesOpen} onClose={closeModules} />
     </>
