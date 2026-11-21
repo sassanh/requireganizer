@@ -1748,6 +1748,18 @@ export class ProjectSession {
     });
   };
 
+  /** Bring an archived module back into the list, as it was when it was archived. */
+  bringBackModule = (id: string): void => {
+    const current = this.readyState()?.registry;
+    if (current == null) return;
+    const target = current.modules.find((entry) => entry.id === id);
+    if (target == null || target.archivedAt == null) return;
+    this.commitRegistry({
+      ...current,
+      modules: current.modules.map((entry) => (entry.id === id ? { ...entry, archivedAt: null } : entry)),
+    });
+  };
+
   /**
    * Replace the open project with the one an exported file holds. Run
    * inside the gate as an import, it is one step undo takes back. Throws
@@ -1822,4 +1834,13 @@ export function moduleSummaries(
     name: entry.name,
     active: entry.id === registry.activeModuleId,
   }));
+}
+
+/** The archived modules of a registry, most recently archived first. */
+export function archivedModuleSummaries(registry: ModuleRegistry | null): ModuleSummary[] {
+  if (registry == null) return [];
+  return registry.modules
+    .filter((entry) => entry.archivedAt != null)
+    .sort((first, second) => second.archivedAt!.localeCompare(first.archivedAt!))
+    .map((entry) => ({ id: entry.id, name: entry.name, active: false }));
 }

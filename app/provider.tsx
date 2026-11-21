@@ -17,7 +17,7 @@ import type { ListedRestorePoint } from "history";
 import { webPersistence } from "persistence";
 import { type ConnectionStatus, ProjectClient } from "project-client";
 import { ProjectHost } from "project-host";
-import { moduleSummaries, ProjectSession } from "project-session";
+import { archivedModuleSummaries, moduleSummaries, ProjectSession } from "project-session";
 import { type ExportOptions, webProjectAuthority } from "storage";
 import { storeContext, WORKFLOW } from "store";
 
@@ -223,6 +223,8 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     addModule: client.addModule,
     switchModule: client.switchModule,
     archiveModule: client.archiveModule,
+    archivedModules: archivedModuleSummaries(registry),
+    bringBackModule: client.bringBackModule,
     renameModule: client.renameModule,
     renameProject: client.renameProject,
     createProject: client.createProject,

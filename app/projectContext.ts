@@ -88,7 +88,11 @@ export interface ProjectContextValue {
   addModule: (name: string) => Promise<void>;
   /** False when the id names no openable module (unknown or archived). */
   switchModule: (id: string) => Promise<boolean>;
+  /** Archive a module other than the open one. */
   archiveModule: (id: string) => Promise<void>;
+  /** Archived modules of the open project, most recently archived first. */
+  archivedModules: ModuleSummary[];
+  bringBackModule: (id: string) => Promise<void>;
   /** Rejects when the name is empty, invalid, or taken. */
   renameModule: (id: string, name: string) => Promise<void>;
   /** Rejects when the name is empty or taken. */

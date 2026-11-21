@@ -133,6 +133,7 @@ const REFUSED_DURING_PREVIEW: ReadonlySet<RequestName> = new Set<RequestName>([
   "enableModules",
   "addModule",
   "archiveModule",
+  "bringBackModule",
   "renameModule",
 ]);
 
@@ -367,6 +368,9 @@ export class ProjectClient {
 
   archiveModule = (id: string): Promise<void> =>
     this.request("archiveModule", id);
+
+  bringBackModule = (id: string): Promise<void> =>
+    this.request("bringBackModule", id);
 
   renameModule = (id: string, name: string): Promise<void> =>
     this.request("renameModule", id, name);

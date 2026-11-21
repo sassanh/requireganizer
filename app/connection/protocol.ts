@@ -102,6 +102,8 @@ export interface HostApi extends AgentsHostApi {
   /** False when the id names no openable module. */
   switchModule(id: string): boolean;
   archiveModule(id: string): void;
+  /** Bring an archived module back into the list of modules. */
+  bringBackModule(id: string): void;
   renameModule(id: string, name: string): void;
   renameProject(name: string): Promise<void>;
   /** Create an empty project; resolves to its identity. */

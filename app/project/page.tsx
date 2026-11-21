@@ -21,7 +21,8 @@ import {
   HistoryControls,
   PreviewControls,
   RestorePointsControls,
-  ModuleSwitcherDialog,
+  EnableModulesDialog,
+  ModulesPage,
   ProjectActionsMenu,
   OutsideChangeDialog,
   PersistentAlert,
@@ -64,7 +65,7 @@ function Home() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [modulesOpen, setModulesOpen] = useState(false);
+  const [enablingModules, setEnablingModules] = useState(false);
 
   const projectId = searchParams.get("id") ?? "";
 
@@ -85,8 +86,44 @@ function Home() {
     };
   }, [projectId, activeProject, selectProject, router, persistence]);
 
-  const openModules = useCallback(() => setModulesOpen(true), []);
-  const closeModules = useCallback(() => setModulesOpen(false), []);
+  // `?view=modules` shows the list of modules in place of the open module,
+  // so the browser's back returns to the module it was opened from.
+  const showingModules = modulesEnabled && searchParams.get("view") === "modules";
+  const openModules = useCallback(() => {
+    if (!modulesEnabled) {
+      setEnablingModules(true);
+      return;
+    }
+    const next = new URLSearchParams(window.location.search);
+    next.set("view", "modules");
+    router.push(`${pathname}?${next.toString()}`);
+  }, [modulesEnabled, pathname, router]);
+  const closeEnablingModules = useCallback(() => setEnablingModules(false), []);
+  // Opening a module from the list lands on the stage asked for, or else
+  // on the stage this page remembers for it.
+  const openModule = useCallback(
+    (id: string, stage?: string) => {
+      const next = new URLSearchParams(window.location.search);
+      next.delete("view");
+      if (id !== activeModuleId) {
+        next.set("module", id);
+        next.delete("step");
+        next.delete("unit");
+      }
+      if (stage != null) {
+        next.set("step", stage);
+        next.delete("unit");
+      }
+      router.push(`${pathname}?${next.toString()}`);
+    },
+    [activeModuleId, pathname, router],
+  );
+
+  // The shortcut and the module's name in the header go to the list of modules, and from it back to the open module.
+  const toggleModules = useCallback(
+    () => (showingModules ? openModule(activeModuleId) : openModules()),
+    [showingModules, openModule, activeModuleId, openModules],
+  );
 
   const modulesBinding = useMemo<ShortcutBinding>(
     () => ({
@@ -96,9 +133,9 @@ function Home() {
         activeProject?.id === projectId &&
         !isEditableTarget(event.target) &&
         !isOverlayTarget(event.target),
-      action: openModules,
+      action: toggleModules,
     }),
-    [activeProject, projectId, openModules],
+    [activeProject, projectId, toggleModules],
   );
   useShortcut(modulesBinding);
 
@@ -293,7 +330,7 @@ function Home() {
             {activeProject.name}
           </Typography>
           {modulesEnabled && activeModuleName != null ? (
-            <Button variant="text" color="inherit" onClick={openModules} sx={{ textTransform: "none", minWidth: 0 }}>
+            <Button variant="text" color="inherit" onClick={toggleModules} sx={{ textTransform: "none", minWidth: 0 }}>
               <Typography variant="h6" component="span" color="text.secondary" noWrap>
                 / {activeModuleName}
               </Typography>
@@ -331,16 +368,20 @@ function Home() {
           }}
         >
           <Box sx={{ flexGrow: 1, minHeight: 0, minWidth: 0, display: "flex" }}>
-            <Suspense fallback={null}>
-              <Factory />
-            </Suspense>
+            {showingModules ? (
+              <ModulesPage onOpen={openModule} />
+            ) : (
+              <Suspense fallback={null}>
+                <Factory />
+              </Suspense>
+            )}
           </Box>
         </Box>
       </Stack>
       <AttentionOffers />
       <StopConfirmationHost />
       <OutsideChangeDialog />
-      <ModuleSwitcherDialog open={modulesOpen} onClose={closeModules} />
+      <EnableModulesDialog open={enablingModules} onClose={closeEnablingModules} />
     </>
   );
 }

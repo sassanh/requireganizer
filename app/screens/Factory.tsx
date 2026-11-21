@@ -7,7 +7,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, use
 
 import { noteShownFocus, subscribePlaceRequests } from "lib/placeRequests";
 import { stepHref, unitHref } from "lib/routes";
-import { rememberedStage, rememberStage } from "lib/viewState";
+import { rememberedStage, rememberedUnit, rememberStage, rememberUnit } from "lib/viewState";
 import { useProject } from "projectContext";
 import { useStore } from "store";
 import { currentEntryKey, currentOpener, ItemPreviewProvider, type OpenUnit, type RevealRequest, recordOpener, returnToOpener, StageNavigation, StageView, subscribeToEntries, unitOpenerContext, type WorkflowNavigation, workflowNavigationContext, workflowViewContext } from "workflow/ui";
@@ -60,6 +60,17 @@ const Factory = observer(function Factory() {
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
+  // Opening a module again focuses the unit that last had the focus there,
+  // unless the address names one. Once per module shown.
+  const revealedModule = useRef<string | null>(null);
+  useEffect(() => {
+    if (!modulesEnabled || moduleParam !== activeModuleId || revealedModule.current === activeModuleId) return;
+    revealedModule.current = activeModuleId;
+    if (searchParams.get("unit") != null) return;
+    const unitId = rememberedUnit(projectId, activeModuleId);
+    if (unitId != null) setRevealRequest({ unitId, message: null });
+  }, [modulesEnabled, moduleParam, activeModuleId, projectId, searchParams]);
+
   // A place asked for from elsewhere on the page, such as after undo, shows in its module and stage, focused.
   const [stageFocusRequest, setStageFocusRequest] = useState<object | null>(null);
   useEffect(
@@ -86,12 +97,13 @@ const Factory = observer(function Factory() {
     () => (unitId: string | null) => {
       const place = { moduleId: activeModuleId, stage, unitId };
       noteShownFocus(place);
+      if (modulesEnabled && moduleParam === activeModuleId) rememberUnit(projectId, activeModuleId, unitId);
       const key = JSON.stringify(place);
       if (key === reported.current) return;
       reported.current = key;
       reportFocus(place);
     },
-    [activeModuleId, stage, reportFocus],
+    [activeModuleId, stage, reportFocus, modulesEnabled, moduleParam, projectId],
   );
 
   // The entry shown, so the way back to where it was opened from follows the browser's history.
