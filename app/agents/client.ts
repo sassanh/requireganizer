@@ -1,11 +1,9 @@
-import { UserFacingError } from "lib/errors";
-
-import { type AgentNotice, type DeskView, ThreadsConcernedError, type WaitingThreadState } from "./desk";
 import type { AgentsHostApi, AgentsHostEvent } from "./host";
-import type { AgentCaller, AgentToolDescription } from "./interface/tools";
-import type { RunAgent } from "./internal/runAgents";
-import type { RunLog } from "./record";
-import type { AgentId } from "./roster";
+import type { AgentToolDescription } from "./interface";
+import type { AgentId, ContextPart } from "./record";
+import type { AgentNotice, Registration } from "./registry";
+import type { TemplateDraft } from "./templates";
+import { type AgentsView, EMPTY_AGENTS_VIEW } from "./view";
 
 /** How a client sends one of the Agents module's calls to its host. */
 export type AgentsRequest = <Name extends keyof AgentsHostApi>(
@@ -13,142 +11,93 @@ export type AgentsRequest = <Name extends keyof AgentsHostApi>(
   ...args: Parameters<AgentsHostApi[Name]>
 ) => Promise<Awaited<ReturnType<AgentsHostApi[Name]>>>;
 
-/** Asks the spec owner whether to stop the agents working on the threads an action concerns; resolves to the keys of those to stop, or null to give the action up. */
-export type Confirmer = (threads: readonly WaitingThreadState[], action: string) => Promise<string[] | null>;
+/**
+ * Carries out an action the host may refuse until the spec owner confirms
+ * what it concerns: `send` is called with what they confirmed, if anything.
+ * Another module provides it; without one, an action is sent as it is.
+ */
+export type ActionGate = <Value>(action: string, send: (confirmed?: string[]) => Promise<Value>) => Promise<Value>;
 
-/** What a store action of the spec owner's does, as a confirmation names it. */
-const STORE_ACTION_NAMES: Partial<Record<string, string>> = {
-  writeItems: "make the change",
-  restoreSigned: "return to the signed version",
-  resolveThread: "resolve the thread",
-  replyAsSpecOwner: "send the message",
-  messageUnit: "send the message",
-  openStageThread: "send the message",
-};
-
-/** A store action as a confirmation names it. */
-export function storeActionName(name: string): string {
-  return STORE_ACTION_NAMES[name] ?? "carry it out";
-}
+const UNGATED: ActionGate = (_action, send) => send();
 
 /**
  * The Agents module as a client of a project host holds it: the agents and
- * threads waiting for an agent the host sends, the agent this client is
- * when it is a coding agent, and the confirmation the spec owner gives
- * before an action that concerns threads agents have. The project client
- * sends its calls and hands it the host's agents events.
+ * templates the host sends, the coding agent this client is when it is one,
+ * and the spec owner's actions on agents and templates.
  */
 export class AgentsClient {
-  private view: DeskView = { agents: [], waiting: [], notes: [], findings: [], asks: [] };
+  private view: AgentsView = EMPTY_AGENTS_VIEW;
   private readonly noticeListeners = new Set<(notice: AgentNotice) => void>();
-  /** For a client that is a coding agent: the agent it is, and the name it asks for again on each new connection. */
-  private agent: { agentId: AgentId | null; name: string | null } | null = null;
-  private confirmer: Confirmer | null = null;
+  /** For a client that is a coding agent: what its coding tool tells, sent again with each new connection. */
+  private registration: Registration | null = null;
+  private gate: ActionGate = UNGATED;
 
   constructor(
     private readonly request: AgentsRequest,
-    /** Tell the client's subscribers that the agents or the waiting threads changed. */
+    /** Tell the client's subscribers that the agents changed. */
     private readonly changed: () => void,
   ) {}
 
-  /** The agents and the threads waiting for an agent. */
-  getView = (): DeskView => this.view;
+  getView = (): AgentsView => this.view;
 
   /** Take an agents event from the host. */
   receive(event: AgentsHostEvent): void {
     switch (event.type) {
-      case "agents": {
+      case "agents":
         this.view = event.view;
-        // The name a coding agent gave itself is the one it asks for again after a new connection.
-        const agent = this.agent;
-        if (agent?.agentId != null) {
-          const self = event.view.agents.find(({ id }) => id === agent.agentId);
-          if (self?.name != null) agent.name = self.name;
-        }
         this.changed();
         return;
-      }
       case "agent-notice":
         for (const listener of this.noticeListeners) listener(event.notice);
         return;
     }
   }
 
-  /** A connection to the host opened: a coding agent is one connection, so each new one registers again, under the name it had. */
+  /** A connection to the host opened: a coding agent's client registers again on each. */
   connected(): void {
-    const agent = this.agent;
-    if (agent == null) return;
-    this.request("registerAgent", agent.name).then(
-      (registered) => {
-        Object.assign(agent, registered);
-        this.changed();
-      },
-      (error: unknown) => console.error("Could not register as an agent.", error),
-    );
+    const registration = this.registration;
+    if (registration == null) return;
+    this.request("registerAgent", registration).catch((error: unknown) => console.error("Could not register as a coding agent.", error));
   }
 
-  /** Connect as a coding agent: the host tells this client of each thread assigned to it and of each time it is stopped. */
-  actAsAgent = (): void => {
-    this.agent ??= { agentId: null, name: null };
+  /** Connect as a coding agent, as its coding tool tells; registers now if connected, and on every connection from now on. */
+  actAsCodingAgent = (registration: Registration, connectedNow: boolean): void => {
+    this.registration = registration;
+    if (connectedNow) this.connected();
   };
 
-  /** Hear of each thread assigned to this client's agent and of each time it is stopped. */
+  /** Hear each message meant for this coding agent's session. */
   subscribeNotices = (listener: (notice: AgentNotice) => void): (() => void) => {
     this.noticeListeners.add(listener);
     return () => this.noticeListeners.delete(listener);
   };
 
-  /** Let the page ask the spec owner to confirm stopping the agents an action concerns. */
-  setConfirmer = (confirmer: Confirmer | null): void => {
-    this.confirmer = confirmer;
+  /** Let another module confirm actions that concern its work, such as archiving an agent that has some. */
+  setGate = (gate: ActionGate | null): void => {
+    this.gate = gate ?? UNGATED;
   };
 
-  /**
-   * Carry out an action the host refuses while it concerns threads agents
-   * have: ask the spec owner, then send it again with the threads whose
-   * agents they confirmed stopping. Rejects when they give it up.
-   */
-  confirmed = async <Value>(action: string, send: (stopping?: string[]) => Promise<Value>): Promise<Value> => {
-    try {
-      return await send();
-    } catch (error) {
-      if (!(error instanceof ThreadsConcernedError) || this.confirmer == null) throw error;
-      const stopping = await this.confirmer(error.threads, action);
-      if (stopping == null) throw new UserFacingError(`Gave up: ${action}.`);
-      return send(stopping);
-    }
-  };
-
-  /** The tools an agent can call on the open project now. */
   listAgentTools = (): Promise<AgentToolDescription[]> => this.request("listAgentTools");
 
-  /** Run one of those tools for the agent this client is; resolves to its text result. */
-  callAgentTool = (name: string, args: Record<string, unknown>, caller: AgentCaller): Promise<string> => this.request("callAgentTool", name, args, caller);
+  callAgentTool = (name: string, args: Record<string, unknown>): Promise<string> => this.request("callAgentTool", name, args);
 
-  nameCodingAgent = (agentId: AgentId, name: string): Promise<void> => this.request("nameCodingAgent", agentId, name);
+  agentInstructions = (): Promise<string> => this.request("agentInstructions");
 
-  addRunAgent = (agent: Omit<RunAgent, "id">): Promise<void> => this.request("addRunAgent", agent);
+  addTemplate = (template: TemplateDraft): Promise<void> => this.request("addTemplate", template);
 
-  changeRunAgent = (agentId: AgentId, agent: Omit<RunAgent, "id">): Promise<void> => this.request("changeRunAgent", agentId, agent);
+  changeTemplate = (templateId: string, template: TemplateDraft): Promise<void> => this.request("changeTemplate", templateId, template);
 
-  removeRunAgent = (agentId: AgentId): Promise<void> => this.request("removeRunAgent", agentId);
+  removeTemplate = (templateId: string): Promise<void> => this.request("removeTemplate", templateId);
 
-  assignThread = (key: string, agentId: AgentId): Promise<void> =>
-    this.confirmed("assign the thread", (stopping) => this.request("assignThread", key, agentId, stopping));
+  startInternalAgent = (templateId: string, name: string | null): Promise<AgentId> => this.request("startInternalAgent", templateId, name);
 
-  stopAgents = (keys: string[]): Promise<void> => this.request("stopAgents", keys);
+  nameAgent = (agentId: AgentId, name: string): Promise<void> => this.request("nameAgent", agentId, name);
 
-  /** Ask for a stage of a module to be written, assigning the thread to `agentId`, or to none. */
-  askToWrite = (moduleId: string, stage: string, agentId: AgentId | null): Promise<void> =>
-    this.confirmed("ask for the writing", (stopping) => this.request("askToWrite", moduleId, stage, agentId, stopping));
+  archiveAgent = (agentId: AgentId): Promise<void> => this.gate("archive the agent", (confirmed) => this.request("archiveAgent", agentId, confirmed));
 
-  /** Ask for a stage of a module to be reviewed, assigning the thread to `agentId`, or to none. */
-  askToReview = (moduleId: string, stage: string, agentId: AgentId | null): Promise<void> =>
-    this.confirmed("ask for the review", (stopping) => this.request("askToReview", moduleId, stage, agentId, stopping));
+  restoreAgent = (agentId: AgentId): Promise<void> => this.request("restoreAgent", agentId);
 
-  /** Withdraw a waiting thread no agent has from waiting. */
-  withdrawThread = (key: string): Promise<void> => this.request("withdrawThread", key);
+  answerLetIn = (agentId: AgentId, letIn: boolean): Promise<void> => this.request("answerLetIn", agentId, letIn);
 
-  /** The run logs kept with a wait, oldest first. */
-  readRunLogs = (key: string): Promise<RunLog[]> => this.request("readRunLogs", key);
+  readContext = (agentId: AgentId): Promise<ContextPart[]> => this.request("readContext", agentId);
 }

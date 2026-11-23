@@ -2,23 +2,8 @@ import type { StreamFn } from "@earendil-works/pi-agent-core";
 
 import { UserFacingError } from "lib/errors";
 
-import { fetchWithReasoningTextBridge } from "./reasoning-sse";
-
-/** Ask for detailed reasoning summaries wherever the request asks for reasoning. */
-function withDetailedReasoningSummary(payload: unknown): unknown {
-  if (payload == null || typeof payload !== "object") return undefined;
-  const params = payload as Record<string, unknown>;
-  if (params.reasoning == null || typeof params.reasoning !== "object") {
-    return undefined;
-  }
-  return {
-    ...params,
-    reasoning: {
-      ...(params.reasoning as Record<string, unknown>),
-      summary: "detailed",
-    },
-  };
-}
+import type { Template } from "../templates";
+import { endpointModel } from "./model";
 
 /**
  * The provider client, loaded with the first model call: the page loads
@@ -30,16 +15,14 @@ const providerRequest: StreamFn = async (model, context, options) => {
 };
 
 /**
- * The stream an agent Requireganizer runs calls its AI provider on, from
- * wherever the project host runs, with that provider's API key.
+ * The stream an internal agent calls its AI provider on, from wherever the
+ * project host runs: each request reaches the endpoint, with the key and the
+ * model, that the agent's template has at the time of the request.
  */
-export function providerStream(apiKey: string): StreamFn {
-  if (apiKey.length === 0) throw new UserFacingError("The agent's AI provider has no API key. Add one to the agent.");
-  return (model, context, options) =>
-    providerRequest(model, context, {
-      ...options,
-      apiKey,
-      fetch: fetchWithReasoningTextBridge,
-      onPayload: withDetailedReasoningSummary,
-    });
+export function templateStream(templateNow: () => Template): StreamFn {
+  return (_model, context, options) => {
+    const template = templateNow();
+    if (template.key.length === 0) throw new UserFacingError(`The template ${template.name} has no key for its endpoint. Add one to the template.`);
+    return providerRequest(endpointModel(template.model, template.endpoint), context, { ...options, apiKey: template.key });
+  };
 }

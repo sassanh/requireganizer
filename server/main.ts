@@ -8,6 +8,7 @@ import { parseArgs } from "node:util";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
 import { serveMcp } from "agents/mcp/server";
+import { ProjectClient } from "project-client";
 
 import packageJson from "../package.json";
 import { resolveProjectFile } from "./projectFile";
@@ -33,7 +34,7 @@ Options:
 
 Environment:
   XDG_STATE_HOME       Where the server keeps history, restore points and
-                       the agents Requireganizer runs (default ~/.local/state)
+                       the templates of internal agents (default ~/.local/state)
 `;
 
 function openBrowser(url: string): void {
@@ -107,16 +108,18 @@ async function main(): Promise<void> {
   if (mcp) {
     // Standard output carries the protocol; everything else goes to standard error.
     Object.assign(console, { log: console.error, info: console.error, debug: console.error });
+    // This process serves the project itself while no other process does, and takes over when the one that does stops.
+    const link = projectLink({
+      projectFile,
+      serveInterface,
+      onServing: (server) => {
+        process.stderr.write(`Requireganizer is serving ${projectFile} at ${server.url}\n`);
+        for (const warning of server.warnings) process.stderr.write(`Warning: ${warning}\n`);
+      },
+    });
     const service = await serveMcp({
-      // This process serves the project itself while no other process does, and takes over when the one that does stops.
-      link: projectLink({
-        projectFile,
-        serveInterface,
-        onServing: (server) => {
-          process.stderr.write(`Requireganizer is serving ${projectFile} at ${server.url}\n`);
-          for (const warning of server.warnings) process.stderr.write(`Warning: ${warning}\n`);
-        },
-      }),
+      link,
+      client: new ProjectClient(link.connect),
       version: packageJson.version,
       transport: new StdioServerTransport(),
     });

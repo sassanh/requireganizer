@@ -6,12 +6,14 @@ import { AppRouterCacheProvider } from "@mui/material-nextjs/v15-appRouter";
 import { saveAs } from "file-saver";
 import { memo, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
-import { type AttentionOffer, browserRunAgents, type PointedPlace } from "agents";
-import { agentsContext, type AgentsPageValue, AgentsWorkflowSlots } from "agents/ui";
+import { browserTemplates } from "agents";
+import { agentsContext, type AgentsPageValue } from "agents/ui";
 import Link from "components/Link";
 import { NoticeHost } from "components/NoticeHost";
 import PersistentAlert from "components/PersistentAlert";
 import { connectWebSocket, linkInProcess, linkUrlFor } from "connection";
+import type { AttentionOffer, PointedPlace } from "delegation";
+import { delegationContext, type DelegationPageValue, DelegationWorkflowSlots } from "delegation/ui";
 import { PROJECT_HOST_LOCATION } from "deployment";
 import type { ListedRestorePoint } from "history";
 import { webPersistence } from "persistence";
@@ -53,7 +55,7 @@ function connectProject(): ProjectConnection {
   }
   // Every tab builds its own host; the lock makes one of them the project's writer.
   const session = new ProjectSession(webPersistence, { authority: webProjectAuthority });
-  const host = new ProjectHost(session, browserRunAgents());
+  const host = new ProjectHost(session, browserTemplates());
   return { session, client: new ProjectClient(() => linkInProcess(host), { timeZone: pageTimeZone() }) };
 }
 
@@ -135,6 +137,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
   const history = sessionState.status === "ready" && preview == null ? sessionState.history : null;
   const offers = sessionState.status === "ready" ? sessionState.offers : NO_OFFERS;
   const agents = useSyncExternalStore(client.subscribe, client.agents.getView, client.agents.getView);
+  const delegation = useSyncExternalStore(client.subscribe, client.delegation.getView, client.delegation.getView);
   const { storage } = useSyncExternalStore(
     client.subscribe,
     client.getHostInfo,
@@ -233,17 +236,17 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     exportProject,
   }), [client, status, activeProject, persistenceError, outsideChange, history, preview, storage, registry, exportProject]);
 
-  const agentsValue = useMemo((): AgentsPageValue => {
+  const agentsValue = useMemo((): AgentsPageValue => ({ client: client.agents, view: agents }), [client, agents]);
+
+  const delegationValue = useMemo((): DelegationPageValue => {
     const stageLabel = (stage: string) => (WORKFLOW.isStage(stage) ? WORKFLOW.stage(stage).label : stage);
-    const activeModuleId = registry?.activeModuleId ?? "";
     return {
-      activeModuleId,
-      activeModuleName: registry?.modulesEnabled ? (registry.modules.find(({ id }) => id === activeModuleId)?.name ?? null) : null,
+      activeModuleId: registry?.activeModuleId ?? "",
       modules: moduleSummaries(registry).map(({ id, name }) => ({ id, name: registry?.modulesEnabled ? name : null })),
       moduleStore: client.moduleStore,
       withAssignment: client.withAssignment,
-      client: client.agents,
-      view: agents,
+      client: client.delegation,
+      view: delegation,
       offers,
       dismissOffer: client.dismissOffer,
       stageLabel,
@@ -253,16 +256,18 @@ export default function Providers({ children }: { children: React.ReactNode }) {
         return [label, moduleName, WORKFLOW.isStage(place.stage) ? stageLabel(place.stage) : null].filter((part) => part != null).join(", ");
       },
     };
-  }, [client, agents, offers, registry]);
+  }, [client, delegation, offers, registry]);
 
   return (
     <projectContext.Provider value={contextValue}>
       <agentsContext.Provider value={agentsValue}>
-        <AgentsWorkflowSlots>
-          <storeContext.Provider value={store}>
-            <PageShell connection={connection}>{children}</PageShell>
-          </storeContext.Provider>
-        </AgentsWorkflowSlots>
+        <delegationContext.Provider value={delegationValue}>
+          <DelegationWorkflowSlots>
+            <storeContext.Provider value={store}>
+              <PageShell connection={connection}>{children}</PageShell>
+            </storeContext.Provider>
+          </DelegationWorkflowSlots>
+        </delegationContext.Provider>
       </agentsContext.Provider>
     </projectContext.Provider>
   );

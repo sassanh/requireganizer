@@ -4,7 +4,7 @@ The project server (`requireganizer`, `requireganizer mcp`, `pnpm run dev`) read
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `XDG_STATE_HOME` | `~/.local/state` | The server keeps each project's undo history and restore points under `requireganizer/projects/` here, and the agents Requireganizer runs in `requireganizer/agents.json`. |
+| `XDG_STATE_HOME` | `~/.local/state` | The server keeps each project's undo history and restore points under `requireganizer/projects/` here, and the templates internal agents start from in `requireganizer/templates.json`. |
 
 `pnpm run dev` reads them from `.env.local`.
 

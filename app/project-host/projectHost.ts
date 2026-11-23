@@ -6,7 +6,7 @@ import {
   onSnapshot,
 } from "mobx-state-tree";
 
-import { AgentsHost, ThreadsConcernedError, type RunAgentsSource } from "agents";
+import { AgentsHost, type TemplatesSource } from "agents";
 import {
   type ClientMessage,
   type HostApi,
@@ -25,6 +25,7 @@ import {
   type StoreImage,
   type WireError,
 } from "connection";
+import { ConfirmationNeededError, DelegationHost } from "delegation";
 import type { ChangeKind, FocusPlace } from "history";
 import { UserFacingError } from "lib/errors";
 import { activeModule, visibleModuleNamed, visibleModules } from "lib/moduleSchema";
@@ -35,7 +36,7 @@ import type { Store } from "store";
 import { uuid } from "utilities";
 
 function wireError(error: unknown): WireError {
-  if (error instanceof ThreadsConcernedError) return { name: error.name, message: error.message, concerned: error.threads };
+  if (error instanceof ConfirmationNeededError) return { name: error.name, message: error.message, confirmation: { threads: error.threads, notes: error.notes } };
   return error instanceof Error
     ? { name: error.name, message: error.message }
     : { name: "Error", message: String(error) };
@@ -95,16 +96,29 @@ export class ProjectHost implements HostEndpoint {
   private sentContents = new Map<string, ModuleContent>();
   private pendingPatches: IJsonPatch[] = [];
   private flushScheduled = false;
-  /** The agents of the project, the threads they have, and the agent interface. */
+  /** The agents of the project and the agent interface. */
   readonly agents: AgentsHost;
+  /** The threads assigned to agents and the work agents do on the spec. */
+  readonly delegation: DelegationHost;
 
-  constructor(session: ProjectSession, runAgents: RunAgentsSource) {
+  constructor(session: ProjectSession, templates: TemplatesSource) {
     this.session = session;
     this.sentHostInfo = hostInfo(session.persistence.traits);
-    this.agents = new AgentsHost(session, runAgents, (view) => {
+    const agentsSession = {
+      openProjectId: () => {
+        const snapshot = session.getSnapshot();
+        return snapshot.status === "ready" ? snapshot.activeProject.id : null;
+      },
+      keptBeside: (key: "agents") => session.keptBeside(key),
+      keepBeside: (key: "agents", value: unknown) => session.keepBeside(key, value),
+    };
+    this.agents = new AgentsHost(agentsSession, templates, (view) => {
       if (this.links.size > 0) this.broadcast({ type: "agents", view });
     });
-    const replacing = this.agents.clearReplacing.bind(this.agents);
+    this.delegation = new DelegationHost(session, this.agents, (view) => {
+      if (this.links.size > 0) this.broadcast({ type: "delegation", view });
+    });
+    const replacing = this.delegation.clearReplacing.bind(this.delegation);
     const moduleChange = <Result>(run: () => Result): Result => session.change("module change", run);
     this.api = {
       selectProject: (id, name, options) =>
@@ -121,28 +135,28 @@ export class ProjectHost implements HostEndpoint {
       createProject: (name) => session.createProject(name),
       importNewProject: (text, fileName) => session.importNewProject(text, fileName),
       takeOverProject: () => session.takeOverProject(),
-      importProjectFile: async (text, fileName, stopping) => {
-        await replacing({ kind: "import", text, fileName }, stopping);
+      importProjectFile: async (text, fileName, confirmed) => {
+        await replacing({ kind: "import", text, fileName }, confirmed);
         session.change("import", () => session.importProjectFile(text, fileName));
       },
       exportProject: (options, restorePointId) => session.exportProject(options, restorePointId),
-      openChangedProject: async (stopping) => {
-        await replacing({ kind: "open changed" }, stopping);
+      openChangedProject: async (confirmed) => {
+        await replacing({ kind: "open changed" }, confirmed);
         await session.openChangedProject();
       },
       keepShownProject: () => session.keepShownProject(),
       leaveProjectRemoved: () => session.leaveProjectRemoved(),
-      undo: async (stopping) => {
-        await replacing({ kind: "undo" }, stopping);
+      undo: async (confirmed) => {
+        await replacing({ kind: "undo" }, confirmed);
         return session.undo();
       },
-      redo: async (stopping) => {
-        await replacing({ kind: "redo" }, stopping);
+      redo: async (confirmed) => {
+        await replacing({ kind: "redo" }, confirmed);
         return session.redo();
       },
       listSteps: () => session.listSteps(),
-      goTo: async (target, stopping) => {
-        await replacing({ kind: "go to", target }, stopping);
+      goTo: async (target, confirmed) => {
+        await replacing({ kind: "go to", target }, confirmed);
         session.goTo(target);
       },
       listRestorePoints: () => session.listRestorePoints(),
@@ -160,8 +174,8 @@ export class ProjectHost implements HostEndpoint {
       reportFocus: (place) => session.reportFocus(place),
       dismissOffer: (offerId) => session.dismissOffer(offerId),
       makeRestorePoint: (name) => session.makeRestorePoint(name),
-      restoreToRestorePoint: async (restorePointId, stopping) => {
-        await replacing({ kind: "restore", restorePointId }, stopping);
+      restoreToRestorePoint: async (restorePointId, confirmed) => {
+        await replacing({ kind: "restore", restorePointId }, confirmed);
         await session.restoreToRestorePoint(restorePointId);
       },
       pinRestorePoint: (restorePointId) => session.pinRestorePoint(restorePointId),
@@ -171,7 +185,7 @@ export class ProjectHost implements HostEndpoint {
       deleteProject: (projectId) => session.deleteProject(projectId),
       runStoreAction: (call) => {
         const assignTo = call.assignTo ?? null;
-        if (this.shown != null) this.agents.clearStoreAction(this.shown.store, call.name, call.args, call.stopping, assignTo);
+        if (this.shown != null) this.delegation.clearStoreAction(this.shown.store, call.name, call.args, call.confirmed ?? [], assignTo);
         // The stage is read before the action, which may remove the unit it starts from, such as a signed removal.
         const stage = call.focusMove == null ? null : (this.shown?.store.unitState(call.focusMove.from)?.stage ?? null);
         let focusMovedTo: FocusPlace | null = null;
@@ -179,11 +193,18 @@ export class ProjectHost implements HostEndpoint {
           focusMovedTo = this.focusAfter(call, stage);
           return focusMovedTo;
         });
-        if (this.shown != null) this.agents.storeActionDone(this.shown.store, call.name, call.args, result, assignTo);
+        if (this.shown != null) this.delegation.storeActionDone(this.shown.store, call.name, call.args, result, assignTo);
         return { result, focusMovedTo };
       },
       runPersistence: (call) => this.runPersistence(call),
+      // Answered for the connection they come through.
+      listAgentTools: () => Promise.reject(new Error("listAgentTools is answered for its connection.")),
+      callAgentTool: () => Promise.reject(new Error("callAgentTool is answered for its connection.")),
+      registerAgent: () => {
+        throw new Error("registerAgent is answered for its connection.");
+      },
       ...this.agents.api,
+      ...this.delegation.api,
     };
   }
 
@@ -197,8 +218,9 @@ export class ProjectHost implements HostEndpoint {
     this.sentRegistry = initial.registry;
     this.sentContents = contentsOf(initial.registry);
     this.showStore(initial.store);
-    // The agents learn which project is open now, which may have opened before anyone was connected.
+    // The modules learn which project is open now, which may have opened before anyone was connected.
     this.agents.sessionChanged();
+    this.delegation.sessionChanged();
     this.disposers.push(this.session.subscribe(() => this.sessionChanged()));
   }
 
@@ -229,6 +251,7 @@ export class ProjectHost implements HostEndpoint {
       },
     });
     send({ type: "event", event: { type: "agents", view: this.agents.view() } });
+    send({ type: "event", event: { type: "delegation", view: this.delegation.view() } });
     return {
       receive: (message: ClientMessage) => this.receive(send, message, connection),
       close: () => {
@@ -276,12 +299,13 @@ export class ProjectHost implements HostEndpoint {
       throw new Error(`The project host has no request named ${String(message.name)}.`);
     }
     if (message.name === "registerAgent") {
-      const [name] = message.args as Parameters<HostApi["registerAgent"]>;
-      return this.agents.register(connection, (notice) => send({ type: "event", event: { type: "agent-notice", notice } }), name);
+      const [registration] = message.args as Parameters<HostApi["registerAgent"]>;
+      return this.agents.register(connection, registration, (notice) => send({ type: "event", event: { type: "agent-notice", notice } }));
     }
+    if (message.name === "listAgentTools") return this.agents.listTools(connection);
     if (message.name === "callAgentTool") {
-      const [name, args, caller] = message.args as Parameters<HostApi["callAgentTool"]>;
-      return this.api.callAgentTool(name, args, { ...caller, connection });
+      const [name, args] = message.args as Parameters<HostApi["callAgentTool"]>;
+      return this.agents.callTool(name, args, { connection });
     }
     const handler = this.api[message.name] as (...args: unknown[]) => unknown;
     return handler(...message.args);
@@ -335,6 +359,7 @@ export class ProjectHost implements HostEndpoint {
   private sessionChanged(): void {
     const snapshot = this.session.getSnapshot();
     this.agents.sessionChanged();
+    this.delegation.sessionChanged();
     const event: Extract<HostEvent, { type: "session" }> = {
       type: "session",
       session: sessionView(snapshot),
@@ -376,7 +401,7 @@ export class ProjectHost implements HostEndpoint {
     // Flushed when the change finishes; what waits may have changed with it.
     const stopSnapshots = onSnapshot(store, () => {
       this.flushUpdate();
-      this.agents.storeChanged();
+      this.delegation.storeChanged();
     });
 
     this.shown = {

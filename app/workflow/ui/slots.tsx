@@ -2,7 +2,7 @@
 
 import { createContext, type ReactNode, useCallback, useContext } from "react";
 
-import { type Thread, waitsForSpecOwner } from "../threads";
+import { authorLabel, type Thread, type ThreadMessage, waitsForSpecOwner } from "../threads";
 
 /** Where a thread's message goes: its stage, the unit or null for the stage itself or a unit gone, the thread, if open, and how to send it. */
 export interface ThreadSendProps {
@@ -35,6 +35,8 @@ export interface WorkflowSlots {
    * few words, such as "Ada has it".
    */
   threadWaits?: ReadonlyMap<string, ThreadWait>;
+  /** Who wrote a message, as another module names its authors, in place of the name it was written with. */
+  messageAuthor?: (message: ThreadMessage) => string;
   /** In place of a thread's send button, and what its send key does. */
   send?: {
     render: (props: ThreadSendProps & { label: string; disabled: boolean }) => ReactNode;
@@ -87,4 +89,10 @@ export function useThreadWait(): (thread: Thread) => ThreadWait {
 export function useWaitsForSpecOwner(): (thread: Thread) => boolean {
   const waitOf = useThreadWait();
   return useCallback((thread: Thread) => waitOf(thread).forSpecOwner, [waitOf]);
+}
+
+/** Who wrote a message, as `messageAuthor` names it, or by the name it was written with. */
+export function useAuthorLabel(): (message: ThreadMessage) => string {
+  const named = useContext(workflowSlotsContext).messageAuthor;
+  return useCallback((message: ThreadMessage) => named?.(message) ?? authorLabel(message.author), [named]);
 }

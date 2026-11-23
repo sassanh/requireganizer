@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { agentToolDescriptions, callAgentTool } from "../app/agents/interface/tools";
+import { agentToolDescriptions, callAgentTool } from "../app/delegation/interface/tools";
 import { Store } from "../app/store";
 
 function itemOf(store: Store, stage: string, code: string): string {

@@ -1,17 +1,25 @@
+import { createHash } from "node:crypto";
+import { hostname } from "node:os";
+
 // The low-level server: the tool list and its schemas come from the project
 // host and change with the project, which the high-level one does not serve.
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { CallToolRequestSchema, ListToolsRequestSchema, type Request } from "@modelcontextprotocol/sdk/types.js";
-import { onSnapshot } from "mobx-state-tree";
 
-import type { ClientConnection } from "connection";
-import { ConnectionLostError, ProjectClient } from "project-client";
+import type { AgentsClient } from "../client";
+import type { AgentToolDescription } from "../interface";
+import { type AgentNotice, NAME_YOURSELF_TEXT, type Registration } from "../registry";
 
-import type { AgentNotice } from "../desk";
-import { channelNotice, type ChannelNotification } from "./channel";
-import { replyRulesText } from "../interface/replyRules";
-import { type AgentToolDescription, NAME_YOURSELF_TEXT } from "../interface/tools";
+/**
+ * A Claude Code channel event: a session started with the MCP server as a
+ * channel receives it as if the person had written it, and other clients
+ * ignore it.
+ */
+interface ChannelNotification {
+  method: "notifications/claude/channel";
+  params: AgentNotice & Record<string, unknown>;
+}
 
 /** How long a tool call waits for the project's host, such as while another process takes over. */
 const HOST_WAIT_MS = 15_000;
@@ -26,8 +34,27 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** Whether the host is reachable, as the client tells. */
+export type McpConnectionStatus =
+  | { state: "connecting" }
+  | { state: "open" }
+  | { state: "reconnecting"; message: string }
+  | { state: "failed"; message: string };
+
+/** The project's host as this process reaches it: a client of it, which connects again whenever its connection is lost. */
+export interface McpProjectClient {
+  readonly agents: AgentsClient;
+  /** Connect; returns the disconnect. */
+  open(): () => void;
+  getConnectionStatus(): McpConnectionStatus;
+  /** Hear of each change of the connection or of the project. */
+  subscribe(listener: () => void): () => void;
+  /** Whether a call failed because the connection ended before it was answered. */
+  isConnectionLost(error: unknown): boolean;
+}
+
 /** Settles once the client reaches its host; throws what stands in the way after `waitMs`. */
-function reachHost(client: ProjectClient, waitMs: number): Promise<void> {
+function reachHost(client: McpProjectClient, waitMs: number): Promise<void> {
   return new Promise((resolve, reject) => {
     const check = (): boolean => {
       const status = client.getConnectionStatus();
@@ -57,9 +84,30 @@ function reachHost(client: ProjectClient, waitMs: number): Promise<void> {
   });
 }
 
-function instructionsFor(url: string | null, mustName: boolean): string {
-  const where = url == null ? "in Requireganizer" : `at ${url}`;
-  return `${mustName ? `${NAME_YOURSELF_TEXT} ` : ""}Requireganizer holds the spec the spec owner signs for this project, stage by stage, each item traced to what it builds on. Read it before building: get_workflow_state shows which stages are open; get_stage_rules gives the published rules of each kind of item a stage holds, and get_items reads a stage's items by code. Write, change and remove items with write_items; the spec owner signs them ${where}, and no tool signs. A channel event names the thread the spec owner assigned you by its thread_id; its id, which is not the thread's, is what you pass to report_cannot_answer; and it gives its stage, what it asks (kind: message, an answer to the spec owner's message; write or review, the writing or a review of the stage), and while the project has modules its module: pass that module to each tool that takes one, such as get_items, get_thread, reply_to_thread and write_items. Read the thread with get_thread. For a thread asking to write or to review a stage, read the rules of its kinds of item with get_stage_rules and the items with get_items. Answer a thread with a reply in it, with reply_to_thread, or with write_items and its answers; a reply of yours to a thread assigned to you may give findings, each naming an item, a published rule of its kind that it breaks, and how. Your reply ends the thread's assignment to you. When you cannot answer a thread assigned to you, pass its id to report_cannot_answer. To point the spec owner to a set of items, coverages and impacts that need them, pass pointTo with write_items or reply_to_thread, with one text of at most 80 characters saying why. ${replyRulesText()}`;
+function instructionsFor(url: string | null, instructions: string): string {
+  const where = url == null ? "" : ` The spec owner reads and signs the project at ${url}.`;
+  return `${instructions}${where}`;
+}
+
+/**
+ * What the coding tool this process serves tells of the coding agent: the
+ * session it serves, hashed so the session's id is never kept, and the
+ * tool, the computer and whether the tool takes messages into its session.
+ */
+function registrationOf(server: Server<Request, ChannelNotification>): Registration {
+  const client = server.getClientVersion();
+  const session = process.env.CLAUDE_CODE_SESSION_ID;
+  return {
+    session: session == null || session.length === 0 ? null : createHash("sha256").update(session).digest("hex"),
+    details: {
+      tool: client?.name ?? null,
+      toolVersion: client?.version ?? null,
+      host: hostname(),
+      sessionless: session == null || session.length === 0,
+      // Claude Code lets the project send a message into a session through its channels.
+      reachable: client?.name === "claude-code",
+    },
+  };
 }
 
 export interface McpService {
@@ -67,9 +115,8 @@ export interface McpService {
   close(): Promise<void>;
 }
 
-/** The project's host as this process reaches it, such as a server's project link. */
+/** The project's host as this process serves or reaches it, such as a server's project link. */
 export interface McpHostLink {
-  connect(): ClientConnection;
   /** Where the person opens the project, once known. */
   url(): string | null;
   /** Stop serving the project if this process serves it. */
@@ -83,6 +130,7 @@ export interface McpHostLink {
  */
 export async function serveMcp(options: {
   link: McpHostLink;
+  client: McpProjectClient;
   version: string;
   transport: Transport;
   /** How often a call still running tells the client so; ten seconds unless given. */
@@ -90,25 +138,20 @@ export async function serveMcp(options: {
   /** How long a call waits for the project's host; fifteen seconds unless given. */
   hostWaitMs?: number;
 }): Promise<McpService> {
-  const { link } = options;
-  const client = new ProjectClient(link.connect);
-  // This process is one coding agent: it registers with each connection it makes.
-  client.agents.actAsAgent();
+  const { link, client } = options;
   const disconnect = client.open();
-  // A host that keeps agents asks this one to name itself before anything else.
-  const mustName = await reachHost(client, ADDRESS_WAIT_MS)
-    .then(() => client.agents.listAgentTools())
-    .then((tools) => tools.some(({ name }) => name === "name_yourself"))
+  const instructions = await reachHost(client, ADDRESS_WAIT_MS)
+    .then(() => client.agents.agentInstructions())
     .catch((error: unknown) => {
       process.stderr.write(`${messageOf(error)}\n`);
-      return false;
+      return NAME_YOURSELF_TEXT;
     });
 
   const server = new Server<Request, ChannelNotification>(
     { name: "requireganizer", version: options.version },
     {
       capabilities: { tools: { listChanged: true }, experimental: { "claude/channel": {} } },
-      instructions: instructionsFor(link.url(), mustName),
+      instructions: instructionsFor(link.url(), instructions),
     },
   );
 
@@ -137,13 +180,10 @@ export async function serveMcp(options: {
     }, options.progressIntervalMs ?? PROGRESS_INTERVAL_MS);
     try {
       await reachHost(client, hostWaitMs);
-      // The name the agent gave when it connected signs what it writes in threads.
-      const agent = server.getClientVersion();
-      const caller = { name: agent?.title ?? agent?.name ?? "The coding agent" };
-      const text = await client.agents.callAgentTool(request.params.name, request.params.arguments ?? {}, caller);
+      const text = await client.agents.callAgentTool(request.params.name, request.params.arguments ?? {});
       return { content: [{ type: "text", text }] };
     } catch (error) {
-      const text = error instanceof ConnectionLostError
+      const text = client.isConnectionLost(error)
         ? `The connection to Requireganizer ended before it answered, so the call may or may not have taken effect. Call get_workflow_state before calling ${request.params.name} again.`
         : messageOf(error);
       return { content: [{ type: "text", text }], isError: true };
@@ -167,7 +207,7 @@ export async function serveMcp(options: {
       );
     }, TOOL_LIST_CHECK_DELAY_MS);
   };
-  // The agent hears of each thread assigned to it, and of each time it is stopped, as it happens; one heard before the client initialized waits for it.
+  // The agent hears what is meant for its session as it happens; what comes before the client initialized waits for it.
   let initialized = false;
   const unheard: AgentNotice[] = [];
   const tell = (notice: AgentNotice) => {
@@ -175,32 +215,22 @@ export async function serveMcp(options: {
       unheard.push(notice);
       return;
     }
-    server.notification({ method: "notifications/claude/channel", params: channelNotice(notice) }).catch(() => {});
+    server.notification({ method: "notifications/claude/channel", params: { ...notice } }).catch(() => {});
   };
   const stopNotices = client.agents.subscribeNotices(tell);
   server.oninitialized = () => {
+    // This process is one coding agent: it registers with each connection it makes, as its coding tool tells.
+    client.agents.actAsCodingAgent(registrationOf(server), client.getConnectionStatus().state === "open");
     initialized = true;
     for (const notice of unheard.splice(0)) tell(notice);
   };
 
-  const onProjectChange = () => checkToolList();
-  let shownStore = client.getSnapshot().store;
-  let stopWatchingStore = onSnapshot(shownStore, onProjectChange);
-  const stopWatchingClient = client.subscribe(() => {
-    const store = client.getSnapshot().store;
-    if (store !== shownStore) {
-      stopWatchingStore();
-      shownStore = store;
-      stopWatchingStore = onSnapshot(store, onProjectChange);
-    }
-    onProjectChange();
-  });
+  const stopWatchingClient = client.subscribe(checkToolList);
 
   await server.connect(options.transport);
   return {
     close: async () => {
       if (checkTimer != null) clearTimeout(checkTimer);
-      stopWatchingStore();
       stopWatchingClient();
       stopNotices();
       disconnect();

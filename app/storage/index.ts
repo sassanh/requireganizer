@@ -2,7 +2,7 @@ export { type AuthorityClaim, type ProjectAuthority, webProjectAuthority } from 
 export { serializeCanonical, serializeCanonicalInSlices } from "./canonicalJson";
 export { buildExport, DEFAULT_EXPORT_OPTIONS, type ExportOptions } from "./exportProject";
 export { parseItemVersion, parseProject } from "./parseProject";
-export { parseProjectRecord, type ProjectRecord } from "./record";
+export { type BesideProject, type BesideProjectKey, NOTHING_BESIDE, parseProjectRecord, type ProjectRecord } from "./record";
 export { sharedWith } from "./shared";
 export { type Opening, openingOf, type OutsideChange, type StoredProject, storedProjectChange } from "./storedProject";
 export { type Address, addressOfBytes, childrenOf, isAddress, type ModulePieces, type Piece, type PieceLevel, PieceStore } from "./pieces";

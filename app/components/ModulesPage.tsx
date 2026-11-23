@@ -20,7 +20,7 @@ import {
 import { observer } from "mobx-react-lite";
 import { useState } from "react";
 
-import { ModuleWorkingSign } from "agents/ui";
+import { ModuleWorkingSign } from "delegation/ui";
 import type { ModuleSummary } from "project-session";
 import { useProject } from "projectContext";
 import type { Store } from "store";

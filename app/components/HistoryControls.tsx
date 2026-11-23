@@ -17,6 +17,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { ActionTooltip } from "actions/ActionHint";
 import { redoAlternateShortcut, redoShortcut, stepsShortcut, undoShortcut } from "actions/actions";
+import { labelOfName } from "agents";
+import { useAgents } from "agents/ui";
 import type { FocusPlace, ListedStep, ListedSteps, StepListTarget, StepPlace } from "history";
 import { isEditableTarget, isOverlayTarget, type ShortcutBinding, useShortcut } from "hooks/shortcuts";
 import { getUserFacingErrorMessage } from "lib/errors";
@@ -106,6 +108,7 @@ export default function HistoryControls() {
  */
 function HistoryPanel({ onClose }: { onClose: () => void }) {
   const { history, listSteps, modulesEnabled } = useProject();
+  const agents = useAgents().view.agents;
   const [listed, setListed] = useState<ListedSteps | null>(null);
   const currentStep = history?.currentStep ?? null;
 
@@ -147,7 +150,7 @@ function HistoryPanel({ onClose }: { onClose: () => void }) {
             <ListItem key={step.id} sx={{ display: "block", px: 2, opacity: ledToNow ? 1 : 0.6 }}>
               <ListedStateHead label={step.description ?? kindLabel(step.kind)} place={step.place} target={{ kind: "step", id: step.id }} onPreview={onClose} />
               <Typography variant="caption" sx={{ display: "block", color: "text.secondary" }}>
-                {step.by.kind === "agent" ? step.by.name : "You"}, {new Date(step.at).toLocaleString()}
+                {step.by.kind === "agent" ? labelOfName(agents, step.by.name) : "You"}, {new Date(step.at).toLocaleString()}
               </Typography>
               {step.change != null && <DifferenceList difference={step.change} withModules={modulesEnabled} reading="step" />}
             </ListItem>

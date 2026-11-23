@@ -4,9 +4,8 @@ import { Box, Chip, Stack, Typography } from "@mui/material";
 import { observer } from "mobx-react-lite";
 import type { ReactNode } from "react";
 
-import { authorLabel } from "../threads";
 import { useWorkflowView } from "./context";
-import { useThreadWait } from "./slots";
+import { useAuthorLabel, useThreadWait } from "./slots";
 import ThreadOwner from "./ThreadOwner";
 import { THREAD_BUTTON, threadsAt } from "./ThreadView";
 import WrittenText from "./WrittenText";
@@ -42,6 +41,7 @@ const ThreadRow = observer(function ThreadRow({
   actions?: ReactNode;
   onOpenHere?: (anchor: HTMLElement) => void;
 }) {
+  const labelOf = useAuthorLabel();
   const { module } = useWorkflowView();
   const waitOf = useThreadWait();
   const threads = threadsAt(module, stage, place);
@@ -80,7 +80,7 @@ const ThreadRow = observer(function ThreadRow({
       {/* The last message is a preview: the thread shows it in full, where its mentions can be opened. */}
       {last != null && (
         <Box sx={{ flex: "1 1 200px", minWidth: 0, display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical", overflow: "hidden", pointerEvents: "none", color: "text.secondary", "& p": { m: 0 } }}>
-          <WrittenText text={`${authorLabel(last.author)}: ${last.text}`} />
+          <WrittenText text={`${labelOf(last)}: ${last.text}`} />
         </Box>
       )}
       {actions}

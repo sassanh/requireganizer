@@ -6,7 +6,7 @@ import {
   type SnapshotIn,
 } from "mobx-state-tree";
 
-import { AgentsClient, type AgentsHostApi, type AgentsRequest, ThreadsConcernedError, storeActionName } from "agents";
+import { AgentsClient, type AgentsHostApi, type AgentsRequest } from "agents";
 import {
   addressOf,
   type ClientConnection,
@@ -28,6 +28,7 @@ import {
   type WireError,
   wireArguments,
 } from "connection";
+import { type AssignTarget, ConfirmationNeededError, DelegationClient, type DelegationHostApi, type DelegationRequest, storeActionName } from "delegation";
 import type { FocusPlace, ListedRestorePoint, ListedSteps, PreviewTarget, StateDifference, StepListTarget } from "history";
 import { UserFacingError } from "lib/errors";
 import type { ProjectIdentity } from "lib/projectStorage";
@@ -53,7 +54,7 @@ const FIRST_RECONNECT_DELAY_MS = 500;
 const MAX_RECONNECT_DELAY_MS = 8000;
 
 function errorFromWire(error: WireError): Error {
-  if (error.concerned != null) return new ThreadsConcernedError(error.concerned);
+  if (error.confirmation != null) return new ConfirmationNeededError(error.confirmation.threads, error.confirmation.notes);
   if (error.name === "UserFacingError") return new UserFacingError(error.message);
   const rebuilt = new Error(error.message);
   rebuilt.name = error.name;
@@ -190,9 +191,16 @@ export class ProjectClient {
   private hostInfo: HostInfo = {
     storage: { singleProject: false, name: "storage" },
   };
-  /** The agents and the threads waiting for one, the agent this client is, and the spec owner's confirmations. */
+  /** The agents and templates, and the coding agent this client is when it is one. */
   readonly agents = new AgentsClient(
     ((name: keyof AgentsHostApi, ...args: unknown[]) => this.request(name, ...(args as never))) as AgentsRequest,
+    () => {
+      for (const listener of this.listeners) listener();
+    },
+  );
+  /** The threads waiting for an agent, the spec owner's actions on them, and their confirmations. */
+  readonly delegation = new DelegationClient(
+    ((name: keyof DelegationHostApi, ...args: unknown[]) => this.request(name, ...(args as never))) as DelegationRequest,
     () => {
       for (const listener of this.listeners) listener();
     },
@@ -205,8 +213,8 @@ export class ProjectClient {
   private previewRequest = 0;
   /** Where the store actions forwarded now move the spec owner's focus, and where the host answers that each moved it. */
   private focusMove: { move: SignatureFocusMove; movedTo: Promise<FocusPlace | null>[] } | null = null;
-  /** The agent the thread of a message the spec owner sends now is assigned to. */
-  private assignTo: string | null = null;
+  /** Whom the thread of a message the spec owner sends now is assigned to. */
+  private assignTo: AssignTarget | null = null;
   /** What `getPreview` hands out, the same object until the preview changes. */
   private shownPreview: ShownPreview | null = null;
   private snapshot: ProjectSessionSnapshot;
@@ -215,6 +223,8 @@ export class ProjectClient {
   constructor(connect: () => ClientConnection, options: { timeZone?: string } = {}) {
     this.connect = connect;
     this.timeZone = options.timeZone ?? null;
+    // Archiving an agent is confirmed as every action concerning threads agents have is.
+    this.agents.setGate(this.delegation.confirmed);
     // Until the host's first event arrives, actions on this blank replica
     // name a store the host never shows, so they are refused.
     this.replica = this.createReplica("", {});
@@ -250,6 +260,9 @@ export class ProjectClient {
 
   /** Whether the host is reachable; notified through `subscribe`. */
   getConnectionStatus = (): ConnectionStatus => this.connectionStatus;
+
+  /** Whether a request failed because the connection ended before it was answered. */
+  isConnectionLost = (error: unknown): boolean => error instanceof ConnectionLostError;
 
   private attach(): void {
     let link: ClientConnection;
@@ -386,26 +399,26 @@ export class ProjectClient {
   takeOverProject = (): Promise<void> => this.request("takeOverProject");
 
   importProjectFile = (text: string, fileName: string): Promise<void> =>
-    this.agents.confirmed("import the project", (stopping) => this.request("importProjectFile", text, fileName, stopping));
+    this.delegation.confirmed("import the project", (confirmed) => this.request("importProjectFile", text, fileName, confirmed));
 
   exportProject = (options: ExportOptions, restorePointId?: string): Promise<string> =>
     this.request("exportProject", options, restorePointId);
 
   openChangedProject = (): Promise<void> =>
-    this.agents.confirmed("open the changed project", (stopping) => this.request("openChangedProject", stopping));
+    this.delegation.confirmed("open the changed project", (confirmed) => this.request("openChangedProject", confirmed));
 
   keepShownProject = (): Promise<void> => this.request("keepShownProject");
 
   leaveProjectRemoved = (): Promise<void> => this.request("leaveProjectRemoved");
 
   /** Resolves to where the focus goes, or null to leave it where it is. */
-  undo = (): Promise<FocusPlace | null> => this.agents.confirmed("undo", (stopping) => this.request("undo", stopping));
+  undo = (): Promise<FocusPlace | null> => this.delegation.confirmed("undo", (confirmed) => this.request("undo", confirmed));
 
-  redo = (): Promise<FocusPlace | null> => this.agents.confirmed("redo", (stopping) => this.request("redo", stopping));
+  redo = (): Promise<FocusPlace | null> => this.delegation.confirmed("redo", (confirmed) => this.request("redo", confirmed));
 
   listSteps = (): Promise<ListedSteps> => this.request("listSteps");
 
-  goTo = (target: StepListTarget): Promise<void> => this.agents.confirmed("go to that step", (stopping) => this.request("goTo", target, stopping));
+  goTo = (target: StepListTarget): Promise<void> => this.delegation.confirmed("go to that step", (confirmed) => this.request("goTo", target, confirmed));
 
   listRestorePoints = (): Promise<ListedRestorePoint[]> => this.request("listRestorePoints");
 
@@ -441,7 +454,7 @@ export class ProjectClient {
    * Run `run`, assigning the thread of each message of the spec
    * owner's it sends to `to`, in the same act as sending it; to none for null.
    */
-  withAssignment = <Value>(to: string | null, run: () => Value): Value => {
+  withAssignment = <Value>(to: AssignTarget | null, run: () => Value): Value => {
     const previous = this.assignTo;
     this.assignTo = to;
     try {
@@ -494,7 +507,7 @@ export class ProjectClient {
   makeRestorePoint = (name: string): Promise<void> => this.request("makeRestorePoint", name);
 
   restoreToRestorePoint = (restorePointId: string): Promise<void> =>
-    this.agents.confirmed("restore the restore point", (stopping) => this.request("restoreToRestorePoint", restorePointId, stopping));
+    this.delegation.confirmed("restore the restore point", (confirmed) => this.request("restoreToRestorePoint", restorePointId, confirmed));
 
   pinRestorePoint = (restorePointId: string): Promise<void> => this.request("pinRestorePoint", restorePointId);
 
@@ -588,7 +601,7 @@ export class ProjectClient {
     }
     const focusMove = this.focusMove?.move;
     const assignTo = this.assignTo;
-    const outcome = this.agents.confirmed(storeActionName(call.name), (stopping) =>
+    const outcome = this.delegation.confirmed(storeActionName(call.name), (confirmed) =>
       this.request("runStoreAction", {
         store,
         address: addressOf(call.context),
@@ -596,7 +609,7 @@ export class ProjectClient {
         args,
         ...(focusMove == null ? {} : { focusMove }),
         ...(assignTo == null ? {} : { assignTo }),
-        ...(stopping == null ? {} : { stopping }),
+        ...(confirmed == null ? {} : { confirmed }),
       }),
     );
     this.focusMove?.movedTo.push(outcome.then(({ focusMovedTo }) => focusMovedTo));
@@ -735,6 +748,9 @@ export class ProjectClient {
       case "agents":
       case "agent-notice":
         this.agents.receive(event);
+        return;
+      case "delegation":
+        this.delegation.receive(event);
         return;
     }
   }

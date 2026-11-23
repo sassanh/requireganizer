@@ -3,7 +3,7 @@ import { type AddressInfo, connect } from "node:net";
 import { join } from "node:path";
 import type { Duplex } from "node:stream";
 
-import { fileRunAgents } from "agents/internal/fileRunAgents";
+import { fileTemplates } from "agents/internal/fileTemplates";
 import { ProjectHost } from "project-host";
 import { ProjectSession } from "project-session";
 
@@ -153,7 +153,7 @@ async function serveClaimed(
   }
 
   const session = new ProjectSession(adapter, { outsideChanges: adapter.outsideChanges });
-  const host = new ProjectHost(session, fileRunAgents(join(userStateDirectory(), "agents.json")));
+  const host = new ProjectHost(session, fileTemplates(join(userStateDirectory(), "templates.json")));
   session.start();
 
   const token = serverToken(stateDirectory);

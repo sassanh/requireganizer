@@ -1,3 +1,5 @@
+import { getUserFacingErrorMessage } from "lib/errors";
+
 /**
  * Transient action confirmations ("Copied to clipboard", "Approved").
  * Fired from anywhere — including module-level shortcut actions with no
@@ -29,4 +31,9 @@ export function subscribeNotices(
   return () => {
     listeners.delete(listener);
   };
+}
+
+/** Carry out a call, telling the person why it failed, if it does. */
+export function attempt(call: () => Promise<unknown>, fallback: string): void {
+  call().catch((error: unknown) => notify(getUserFacingErrorMessage(error, fallback), "error"));
 }

@@ -1,30 +1,20 @@
 import type { Model } from "@earendil-works/pi-ai";
 
 /**
- * A model served by the configured OpenAI-compatible endpoint, for the pi
- * agent runtime. Requests use the Responses API with reasoning efforts
- * minimal/low/medium/high/xhigh.
+ * A model served by an OpenAI-compatible endpoint, for the pi agent
+ * runtime: requests use the Chat Completions API, which every
+ * OpenAI-compatible endpoint serves.
  */
-export function gatewayModel(id: string, baseUrl: string): Model<"openai-responses"> {
+export function endpointModel(id: string, endpoint: string): Model<"openai-completions"> {
   return {
     id,
     name: id,
-    api: "openai-responses",
-    // The endpoint's host names the provider in provider-call records; pi-ai
-    // also derives the provider's session header format from the URL.
-    provider: new URL(baseUrl).hostname,
-    baseUrl,
+    api: "openai-completions",
+    // The endpoint's host names the provider; pi-ai also reads what the endpoint accepts from it.
+    provider: new URL(endpoint).hostname,
+    baseUrl: endpoint,
     reasoning: true,
-    thinkingLevelMap: {
-      off: null,
-      minimal: "minimal",
-      low: "low",
-      medium: "medium",
-      high: "high",
-      xhigh: "xhigh",
-      max: null,
-    },
-    input: ["text", "image"],
+    input: ["text"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 1_048_576,
     maxTokens: 131_072,

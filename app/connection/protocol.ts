@@ -1,6 +1,7 @@
 import type { IJsonPatch } from "mobx-state-tree";
 
-import type { AgentsHostApi, AgentsHostEvent, WaitingThreadState } from "agents";
+import type { AgentsHostApi, AgentsHostEvent } from "agents";
+import type { AssignTarget, ConfirmationNote, DelegationHostApi, DelegationHostEvent, WaitingThreadState } from "delegation";
 import type { FocusPlace, ListedRestorePoint, ListedSteps, PreviewTarget, StateDifference, StepListTarget } from "history";
 import type { ProjectIdentity } from "lib/projectStorage";
 import type { ClientPersistence, StorageTraits } from "persistence";
@@ -19,7 +20,7 @@ import type { SignatureFocusMove } from "workflow";
  * different builds checks it before any message is exchanged; change it
  * whenever a message changes shape.
  */
-export const PROTOCOL_VERSION = 17;
+export const PROTOCOL_VERSION = 18;
 
 /**
  * WebSocket close codes a host server ends a connection with when connecting
@@ -54,10 +55,10 @@ export interface StoreActionCall {
   args: unknown[];
   /** Where the action moves the spec owner's focus, for one that does, such as a signature. */
   focusMove?: SignatureFocusMove;
-  /** The threads agents have whose agents the spec owner confirmed stopping to carry the action out. */
-  stopping?: string[];
-  /** For a message of the spec owner's in a thread: the agent the thread is assigned to as it is sent. */
-  assignTo?: string;
+  /** What the spec owner confirmed to carry the action out, such as the threads whose agents it stops. */
+  confirmed?: string[];
+  /** For a message of the spec owner's in a thread: whom the thread is assigned to as it is sent. */
+  assignTo?: AssignTarget;
 }
 
 /** What a store action returned, and where it moved the spec owner's focus, as the step records it. */
@@ -88,8 +89,8 @@ export const PERSISTENCE_METHODS: {
   projects: { list: true },
 };
 
-/** What a host serves, the Agents module's part included. A request names one member and passes its arguments. */
-export interface HostApi extends AgentsHostApi {
+/** What a host serves, the Agents and Delegation modules' parts included. A request names one member and passes its arguments. */
+export interface HostApi extends AgentsHostApi, DelegationHostApi {
   selectProject(
     id: string,
     name: string,
@@ -113,11 +114,11 @@ export interface HostApi extends AgentsHostApi {
   /** Open here the project another session holds, once it has written what it had. */
   takeOverProject(): Promise<void>;
   /** Replace the open project with the one an exported file's text holds, as a step of kind import; refused as undo is while it concerns threads agents have. */
-  importProjectFile(text: string, fileName: string, stopping?: string[]): Promise<void>;
+  importProjectFile(text: string, fileName: string, confirmed?: string[]): Promise<void>;
   /** The export of the open project, or of one of its restore points, as the bytes of its file. */
   exportProject(options: ExportOptions, restorePointId?: string): Promise<string>;
   /** Open the project as storage now holds it, after it changed outside the host. */
-  openChangedProject(stopping?: string[]): Promise<void>;
+  openChangedProject(confirmed?: string[]): Promise<void>;
   /** Write the shown project over the stored one that changed or was removed outside the host. */
   keepShownProject(): void;
   /** Leave the stored project removed outside the host: close it and forget its history, writing nothing where it was. */
@@ -125,15 +126,15 @@ export interface HostApi extends AgentsHostApi {
   /**
    * Undo the current step; not itself a step. Resolves to where the focus
    * goes, or null to leave it. Refused while it concerns threads agents
-   * have that `stopping` does not name; this holds for redo and goTo too.
+   * have that `confirmed` does not name; this holds for redo and goTo too.
    */
-  undo(stopping?: string[]): Promise<FocusPlace | null>;
+  undo(confirmed?: string[]): Promise<FocusPlace | null>;
   /** Redo the step undo last left; resolves as undo does. */
-  redo(stopping?: string[]): Promise<FocusPlace | null>;
+  redo(confirmed?: string[]): Promise<FocusPlace | null>;
   /** Every kept step, newest first, with what it added, changed or removed, then the start, before the oldest of them. */
   listSteps(): ListedSteps;
   /** Go to how the project was after a kept step or before the oldest of them, as undo and redo move, recording no step. */
-  goTo(target: StepListTarget, stopping?: string[]): Promise<void>;
+  goTo(target: StepListTarget, confirmed?: string[]): Promise<void>;
   /** The kept restore points, newest first. */
   listRestorePoints(): ListedRestorePoint[];
   /** What bringing back the project as it was after a kept step or at a restore point would add, change or remove; changes nothing. */
@@ -147,7 +148,7 @@ export interface HostApi extends AgentsHostApi {
   /** Make a restore point of the shown project under a name. */
   makeRestorePoint(name: string): void;
   /** Restore the project to a restore point, as a step of kind restore. */
-  restoreToRestorePoint(restorePointId: string, stopping?: string[]): Promise<void>;
+  restoreToRestorePoint(restorePointId: string, confirmed?: string[]): Promise<void>;
   pinRestorePoint(restorePointId: string): void;
   unpinRestorePoint(restorePointId: string): void;
   deleteRestorePoint(restorePointId: string): void;
@@ -172,8 +173,8 @@ export interface RequestMessage {
 export interface WireError {
   name: string;
   message: string;
-  /** For an action refused because it concerns threads agents have: those threads. */
-  concerned?: WaitingThreadState[];
+  /** For an action refused until the spec owner confirms what it concerns: what that is. */
+  confirmation?: { threads: readonly WaitingThreadState[]; notes: readonly ConfirmationNote[] };
 }
 
 export type ResponseMessage = { type: "response"; id: number } & (
@@ -247,7 +248,8 @@ export type HostEvent =
       store?: StoreImage;
     }
   | { type: "store-update"; update: StoreUpdate }
-  | AgentsHostEvent;
+  | AgentsHostEvent
+  | DelegationHostEvent;
 
 export interface EventMessage {
   type: "event";

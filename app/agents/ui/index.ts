@@ -1,11 +1,5 @@
-export { default as AgentList, type AgentActions } from "./AgentList";
-export { default as AgentsControls, ModuleWorkingSign, StopConfirmationHost } from "./AgentsControls";
-export { default as AttentionOffers } from "./AttentionOffers";
-export { default as AgentsWorkflowSlots } from "./AgentsWorkflowSlots";
+export { default as AgentsButton } from "./AgentsButton";
+export { default as AgentsDialog, listedAgents, NameField } from "./AgentsDialog";
 export { agentsContext, type AgentsPageValue, useAgents } from "./context";
-export { default as PointerOffer } from "./PointerOffer";
-export { default as SendButton, preferredAgent } from "./SendButton";
-export { default as StopConfirmation } from "./StopConfirmation";
-export { howLongAgo, howLongSince } from "./time";
-export { default as ThreadList, WaitControls } from "./ThreadList";
-export { default as WorkingSign, heldAt, type WorkingPlace } from "./WorkingSign";
+export { default as ContextDialog } from "./ContextDialog";
+export { default as LetInPrompt } from "./LetInPrompt";

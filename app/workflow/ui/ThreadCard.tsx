@@ -4,9 +4,10 @@ import { Box, Paper, Stack, Typography } from "@mui/material";
 import { observer } from "mobx-react-lite";
 import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 
-import { authorLabel, type Thread } from "../threads";
+import type { Thread } from "../threads";
 import { threadPlace } from "../units";
 import { type ThreadMark } from "./context";
+import { useAuthorLabel } from "./slots";
 import ThreadOwner from "./ThreadOwner";
 import { THREAD_BUTTON } from "./ThreadView";
 import WrittenText from "./WrittenText";
@@ -54,6 +55,7 @@ const ThreadCard = observer(function ThreadCard({
   footer?: ReactNode;
   onOpen?: (card: HTMLElement) => void;
 }) {
+  const labelOf = useAuthorLabel();
   if (shown.resolution == null) return null;
   const place = threadPlace(shown);
   const first = shown.messages[0];
@@ -103,7 +105,7 @@ const ThreadCard = observer(function ThreadCard({
       )}
       {latest != null && (
         <Typography variant="caption" color="text.secondary" sx={{ mt: "auto" }}>
-          {shown.messages.length} {shown.messages.length === 1 ? "message" : "messages"} · last by {authorLabel(latest.author)}
+          {shown.messages.length} {shown.messages.length === 1 ? "message" : "messages"} · last by {labelOf(latest)}
           {latest.at == null ? "" : `, ${new Date(latest.at).toLocaleString()}`}
         </Typography>
       )}

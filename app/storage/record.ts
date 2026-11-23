@@ -3,21 +3,34 @@ import { InvalidJsonError, isRecord } from "lib/json";
 import { type Address, isAddress } from "./pieces";
 
 /**
- * What storage keeps beside a project, never in it: the state it last wrote
- * for certain, the state being written while a write is under way, and the
- * project's history, the offers of what agents pointed the spec owner to,
- * and the threads waiting for an agent with their run logs, which
- * storage holds whole and never reads.
+ * What modules keep beside a project, each under its own key, apart from
+ * its history: storage holds each whole and never reads it.
  */
-export interface ProjectRecord {
+export interface BesideProject {
+  /** The Agents module's agents of the project. */
+  agents: unknown;
+  /** The Delegation module's threads waiting for an agent and what goes with them. */
+  delegation: unknown;
+}
+
+export type BesideProjectKey = keyof BesideProject;
+
+export const NOTHING_BESIDE: BesideProject = { agents: null, delegation: null };
+
+/**
+ * What storage keeps beside a project, never in it: the state it last wrote
+ * for certain, the state being written while a write is under way, the
+ * project's history, the offers of what agents pointed the spec owner to,
+ * and what modules keep beside it, which storage holds whole and never reads.
+ */
+export interface ProjectRecord extends BesideProject {
   lastWritten: Address | null;
   writing: Address | null;
   history: unknown;
   offers: unknown;
-  waits: unknown;
 }
 
-/** The record as stored; its history, offers and waits stay as they were stored, for those who keep them to read. */
+/** The record as stored; its history, offers and what modules keep beside it stay as they were stored, for those who keep them to read. */
 export function parseProjectRecord(value: unknown): ProjectRecord {
   if (!isRecord(value)) throw new InvalidJsonError("The project's record must be an object.");
   const address = (key: "lastWritten" | "writing"): Address | null => {
@@ -26,5 +39,12 @@ export function parseProjectRecord(value: unknown): ProjectRecord {
     if (!isAddress(entry)) throw new InvalidJsonError(`The project's record ${key} must be an address or null.`);
     return entry;
   };
-  return { lastWritten: address("lastWritten"), writing: address("writing"), history: value.history ?? null, offers: value.offers ?? null, waits: value.waits ?? null };
+  return {
+    lastWritten: address("lastWritten"),
+    writing: address("writing"),
+    history: value.history ?? null,
+    offers: value.offers ?? null,
+    agents: value.agents ?? null,
+    delegation: value.delegation ?? null,
+  };
 }

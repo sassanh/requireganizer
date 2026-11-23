@@ -10,16 +10,17 @@ import { resolveShortcut } from "actions/actions";
 import { SEND_SHORTCUT_SPEC } from "actions/shortcutText";
 import { autoScrollBehavior } from "lib/scroll";
 
-import { authorLabel, type Thread } from "../threads";
+import type { Thread } from "../threads";
 import { threadPlace } from "../units";
 import { type MessagePlace, messageAttributes, messageElement, perform, useWorkflowView } from "./context";
 import { useItemName } from "./ItemChip";
 import MentionField, { type MessageDraft, messageText } from "./MentionField";
-import { Slot, useWaitsForSpecOwner, useWorkflowSlots } from "./slots";
+import { Slot, useAuthorLabel, useWaitsForSpecOwner, useWorkflowSlots } from "./slots";
 import WrittenText from "./WrittenText";
 
 /** A thread's messages, each one focusable, so the page can return to the one an item was opened from, each with what other modules show under it. */
 function Messages({ thread, preview }: { thread: Thread; preview: boolean }) {
+  const labelOf = useAuthorLabel();
   return (
     <Stack spacing={1} divider={<Divider flexItem />} sx={{ opacity: thread.resolution == null ? 1 : 0.6 }}>
       {thread.messages.map((message, index) => (
@@ -31,7 +32,7 @@ function Messages({ thread, preview }: { thread: Thread; preview: boolean }) {
           sx={{ borderRadius: 1, outline: "none", "&:focus": { boxShadow: (theme) => `0 0 0 2px ${theme.vars.palette.primary.main}` } }}
         >
           <Typography variant="caption" color="text.secondary">
-            {authorLabel(message.author)}{message.at == null ? "" : ` · ${new Date(message.at).toLocaleString()}`}
+            {labelOf(message)}{message.at == null ? "" : ` · ${new Date(message.at).toLocaleString()}`}
             {message.withChanges ? " · with changes" : ""}
           </Typography>
           <WrittenText text={message.text} />

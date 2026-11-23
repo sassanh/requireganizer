@@ -5,13 +5,15 @@ import { observer } from "mobx-react-lite";
 import { useCallback, useMemo, useState } from "react";
 
 import { ActionTooltip } from "actions/ActionHint";
+import { labelOfName } from "agents";
+import { useAgents } from "agents/ui";
 import { notify } from "components/notices";
 import { isEditableTarget, isOverlayTarget, type ShortcutBinding, useShortcut } from "hooks/shortcuts";
 import { getUserFacingErrorMessage } from "lib/errors";
 import { requestPlace } from "lib/placeRequests";
 
 import type { AttentionOffer } from "../pointers";
-import { useAgents } from "./context";
+import { useDelegation } from "./context";
 import PointerOffer from "./PointerOffer";
 import { dismissOfferShortcut, takeOfferShortcut } from "./shortcuts";
 
@@ -22,7 +24,8 @@ import { dismissOfferShortcut, takeOfferShortcut } from "./shortcuts";
  * go to the offer made last.
  */
 const AttentionOffers = observer(function AttentionOffers() {
-  const { offers, dismissOffer, placeLabel } = useAgents();
+  const { offers, dismissOffer, placeLabel } = useDelegation();
+  const agents = useAgents().view.agents;
   // The unit each offer goes to next, by offer.
   const [next, setNext] = useState<Record<string, number>>({});
   const indexOf = useCallback((offer: AttentionOffer) => (next[offer.id] ?? 0) % offer.places.length, [next]);
@@ -67,7 +70,7 @@ const AttentionOffers = observer(function AttentionOffers() {
           <PointerOffer
             key={offer.id}
             text={offer.text}
-            from={offer.from}
+            from={labelOfName(agents, offer.from)}
             units={offer.places.map(placeLabel)}
             index={indexOf(offer)}
             onGo={() => take(offer)}

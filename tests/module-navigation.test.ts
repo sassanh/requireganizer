@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { callAgentTool } from "../app/agents/interface/tools";
+import { callAgentTool } from "../app/delegation/interface/tools";
 import { Store } from "../app/store";
 
 describe("module navigation over MCP", () => {

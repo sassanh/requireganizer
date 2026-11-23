@@ -16,7 +16,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 
 import { switchModuleShortcut } from "actions/actions";
-import { AgentsControls, AttentionOffers, ModuleWorkingSign, StopConfirmationHost } from "agents/ui";
+import { AgentsButton, LetInPrompt } from "agents/ui";
 import {
   HistoryControls,
   PreviewControls,
@@ -28,6 +28,7 @@ import {
   PersistentAlert,
 } from "components";
 import { notify } from "components/notices";
+import { AttentionOffers, ConfirmationHost, ModuleWorkingSign, ThreadsControls } from "delegation/ui";
 import {
   isEditableTarget,
   isOverlayTarget,
@@ -339,7 +340,8 @@ function Home() {
           <ModuleWorkingSign moduleId={activeModuleId} />
         </Stack>
         <PreviewControls />
-        <AgentsControls />
+        <ThreadsControls />
+        <AgentsButton />
         <HistoryControls />
         <RestorePointsControls />
         </Toolbar>
@@ -379,7 +381,8 @@ function Home() {
         </Box>
       </Stack>
       <AttentionOffers />
-      <StopConfirmationHost />
+      <ConfirmationHost />
+      <LetInPrompt />
       <OutsideChangeDialog />
       <EnableModulesDialog open={enablingModules} onClose={closeEnablingModules} />
     </>
