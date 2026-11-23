@@ -131,6 +131,7 @@ export class ProjectHost implements HostEndpoint {
       archiveModule: (id) => moduleChange(() => session.archiveModule(id)),
       bringBackModule: (id) => moduleChange(() => session.bringBackModule(id)),
       renameModule: (id, name) => moduleChange(() => session.renameModule(id, name)),
+      moveModule: (id, place) => moduleChange(() => session.moveModule(id, place)),
       renameProject: (name) => session.renameProject(name),
       createProject: (name) => session.createProject(name),
       importNewProject: (text, fileName) => session.importNewProject(text, fileName),

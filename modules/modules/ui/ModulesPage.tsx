@@ -1,6 +1,6 @@
 "use client";
 
-import { Add, MoreVert } from "@mui/icons-material";
+import { Add, DragIndicator, MoreVert } from "@mui/icons-material";
 import {
   Box,
   Button,
@@ -18,7 +18,7 @@ import {
   Typography,
 } from "@mui/material";
 import { observer } from "mobx-react-lite";
-import { useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { NameField, RenameButton } from "components/RenameableName";
 import { ModuleWorkingSign } from "delegation/ui";
@@ -105,7 +105,7 @@ const WaitingBadges = observer(function WaitingBadges({ store }: { store: Store 
   );
 });
 
-/** A module of the list: its name, how far its spec has come and what waits; it opens the module. */
+/** A module of the list: its name, how far its spec has come and what waits; it opens the module, and the open one is framed. */
 function ModuleCard({ module, onOpen, onError }: { module: ModuleSummary; onOpen: (id: string, stage?: string) => void; onError: (message: string) => void }) {
   const { moduleStore, renameModule, archiveModule } = useProject();
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
@@ -120,7 +120,8 @@ function ModuleCard({ module, onOpen, onError }: { module: ModuleSummary; onOpen
       elevation={0}
       role="button"
       tabIndex={0}
-      aria-label={`Open ${module.name}`}
+      aria-label={module.active ? `${module.name}, the open module` : `Open ${module.name}`}
+      aria-current={module.active ? "true" : undefined}
       onClick={() => {
         if (!renaming) onOpen(module.id);
       }}
@@ -137,6 +138,8 @@ function ModuleCard({ module, onOpen, onError }: { module: ModuleSummary; onOpen
         gap: 1.5,
         cursor: "pointer",
         outline: "none",
+        border: 2,
+        borderColor: module.active ? "primary.main" : "transparent",
         "&:hover": { bgcolor: (theme) => `rgba(${theme.vars.palette.primary.mainChannel} / 0.14)` },
         "&:focus-visible": { boxShadow: (theme) => `0 0 0 2px ${theme.vars.palette.primary.main}` },
       }}
@@ -164,7 +167,6 @@ function ModuleCard({ module, onOpen, onError }: { module: ModuleSummary; onOpen
       </Stack>
       {/* Hidden while empty: most modules are neither open nor worked on. */}
       <Stack direction="row" sx={{ gap: 0.75, flexWrap: "wrap", alignItems: "center", "&:empty": { display: "none" } }}>
-        {module.active && <Chip size="small" color="primary" label="Open" />}
         <ModuleWorkingSign moduleId={module.id} />
       </Stack>
       {store != null && <StageStrip store={store} onOpenStage={(stage) => onOpen(module.id, stage)} />}
@@ -241,6 +243,157 @@ function NewModuleCard({ onError }: { onError: (message: string | null) => void 
   );
 }
 
+/**
+ * The module held while arranging and the place in the list it would take
+ * if let go; once let go there, the list it was let go in, whose order shows
+ * until the list comes back in the new one.
+ */
+interface Held {
+  id: string;
+  place: number;
+  droppedIn: readonly ModuleSummary[] | null;
+}
+
+/** The modules with one moved to `place`, the others keeping their order. */
+function withMoved(modules: readonly ModuleSummary[], id: string, place: number): readonly ModuleSummary[] {
+  const moved = modules.find((module) => module.id === id);
+  if (moved == null) return modules;
+  const others = modules.filter((module) => module !== moved);
+  return [...others.slice(0, place), moved, ...others.slice(place)];
+}
+
+/** The place in the grid a point is over: the tile it is on, or else the nearest one. */
+function placeAt(grid: HTMLElement, clientX: number, clientY: number): number | null {
+  const bounds = grid.getBoundingClientRect();
+  const x = clientX - bounds.left;
+  const y = clientY - bounds.top;
+  let nearest: { place: number; distance: number } | null = null;
+  // Layout offsets, unlike client rectangles, ignore the transforms tiles slide with.
+  Array.from(grid.children).forEach((child, place) => {
+    if (!(child instanceof HTMLElement)) return;
+    const dx = Math.max(child.offsetLeft - x, 0, x - (child.offsetLeft + child.offsetWidth));
+    const dy = Math.max(child.offsetTop - y, 0, y - (child.offsetTop + child.offsetHeight));
+    const distance = Math.hypot(dx, dy);
+    if (nearest == null || distance < nearest.distance) nearest = { place, distance };
+  });
+  return (nearest as { place: number } | null)?.place ?? null;
+}
+
+/** Slide each child of `grid` from where it was to where the new order puts it, unless motion is reduced. */
+function useSlidingTiles(grid: React.RefObject<HTMLDivElement | null>, order: string): void {
+  const positions = useRef(new Map<string, { left: number; top: number }>());
+  useLayoutEffect(() => {
+    const element = grid.current;
+    if (element == null) return;
+    const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    for (const child of Array.from(element.children)) {
+      if (!(child instanceof HTMLElement) || child.dataset.moduleId == null) continue;
+      const now = { left: child.offsetLeft, top: child.offsetTop };
+      const before = positions.current.get(child.dataset.moduleId);
+      if (!still && before != null && (before.left !== now.left || before.top !== now.top)) {
+        child.animate([{ transform: `translate(${before.left - now.left}px, ${before.top - now.top}px)` }, { transform: "none" }], { duration: 180, easing: "ease-out" });
+      }
+      positions.current.set(child.dataset.moduleId, now);
+    }
+  }, [grid, order]);
+}
+
+/**
+ * The modules as tiles to drag. The held tile takes the place in the grid
+ * the pointer is over, the others making room, so the list shows the order
+ * it would have; letting go keeps that order. Nothing opens while arranging.
+ */
+function ArrangedModules({ modules, onError }: { modules: readonly ModuleSummary[]; onError: (message: string) => void }) {
+  const { moveModule } = useProject();
+  const grid = useRef<HTMLDivElement>(null);
+  const [kept, setHeld] = useState<Held | null>(null);
+  const held = kept?.droppedIn != null && kept.droppedIn !== modules ? null : kept;
+  const shown = held == null ? modules : withMoved(modules, held.id, held.place);
+  useSlidingTiles(grid, shown.map(({ id }) => id).join());
+  /** Stops following the pointer of the tile held, while one is. */
+  const stopFollowing = useRef<(() => void) | null>(null);
+  useEffect(() => () => stopFollowing.current?.(), []);
+  /**
+   * Hold a module and follow its pointer on the window, not on its tile:
+   * the browser lets go of a pointer held by an element the new order moves.
+   */
+  const hold = (id: string, start: number, pointerId: number) => {
+    let place = start;
+    setHeld({ id, place, droppedIn: null });
+    const move = (event: PointerEvent) => {
+      if (event.pointerId !== pointerId || grid.current == null) return;
+      const over = placeAt(grid.current, event.clientX, event.clientY);
+      if (over == null || over === place) return;
+      place = over;
+      setHeld({ id, place, droppedIn: null });
+    };
+    const end = (event: PointerEvent) => {
+      if (event.pointerId !== pointerId) return;
+      stop();
+      if (event.type === "pointercancel" || place === start) {
+        setHeld(null);
+        return;
+      }
+      setHeld({ id, place, droppedIn: modules });
+      moveModule(id, place).catch((caught: unknown) => {
+        setHeld(null);
+        onError(errorText(caught));
+      });
+    };
+    const stop = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      stopFollowing.current = null;
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+    stopFollowing.current = stop;
+  };
+  return (
+    <Box ref={grid} sx={{ ...MODULE_GRID, position: "relative" }}>
+      {shown.map((module, index) => {
+        const holding = held?.id === module.id && held.droppedIn == null;
+        return (
+          <Paper
+            key={module.id}
+            data-module-id={module.id}
+            elevation={holding ? 6 : 0}
+            onPointerDown={(event) => {
+              if (event.button !== 0 || held != null) return;
+              event.preventDefault();
+              hold(module.id, index, event.pointerId);
+            }}
+            sx={{
+              ...MODULE_SURFACE,
+              p: 2,
+              display: "flex",
+              alignItems: "center",
+              gap: 1,
+              cursor: holding ? "grabbing" : "grab",
+              border: 2,
+              borderColor: module.active ? "primary.main" : "transparent",
+              touchAction: "none",
+              userSelect: "none",
+              position: "relative",
+              zIndex: holding ? 1 : 0,
+              outline: holding ? 2 : 0,
+              outlineStyle: "solid",
+              outlineColor: "primary.main",
+            }}
+          >
+            <DragIndicator fontSize="small" color="action" />
+            <Typography variant="h6" sx={{ flexGrow: 1, minWidth: 0, overflowWrap: "anywhere" }}>
+              {module.name}
+            </Typography>
+          </Paper>
+        );
+      })}
+    </Box>
+  );
+}
+
 /** The archived modules, each renamable and with a way to bring it back. */
 function ArchivedModules({ onError }: { onError: (message: string) => void }) {
   const { archivedModules, bringBackModule, renameModule } = useProject();
@@ -276,25 +429,46 @@ function ArchivedModules({ onError }: { onError: (message: string) => void }) {
   );
 }
 
-/** The product's modules as cards, each opening its module, with the archived ones on request. */
+/**
+ * The product's modules as cards in the order the spec owner arranged them,
+ * each opening its module, with the archived ones on request; arranging
+ * turns the cards into tiles to drag into another order.
+ */
 export default function ModulesPage({ onOpen }: { onOpen: (id: string, stage?: string) => void }) {
   const { activeProject, modules } = useProject();
   const [error, setError] = useState<string | null>(null);
+  const [arranging, setArranging] = useState(false);
+  const arrangeable = modules.length > 1;
   return (
     <Stack sx={{ flexGrow: 1, minHeight: 0, overflowY: "auto", px: { xs: 2, md: 3 }, py: 3, gap: 3 }}>
-      <Typography variant="h5">{activeProject?.name} modules</Typography>
+      <Stack direction="row" sx={{ alignItems: "center", gap: 2 }}>
+        <Typography variant="h5" sx={{ flexGrow: 1, minWidth: 0 }}>
+          {activeProject?.name} modules
+        </Typography>
+        {arrangeable && (
+          <Button variant={arranging ? "contained" : "text"} onClick={() => setArranging((shown) => !shown)}>
+            {arranging ? "Done" : "Arrange"}
+          </Button>
+        )}
+      </Stack>
       {error != null && (
         <Typography variant="body2" color="error">
           {error}
         </Typography>
       )}
-      <Box sx={MODULE_GRID}>
-        {modules.map((module) => (
-          <ModuleCard key={module.id} module={module} onOpen={onOpen} onError={setError} />
-        ))}
-        <NewModuleCard onError={setError} />
-      </Box>
-      <ArchivedModules onError={setError} />
+      {arranging && arrangeable ? (
+        <ArrangedModules modules={modules} onError={setError} />
+      ) : (
+        <>
+          <Box sx={MODULE_GRID}>
+            {modules.map((module) => (
+              <ModuleCard key={module.id} module={module} onOpen={onOpen} onError={setError} />
+            ))}
+            <NewModuleCard onError={setError} />
+          </Box>
+          <ArchivedModules onError={setError} />
+        </>
+      )}
     </Stack>
   );
 }

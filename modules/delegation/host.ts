@@ -1,6 +1,6 @@
 import type { AgentId, AgentsHost, AgentView, CallingAgent } from "agents";
 import { UserFacingError } from "lib/errors";
-import { activeModule, SiblingModuleStores, visibleModuleNamed, visibleModules } from "modules";
+import { activeModule, listedModules, SiblingModuleStores, visibleModuleNamed, visibleModules } from "modules";
 import type { ProjectSession } from "project-session";
 import type { ModuleRegistry, ProjectState } from "storage";
 import type { Store } from "store";
@@ -104,7 +104,7 @@ export type ReplacingAction = Parameters<ProjectSession["stateAfter"]>[0];
 /** The open project's visible modules as waiting threads are read from them: the shown one's live store, each other's as the session reads it. */
 export function projectModules(registry: ModuleRegistry | null, shown: Store | null, storeOf: (moduleId: string) => Store | null): ProjectModule[] {
   if (registry == null || shown == null) return [];
-  return visibleModules(registry).flatMap((entry): ProjectModule[] => {
+  return listedModules(registry).flatMap((entry): ProjectModule[] => {
     const store = entry.id === registry.activeModuleId ? shown : storeOf(entry.id);
     return store == null ? [] : [{ id: entry.id, name: registry.modulesEnabled ? entry.name : null, store }];
   });
@@ -600,7 +600,7 @@ export class DelegationHost {
     if (!registry.modulesEnabled) return base;
     const moduleName = activeModule(registry)?.name;
     if (moduleName == null) return base;
-    const modules = visibleModules(registry);
+    const modules = listedModules(registry);
     const moduleNamed = (name: string) => {
       const target = visibleModuleNamed(registry, name);
       if (target != null) return target;

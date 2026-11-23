@@ -106,6 +106,8 @@ export interface HostApi extends AgentsHostApi, DelegationHostApi {
   /** Bring an archived module back into the list of modules. */
   bringBackModule(id: string): void;
   renameModule(id: string, name: string): void;
+  /** Move a module to another place in the list of modules, counting from 0. */
+  moveModule(id: string, place: number): void;
   renameProject(name: string): Promise<void>;
   /** Create an empty project; resolves to its identity. */
   createProject(name: string): Promise<ProjectIdentity>;

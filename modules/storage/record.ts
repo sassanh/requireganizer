@@ -11,11 +11,13 @@ export interface BesideProject {
   agents: unknown;
   /** The Delegation module's threads waiting for an agent and what goes with them. */
   delegation: unknown;
+  /** The Modules module's arrangement of the project's modules. */
+  modules: unknown;
 }
 
 export type BesideProjectKey = keyof BesideProject;
 
-export const NOTHING_BESIDE: BesideProject = { agents: null, delegation: null };
+export const NOTHING_BESIDE: BesideProject = { agents: null, delegation: null, modules: null };
 
 /**
  * What storage keeps beside a project, never in it: the state it last wrote
@@ -46,5 +48,6 @@ export function parseProjectRecord(value: unknown): ProjectRecord {
     offers: value.offers ?? null,
     agents: value.agents ?? null,
     delegation: value.delegation ?? null,
+    modules: value.modules ?? null,
   };
 }

@@ -32,7 +32,7 @@ import { type AssignTarget, ConfirmationNeededError, DelegationClient, type Dele
 import type { FocusPlace, ListedRestorePoint, ListedSteps, PreviewTarget, StateDifference, StepListTarget } from "history";
 import { UserFacingError } from "lib/errors";
 import type { ProjectIdentity } from "lib/projectStorage";
-import { SiblingModuleStores } from "modules";
+import { listedModules, SiblingModuleStores } from "modules";
 import type { ProjectSessionSnapshot } from "project-session";
 import { type ExportOptions, type ModuleContent, moduleContentOf, type ModuleRegistry, type ModuleState, type ProjectState, sharedWith } from "storage";
 import type { ClientPersistence } from "storage/persistence";
@@ -137,6 +137,7 @@ const REFUSED_DURING_PREVIEW: ReadonlySet<RequestName> = new Set<RequestName>([
   "archiveModule",
   "bringBackModule",
   "renameModule",
+  "moveModule",
 ]);
 
 /** The requests whose repeat means doing it again, not the same intent; see `ProjectClient.request`. */
@@ -388,6 +389,9 @@ export class ProjectClient {
 
   renameModule = (id: string, name: string): Promise<void> =>
     this.request("renameModule", id, name);
+
+  moveModule = (id: string, place: number): Promise<void> =>
+    this.request("moveModule", id, place);
 
   renameProject = (name: string): Promise<void> =>
     this.request("renameProject", name);
@@ -669,11 +673,12 @@ export class ProjectClient {
     };
   }
 
-  /** Show an earlier state with one of its modules looked at: the one asked for, or its first that is not archived. */
+  /** Show an earlier state, its modules arranged as they are now, with one of them looked at: the one asked for, or the first listed. */
   private showPreview(target: PreviewTarget, state: ProjectState, difference: StateDifference, moduleId: string | undefined): void {
-    const openable = state.modules.filter((module) => module.archivedAt == null);
+    const arrangement = this.registry?.arrangement ?? [];
+    const openable = listedModules({ modules: state.modules, arrangement });
     const shown = openable.find((module) => module.id === moduleId) ?? openable[0]!;
-    const registry: ModuleRegistry = { ...state, activeModuleId: shown.id };
+    const registry: ModuleRegistry = { ...state, activeModuleId: shown.id, arrangement };
     const store = createModuleStore(shown.content, { inPreview: true });
     addMiddleware(
       store,

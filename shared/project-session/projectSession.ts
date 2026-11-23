@@ -25,12 +25,14 @@ import { InvalidJsonError, parseJson } from "lib/json";
 import { hasProjectName, type ProjectIdentity } from "lib/projectStorage";
 import {
   LEGACY_MODULE_ID,
+  listedModules,
   newModule,
+  parseModuleArrangement,
   SiblingModuleStores,
-  visibleModules,
   visibleModuleWithId,
   withModuleArchived,
   withModuleBroughtBack,
+  withModuleMoved,
   withModuleRenamed,
   withModulesEnabled,
 } from "modules";
@@ -206,6 +208,16 @@ function projectSaveErrorMessage(storage: string): string {
 const PROJECT_LOAD_ERROR_MESSAGE = "The project could not be loaded.";
 
 /**
+ * A state with its modules in the order the spec owner arranged them, as an
+ * export holds them, so that importing it brings the arrangement back.
+ * Archived modules follow the others.
+ */
+function arrangedState(state: ProjectState, arrangement: readonly string[]): ProjectState {
+  const listed = listedModules({ modules: state.modules, arrangement });
+  return { ...state, modules: [...listed, ...state.modules.filter((module) => !listed.includes(module))] };
+}
+
+/**
  * The project an exported file holds, read by the one project parser and
  * nothing else. Throws what is wrong with the file and where, so that an
  * import of it changes nothing.
@@ -280,18 +292,42 @@ interface IssuedWrite {
   address: Address;
   history: ProjectHistory;
   offers: readonly AttentionOffer[];
-  beside: BesideProject;
+  beside: KeptBeside;
+  arrangement: readonly string[];
   name: string;
 }
 
-function issuedWriteOf(address: Address, history: ProjectHistory, offers: readonly AttentionOffer[], beside: BesideProject, project: ProjectIdentity): IssuedWrite {
-  return { address, history, offers, beside, name: project.name };
+function issuedWriteOf(
+  address: Address,
+  history: ProjectHistory,
+  offers: readonly AttentionOffer[],
+  beside: KeptBeside,
+  arrangement: readonly string[],
+  project: ProjectIdentity,
+): IssuedWrite {
+  return { address, history, offers, beside, arrangement, name: project.name };
 }
 
 function sameIssuedWrite(left: IssuedWrite | null, right: IssuedWrite): boolean {
-  if (left == null || left.address !== right.address || left.name !== right.name || left.offers !== right.offers || left.beside !== right.beside) return false;
+  if (
+    left == null ||
+    left.address !== right.address ||
+    left.name !== right.name ||
+    left.offers !== right.offers ||
+    left.beside !== right.beside ||
+    left.arrangement !== right.arrangement
+  )
+    return false;
   return (Object.keys(right.history) as (keyof ProjectHistory)[]).every((key) => left.history[key] === right.history[key]);
 }
+
+/**
+ * What modules keep beside the open project through the session, each
+ * under its own key. The Modules module's arrangement is the registry's,
+ * written beside the project from there.
+ */
+type KeptBeside = Omit<BesideProject, "modules">;
+type KeptBesideKey = Exclude<BesideProjectKey, "modules">;
 
 /** Which state storage last held for certain, and the one being written while a write is under way. */
 interface WrittenStates {
@@ -394,7 +430,7 @@ export class ProjectSession {
   private innerDescription: string | null = null;
   private offers: AttentionOffer[] = [];
   /** What modules keep beside the open project, each under its own key; never undone. */
-  private beside: BesideProject = NOTHING_BESIDE;
+  private beside: KeptBeside = NOTHING_BESIDE;
 
   private unsubscribeStore: (() => void) | null = null;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -595,13 +631,13 @@ export class ProjectSession {
   };
 
   /** What a module keeps beside the open project, as it last kept it; null for nothing. */
-  keptBeside = (key: BesideProjectKey): unknown => this.beside[key];
+  keptBeside = (key: KeptBesideKey): unknown => this.beside[key];
 
   /**
    * Keep what a module holds beside the open project and apart from its
    * history, so that no undo, redo or step gone to changes it.
    */
-  keepBeside = (key: BesideProjectKey, value: unknown): void => {
+  keepBeside = (key: KeptBesideKey, value: unknown): void => {
     if (this.readyState() == null || value === this.beside[key]) return;
     this.beside = { ...this.beside, [key]: value };
     this.scheduleWrite();
@@ -669,7 +705,8 @@ export class ProjectSession {
     const history = this.keeper.history;
     const offers = this.offers;
     const beside = this.beside;
-    const issued = issuedWriteOf(address, history, offers, beside, state.project);
+    const { arrangement } = state.registry;
+    const issued = issuedWriteOf(address, history, offers, beside, arrangement, state.project);
     if (sameIssuedWrite(this.issued, issued)) return;
     this.issued = issued;
     const pieces = [...this.pieces.reachable([address, ...this.keeper.roots()])]
@@ -689,8 +726,8 @@ export class ProjectSession {
         state: current,
         address,
         pieces,
-        writing: { lastWritten, writing: address, history, offers, ...beside },
-        written: { lastWritten: address, writing: null, history, offers, ...beside },
+        writing: { lastWritten, writing: address, history, offers, ...beside, modules: arrangement },
+        written: { lastWritten: address, writing: null, history, offers, ...beside, modules: arrangement },
         overOutsideChange: over != null,
       })
       .then(
@@ -982,7 +1019,7 @@ export class ProjectSession {
 
   /** The registry with the shown store's content written into its entry. */
   private stashActiveModule(state: ReadySessionState): ModuleRegistry {
-    return { ...projectState(state.registry, state.store), activeModuleId: state.registry.activeModuleId };
+    return { ...projectState(state.registry, state.store), activeModuleId: state.registry.activeModuleId, arrangement: state.registry.arrangement };
   }
 
   /**
@@ -990,17 +1027,19 @@ export class ProjectSession {
    * module stays shown while the state still has it visible; otherwise, and
    * when the project was not shown yet, its first visible module shows.
    * Opening, importing, undo, redo and going to a step all show a state
-   * this way.
+   * this way. The modules keep the arrangement they have, or take
+   * `arrangement` where one is given.
    */
-  private showState(project: ProjectIdentity, shown: ProjectState): void {
+  private showState(project: ProjectIdentity, shown: ProjectState, arrangement?: readonly string[]): void {
     const previous = this.readyState();
     const same = previous?.project.id === project.id ? previous : null;
     const kept = same?.registry.activeModuleId ?? null;
-    const visible = visibleModules(shown);
-    const opened = visible.find(({ id }) => id === kept) ?? visible[0]!;
+    const arranged = arrangement ?? same?.registry.arrangement ?? [];
+    const listed = listedModules({ modules: shown.modules, arrangement: arranged });
+    const opened = listed.find(({ id }) => id === kept) ?? listed[0]!;
     this.beginOperation();
     if (same == null || opened.id !== kept) {
-      this.showStore(project, createModuleStore(opened.content), { ...shown, activeModuleId: opened.id });
+      this.showStore(project, createModuleStore(opened.content), { ...shown, activeModuleId: opened.id, arrangement: arranged });
       return;
     }
     // The shown module stays in its store, which takes only what differs and
@@ -1020,11 +1059,12 @@ export class ProjectSession {
     });
     const registryKept =
       shown.modulesEnabled === same.registry.modulesEnabled &&
+      arranged === same.registry.arrangement &&
       modules.length === same.registry.modules.length &&
       modules.every((entry, index) => entry === same.registry.modules[index]);
     this.state = registryKept
       ? same
-      : { ...same, registry: { modulesEnabled: shown.modulesEnabled, activeModuleId: opened.id, modules } };
+      : { ...same, registry: { modulesEnabled: shown.modulesEnabled, activeModuleId: opened.id, modules, arrangement: arranged } };
     this.scheduleWrite();
     this.syncModuleContext();
     this.publish();
@@ -1109,6 +1149,7 @@ export class ProjectSession {
     const kept = opening.kind === "start" || history == null ? EMPTY_HISTORY : history;
     this.offers = opening.kind === "start" ? [] : offersOf(record);
     this.beside = opening.kind === "start" || record == null ? NOTHING_BESIDE : { agents: record.agents, delegation: record.delegation };
+    const arrangement = opening.kind === "start" || record == null ? [] : parseModuleArrangement(record.modules);
     this.written = opening.kind === "start" || record == null ? NOTHING_WRITTEN : { lastWritten: record.lastWritten, writing: record.writing };
     this.outsideChange = opening.kind === "outside change" ? opening.change : null;
     this.keeper = new HistoryKeeper(this.pieces, { ...kept, currentState: shownAddress, timeZone: this.reportedTimeZone ?? kept.timeZone });
@@ -1118,10 +1159,10 @@ export class ProjectSession {
     // opening, unless opening changes its history.
     this.issued =
       opening.kind === "open stored" && this.written.writing == null && this.written.lastWritten != null
-        ? issuedWriteOf(this.written.lastWritten, kept, this.offers, this.beside, project)
+        ? issuedWriteOf(this.written.lastWritten, kept, this.offers, this.beside, arrangement, project)
         : null;
     this.focus = null;
-    this.showState(project, shown);
+    this.showState(project, shown, arrangement);
   }
 
   /** Leave whatever is shown and load a project from storage. */
@@ -1718,7 +1759,7 @@ export class ProjectSession {
     this.commitRegistry(withModuleArchived(current, id, new Date().toISOString()));
   };
 
-  /** Bring an archived module back into the list, as it was when it was archived. */
+  /** Bring an archived module back to the end of the list, as it was when it was archived. */
   bringBackModule = (id: string): void => {
     const current = this.readyState()?.registry;
     if (current == null) return;
@@ -1726,23 +1767,36 @@ export class ProjectSession {
   };
 
   /**
-   * Replace the open project with the one an exported file holds. Run
-   * inside the gate as an import, it is one step undo takes back. Throws
-   * what is wrong with the file, changing nothing.
+   * Move a module to another place in the list, counting from 0. The
+   * arrangement is no part of the project's state, so this records no step
+   * and makes nothing signable.
+   */
+  moveModule = (id: string, place: number): void => {
+    const current = this.readyState()?.registry;
+    if (current == null) return;
+    this.commitRegistry(withModuleMoved(current, id, place));
+  };
+
+  /**
+   * Replace the open project with the one an exported file holds, its
+   * modules arranged in the file's order. Run inside the gate as an import,
+   * it is one step undo takes back. Throws what is wrong with the file,
+   * changing nothing.
    */
   importProjectFile = (text: string, fileName: string): void => {
     const state = this.changeableState();
-    this.showState(state.project, importedProject(text, fileName));
+    this.showState(state.project, importedProject(text, fileName), []);
   };
 
   /** The bytes of an export of the open project, or of one of its restore points, with the options given. */
   exportProject = async (options: ExportOptions, restorePointId?: string): Promise<string> => {
     const state = this.readyState();
     if (state == null) throw new UserFacingError("Export once the project has finished opening.");
-    if (restorePointId == null) return buildExport(projectState(state.registry, state.store), options);
+    if (restorePointId == null) return buildExport(arrangedState(projectState(state.registry, state.store), state.registry.arrangement), options);
     const address = await this.heldRestorePoint(state.project.id, restorePointId, "exported");
     if (address == null) throw new UserFacingError("The project was closed before the restore point was exported. Open it and export again.");
-    return buildExport(this.keptState(address), options);
+    const arrangement = this.readyState()?.registry.arrangement ?? [];
+    return buildExport(arrangedState(this.keptState(address), arrangement), options);
   };
 
   /** Create an empty project. Rejects when the name is empty or another project has it. */

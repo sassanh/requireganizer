@@ -96,6 +96,8 @@ export interface ProjectContextValue {
   bringBackModule: (id: string) => Promise<void>;
   /** Rejects when the name is empty, invalid, or taken. */
   renameModule: (id: string, name: string) => Promise<void>;
+  /** Move a module to another place in the list, counting from 0. */
+  moveModule: (id: string, place: number) => Promise<void>;
   /** Rejects when the name is empty or taken. */
   renameProject: (name: string) => Promise<void>;
   /** Rejects when the name is empty or taken. */

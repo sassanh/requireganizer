@@ -73,12 +73,16 @@ export interface ProjectDocument extends ProjectState {
 }
 
 /**
- * The modules a session holds while a project is open, and the one it
- * shows. The shown module's content here is the one it had when it was
- * last shown; its store holds the current one.
+ * The modules a session holds while a project is open, the one it shows,
+ * and the order the spec owner arranged them in. The shown module's content
+ * here is the one it had when it was last shown; its store holds the
+ * current one. The arrangement is no part of the project's state, so
+ * history never records or brings it back.
  */
 export interface ModuleRegistry extends ProjectState {
   activeModuleId: string;
+  /** Module ids in the order the spec owner arranged them; a module it does not name follows those it names. */
+  arrangement: readonly string[];
 }
 
 /** A module's content as its store holds it now. */

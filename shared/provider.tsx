@@ -230,6 +230,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     archivedModules: archivedModuleSummaries(registry),
     bringBackModule: client.bringBackModule,
     renameModule: client.renameModule,
+    moveModule: client.moveModule,
     renameProject: client.renameProject,
     createProject: client.createProject,
     importNewProject: client.importNewProject,
