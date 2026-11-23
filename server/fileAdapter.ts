@@ -21,14 +21,6 @@ import {
   type ProjectMeta,
   ProjectStorageError,
 } from "lib/projectStorage";
-import type {
-  OutsideChanges,
-  PersistenceAdapter,
-  ProjectPersistence,
-  ProjectWrite,
-  RecordPersistence,
-  StorageTraits,
-} from "persistence";
 import {
   type Address,
   type OutsideChange,
@@ -42,6 +34,14 @@ import {
   type StoredProject,
   storedProjectChange,
 } from "storage";
+import type {
+  OutsideChanges,
+  PersistenceAdapter,
+  ProjectPersistence,
+  ProjectWrite,
+  RecordPersistence,
+  StorageTraits,
+} from "storage/persistence";
 
 /** The id of a project file that names none, such as an export placed by hand. */
 export const DEFAULT_FILE_PROJECT_ID = "project";

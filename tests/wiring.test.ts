@@ -9,8 +9,8 @@ function source(path: string): string {
 
 describe("provider wiring", () => {
   it("takes the storage adapter from the project client instead of a context default", () => {
-    const provider = source("app/provider.tsx");
-    const context = source("app/projectContext.ts");
+    const provider = source("shared/provider.tsx");
+    const context = source("shared/projectContext.ts");
 
     assert.match(provider, /persistence:\s*client\.persistence/);
     assert.match(

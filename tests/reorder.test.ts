@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { agentToolDescriptions, callAgentTool } from "../app/delegation/interface/tools";
-import { Store } from "../app/store";
+import { agentToolDescriptions, callAgentTool } from "../modules/delegation/interface/tools";
+import { Store } from "../shared/store";
 
 function itemOf(store: Store, stage: string, code: string): string {
   const id = store.itemsOf(stage).find(({ id: candidate }) => store.codeOf(candidate) === code)?.id;

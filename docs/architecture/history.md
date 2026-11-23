@@ -20,4 +20,4 @@ The list of steps shows what each step added, changed or removed, item by item, 
 
 ## Code
 
-The history lives in `app/history/`. It depends on storage, never the reverse: storage keeps the history whole in the project's record beside the states last written, and never reads it.
+The history lives in `modules/history/`. It depends on storage, never the reverse: storage keeps the history whole in the project's record beside the states last written, and never reads it.

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { currentHrefOf, projectCodeHref, projectHref, stepHref, unitHref } from "../app/lib/routes";
+import { currentHrefOf, projectCodeHref, projectHref, stepHref, unitHref } from "../shared/lib/routes";
 
 describe("project routes", () => {
   it("names the project in the query, so one static page serves every project", () => {

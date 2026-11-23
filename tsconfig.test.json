@@ -13,9 +13,9 @@
     "rootDir": "."
   },
   "include": [
-    "app/lib/json.ts",
-    "app/lib/projectStorage.ts",
-    "app/utilities.ts",
+    "shared/lib/json.ts",
+    "shared/lib/projectStorage.ts",
+    "shared/utilities.ts",
     "types/**/*.d.ts",
     "tests/**/*.ts"
   ],

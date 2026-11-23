@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 
 import { getContrastRatio } from "@mui/material/styles";
 
-import { theme } from "../app/theme";
+import { theme } from "../shared/theme";
 
 describe("the theme", () => {
   it("keeps primary text readable on each color scheme's background", () => {

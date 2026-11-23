@@ -34,7 +34,7 @@ const tests = spawnSync(
   {
     env: {
       ...process.env,
-      NODE_PATH: [resolve(outputDirectory, "app"), existingNodePath]
+      NODE_PATH: [resolve(outputDirectory, "modules"), resolve(outputDirectory, "shared"), existingNodePath]
         .filter(Boolean)
         .join(delimiter),
     },

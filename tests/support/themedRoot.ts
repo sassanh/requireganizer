@@ -9,7 +9,7 @@ export async function createThemedRoot(container: Element) {
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
   const { ThemeProvider } = await import("@mui/material/styles");
-  const { theme } = await import("../../app/theme");
+  const { theme } = await import("../../shared/theme");
   const root = createRoot(container);
   return {
     render: (node: ReactNode) => root.render(React.createElement(ThemeProvider, { theme }, node)),

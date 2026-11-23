@@ -17,18 +17,10 @@ import { Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState
 
 import { switchModuleShortcut } from "actions/actions";
 import { AgentsButton, LetInPrompt } from "agents/ui";
-import {
-  HistoryControls,
-  PreviewControls,
-  RestorePointsControls,
-  EnableModulesDialog,
-  ModulesPage,
-  ProjectActionsMenu,
-  OutsideChangeDialog,
-  PersistentAlert,
-} from "components";
+import { PersistentAlert, ProjectActionsMenu } from "components";
 import { notify } from "components/notices";
 import { AttentionOffers, ConfirmationHost, ModuleWorkingSign, ThreadsControls } from "delegation/ui";
+import { HistoryControls, PreviewControls, RestorePointsControls } from "history/ui";
 import {
   isEditableTarget,
   isOverlayTarget,
@@ -38,8 +30,10 @@ import {
 import { getUserFacingErrorMessage } from "lib/errors";
 import { previewHref, previewOf } from "lib/routes";
 import { rememberedModule, rememberModule } from "lib/viewState";
+import { EnableModulesDialog, ModulesPage } from "modules/ui";
 import { usePersistence, useProject } from "projectContext";
 import { Factory } from "screens";
+import { OutsideChangeDialog } from "storage/ui";
 import { Store, useStore } from "store";
 
 function Home() {

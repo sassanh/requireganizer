@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { callAgentTool } from "../app/delegation/interface/tools";
-import { Store } from "../app/store";
+import { callAgentTool } from "../modules/delegation/interface/tools";
+import { Store } from "../shared/store";
 
 describe("module navigation over MCP", () => {
   it("reads another module's items without opening it", async () => {

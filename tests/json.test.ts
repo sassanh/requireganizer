@@ -6,7 +6,7 @@ import {
   parseJsonc,
   parseJsoncObject,
   stripJsoncComments,
-} from "../app/lib/json";
+} from "../shared/lib/json";
 
 describe("JSONC parsing", () => {
   it("preserves comment markers inside strings", () => {
