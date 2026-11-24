@@ -61,10 +61,15 @@ export function parseItemVersion(value: unknown, label: string): ItemVersion {
 
 /** A signature's shared keys and the ones its kind adds, checked. */
 function signatureRecord(value: unknown, label: string, keys: readonly string[]): Record<string, unknown> {
-  const signature = exactRecord(value, label, ["signer", "at", "covers", ...keys]);
+  const signature = exactRecord(value, label, ["signer", "at", "covers", ...keys], ["set"]);
   checkSigner(signature.signer, `${label} signer`);
   checkTime(signature.at, `${label} time`);
   readText(signature.covers, `${label} covers`);
+  if (Object.hasOwn(signature, "set")) {
+    const set = exactRecord(signature.set, `${label} set`, ["proposal", "agent"]);
+    readText(set.proposal, `${label} set proposal`);
+    readText(set.agent, `${label} set agent`);
+  }
   return signature;
 }
 

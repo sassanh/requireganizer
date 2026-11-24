@@ -26,6 +26,7 @@ export const TEST_DESIGN_STAGES: readonly StageDefinition[] = [
     id: BOUNDARY,
     label: "Boundary",
     buildsOn: [ACCEPTANCE_CRITERIA],
+    signedInSet: { items: true, coveragesAndImpacts: true },
     kinds: [
       {
         kind: BOUNDARY_STATEMENT,
@@ -141,6 +142,7 @@ export const TEST_DESIGN_STAGES: readonly StageDefinition[] = [
     id: ABSTRACT_TESTS,
     label: "Abstract tests",
     buildsOn: [ACCEPTANCE_CRITERIA, BOUNDARY],
+    signedInSet: { items: true, coveragesAndImpacts: true },
     kinds: [
       {
         kind: ABSTRACT_TEST,

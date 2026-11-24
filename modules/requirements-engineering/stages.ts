@@ -61,6 +61,7 @@ export const REQUIREMENTS_ENGINEERING_STAGES: readonly StageDefinition[] = [
     id: MODULE_OVERVIEW,
     label: "Module Overview",
     buildsOn: [],
+    signedInSet: { items: false, coveragesAndImpacts: false },
     kinds: [
       {
         kind: PURPOSE,
@@ -79,6 +80,7 @@ export const REQUIREMENTS_ENGINEERING_STAGES: readonly StageDefinition[] = [
     id: CAPABILITIES,
     label: "Capabilities",
     buildsOn: [MODULE_OVERVIEW],
+    signedInSet: { items: false, coveragesAndImpacts: false },
     kinds: [
       {
         kind: CAPABILITY,
@@ -101,6 +103,7 @@ export const REQUIREMENTS_ENGINEERING_STAGES: readonly StageDefinition[] = [
     id: FEATURES_AND_TARGET_USERS,
     label: "Features and Target Users",
     buildsOn: [CAPABILITIES],
+    signedInSet: { items: false, coveragesAndImpacts: false },
     kinds: [
       {
         kind: FEATURE,
@@ -145,6 +148,7 @@ export const REQUIREMENTS_ENGINEERING_STAGES: readonly StageDefinition[] = [
     id: NEEDS,
     label: "Needs",
     buildsOn: [FEATURES_AND_TARGET_USERS],
+    signedInSet: { items: false, coveragesAndImpacts: true },
     kinds: [
       {
         kind: USER_STORY,
@@ -209,6 +213,7 @@ export const REQUIREMENTS_ENGINEERING_STAGES: readonly StageDefinition[] = [
     id: REQUIREMENTS,
     label: "Requirements",
     buildsOn: [NEEDS],
+    signedInSet: { items: true, coveragesAndImpacts: true },
     kinds: [
       {
         kind: REQUIREMENT,
@@ -249,6 +254,7 @@ export const REQUIREMENTS_ENGINEERING_STAGES: readonly StageDefinition[] = [
     id: ACCEPTANCE_CRITERIA,
     label: "Acceptance Criteria",
     buildsOn: [REQUIREMENTS],
+    signedInSet: { items: true, coveragesAndImpacts: true },
     kinds: [
       {
         kind: ACCEPTANCE_CRITERION,

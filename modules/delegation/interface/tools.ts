@@ -7,6 +7,7 @@ import type { ChangeKind } from "history";
 import { UserFacingError } from "lib/errors";
 import { isRecord } from "lib/json";
 import type { Store } from "store";
+import { uuid } from "utilities";
 import {
   addedByChange,
   authorLabel,
@@ -25,6 +26,7 @@ import {
   NOT_APPROVED_REASON_LABELS,
   parseUnitId,
   REMOVED_ITEM,
+  removalRevision,
   replaceMentions,
   revisionOf,
   signerLabel,
@@ -35,10 +37,10 @@ import {
   waitsForSpecOwner,
 } from "workflow";
 
-import { type Finding, findingsOf, replyAgent, replyAnnotation, threadAsks } from "../annotations";
+import { type Choice, choicesOf, type Finding, findingsOf, type NotedUnit, notedUnitId, proposalOf, type ProposedUnit, replyAgent, replyAnnotation, threadAsks } from "../annotations";
 import type { Desk } from "../desk";
 import type { ReplyChange } from "../record";
-import type { HeldThread } from "../waiting";
+import { asksForProposal, type HeldThread, PROPOSAL_RULE } from "../waiting";
 import { replyRulesText } from "./replyRules";
 
 type RecordContent = ItemContent;
@@ -190,7 +192,7 @@ function itemView(store: Store, id: string): Record<string, unknown> {
       : { makesOutOfDate: dependents.map(({ module, code }) => (module == null ? code : `${module}/${code}`)) }),
     ...(state.signature == null
       ? { signature: "never signed" }
-      : { signedBy: signerLabel(state.signature.signer), signatureCounts: state.signatureCounts }),
+      : { signedBy: signerLabel(state.signature.signer), ...(state.signature.set == null ? {} : { signedInSetProposedBy: state.signature.set.agent }), signatureCounts: state.signatureCounts }),
     ...(Object.keys(sinceSigned).length === 0 ? {} : { sinceSigned }),
     ...(state.openThread == null ? {} : { openThreadId: state.openThread.id }),
   };
@@ -224,39 +226,79 @@ interface ThreadReading {
   read(thread: Thread): void;
 }
 
-/** A finding as an agent reads it: its item by its code now, or as removed, and whether the item changed since the finding was given. */
-function findingView(store: Store, { itemId, revision, rule, how }: Finding): Record<string, unknown> {
-  const version = store.findLinked(itemId)?.version;
-  return { item: store.itemNameOf(itemId) ?? REMOVED_ITEM, rule, how, ...(version != null && revisionOf(version) !== revision ? { itemChangedSince: true } : {}) };
+/** The holder of a noted unit: the module whose store holds it, the one a call works on or another; null once it is gone. */
+function holderOf(store: Store, scope: WorkScope, noted: Pick<NotedUnit, "itemId" | "unit">): Store | null {
+  if (noted.unit == null || store.locate(noted.itemId) != null) return store;
+  const linked = store.linkedModules.find((other) => other.lookup.locateItem(noted.itemId) != null);
+  return linked == null ? null : (scope.otherModule?.(linked.name).store ?? null);
 }
 
-function threadView(store: Store, thread: Thread, reading: ThreadReading): Record<string, unknown> {
+/** What a noted unit is now, as its note records it: an item's revision, or what a signature on a coverage or an impact covers; null once it is gone. */
+function revisionNow(store: Store, scope: WorkScope, noted: Pick<NotedUnit, "itemId" | "unit">): string | null {
+  if (noted.unit == null) {
+    const version = store.findLinked(noted.itemId)?.version;
+    return version == null ? null : revisionOf(version);
+  }
+  return holderOf(store, scope, noted)?.signingCovers(notedUnitId(noted)) ?? null;
+}
+
+/** How an agent reads the unit a note is on: an item by its code now, or as removed, with the stage of a coverage or an impact, and whether it changed since the note was given. */
+function notedView(store: Store, scope: WorkScope, noted: NotedUnit): Record<string, unknown> {
+  const now = revisionNow(store, scope, noted);
+  return {
+    item: store.itemNameOf(noted.itemId) ?? REMOVED_ITEM,
+    ...(noted.unit == null ? {} : { unit: noted.unit.kind, stage: noted.unit.stage }),
+    ...(now != null && now !== noted.revision ? { changedSince: true } : {}),
+  };
+}
+
+function findingView(store: Store, scope: WorkScope, finding: Finding): Record<string, unknown> {
+  return { ...notedView(store, scope, finding), rule: finding.rule, how: finding.how };
+}
+
+function choiceView(store: Store, scope: WorkScope, choice: Choice): Record<string, unknown> {
+  return { ...notedView(store, scope, choice), choice: choice.choice };
+}
+
+/** A unit of a proposal as an agent reads it, by its item's code and, for a coverage or an impact, its stage. */
+function proposedView(store: Store, { unitId }: ProposedUnit): Record<string, unknown> {
+  const address = parseUnitId(unitId);
+  return { item: store.itemNameOf(address.itemId) ?? REMOVED_ITEM, ...(address.kind === "item" ? {} : { unit: address.kind, stage: address.stage }) };
+}
+
+function threadView(store: Store, scope: WorkScope, thread: Thread, reading: ThreadReading): Record<string, unknown> {
   reading.read(thread);
   return {
     threadId: thread.id,
     ...threadUnit(store, thread),
     stage: thread.stage,
-    ...(thread.unitId == null && threadAsks(thread) !== "message" ? { asks: `${threadAsks(thread)} the stage` } : {}),
+    ...(thread.unitId == null && threadAsks(thread) !== "message"
+      ? { asks: asksForProposal(store, thread) ? `review the stage, with a proposal. ${PROPOSAL_RULE}` : `${threadAsks(thread)} the stage` }
+      : {}),
     status: reading.status(thread),
     messages: thread.messages.map((message) => {
       const findings = findingsOf(message);
+      const choices = choicesOf(message);
+      const proposal = proposalOf(message);
       return {
         from: reading.author(message),
         at: message.at,
         text: messageText(store, message.text),
         ...(message.withChanges ? { withChanges: message.withChanges } : {}),
-        ...(findings.length === 0 ? {} : { findings: findings.map((finding) => findingView(store, finding)) }),
+        ...(findings.length === 0 ? {} : { findings: findings.map((finding) => findingView(store, scope, finding)) }),
+        ...(choices.length === 0 ? {} : { choices: choices.map((choice) => choiceView(store, scope, choice)) }),
+        ...(proposal == null ? {} : { proposal: proposal.map((unit) => proposedView(store, unit)) }),
       };
     }),
   };
 }
 
 /** A thread with the item it is on, as get_items gives it, or that its unit is gone. */
-function threadWithUnit(store: Store, thread: Thread, reading: ThreadReading): Record<string, unknown> {
+function threadWithUnit(store: Store, scope: WorkScope, thread: Thread, reading: ThreadReading): Record<string, unknown> {
   const address = thread.unitId == null ? null : parseUnitId(thread.unitId);
   const isItem = address?.kind === "item" && store.itemState(address.itemId) != null;
   return {
-    ...threadView(store, thread, reading),
+    ...threadView(store, scope, thread, reading),
     ...(isItem ? { item: itemView(store, address.itemId) } : {}),
   };
 }
@@ -284,36 +326,51 @@ function coverageAndImpactViews(store: Store, stage: string): Record<string, unk
 }
 
 /** The item a code names in this module or, written "Module name/CODE", in another. */
-function resolveLink(store: Store, name: string, allowOtherModules: boolean, label: string): string {
+/** The ids a write gives the items it adds, by the place of each add change among its changes, counting from 1. */
+type AddedIds = ReadonlyMap<number, string>;
+
+/** An item an agent names by its code, by "Module name/CODE", or as "change:N" for the item its write's add change N adds. */
+function resolveLink(store: Store, name: string, allowOtherModules: boolean, label: string, added: AddedIds = new Map()): string {
+  const byChange = /^change:(\d+)$/.exec(name.trim());
+  if (byChange != null) {
+    const id = added.get(Number(byChange[1]));
+    if (id == null) throw new UserFacingError(`${label}: ${name} adds no item. Give "change:N", N being the place of an add change among the changes, counting from 1.`);
+    return id;
+  }
   const named = store.itemOfName(name, allowOtherModules);
   if ("problem" in named) throw new UserFacingError(`${label}: ${named.problem}`);
   return named.id;
 }
 
 /** The fields an agent wrote, with the codes its items fields choose, at any depth, resolved to ids; the model checks the rest. */
-function parseFields(store: Store, kind: string, value: unknown, label: string): ItemContent | undefined {
+function parseFields(store: Store, kind: string, value: unknown, label: string, added: AddedIds): ItemContent | undefined {
   if (value == null) return undefined;
   if (!isRecord(value)) throw new UserFacingError(`${label}: fields must be an object mapping field names to values.`);
   return mapItemsFields(store.workflow.kind(kind).fields, value as RecordContent, (written, field) => {
     if (written == null) return [];
-    if (field.single && typeof written === "string") return [resolveLink(store, written, false, label)];
+    if (field.single && typeof written === "string") return [resolveLink(store, written, false, label, added)];
     if (!Array.isArray(written) || !written.every((code) => typeof code === "string")) {
       throw new UserFacingError(`${label}: ${field.name} must be ${field.single ? "one code" : "a list of codes"} of a ${store.workflow.kind(field.of).label.toLowerCase()}.`);
     }
-    return (written as string[]).map((code) => resolveLink(store, code, false, label));
+    return (written as string[]).map((code) => resolveLink(store, code, false, label, added));
   });
 }
 
-/** The changes an agent asked for, with every code resolved against the module as it is now. */
+/**
+ * The changes an agent asked for, with every code resolved against the
+ * module as it is now, and every "change:N" to the id the write gives the
+ * item its add change N adds.
+ */
 function parseChanges(store: Store, value: unknown): ItemChange[] {
   if (!Array.isArray(value)) throw new UserFacingError("changes must be a list.");
+  const added: AddedIds = new Map(value.flatMap((entry, index): [number, string][] => (isRecord(entry) && entry.action === "add" ? [[index + 1, uuid()]] : [])));
   const problems: string[] = [];
   const changes = value.flatMap((entry, index): ItemChange[] => {
     const label = `Change ${index + 1}`;
     try {
       if (!isRecord(entry)) throw new UserFacingError(`${label} must be an object.`);
-      const references = optionalStrings(entry, "references", label)?.map((name) => resolveLink(store, name, false, label));
-      const dependencies = optionalStrings(entry, "dependencies", label)?.map((name) => resolveLink(store, name, true, label));
+      const references = optionalStrings(entry, "references", label)?.map((name) => resolveLink(store, name, false, label, added));
+      const dependencies = optionalStrings(entry, "dependencies", label)?.map((name) => resolveLink(store, name, true, label, added));
       switch (entry.action) {
         case "add": {
           const stage = stageNamed(store, entry.stage);
@@ -323,11 +380,11 @@ function parseChanges(store: Store, value: unknown): ItemChange[] {
             throw new UserFacingError(`${label}: name the kind, one of ${kinds.map(({ kind: name }) => name).join(", ")}.`);
           }
           if (!store.workflow.isKind(kind)) throw new UserFacingError(`${label}: there is no kind ${kind}.`);
-          return [{ type: "add", stage, kind, content: parseFields(store, kind, entry.fields, label) ?? {}, references: references ?? [], dependencies: dependencies ?? [] }];
+          return [{ type: "add", id: added.get(index + 1)!, stage, kind, content: parseFields(store, kind, entry.fields, label, added) ?? {}, references: references ?? [], dependencies: dependencies ?? [] }];
         }
         case "change": {
           const item = resolveLink(store, stringArgument(entry, "item"), false, label);
-          const content = parseFields(store, store.locate(item)!.item.kind, entry.fields, label);
+          const content = parseFields(store, store.locate(item)!.item.kind, entry.fields, label, added);
           return [{ type: "change", item, content, references, dependencies }];
         }
         case "remove":
@@ -362,78 +419,224 @@ function parseReply(store: Store, threadId: string, text: string, codesVersion: 
   throw new UserFacingError(problems.join("\n"));
 }
 
-/** An answer as an agent sends it with a write, with the findings it gives. */
-type SentAnswer = ThreadAnswer & { findings: Finding[] };
+/** What a reply gives besides its text: its findings, the choices it names and the proposal it gives, if any. */
+interface SentNotes {
+  findings: Finding[];
+  choices: Choice[];
+  proposal: ProposedUnit[] | null;
+}
 
-function parseAnswers(store: Store, value: unknown, codesVersion: unknown, changes: readonly ItemChange[]): SentAnswer[] {
+/** An answer as an agent sends it with a write, with what it gives besides its text. */
+type SentAnswer = ThreadAnswer & SentNotes;
+
+function parseAnswers(store: Store, scope: WorkScope, value: unknown, codesVersion: unknown, changes: readonly ItemChange[]): SentAnswer[] {
   if (value == null) return [];
   if (
     !Array.isArray(value) ||
     !value.every((entry) => isRecord(entry) && typeof entry.threadId === "string" && typeof entry.reply === "string")
   ) {
-    throw new UserFacingError("answers must be a list of { threadId, reply, findings }.");
+    throw new UserFacingError("answers must be a list of { threadId, reply, findings, choices, proposal }.");
   }
-  return value.map(({ threadId, reply, findings }: { threadId: string; reply: string; findings?: unknown }) => {
-    const answer = parseReply(store, threadId, reply, codesVersion, changes);
-    return { ...answer, findings: parseFindings(store, findings, `The reply to thread ${threadId}`) };
+  return value.map((entry: { threadId: string; reply: string; findings?: unknown; choices?: unknown; proposal?: unknown }) => {
+    const answer = parseReply(store, entry.threadId, entry.reply, codesVersion, changes);
+    return { ...answer, ...parseNotes(store, scope, entry, `The reply to thread ${entry.threadId}`) };
   });
 }
 
+/** A noted unit an agent names: an item by its code, or "Module name/CODE", or its coverage or impact with the stage that holds it. Throws what is wrong. */
+function parseNotedUnit(store: Store, scope: WorkScope, entry: Record<string, unknown>, named: string): { noted: Omit<NotedUnit, "revision">; holder: Store; kind: string | null; stage: string } {
+  if (typeof entry.item !== "string" || entry.item.trim().length === 0) throw new UserFacingError(`${named} names no item. Give its code, or "Module name/CODE" for another module's.`);
+  const unit = entry.unit ?? "item";
+  if (unit !== "item" && unit !== "coverage" && unit !== "impact") throw new UserFacingError(`${named}: unit must be item, coverage or impact.`);
+  const found = store.itemOfName(entry.item.trim(), true);
+  const linked = "id" in found ? store.findLinked(found.id) : null;
+  if (!("id" in found) || linked == null) throw new UserFacingError(`${named}: ${"problem" in found ? found.problem : `${entry.item} names no item.`}`);
+  if (unit === "item") return { noted: { itemId: found.id }, holder: store, kind: linked.kind, stage: store.workflow.stageOfKind(linked.kind) };
+  if (!store.workflow.isStage(entry.stage)) throw new UserFacingError(`${named}: give the stage that holds the ${unit}.`);
+  const noted = { itemId: found.id, unit: { kind: unit, stage: entry.stage } } as const;
+  const holder = holderOf(store, scope, noted);
+  if (holder?.unitState(notedUnitId(noted)) == null) throw new UserFacingError(`${named}: ${entry.item} has no ${unit} in ${store.workflow.stage(entry.stage).label}.`);
+  return { noted, holder, kind: null, stage: entry.stage };
+}
+
+/** What a noted unit is now, as a note records it. */
+function revisionOfNoted(holder: Store, noted: Omit<NotedUnit, "revision">): string {
+  if (noted.unit == null) return revisionOf(holder.findLinked(noted.itemId)!.version);
+  return holder.signingCovers(notedUnitId(noted))!;
+}
+
 /**
- * The findings a reply gives, each naming an item of any module, a
- * published rule of that item's kind and how the item breaks it, with the
- * item's revision now. Throws every problem at once, so the call changes
- * nothing.
+ * What a reply gives besides its text: findings, each naming a unit of any
+ * module, a published rule that applies to it and how the unit breaks it;
+ * choices, each naming a unit and what the choice is; and a proposal, the
+ * units of the thread's stage proposed for signing in one act. Throws every
+ * problem at once, so the call changes nothing.
  */
-function parseFindings(store: Store, value: unknown, label: string): Finding[] {
-  if (value == null) return [];
-  if (!Array.isArray(value)) throw new UserFacingError(`${label}: findings must be a list of { item, rule, how }.`);
+function parseNotes(store: Store, scope: WorkScope, value: { findings?: unknown; choices?: unknown; proposal?: unknown }, label: string): SentNotes {
   const problems: string[] = [];
-  const findings = value.flatMap((entry, index): Finding[] => {
-    const named = `${label}, finding ${index + 1}`;
-    if (!isRecord(entry) || typeof entry.item !== "string" || entry.item.trim().length === 0) {
-      problems.push(`${named} names no item. Give its code, or "Module name/CODE" for another module's.`);
+  const each = <Entry,>(list: unknown, name: string, shape: string, parse: (entry: Record<string, unknown>, named: string) => Entry): Entry[] => {
+    if (list == null) return [];
+    if (!Array.isArray(list)) {
+      problems.push(`${label}: ${name} must be a list of ${shape}.`);
       return [];
     }
-    const found = store.itemOfName(entry.item.trim(), true);
-    const linked = "id" in found ? store.findLinked(found.id) : null;
-    if (!("id" in found) || linked == null) {
-      problems.push(`${named}: ${"problem" in found ? found.problem : `${entry.item} names no item.`}`);
-      return [];
-    }
-    const published = store.workflow.publishedRules(linked.kind);
+    return list.flatMap((entry, index): Entry[] => {
+      const named = `${label}, ${name.replace(/s$/, "")} ${index + 1}`;
+      try {
+        if (!isRecord(entry)) throw new UserFacingError(`${named} must be an object, ${shape}.`);
+        return [parse(entry, named)];
+      } catch (error) {
+        problems.push(error instanceof Error ? error.message : String(error));
+        return [];
+      }
+    });
+  };
+  const findings = each(value.findings, "findings", "{ item, unit, stage, rule, how }", (entry, named): Finding => {
+    const { noted, holder, kind, stage } = parseNotedUnit(store, scope, entry, named);
+    const rules =
+      kind != null
+        ? [store.workflow.publishedRules(kind)]
+        : store.workflow.stage(stage).kinds.map(({ kind: stageKind }) => store.workflow.publishedRules(stageKind));
     const rule = typeof entry.rule === "string" ? entry.rule.trim() : "";
-    if (![...published.rules, ...published.shared].includes(rule)) {
-      problems.push(`${named}: ${rule.length === 0 ? "it names no rule" : `“${rule}” is not a published rule of ${store.workflow.kind(linked.kind).plural.toLowerCase()}`}. Give the rule exactly as get_stage_rules publishes it, among the kind's rules or the shared rules.`);
-      return [];
+    if (!rules.some((published) => [...published.rules, ...published.shared].includes(rule))) {
+      const whose = kind != null ? store.workflow.kind(kind).plural.toLowerCase() : `the items of ${store.workflow.stage(stage).label}`;
+      throw new UserFacingError(`${named}: ${rule.length === 0 ? "it names no rule" : `“${rule}” is not a published rule of ${whose}`}. Give the rule exactly as get_stage_rules publishes it, among the kind's rules or the shared rules.`);
     }
     const how = typeof entry.how === "string" ? entry.how.trim() : "";
-    if (how.length === 0) {
-      problems.push(`${named}: say how ${entry.item} breaks the rule.`);
-      return [];
-    }
-    return [{ itemId: found.id, revision: revisionOf(linked.version), rule, how }];
+    if (how.length === 0) throw new UserFacingError(`${named}: say how ${String(entry.item)} breaks the rule.`);
+    return { ...noted, revision: revisionOfNoted(holder, noted), rule, how };
   });
+  const choices = each(value.choices, "choices", "{ item, unit, stage, choice }", (entry, named): Choice => {
+    const { noted, holder } = parseNotedUnit(store, scope, entry, named);
+    const choice = typeof entry.choice === "string" ? entry.choice.trim() : "";
+    if (choice.length === 0) throw new UserFacingError(`${named}: say what the choice is.`);
+    return { ...noted, revision: revisionOfNoted(holder, noted), choice };
+  });
+  const proposal =
+    value.proposal == null
+      ? null
+      : each(value.proposal, "proposal", "{ item, unit, stage }", (entry, named): ProposedUnit => {
+          const { noted, holder } = parseNotedUnit(store, scope, entry, named);
+          if (holder !== store) throw new UserFacingError(`${named}: a proposal holds only units of the thread's module.`);
+          const unitId = notedUnitId(noted);
+          return { unitId, covers: store.signingCovers(unitId)! };
+        });
   if (problems.length > 0) throw new UserFacingError(problems.join("\n"));
-  return findings;
+  return { findings, choices, proposal };
 }
+
+/** What a reply gives, each note and proposed unit marked when the agent giving it has taken part in its unit now, as it gives it. */
+function markOwnWork(store: Store, scope: WorkScope, agentId: AgentId, notes: SentNotes): SentNotes {
+  const desk = deskOf(scope)?.desk;
+  if (desk == null) return notes;
+  const own = (noted: Pick<NotedUnit, "itemId" | "unit">) => {
+    const holder = holderOf(store, scope, noted);
+    return holder != null && desk.tookPartIn(agentId, holder, notedUnitId(noted)) ? { ownWork: true as const } : {};
+  };
+  return {
+    findings: notes.findings.map((finding) => ({ ...finding, ...own(finding) })),
+    choices: notes.choices.map((choice) => ({ ...choice, ...own(choice) })),
+    proposal: notes.proposal?.map((unit) => ({ ...unit, ...(desk.tookPartIn(agentId, store, unit.unitId) ? { ownWork: true as const } : {}) })) ?? null,
+  };
+}
+
+/**
+ * The units a reply's own changes touch: each item they change or remove,
+ * and each coverage or impact a signature on which would cover such an
+ * item, in the module the changes are made in.
+ */
+function touchedBy(store: Store, changes: readonly ItemChange[]): Set<string> {
+  const items = new Set(changes.flatMap((change) => (change.type === "add" ? [] : [change.item])));
+  const touched = new Set(items);
+  if (items.size === 0) return touched;
+  for (const stage of store.workflow.stageIds) {
+    for (const unit of store.stageUnits(stage)) {
+      if (unit.kind === "item") continue;
+      const state = store.unitState(unit.unitId);
+      if (state == null || state.kind === "item") continue;
+      if (items.has(state.itemId) || (state.kind === "coverage" && state.referencing.some((id) => items.has(id)))) touched.add(unit.unitId);
+    }
+  }
+  return touched;
+}
+
+/**
+ * Check what a reply gives besides its text against the thread it answers
+ * and the units its own changes touch: a proposal and choices only in a
+ * thread asking for a proposal, which a reply always answers with one; no
+ * note on what the reply's changes touch; each proposed unit signable in a
+ * set, of the thread's stage, with no finding or choice; each choice on such
+ * a unit; and each such unit left out with a finding or a choice.
+ */
+function notesProblems(store: Store, thread: Thread, notes: SentNotes, touched: ReadonlySet<string>): string[] {
+  const problems: string[] = [];
+  const label = (unitId: string) => store.unitLabel(unitId);
+  const asks = asksForProposal(store, thread);
+  if (!asks && (notes.proposal != null || notes.choices.length > 0)) problems.push(`Thread ${thread.id} asks for no proposal, so its reply gives no proposal and no choices.`);
+  if (asks && notes.proposal == null) problems.push(`Thread ${thread.id} asks for a review with a proposal: give proposal, an empty list if every unit is left out. ${PROPOSAL_RULE}`);
+  const noted = new Set([...notes.findings, ...notes.choices].map(notedUnitId));
+  for (const unitId of [...notes.findings, ...notes.choices].map(notedUnitId)) {
+    if (touched.has(unitId)) problems.push(`${label(unitId)} is changed by this reply's own changes, so the reply gives no finding or choice on it.`);
+  }
+  for (const choice of notes.choices) {
+    const unitId = notedUnitId(choice);
+    if (store.unitState(unitId)?.stage !== thread.stage || !store.signableInSet(unitId)) problems.push(`${label(unitId)} is not a unit of this stage that can be signed in a set, so no choice is named on it.`);
+  }
+  const proposed = new Set<string>();
+  for (const { unitId } of notes.proposal ?? []) {
+    proposed.add(unitId);
+    if (store.unitState(unitId)?.stage !== thread.stage) problems.push(`${label(unitId)} is not of the stage the thread is on, so it is not proposed.`);
+    else if (!store.signableInSet(unitId)) problems.push(`${label(unitId)} is not signable in a set, so it is not proposed.`);
+    if (noted.has(unitId)) problems.push(`${label(unitId)} has a finding or a choice in this reply, so it is left out of the proposal.`);
+    if (touched.has(unitId)) problems.push(`${label(unitId)} is changed by this reply's own changes, so it is not proposed.`);
+  }
+  if (asks && notes.proposal != null) {
+    const missing = store.stageUnits(thread.stage).filter(({ unitId }) => store.signableInSet(unitId) && !proposed.has(unitId) && !noted.has(unitId) && !touched.has(unitId));
+    if (missing.length > 0) {
+      problems.push(`Each signable unit of the stage left out of the proposal needs a finding or a choice: ${missing.map(({ unitId }) => label(unitId)).join(", ")}.`);
+    }
+  }
+  return problems;
+}
+
+const NOTED_UNIT_PROPERTIES = {
+  item: { type: "string", description: "The item's code, or \"Module name/CODE\" for an item of another module, from get_items." },
+  unit: { type: "string", enum: ["item", "coverage", "impact"], description: "The item itself, the default, or its coverage or impact in stage." },
+  stage: { type: "string", description: "For a coverage or an impact: the stage that holds it." },
+};
 
 const FINDINGS_PROPERTY = {
   type: "array",
   description:
-    "Only from the agent the thread is assigned to: what the reply finds wrong with items, each naming an item of any module, a published rule of its kind that it breaks, and how. The spec owner sees each finding with the reply, and on its item while the item is unchanged. A finding that names no item, no published rule of its item's kind, or not how the item breaks it, refuses the whole call and changes nothing.",
+    "Only from the agent the thread is assigned to: what the reply finds wrong with items, coverages and impacts, each naming a unit of any module, a published rule that applies to it (for an item, of its kind; for a coverage or an impact, of the kind of its stage's items) that it breaks, and how. The spec owner sees each finding with the reply, and on its unit while the unit is unchanged. A finding that names no unit, no such rule, or not how the unit breaks it, or that is on a unit the reply's own changes touch, refuses the whole call and changes nothing.",
   items: {
     type: "object",
     properties: {
-      item: { type: "string", description: "The item's code, or \"Module name/CODE\" for an item of another module, from get_items." },
-      rule: { type: "string", minLength: 1, description: "The rule it breaks, exactly as get_stage_rules publishes it among its kind's rules or the shared rules." },
-      how: { type: "string", minLength: 1, description: "How the item breaks the rule." },
+      ...NOTED_UNIT_PROPERTIES,
+      rule: { type: "string", minLength: 1, description: "The rule it breaks, exactly as get_stage_rules publishes it among a kind's rules or the shared rules." },
+      how: { type: "string", minLength: 1, description: "How the unit breaks the rule." },
     },
     required: ["item", "rule", "how"],
     additionalProperties: false,
   },
 };
 
+const CHOICES_PROPERTY = {
+  type: "array",
+  description: `Only in a reply to a thread asking for a proposal: for each unit of the stage that can be signed in a set and that you leave out because it makes a choice the items it rests on leave open to more than one reasonable answer, that choice. The spec owner sees it on the unit while the unit is unchanged. ${PROPOSAL_RULE}`,
+  items: {
+    type: "object",
+    properties: { ...NOTED_UNIT_PROPERTIES, choice: { type: "string", minLength: 1, description: "The choice the unit makes, which is the spec owner's to decide." } },
+    required: ["item", "choice"],
+    additionalProperties: false,
+  },
+};
+
+const PROPOSAL_PROPERTY = {
+  type: "array",
+  description: `Required in a reply to a thread asking for a proposal, and refused in any other: the units of the thread's stage, each signable and of what its stage lets be signed in a set, that the spec owner can sign in one act as you reviewed them; an empty list when you leave every unit out. Every such unit you leave out needs a finding or a choice, unless this reply's own changes touch it. ${PROPOSAL_RULE}`,
+  items: { type: "object", properties: NOTED_UNIT_PROPERTIES, required: ["item"], additionalProperties: false },
+};
 
 /** The longest text a pointer may give with what it names. */
 const POINTER_TEXT_LIMIT = 80;
@@ -684,7 +887,7 @@ const workflowStateTool: AgentTool = {
   description: {
     name: "get_workflow_state",
     description:
-      "Get a module's workflow state: the one the spec owner has open, or the one module names. It says whether every stage is complete, and for each stage whether it is open (every stage it builds on is complete, so it can be written, signed and discussed) or closed, its progress (empty, in progress, complete), how many of its items, coverages and impacts are approved out of how many, what in it is signable, and its open threads. Its open threads include those on the stage itself. threadsAssignedToYou lists the threads of the module you read that the spec owner assigned to you, each with the id of its assignment, which you pass back, its thread and what it asks: an answer to the spec owner's message, or the update or a review of the thread's stage. Items are named by the codes of codesVersion. Pass module to read another module's state.",
+      "Get a module's workflow state: the one the spec owner has open, or the one module names. It says whether every stage is complete, and for each stage whether it is open (every stage it builds on is complete, so it can be written, signed and discussed) or closed, its progress (empty, in progress, complete), how many of its items, coverages and impacts are approved out of how many, what in it is signable, whether its items, and whether its coverages and impacts, can be signed in a set (signedInSet), and its open threads. Its open threads include those on the stage itself. threadsAssignedToYou lists the threads of the module you read that the spec owner assigned to you, each with the id of its assignment, which you pass back, its thread and what it asks: an answer to the spec owner's message, or the update or a review of the thread's stage. Items are named by the codes of codesVersion. Pass module to read another module's state.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   inModule: true,
@@ -702,7 +905,8 @@ const workflowStateTool: AgentTool = {
         progress: STAGE_PROGRESS_LABELS[summary.progress],
         approved: `${summary.approved} of ${summary.total}`,
         signable: summary.signable,
-        openThreads: store.threadsOfStage(stage).filter(({ resolution }) => resolution == null).map((thread) => threadView(store, thread, reading)),
+        signedInSet: definition.signedInSet,
+        openThreads: store.threadsOfStage(stage).filter(({ resolution }) => resolution == null).map((thread) => threadView(store, scope, thread, reading)),
       };
     });
     return JSON.stringify({
@@ -713,7 +917,14 @@ const workflowStateTool: AgentTool = {
       stages,
       threadsAssignedToYou: mine.map(({ thread, waiting }) => ({
         id: waiting.holder.assignmentId,
-        asks: waiting.kind === "message" ? "an answer to the spec owner's message" : `${waiting.kind === "update" ? "the update" : "a review"} of the stage`,
+        asks:
+          waiting.kind === "message"
+            ? "an answer to the spec owner's message"
+            : waiting.kind === "update"
+              ? "the update of the stage"
+              : asksForProposal(store, thread)
+                ? `a review of the stage, with a proposal: answer with findings, choices and proposal. ${PROPOSAL_RULE}`
+                : "a review of the stage",
         threadId: thread.id,
         ...threadUnit(store, thread),
         stage: thread.stage,
@@ -835,7 +1046,7 @@ const threadTool: AgentTool = {
     const threadId = stringArgument(args, "threadId");
     const thread = store.threads.find(({ id }) => id === threadId);
     if (thread == null) throw new UserFacingError(`There is no thread ${threadId}.`);
-    return JSON.stringify(threadWithUnit(store, thread, readingOf(scope, agent)));
+    return JSON.stringify(threadWithUnit(store, scope, thread, readingOf(scope, agent)));
   },
 };
 
@@ -851,17 +1062,17 @@ const threadsTool: AgentTool = {
   run: (store, args, scope, agent) => {
     const threads = args.stage == null ? store.threads : store.threadsOfStage(stageNamed(store, args.stage));
     const reading = readingOf(scope, agent);
-    return JSON.stringify(threads.map((thread) => threadWithUnit(store, thread, reading)));
+    return JSON.stringify(threads.map((thread) => threadWithUnit(store, scope, thread, reading)));
   },
 };
 
 const ANSWERS_PROPERTY = {
   type: "array",
   description:
-    `The open threads assigned to you that these changes answer, each with a reply telling the spec owner what changed, and the findings it gives. get_workflow_state lists them. Your reply ends your assignment to the thread. A thread in a stage these changes close is answered once that stage is open again. The codes of marked mentions are those of the codesVersion you send, before this write. ${replyRulesText()}`,
+    `The open threads assigned to you that these changes answer, each with a reply telling the spec owner what changed, and the findings, choices and proposal it gives. get_workflow_state lists them. Your reply ends your assignment to the thread. A thread in a stage these changes close is answered once that stage is open again. The codes of marked mentions are those of the codesVersion you send, before this write. ${replyRulesText()}`,
   items: {
     type: "object",
-    properties: { threadId: { type: "string" }, reply: { type: "string", minLength: 1 }, findings: FINDINGS_PROPERTY },
+    properties: { threadId: { type: "string" }, reply: { type: "string", minLength: 1 }, findings: FINDINGS_PROPERTY, choices: CHOICES_PROPERTY, proposal: PROPOSAL_PROPERTY },
     required: ["threadId", "reply"],
     additionalProperties: false,
   },
@@ -873,7 +1084,7 @@ const writeTool: AgentTool = {
   description: {
     name: "write_items",
     description:
-      "Write, change and remove items of any open stages, all or none, following the published rules of each kind of item, from get_stage_rules. Name items by the codes of the codesVersion you send. An item missing a required field, referencing none of a kind it must reference, or breaking a rule of its kind (such as a name another item already has, a value of the wrong type, or an operation a step does not offer), is refused with each problem; the rules are checked once all the changes are applied, so their order does not matter. One write never changes a stage together with a stage that builds on it: change the earlier stage, and the later one once the earlier is complete again. Items added in one write cannot name each other by code: write an item, then those that choose it. An added or changed item rests on the current versions of what it references and depends on; an item changed to exactly what it was stays as it was. Removing a signed item proposes its removal, which the spec owner signs; an item never signed is removed at once. Changing an item proposed for removal withdraws the removal, even when the change leaves it exactly as it was. A reference links to an item of a stage this stage builds on; a dependency links to an item of the same stage, or of another module as \"Module name/CODE\" in the same stage or one it builds on. The reply names each item by the code you named it by, with its new code where that moved, and an added item by its new code. Pass answers to reply, with findings, to the threads assigned to you that these changes answer, and pointTo to point the spec owner to a set of items, coverages and impacts that need them. Only the spec owner signs and resolves threads.",
+      "Write, change and remove items of any open stages, all or none, following the published rules of each kind of item, from get_stage_rules. Name items by the codes of the codesVersion you send. An item missing a required field, referencing none of a kind it must reference, or breaking a rule of its kind (such as a name another item already has, a value of the wrong type, or an operation a step does not offer), is refused with each problem; the rules are checked once all the changes are applied, so their order does not matter. One write never changes a stage together with a stage that builds on it: change the earlier stage, and the later one once the earlier is complete again. Name an item this write adds, wherever a code goes, as \"change:N\", N being the place of its add change among the changes, counting from 1, so one write can add items that name each other. An added or changed item rests on the current versions of what it references and depends on; an item changed to exactly what it was stays as it was. Removing a signed item proposes its removal, which the spec owner signs; an item never signed is removed at once. Changing an item proposed for removal withdraws the removal, even when the change leaves it exactly as it was. A reference links to an item of a stage this stage builds on; a dependency links to an item of the same stage, or of another module as \"Module name/CODE\" in the same stage or one it builds on. The reply names each item by the code you named it by, with its new code where that moved, and an added item by its new code. Pass answers to reply, with findings, to the threads assigned to you that these changes answer, and pointTo to point the spec owner to a set of items, coverages and impacts that need them. Only the spec owner signs and resolves threads.",
     inputSchema: {
       type: "object",
       properties: {
@@ -889,10 +1100,10 @@ const writeTool: AgentTool = {
               item: { type: "string", description: "For change and remove: the item's code." },
               fields: {
                 type: "object",
-                description: "For add and change: the item's fields by name, as get_stage_rules lists them: a text or choice field as text, a flag as true or false, a texts field as a list of texts, an items field as a list of codes, or one code when single, a record field as an object of its fields, a records field as a list of such objects, items fields within them as codes too; such as a user story's {\"targetUsers\": [\"USR-01\"], \"outcome\": \"…\", \"reason\": \"…\", \"priority\": \"P1\"}. get_stage_rules gives an example of the fields of an operation and of an abstract test. null empties an optional field. A change replaces only the fields it names, a records field as a whole.",
+                description: "For add and change: the item's fields by name, as get_stage_rules lists them: a text or choice field as text, a flag as true or false, a texts field as a list of texts, an items field as a list of codes, or one code when single, each code or \"change:N\" for an item this write adds, a record field as an object of its fields, a records field as a list of such objects, items fields within them as codes too; such as a user story's {\"targetUsers\": [\"USR-01\"], \"outcome\": \"…\", \"reason\": \"…\", \"priority\": \"P1\"}. get_stage_rules gives an example of the fields of an operation and of an abstract test. null empties an optional field. A change replaces only the fields it names, a records field as a whole.",
               },
-              references: { type: "array", items: { type: "string" }, description: "Codes of the items it references, besides those its items fields choose; a change replaces them all." },
-              dependencies: { type: "array", items: { type: "string" }, description: "Codes of the items it depends on; a change replaces them all." },
+              references: { type: "array", items: { type: "string" }, description: "Codes of the items it references, besides those its items fields choose, or \"change:N\" for an item this write adds; a change replaces them all." },
+              dependencies: { type: "array", items: { type: "string" }, description: "Codes of the items it depends on, or \"change:N\" for an item this write adds; a change replaces them all." },
             },
             required: ["action"],
             additionalProperties: false,
@@ -908,7 +1119,13 @@ const writeTool: AgentTool = {
   run: (store, args, scope, agent) => {
     requireCodesVersion(store, args);
     const changes = parseChanges(store, args.changes);
-    const answers = parseAnswers(store, args.answers, args.codesVersion, changes);
+    const answers = parseAnswers(store, scope, args.answers, args.codesVersion, changes);
+    const touched = touchedBy(store, changes);
+    const notesProblemsFound = answers.flatMap((answer) => {
+      const thread = store.threads.find(({ id }) => id === answer.threadId);
+      return thread == null ? [] : notesProblems(store, thread, answer, touched);
+    });
+    if (notesProblemsFound.length > 0) throw new UserFacingError(notesProblemsFound.join("\n"));
     const pointer = parsePointer(store, scope, args.pointTo, changes);
     const found = deskOf(scope);
     if (found != null && agent != null) {
@@ -926,15 +1143,22 @@ const writeTool: AgentTool = {
     const versionBefore = store.codesVersion;
     const codesBefore = codesNow(store);
     const before = versionsBefore(store, changes);
-    const replies = answers.map(({ findings, ...answer }) => ({ ...answer, annotations: replyAnnotation({ agentId: agent!.id, findings }) }));
+    const replies = answers.map(({ findings, choices, proposal, ...answer }) => ({ ...answer, annotations: replyAnnotation({ agentId: agent!.id, ...markOwnWork(store, scope, agent!.id, { findings, choices, proposal }) }) }));
     const outcome = store.writeItems(changes, replies.length === 0 ? null : { answers: replies, author: { kind: "agent", name: agent!.label } });
     if (found != null && agent != null) {
       found.desk.noteWritten(
         agent.id,
-        [...outcome.added, ...outcome.changed, ...outcome.removalWithdrawn].flatMap((itemId) => {
-          const version = store.findLinked(itemId)?.version;
-          return version == null ? [] : [{ itemId, revision: revisionOf(version) }];
-        }),
+        [
+          ...[...outcome.added, ...outcome.changed, ...outcome.removalWithdrawn].flatMap((itemId) => {
+            const version = store.findLinked(itemId)?.version;
+            return version == null ? [] : [{ itemId, revision: revisionOf(version) }];
+          }),
+          // A proposed removal is written as the removal of the version it removes.
+          ...outcome.proposedForRemoval.flatMap((itemId) => {
+            const version = store.findLinked(itemId)?.version;
+            return version == null ? [] : [{ itemId, revision: removalRevision(version) }];
+          }),
+        ],
       );
       const made = changesMade(store, outcome, before);
       for (const { threadId } of answers) {
@@ -1010,7 +1234,7 @@ const replyTool: AgentTool = {
   description: {
     name: "reply_to_thread",
     description:
-      `Add a message to an open thread of an open stage, on a unit or on the stage itself, without changing items, such as to ask what the spec owner means, to say why the unit should stay as it is, or to answer a thread asking to review a stage with findings. A message of the agent the thread is assigned to answers it, which ends the assignment; any other agent's leaves it waiting with the agent it is assigned to, who is told of it, and may give no findings. To answer with changes, use write_items with answers. Pass pointTo to point the spec owner to a set of items, coverages and impacts that need them. Only the spec owner resolves a thread. ${replyRulesText()}`,
+      `Add a message to an open thread of an open stage, on a unit or on the stage itself, without changing items, such as to ask what the spec owner means, to say why the unit should stay as it is, or to answer a thread asking to review a stage with findings and, where it asks for one, choices and a proposal. A message of the agent the thread is assigned to answers it, which ends the assignment; any other agent's leaves it waiting with the agent it is assigned to, who is told of it, and may give no findings. To answer with changes, use write_items with answers. Pass pointTo to point the spec owner to a set of items, coverages and impacts that need them. Only the spec owner resolves a thread. ${replyRulesText()}`,
     inputSchema: {
       type: "object",
       properties: {
@@ -1018,6 +1242,8 @@ const replyTool: AgentTool = {
         text: { type: "string", minLength: 1, description: "The reply the spec owner reads." },
         codesVersion: { type: "string", description: "The codesVersion of the get_items or get_workflow_state read the codes of the reply's marked mentions and of pointTo come from; needed when it holds either." },
         findings: FINDINGS_PROPERTY,
+        choices: CHOICES_PROPERTY,
+        proposal: PROPOSAL_PROPERTY,
         pointTo: POINTER_PROPERTY,
       },
       required: ["threadId", "text"],
@@ -1026,7 +1252,7 @@ const replyTool: AgentTool = {
   },
   run: (store, args, scope, agent) => {
     const reply = parseReply(store, stringArgument(args, "threadId"), stringArgument(args, "text"), args.codesVersion, []);
-    const findings = parseFindings(store, args.findings, "The reply");
+    const notes = parseNotes(store, scope, args, "The reply");
     // What a pointer names by code is named by the codes of the read it comes from.
     if (args.pointTo != null) {
       if (typeof args.codesVersion !== "string") throw new UserFacingError("A reply with pointTo needs the codesVersion of the get_items or get_workflow_state read its codes come from.");
@@ -1036,11 +1262,15 @@ const replyTool: AgentTool = {
     const thread = store.threads.find(({ id }) => id === reply.threadId);
     // Only the agent the thread is assigned to answers it, and only it gives findings; any other agent's message leaves it waiting.
     const answering = thread == null ? null : heldByCaller(scope, agent, thread);
-    if (findings.length > 0 && answering == null) {
-      throw new UserFacingError(`Thread ${reply.threadId} is not assigned to you now, so you may add a message to it but give no findings.`);
+    if ((notes.findings.length > 0 || notes.choices.length > 0 || notes.proposal != null) && answering == null) {
+      throw new UserFacingError(`Thread ${reply.threadId} is not assigned to you now, so you may add a message to it but give no findings, choices or proposal.`);
+    }
+    if (answering != null && thread != null) {
+      const problems = notesProblems(store, thread, notes, new Set());
+      if (problems.length > 0) throw new UserFacingError(problems.join("\n"));
     }
     const name = agent?.label ?? "An agent";
-    store.answerThreads([agent == null ? reply : { ...reply, annotations: replyAnnotation({ agentId: agent.id, findings }) }], { kind: "agent", name });
+    store.answerThreads([agent == null ? reply : { ...reply, annotations: replyAnnotation({ agentId: agent.id, ...markOwnWork(store, scope, agent.id, notes) }) }], { kind: "agent", name });
     const found = deskOf(scope);
     if (found != null && agent != null) {
       if (answering != null) found.desk.answered(found.moduleId, reply.threadId);

@@ -4,7 +4,7 @@ import type { AgentId } from "agents/record";
 import { UserFacingError } from "lib/errors";
 import type { Store } from "store";
 import { uuid } from "utilities";
-import { revisionOf } from "workflow";
+import { removalRevision, revisionOf } from "workflow";
 
 import { threadAsks } from "./annotations";
 import {
@@ -197,17 +197,32 @@ export class Desk {
     return this.record.assignments.findLast((assignment) => assignment.moduleId === place.moduleId && assignment.threadId === place.threadId)?.agentId ?? null;
   }
 
-  /** The agent that wrote an item version, if an agent did. */
+  /** The agent that wrote an item version, or proposed its removal, if an agent did. */
   writerOf(itemId: string, revision: string): AgentId | null {
     return this.record.writers.findLast((written) => written.itemId === itemId && written.revision === revision)?.agentId ?? null;
   }
 
-  /** Whether an agent wrote the current version of any item of a stage. */
-  wroteAnyOf(agentId: AgentId, store: Store, stage: string): boolean {
-    return store.itemsOf(stage).some(({ id }) => {
-      const version = store.findLinked(id)?.version;
-      return version != null && this.writerOf(id, revisionOf(version)) === agentId;
-    });
+  /**
+   * Whether an agent took part in a unit: wrote an item's current version,
+   * proposed its removal, wrote the current version of an item a coverage
+   * counts toward, or made the change an impact is on, which is its item's
+   * current version.
+   */
+  tookPartIn(agentId: AgentId, store: Store, unitId: string): boolean {
+    const state = store.unitState(unitId);
+    if (state == null) return false;
+    const wrote = (itemId: string) => {
+      const version = store.findLinked(itemId)?.version;
+      return version != null && this.writerOf(itemId, revisionOf(version)) === agentId;
+    };
+    if (state.kind === "coverage") return state.referencing.some(wrote);
+    if (state.kind === "item" && state.phase === "proposed-removal" && this.writerOf(state.itemId, removalRevision(state.version)) === agentId) return true;
+    return wrote(state.itemId);
+  }
+
+  /** Whether an agent took part in any item, coverage or impact of a stage. */
+  tookPartInAnyOf(agentId: AgentId, store: Store, stage: string): boolean {
+    return store.stageUnits(stage).some(({ unitId }) => this.tookPartIn(agentId, store, unitId));
   }
 
   // Changes of state.
@@ -357,10 +372,10 @@ export class Desk {
     return held.filter((waiting) => waiting.moduleId === moduleId && waiting.holder.agentId !== agentId && (waiting.stage === stage || workflow.buildsOn(waiting.stage, stage)));
   }
 
-  /** The note on an agent reviewing a stage it wrote the current version of an item of; none otherwise. */
+  /** The note on an agent reviewing a stage it took part in a unit of; none otherwise. */
   private ownWorkNotes(moduleId: string, stage: string, agentId: AgentId | null, labelOf: (agentId: AgentId) => string): ConfirmationNote[] {
-    if (agentId == null || !this.wroteAnyOf(agentId, this.module(moduleId).store, stage)) return [];
-    return [{ key: OWN_WORK, text: `${labelOf(agentId)} wrote the current version of items of this stage, so it would review its own work.` }];
+    if (agentId == null || !this.tookPartInAnyOf(agentId, this.module(moduleId).store, stage)) return [];
+    return [{ key: OWN_WORK, text: `${labelOf(agentId)} took part in items, coverages or impacts of this stage, so it would review its own work.` }];
   }
 
   /**

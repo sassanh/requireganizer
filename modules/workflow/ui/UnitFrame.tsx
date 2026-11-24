@@ -23,7 +23,7 @@ export function SignatureLine({ signature, counts, what = "Signed" }: { signatur
   }
   return (
     <Typography variant="caption" color={counts ? "text.secondary" : "warning.main"}>
-      {what} by {signerLabel(signature.signer)}{signature.at == null ? "" : ` on ${new Date(signature.at).toLocaleString()}`}
+      {what} by {signerLabel(signature.signer)}{signature.set == null ? "" : ` in a set ${signature.set.agent} proposed`}{signature.at == null ? "" : ` on ${new Date(signature.at).toLocaleString()}`}
       {counts ? "" : " · no longer counts: what it covered has changed"}
     </Typography>
   );

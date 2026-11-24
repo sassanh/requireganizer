@@ -75,12 +75,19 @@ export type Signer = { kind: "person" } | { kind: "model"; model: string };
 
 export const SPEC_OWNER: Signer = { kind: "person" };
 
-/** What every signature records: who gave it, when, and the hash of what it covers. */
+/** What a signature given in a set rests on: the proposal, by the id of the reply that gave it, and the agent that made it, by its name. */
+export interface SetBasis {
+  proposal: string;
+  agent: string;
+}
+
+/** What every signature records: who gave it, when, the hash of what it covers, and for one given in a set, what that set rests on. */
 export interface SignatureRecord {
   signer: Signer;
   /** Null in an export made without signature times. */
   at: string | null;
   covers: string;
+  set?: SetBasis;
 }
 
 /** A signature on an item: the version shown, and the versions of what it links to that it rests on. */

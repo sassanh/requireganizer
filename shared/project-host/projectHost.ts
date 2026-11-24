@@ -59,6 +59,7 @@ const PAGE_ACTION_KINDS = {
   writeItems: "edit",
   restoreSigned: "edit",
   sign: "signature",
+  signSet: "signature",
   messageUnit: "thread message",
   openStageThread: "thread message",
   replyAsSpecOwner: "thread message",

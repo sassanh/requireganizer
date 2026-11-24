@@ -264,6 +264,8 @@ export interface StageDefinition {
   /** The stages it builds on directly. Which kinds of their items it covers, its kinds say. */
   buildsOn: readonly string[];
   kinds: readonly ItemKindDefinition[];
+  /** Whether its items, and whether its coverages and impacts, can be signed in a set an agent proposes. */
+  signedInSet: { items: boolean; coveragesAndImpacts: boolean };
 }
 
 /** One item of a kind as its published rules show it: its text as shown, and what it holds that its text does not show. */

@@ -1,5 +1,6 @@
 import type { AgentId } from "agents/record";
 import type { Store } from "store";
+import type { Thread } from "workflow";
 
 import { type AskKind, threadAsks } from "./annotations";
 import type { DelegationRecord } from "./record";
@@ -117,16 +118,34 @@ export function reviewAskProblem(module: ProjectModule, record: DelegationRecord
   const { store } = module;
   const label = store.workflow.stage(stage).label;
   if (!store.stageOpen(stage)) return `${label} is closed.`;
-  if (store.itemsOf(stage).length === 0) return `${label} holds no item to review.`;
+  if (store.stageUnits(stage).length === 0) return `${label} holds nothing to review.`;
   if (updateOrReviewWaits(module, record, stage)) return `A thread asking for the update or a review of ${label} already waits for an agent.`;
   return null;
 }
 
-/** What the spec owner's message asking for a stage to be updated or reviewed says. */
-export function askText(kind: "update" | "review", stageLabel: string): string {
-  return kind === "update"
-    ? `Update ${stageLabel}: write it from scratch, carry into it what changed in the stages it builds on, or make the change I ask for in this thread, following the published rules of each kind of item it holds.`
-    : `Review ${stageLabel}: check each of its items against the published rules of its kind, and give a finding for each rule an item breaks.`;
+/** Whether a review of a stage asks for a proposal: its definition lets any of its units be signed in a set. */
+export function reviewProposes(store: Store, stage: string): boolean {
+  const { items, coveragesAndImpacts } = store.workflow.stage(stage).signedInSet;
+  return items || coveragesAndImpacts;
+}
+
+/** Whether a thread asks for a proposal: a thread asking for the review of a stage whose review proposes. */
+export function asksForProposal(store: Store, thread: Thread): boolean {
+  return thread.unitId == null && threadAsks(thread) === "review" && reviewProposes(store, thread.stage);
+}
+
+/** The rule every agent preparing a proposal follows. */
+export const PROPOSAL_RULE =
+  "Leave out of the proposal every unit that breaks a published rule that applies to it, giving a finding on it, and every unit that makes a choice the items it rests on leave open to more than one reasonable answer, naming that choice on it; propose every other unit that can be signed in a set.";
+
+/** What the spec owner's message asking for a stage to be updated or reviewed says, a review of a stage whose review proposes asking for a proposal too. */
+export function askText(kind: "update" | "review", stageLabel: string, proposes: boolean): string {
+  if (kind === "update") {
+    return `Update ${stageLabel}: write it from scratch, carry into it what changed in the stages it builds on, or make the change I ask for in this thread, following the published rules of each kind of item it holds.`;
+  }
+  return proposes
+    ? `Review ${stageLabel}: check each of its units against the published rules that apply to it, give a finding for each rule a unit breaks, and propose the units I can sign in one act, naming on each unit you leave out for another reason the choice that is mine to decide.`
+    : `Review ${stageLabel}: check each of its units against the published rules that apply to it, and give a finding for each rule a unit breaks.`;
 }
 
 /** What a waiting thread asks, in one line, such as "Update Requirements" or "Thread on REQ-04". */
@@ -150,7 +169,7 @@ export function threadSummary(waiting: WaitingThread, store: Store): string {
  * What an agent is asked to do with a thread assigned to it, naming the
  * thread, the assignment's id it passes back and the module its calls need.
  */
-export function assignmentPrompt(waiting: HeldThread, summary: string): string {
+export function assignmentPrompt(waiting: HeldThread, summary: string, store: Store): string {
   const where = waiting.moduleName == null ? "" : ` in module “${waiting.moduleName}”`;
   const moduleArgument = waiting.moduleName == null ? "" : ` with module: ${JSON.stringify(waiting.moduleName)}`;
   const thread = waiting.thread.id;
@@ -160,7 +179,11 @@ export function assignmentPrompt(waiting: HeldThread, summary: string): string {
       return `The spec owner assigned you a thread${where}: ${summary}. Read thread ${thread} with get_thread${moduleArgument}, then answer the spec owner's last message with reply_to_thread${moduleArgument}, or with write_items${moduleArgument} and its answers. ${cannot}`;
     case "update":
       return `The spec owner assigned you a thread asking to update a stage${where}: ${summary}. Read thread ${thread} with get_thread${moduleArgument}, the rules of the stage's kinds of item with get_stage_rules (stage ${waiting.stage}), its items and those of the stages it builds on with get_items${moduleArgument}. Update the stage with write_items${moduleArgument}, then answer the thread with a reply, in the answers of your last write or with reply_to_thread. ${cannot}`;
-    case "review":
-      return `The spec owner assigned you a thread asking to review a stage${where}: ${summary}. Read thread ${thread} with get_thread${moduleArgument}, the rules of the stage's kinds of item with get_stage_rules (stage ${waiting.stage}) and its items with get_items${moduleArgument}. Answer the thread with reply_to_thread${moduleArgument}, giving a finding for each item that breaks a published rule of its kind: the item, the rule as published, and how the item breaks it. ${cannot}`;
+    case "review": {
+      const read = `The spec owner assigned you a thread asking to review a stage${where}: ${summary}. Read thread ${thread} with get_thread${moduleArgument}, the rules of the stage's kinds of item with get_stage_rules (stage ${waiting.stage}) and its units with get_items${moduleArgument}.`;
+      return reviewProposes(store, waiting.stage)
+        ? `${read} Answer the thread with reply_to_thread${moduleArgument}, giving findings, choices and a proposal. ${PROPOSAL_RULE} ${cannot}`
+        : `${read} Answer the thread with reply_to_thread${moduleArgument}, giving a finding for each unit that breaks a published rule that applies to it: the unit, the rule as published, and how the unit breaks it. ${cannot}`;
+    }
   }
 }

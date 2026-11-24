@@ -6,15 +6,15 @@ import { type ReactNode, useMemo, useState } from "react";
 
 import { labelOfId, labelOfName } from "agents";
 import { ContextDialog, NameField, useAgents } from "agents/ui";
-import { attempt } from "components/notices";
+import { attempt, notify } from "components/notices";
 import { howLongAgo } from "lib/elapsed";
 import { requestPlace } from "lib/placeRequests";
 import type { Store } from "store";
-import { authorLabel, parseUnitId, revisionOf, threadPlace, type ThreadMessage } from "workflow";
+import { authorLabel, parseUnitId, threadPlace, type ThreadMessage, type UnsignedReason } from "workflow";
 import { ItemChip, type ThreadSendProps, type WorkflowSlots, workflowSlotsContext } from "workflow/ui";
 
 import { replyAgent } from "../annotations";
-import type { FindingView } from "../host";
+import type { NoteView, ProposalView, ReplyPlace } from "../host";
 import { threadKey } from "../record";
 import { choicesFor } from "./choices";
 import { type DelegationPageValue, useDelegation } from "./context";
@@ -23,16 +23,29 @@ import SendChoice, { openSendChoice } from "./SendChoice";
 import { WaitControls } from "./ThreadList";
 import WorkingSign from "./WorkingSign";
 
-/** Whether the item a finding names changed since the finding was given; false once the item is gone. */
-function changedSince(store: Store, finding: FindingView): boolean {
-  const version = store.findLinked(finding.itemId)?.version;
-  return version != null && revisionOf(version) !== finding.revision;
+/** Why a unit of a set was left unsigned, as the spec owner reads it. */
+const UNSIGNED_REASONS: Record<UnsignedReason, string> = { changed: "changed since the proposal", "not-signable": "not signable", "not-in-set": "not signed in sets in its stage" };
+
+/** Who gave a note or a proposal, as the spec owner reads it now. */
+function useReplyAgent(): (place: ReplyPlace) => string {
+  const agents = useAgents().view.agents;
+  return (place) => (place.agentId == null ? null : labelOfId(agents, place.agentId)) ?? labelOfName(agents, place.writtenBy);
 }
 
-/** Who gave a finding, as the spec owner reads it now. */
-function useFindingAgent(): (finding: FindingView) => string {
-  const agents = useAgents().view.agents;
-  return (finding) => (finding.agentId == null ? null : labelOfId(agents, finding.agentId)) ?? labelOfName(agents, finding.writtenBy);
+/** A unit as a reply's notes and proposals show it: its item as a marked mention shows it, and for a coverage or an impact, which and in which stage. */
+function UnitName({ unitId, itemId }: { unitId: string; itemId: string }) {
+  const { stageLabel } = useDelegation();
+  const address = parseUnitId(unitId);
+  return (
+    <Stack direction="row" sx={{ alignItems: "center", gap: 0.5 }}>
+      {address.kind !== "item" && (
+        <Typography variant="caption" color="text.secondary">
+          {address.kind === "coverage" ? "Coverage" : "Impact"} in {stageLabel(address.stage)} of
+        </Typography>
+      )}
+      <ItemChip itemId={itemId} />
+    </Stack>
+  );
 }
 
 /**
@@ -81,52 +94,110 @@ function UnitWorking({ unitId }: { unitId: string }) {
   return <WorkingSign place={{ kind: "unit", moduleId: activeModuleId, unitId }} />;
 }
 
-/** Open the reply that gave a finding, in its thread, with the focus on it. */
-function openReply(delegation: DelegationPageValue, finding: FindingView): void {
-  const thread = delegation.moduleStore(finding.moduleId)?.threads.find(({ id }) => id === finding.threadId);
+/** Open the reply that gave a note or a proposal, in its thread, with the focus on it. */
+function openReply(delegation: DelegationPageValue, place: ReplyPlace): void {
+  const thread = delegation.moduleStore(place.moduleId)?.threads.find(({ id }) => id === place.threadId);
   if (thread == null) return;
-  const index = thread.messages.findIndex(({ id }) => id === finding.messageId);
-  requestPlace({ moduleId: finding.moduleId, stage: thread.stage, unitId: threadPlace(thread) }, { leavePreview: true, message: { threadId: thread.id, index } });
+  const index = thread.messages.findIndex(({ id }) => id === place.messageId);
+  requestPlace({ moduleId: place.moduleId, stage: thread.stage, unitId: threadPlace(thread) }, { leavePreview: true, message: { threadId: thread.id, index } });
 }
 
 /**
- * Under an item's content: each finding agents' replies give on it, while
- * the item is as it was when the finding was given, with the agent that
- * gave it, when, whether it is on that agent's own work, and a way to open
- * the reply that gave it.
+ * Under a unit's content: each finding and choice agents' replies give on
+ * it, while the unit is as it was when the note was given, with the agent
+ * that gave it, when, whether it is on that agent's own work, and a way to
+ * open the reply that gave it.
  */
-const UnitFindings = observer(function UnitFindings({ unitId }: { unitId: string }) {
+const UnitNotes = observer(function UnitNotes({ unitId }: { unitId: string }) {
   const delegation = useDelegation();
-  const agentOf = useFindingAgent();
-  const store = delegation.moduleStore(delegation.activeModuleId);
-  const address = parseUnitId(unitId);
-  const findings = store == null || address.kind !== "item" ? [] : delegation.view.findings.filter((finding) => finding.itemId === address.itemId && !changedSince(store, finding));
+  const agentOf = useReplyAgent();
+  const notes = delegation.view.notes.filter((note) => note.unitId === unitId && !note.changed);
   return (
     <>
-      {findings.map((finding) => (
+      {notes.map((note) => (
         <Alert
-          key={`${finding.messageId} ${finding.rule}`}
-          severity="warning"
+          key={`${note.messageId} ${note.note.kind === "finding" ? note.note.rule : "choice"}`}
+          severity={note.note.kind === "finding" ? "warning" : "info"}
           variant="outlined"
           sx={{ mt: 1 }}
           action={
-            <Button size="small" color="inherit" onClick={() => openReply(delegation, finding)}>
+            <Button size="small" color="inherit" onClick={() => openReply(delegation, note)}>
               Open the reply
             </Button>
           }
         >
           <AlertTitle>
-            Finding by {agentOf(finding)}
-            {finding.ownWork ? ", on its own work" : ""}
-            {finding.at == null ? "" : ` · ${howLongAgo(finding.at)}`}
+            {note.note.kind === "finding" ? "Finding by" : "Yours to decide, named by"} {agentOf(note)}
+            {note.ownWork ? ", on its own work" : ""}
+            {note.at == null ? "" : ` · ${howLongAgo(note.at)}`}
           </AlertTitle>
-          <Typography variant="body2">{finding.how}</Typography>
-          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
-            Rule: {finding.rule}
-          </Typography>
+          <NoteText note={note} />
         </Alert>
       ))}
     </>
+  );
+});
+
+/** What a note says: a finding's how and rule, or the choice a unit makes. */
+function NoteText({ note }: { note: NoteView }) {
+  if (note.note.kind === "choice") return <Typography variant="body2">{note.note.choice}</Typography>;
+  return (
+    <>
+      <Typography variant="body2">{note.note.how}</Typography>
+      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
+        Rule: {note.note.rule}
+      </Typography>
+    </>
+  );
+}
+
+/**
+ * Under a reply giving a proposal: every unit of it, each with a way to go
+ * to it and marked when it is on the agent's own work or can no longer be
+ * signed as proposed; and while the offer stands, a way to sign in one act
+ * the units still as proposed.
+ */
+const ProposalNotes = observer(function ProposalNotes({ proposal }: { proposal: ProposalView }) {
+  const { moduleStore } = useDelegation();
+  const agentOf = useReplyAgent();
+  const store = moduleStore(proposal.moduleId);
+  const signable = proposal.units.filter((unit) => unit.signable);
+  const signSet = () =>
+    attempt(async () => {
+      if (store == null) return;
+      const outcome = await store.signSet({
+        basis: { proposal: proposal.messageId, agent: agentOf(proposal) },
+        units: proposal.units.map(({ unitId, covers }) => ({ unitId, covers })),
+      });
+      const unsigned = outcome.unsigned.map(({ unitId, reason }) => `${store.unitLabel(unitId)} (${UNSIGNED_REASONS[reason]})`);
+      notify(`Signed ${outcome.signed.length} of ${proposal.units.length}.${unsigned.length === 0 ? "" : ` Left unsigned: ${unsigned.join(", ")}.`}`);
+    }, "The set could not be signed.");
+  return (
+    <Stack spacing={0.5} sx={{ pl: 1, borderLeft: 2, borderColor: "success.main", alignItems: "flex-start" }}>
+      <Typography variant="caption" color="text.secondary">
+        Proposed for signing in one act: {proposal.units.length === 0 ? "nothing" : `${proposal.units.length} units`}
+      </Typography>
+      {proposal.units.map((unit) => (
+        <Stack key={unit.unitId} direction="row" sx={{ alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+          <UnitName unitId={unit.unitId} itemId={unit.itemId} />
+          {!unit.signable && (
+            <Typography variant="caption" color="text.secondary">
+              no longer signable as proposed
+            </Typography>
+          )}
+          {unit.ownWork && (
+            <Typography variant="caption" color="warning.main">
+              on its own work
+            </Typography>
+          )}
+        </Stack>
+      ))}
+      {proposal.offered && (
+        <Button size="small" variant="contained" onClick={signSet}>
+          Sign these {signable.length}
+        </Button>
+      )}
+    </Stack>
   );
 });
 
@@ -165,9 +236,10 @@ const ThreadWaiting = observer(function ThreadWaiting({ threadId }: { threadId: 
 });
 
 /**
- * Under a thread message: the findings it gives, each item as a marked
- * mention shows it, marked once the item changed since and when it is on
- * its giver's own work; under an agent's reply sent with changes, a way to
+ * Under a thread message: the findings and choices it gives, each unit
+ * shown by its item as a marked mention shows it, marked once the unit
+ * changed since and when it is on its giver's own work; the proposal it
+ * gives; under an agent's reply sent with changes, a way to
  * see the item changes it made; and under a message of the spec owner's
  * that set the thread waiting, that it was withdrawn from waiting and when.
  */
@@ -176,33 +248,37 @@ const MessageNotes = observer(function MessageNotes({ threadId, messageId }: { t
   const [showingChanges, setShowingChanges] = useState(false);
   const store = moduleStore(activeModuleId);
   const message = store?.threads.find(({ id }) => id === threadId)?.messages.find(({ id }) => id === messageId);
-  const findings = view.findings.filter((finding) => finding.moduleId === activeModuleId && finding.messageId === messageId);
+  const notes = view.notes.filter((note) => note.moduleId === activeModuleId && note.messageId === messageId);
+  const proposal = view.proposals.find((each) => each.moduleId === activeModuleId && each.messageId === messageId);
   const withdrawn = view.withdrawn.find((note) => note.moduleId === activeModuleId && note.threadId === threadId && note.messageId === messageId);
   const changes = message?.author.kind === "agent" && message.withChanges === true;
-  if (findings.length === 0 && withdrawn == null && !changes) return null;
+  if (notes.length === 0 && proposal == null && withdrawn == null && !changes) return null;
   return (
     <Stack spacing={0.75} sx={{ mt: 0.5, alignItems: "flex-start" }}>
-      {findings.map((finding) => (
-        <Stack key={`${finding.itemId} ${finding.rule}`} spacing={0.25} sx={{ pl: 1, borderLeft: 2, borderColor: "warning.main" }}>
+      {notes.map((note) => (
+        <Stack key={`${note.unitId} ${note.note.kind === "finding" ? note.note.rule : "choice"}`} spacing={0.25} sx={{ pl: 1, borderLeft: 2, borderColor: note.note.kind === "finding" ? "warning.main" : "info.main" }}>
           <Stack direction="row" sx={{ alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-            <ItemChip itemId={finding.itemId} />
-            {store != null && changedSince(store, finding) && (
-              <Typography variant="caption" color="text.secondary">
-                changed since this finding
+            <UnitName unitId={note.unitId} itemId={note.itemId} />
+            {note.note.kind === "choice" && (
+              <Typography variant="caption" color="info.main">
+                yours to decide
               </Typography>
             )}
-            {finding.ownWork && (
+            {note.changed && (
+              <Typography variant="caption" color="text.secondary">
+                changed since
+              </Typography>
+            )}
+            {note.ownWork && (
               <Typography variant="caption" color="warning.main">
                 on its own work
               </Typography>
             )}
           </Stack>
-          <Typography variant="body2">{finding.how}</Typography>
-          <Typography variant="caption" color="text.secondary">
-            Rule: {finding.rule}
-          </Typography>
+          <NoteText note={note} />
         </Stack>
       ))}
+      {proposal != null && <ProposalNotes proposal={proposal} />}
       {changes && (
         <Button size="small" onClick={() => setShowingChanges(true)}>
           Item changes
@@ -262,7 +338,7 @@ export default function DelegationWorkflowSlots({ children }: { children: ReactN
     return {
       stage: ({ stage, preview }) => (preview ? null : <StageAsks stage={stage} />),
       unit: ({ unitId, preview }) => (preview ? null : <UnitWorking unitId={unitId} />),
-      unitNotes: ({ unitId, preview }) => (preview ? null : <UnitFindings unitId={unitId} />),
+      unitNotes: ({ unitId, preview }) => (preview ? null : <UnitNotes unitId={unitId} />),
       thread: ({ threadId, preview }) => (preview ? null : <ThreadWaiting threadId={threadId} />),
       message: ({ threadId, messageId, preview }) => (preview ? null : <MessageNotes threadId={threadId} messageId={messageId} />),
       threadWaits,

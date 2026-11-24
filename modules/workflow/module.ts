@@ -23,6 +23,7 @@ import {
   removalRevision,
   removedRevision,
   revisionOf,
+  type SetBasis,
   type SignatureRecord,
   type Signer,
   SPEC_OWNER,
@@ -211,6 +212,8 @@ export interface StageSummary {
 export type ItemChange =
   | {
       type: "add";
+      /** The id the added item gets, so the write's other changes can name it; a new one when left out. */
+      id?: string;
       stage: string;
       kind: string;
       content: ItemContent;
@@ -282,8 +285,23 @@ function sameBasis(left: Readonly<Record<string, string>>, right: Readonly<Recor
   return Object.keys(left).length === keys.length && keys.every((key) => left[key] === right[key]);
 }
 
-function signatureRecord(signer: Signer, covers: string): SignatureRecord {
-  return { signer, at: new Date().toISOString(), covers };
+function signatureRecord(signer: Signer, covers: string, set: SetBasis | null): SignatureRecord {
+  return { signer, at: new Date().toISOString(), covers, ...(set == null ? {} : { set }) };
+}
+
+/** A set an agent proposes for the spec owner to sign in one act: what it rests on, and each unit with what a signature on it covered when the agent reviewed it. */
+export interface SetProposal {
+  basis: SetBasis;
+  units: readonly { unitId: string; covers: string }[];
+}
+
+/** Why a unit of a set was left unsigned: it changed since the proposal named it, it is not signable, or its stage's definition does not let it be signed in a set. */
+export type UnsignedReason = "changed" | "not-signable" | "not-in-set";
+
+/** What signing a set did: the units it signed, and each it left unsigned with why. */
+export interface SetOutcome {
+  signed: string[];
+  unsigned: { unitId: string; reason: UnsignedReason }[];
 }
 
 /** Whether a value says nothing: no text, no, no entry, or a record whose every field says nothing. */
@@ -737,6 +755,14 @@ export function workflowModuleModel(workflow: Workflow) {
         return state.kind === "item" ? state.signsAs != null : !state.signatureCounts;
       }
 
+      /** Whether a unit is signable and its stage's definition lets units like it be signed in a set: items, or coverages and impacts. */
+      function signableInSet(unitId: string): boolean {
+        if (!signable(unitId)) return false;
+        const state = unitState(unitId)!;
+        const allowed = workflow.stage(state.stage).signedInSet;
+        return state.kind === "item" ? allowed.items : allowed.coveragesAndImpacts;
+      }
+
       /**
        * The reasons a signature now would settle; none unless the unit is
        * signable. Signing a removal removes the item, settling every reason.
@@ -884,6 +910,7 @@ export function workflowModuleModel(workflow: Workflow) {
         stageOpen,
         unitState,
         signable,
+        signableInSet,
         signatureSettles,
         signingCovers,
         openThreadOf,
@@ -1232,6 +1259,38 @@ export function workflowModuleModel(workflow: Workflow) {
         return node;
       }
 
+      /** Give a signable unit the signature a signer gives it now, as what `set` rests on when it is given in a set. */
+      function signUnit(unitId: string, signer: Signer, set: SetBasis | null): void {
+        const state = self.unitState(unitId)!;
+        const node = stageNode(state.stage);
+        switch (state.kind) {
+          case "item": {
+            const item = self.locate(state.itemId)!.item;
+            if (state.phase === "proposed-removal") {
+              item.removal = { signature: { ...signatureRecord(signer, removalRevision(state.version), set), version: state.version } };
+              break;
+            }
+            item.signature = { ...signatureRecord(signer, state.revision, set), version: state.version, basis: state.currentBasis };
+            item.basis = state.currentBasis;
+            break;
+          }
+          case "coverage": {
+            node.coverages.set(state.itemId, {
+              ...signatureRecord(signer, state.covers, set),
+              item: { id: state.itemId, version: self.versionOf(state.itemId)! },
+              referencing: state.referencing.map((id) => ({ id, version: self.versionOf(id)! })),
+            });
+            break;
+          }
+          case "impact": {
+            node.impacts.set(state.itemId, { ...signatureRecord(signer, state.covers, set), before: state.before, after: state.after });
+            if (state.after == null) node.intake.delete(state.itemId);
+            else node.intake.set(state.itemId, state.after);
+            break;
+          }
+        }
+      }
+
       function requireOpen(stage: string, doing: string): void {
         if (!self.stageOpen(stage)) {
           const waitingFor = workflow
@@ -1461,37 +1520,50 @@ export function workflowModuleModel(workflow: Workflow) {
 
       /** Apply one change to this module, returning its problems; nothing is changed when there are any. */
       /** `single` says this is the only change written, so a new item is named on its own rather than by its place in the list. */
-      function applyChange(change: ItemChange, outcome: ChangeOutcome, label: string, single: boolean): string[] {
+      /** The name a write's problems give an item it adds. */
+      function addedName(change: Extract<ItemChange, { type: "add" }>, label: string, single: boolean): string {
+        const definition = workflow.kind(change.kind);
+        return single ? `The new ${definition.label.toLowerCase()}` : `${label} (a new ${definition.label.toLowerCase()})`;
+      }
+
+      /**
+       * Add the item an add change describes, holding its content and no
+       * links yet, so that every change of the write can name it; its links
+       * are set once every item the write adds exists.
+       */
+      function createAdded(change: Extract<ItemChange, { type: "add" }>, outcome: ChangeOutcome, label: string, single: boolean): string[] {
+        if (!workflow.isStage(change.stage)) return [`${label}: there is no stage ${change.stage}.`];
+        const stage = workflow.stage(change.stage);
+        if (!stage.kinds.some(({ kind }) => kind === change.kind)) {
+          return [`${label}: ${stage.label} holds ${stage.kinds.map(({ kind }) => kind).join(", ")}, not ${change.kind}.`];
+        }
+        const definition = workflow.kind(change.kind);
+        const name = addedName(change, label, single);
+        const shapeProblems = contentProblems(change.kind, change.content, name);
+        if (shapeProblems.length > 0) return shapeProblems;
+        const problems: string[] = [];
+        if (definition.single && self.itemsOf(change.stage).some(({ kind, removal }) => kind === change.kind && removal == null)) {
+          problems.push(`${name}: ${stage.label} already has its ${definition.label.toLowerCase()}; change it instead.`);
+        }
+        if (!self.stageOpen(change.stage)) problems.push(`${name}: ${stage.label} is closed until the stages it builds on are complete.`);
+        if (change.id != null && self.locate(change.id) != null) problems.push(`${name}: another item already has the id ${change.id}.`);
+        if (problems.length > 0) return problems;
+        const item = ItemModel.create({ id: change.id ?? uuid(), kind: change.kind, content: normalizedContent(change.kind, change.content), references: [], dependencies: [] });
+        const afresh = !self.holdsItems(change.stage);
+        stageNode(change.stage).items.push(item);
+        takeIn(change.stage, afresh);
+        outcome.added.push(item.id);
+        return [];
+      }
+
+      function applyChange(change: ItemChange, outcome: ChangeOutcome, label: string, single: boolean, addedId: string | undefined): string[] {
         if (change.type === "add") {
-          if (!workflow.isStage(change.stage)) return [`${label}: there is no stage ${change.stage}.`];
-          const stage = workflow.stage(change.stage);
-          if (!stage.kinds.some(({ kind }) => kind === change.kind)) {
-            return [`${label}: ${stage.label} holds ${stage.kinds.map(({ kind }) => kind).join(", ")}, not ${change.kind}.`];
-          }
-          const definition = workflow.kind(change.kind);
-          const name = single ? `The new ${definition.label.toLowerCase()}` : `${label} (a new ${definition.label.toLowerCase()})`;
-          const shapeProblems = contentProblems(change.kind, change.content, name);
-          if (shapeProblems.length > 0) return shapeProblems;
-          const content = normalizedContent(change.kind, change.content);
-          const problems = linkProblems(change.stage, change.kind, content, change.references, change.dependencies, new Set(), null, name);
-          if (definition.single && self.itemsOf(change.stage).some(({ kind, removal }) => kind === change.kind && removal == null)) {
-            problems.push(`${name}: ${stage.label} already has its ${definition.label.toLowerCase()}; change it instead.`);
-          }
-          if (!self.stageOpen(change.stage)) problems.push(`${name}: ${stage.label} is closed until the stages it builds on are complete.`);
+          if (addedId == null) return [];
+          const item = self.locate(addedId)!.item;
+          const problems = linkProblems(change.stage, change.kind, item.content, change.references, change.dependencies, new Set(), null, addedName(change, label, single));
           if (problems.length > 0) return problems;
-          const item = ItemModel.create({
-            id: uuid(),
-            kind: change.kind,
-            content,
-            references: change.references,
-            dependencies: change.dependencies,
-          });
-          const afresh = !self.holdsItems(change.stage);
-          stageNode(change.stage).items.push(item);
-          const added = self.locate(item.id)!.item;
-          added.basis = self.currentBasisOf(added);
-          takeIn(change.stage, afresh);
-          outcome.added.push(item.id);
+          item.references = cast([...change.references]);
+          item.dependencies = cast([...change.dependencies]);
           return [];
         }
         const located = self.locate(change.item);
@@ -1541,9 +1613,29 @@ export function workflowModuleModel(workflow: Workflow) {
         return [];
       }
 
+      /**
+       * Apply a write's changes: first add every item it adds, holding its
+       * content, then apply each change in order, an added item's links
+       * among them, so any change may name an item the write adds; then
+       * rest every item the write added or changed on what it links to as
+       * the write leaves it.
+       */
       function applyAll(changes: readonly ItemChange[]): { outcome: ChangeOutcome; problems: string[] } {
         const outcome: ChangeOutcome = { added: [], changed: [], proposedForRemoval: [], removalWithdrawn: [], deleted: [], unchanged: [] };
-        const problems = changes.flatMap((change, index) => applyChange(change, outcome, `Change ${index + 1}`, changes.length === 1));
+        const single = changes.length === 1;
+        const addedIds = new Map<number, string>();
+        const problems = changes.flatMap((change, index) => {
+          if (change.type !== "add") return [];
+          const before = outcome.added.length;
+          const found = createAdded(change, outcome, `Change ${index + 1}`, single);
+          if (outcome.added.length > before) addedIds.set(index, outcome.added.at(-1)!);
+          return found;
+        });
+        problems.push(...changes.flatMap((change, index) => applyChange(change, outcome, `Change ${index + 1}`, single, addedIds.get(index))));
+        for (const id of [...outcome.added, ...outcome.changed]) {
+          const item = self.locate(id)!.item;
+          item.basis = self.currentBasisOf(item);
+        }
         problems.push(...self.dependencyProblems([...outcome.added, ...outcome.changed]));
         if (problems.length === 0) problems.push(...self.kindProblems([...outcome.added, ...outcome.changed]));
         return { outcome, problems };
@@ -1726,34 +1818,27 @@ export function workflowModuleModel(workflow: Workflow) {
             throw new UserFacingError(`${self.unitLabel(unitId)} changed since it was shown, so it was not signed. Read it again, then sign.`);
           }
           if (!self.signable(unitId)) return;
-          const node = stageNode(state.stage);
-          switch (state.kind) {
-            case "item": {
-              const item = self.locate(state.itemId)!.item;
-              if (state.phase === "proposed-removal") {
-                item.removal = { signature: { ...signatureRecord(signer, removalRevision(state.version)), version: state.version } };
-                break;
-              }
-              item.signature = { ...signatureRecord(signer, state.revision), version: state.version, basis: state.currentBasis };
-              item.basis = state.currentBasis;
-              break;
-            }
-            case "coverage": {
-              node.coverages.set(state.itemId, {
-                ...signatureRecord(signer, state.covers),
-                item: { id: state.itemId, version: self.versionOf(state.itemId)! },
-                referencing: state.referencing.map((id) => ({ id, version: self.versionOf(id)! })),
-              });
-              break;
-            }
-            case "impact": {
-              node.impacts.set(state.itemId, { ...signatureRecord(signer, state.covers), before: state.before, after: state.after });
-              if (state.after == null) node.intake.delete(state.itemId);
-              else node.intake.set(state.itemId, state.after);
-              break;
+          signUnit(unitId, signer, null);
+          settleRemovals();
+        },
+        /**
+         * Sign in one act each unit of a set an agent proposes that can be
+         * signed in a set and is still as the agent reviewed it, recording
+         * what the set rests on; every other unit stays unsigned.
+         */
+        signSet(proposal: SetProposal, signer: Signer = SPEC_OWNER): SetOutcome {
+          const outcome: SetOutcome = { signed: [], unsigned: [] };
+          for (const { unitId, covers } of proposal.units) {
+            if (!self.signable(unitId)) outcome.unsigned.push({ unitId, reason: "not-signable" });
+            else if (!self.signableInSet(unitId)) outcome.unsigned.push({ unitId, reason: "not-in-set" });
+            else if (self.signingCovers(unitId) !== covers) outcome.unsigned.push({ unitId, reason: "changed" });
+            else {
+              signUnit(unitId, signer, proposal.basis);
+              outcome.signed.push(unitId);
             }
           }
           settleRemovals();
+          return outcome;
         },
         /** Return an item changed since its last signature, or proposed for removal, to the version that signature covers. */
         restoreSigned(itemId: string) {

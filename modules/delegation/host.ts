@@ -4,9 +4,9 @@ import { activeModule, listedModules, SiblingModuleStores, visibleModuleNamed, v
 import type { ProjectSession } from "project-session";
 import type { ModuleRegistry, ProjectState } from "storage";
 import type { Store } from "store";
-import { type ItemChange, revisionOf } from "workflow";
+import { type ItemChange, parseUnitId, revisionOf } from "workflow";
 
-import { asksAnnotation, findingsOf, replyAgent } from "./annotations";
+import { asksAnnotation, choicesOf, findingsOf, notedUnitId, proposalOf, replyAgent } from "./annotations";
 import { type TakeContext, whyCannotTake } from "./availability";
 import { type ConfirmationNote, ConfirmationNeededError, Desk, type SpecOwnerAction, type WaitingThreadState } from "./desk";
 import { replyRulesText } from "./interface/replyRules";
@@ -18,6 +18,7 @@ import {
   type HeldThread,
   type ProjectModule,
   reviewAskProblem,
+  reviewProposes,
   stagesToUpdateAfter,
   updateAskProblem,
 } from "./waiting";
@@ -48,8 +49,8 @@ export interface DelegationHostApi {
   readReplyChanges(messageId: string): ReplyChange[];
 }
 
-/** A finding a reply gives, with the reply's thread and module, the agent that gave it and when. */
-export interface FindingView {
+/** Which reply a note or a proposal comes from: its thread and module, the agent that gave it and when. */
+export interface ReplyPlace {
   moduleId: string;
   threadId: string;
   messageId: string;
@@ -58,12 +59,26 @@ export interface FindingView {
   /** The name the reply was written with. */
   writtenBy: string;
   at: string | null;
+}
+
+/** A finding or a choice a reply gives on a unit, with whether the unit changed since and whether the agent took part in it. */
+export interface NoteView extends ReplyPlace {
+  unitId: string;
+  /** The item the unit is, or that its coverage or impact is on. */
   itemId: string;
-  revision: string;
-  rule: string;
-  how: string;
-  /** The agent that gave it wrote the item's current version. */
+  note: { kind: "finding"; rule: string; how: string } | { kind: "choice"; choice: string };
+  /** The unit differs from what it was when the note was given, or is gone. */
+  changed: boolean;
+  /** The agent that gave it took part in the unit as it was then. */
   ownWork: boolean;
+}
+
+/** A proposal a reply gives, with each unit and whether it can still be signed as proposed, and whether its offer to sign it stands. */
+export interface ProposalView extends ReplyPlace {
+  stage: string;
+  units: { unitId: string; itemId: string; covers: string; signable: boolean; ownWork: boolean }[];
+  /** The offer to sign it in one act stands: its thread is open, no later reply gives a proposal on its stage, and a unit of it is signable as proposed. */
+  offered: boolean;
 }
 
 /** What the spec owner may ask of a stage now: its update, its review, and in one step the update of the stages building on it. */
@@ -83,7 +98,8 @@ export interface DelegationView {
   waiting: WaitingView[];
   /** Each wait the spec owner withdrew, by the message that set it waiting. */
   withdrawn: { moduleId: string; threadId: string; messageId: string; at: string }[];
-  findings: FindingView[];
+  notes: NoteView[];
+  proposals: ProposalView[];
   asks: StageAsks[];
   moduleAgents: Record<string, AgentId>;
   /** By thread key. */
@@ -93,7 +109,7 @@ export interface DelegationView {
   startedIn: Record<AgentId, ThreadPlace>;
 }
 
-export const EMPTY_DELEGATION_VIEW: DelegationView = { waiting: [], withdrawn: [], findings: [], asks: [], moduleAgents: {}, failures: {}, threadAgents: {}, startedIn: {} };
+export const EMPTY_DELEGATION_VIEW: DelegationView = { waiting: [], withdrawn: [], notes: [], proposals: [], asks: [], moduleAgents: {}, failures: {}, threadAgents: {}, startedIn: {} };
 
 /** What a host sends its clients of Delegation. */
 export type DelegationHostEvent = { type: "delegation"; view: DelegationView };
@@ -340,7 +356,7 @@ export class DelegationHost {
     const agent = this.agents.registry.agent(held.holder.agentId);
     if (agent == null || agent.archived) return;
     const summary = this.desk.summary(held);
-    const prompt = assignmentPrompt(held, summary);
+    const prompt = assignmentPrompt(held, summary, this.desk.module(held.moduleId).store);
     const said: Record<typeof why, string> = {
       assigned: prompt,
       continue: `The spec owner asks you to continue your work on a thread assigned to you: ${summary}. ${prompt}`,
@@ -443,7 +459,7 @@ export class DelegationHost {
       "thread message",
       () => {
         for (const stage of stages) {
-          const args = [stage, askText(kind, store.workflow.stage(stage).label), asksAnnotation(kind)] as const;
+          const args = [stage, askText(kind, store.workflow.stage(stage).label, reviewProposes(store, stage)), asksAnnotation(kind)] as const;
           const threadId = moduleId === active ? store.openStageThread(...args) : this.session.changeOtherModule(moduleId, (other) => other.openStageThread(...args));
           this.setWaiting(moduleId, threadId, target);
         }
@@ -523,7 +539,7 @@ export class DelegationHost {
     return {
       waiting,
       withdrawn: record.waits.flatMap((wait) => (wait.ended?.how === "withdrawn" ? [{ moduleId: wait.moduleId, threadId: wait.threadId, messageId: wait.messageId, at: wait.ended.at }] : [])),
-      findings: this.findings(modules),
+      ...this.replyNotes(modules),
       asks: modules.flatMap((module) =>
         module.store.workflow.stageIds.flatMap((stage): StageAsks[] => {
           const update = updateAskProblem(module, record, stage) == null;
@@ -539,30 +555,57 @@ export class DelegationHost {
     };
   }
 
-  /** Every finding the replies of the open project's modules give, whatever module the item it names is of. */
-  private findings(modules: readonly ProjectModule[]): FindingView[] {
-    return modules.flatMap((module) =>
-      module.store.threads.flatMap((thread) =>
-        thread.messages.flatMap((message) => {
-          if (message.author.kind !== "agent") return [];
+  /**
+   * Every finding and choice the replies of the open project's modules give,
+   * whatever module the unit it names is of, and every proposal they give.
+   */
+  private replyNotes(modules: readonly ProjectModule[]): Pick<DelegationView, "notes" | "proposals"> {
+    const holderOf = (unitId: string, itemId: string): Store | null => {
+      if (parseUnitId(unitId).kind === "item") return modules.find((module) => module.store.locate(itemId) != null)?.store ?? null;
+      return modules.find((module) => module.store.unitState(unitId) != null)?.store ?? null;
+    };
+    const revisionNow = (unitId: string, itemId: string): string | null => {
+      const holder = holderOf(unitId, itemId);
+      if (holder == null) return null;
+      if (parseUnitId(unitId).kind !== "item") return holder.signingCovers(unitId);
+      const version = holder.findLinked(itemId)?.version;
+      return version == null ? null : revisionOf(version);
+    };
+    const notes: NoteView[] = [];
+    const proposals: ProposalView[] = [];
+    for (const projectModule of modules) {
+      for (const thread of projectModule.store.threads) {
+        for (const message of thread.messages) {
+          if (message.author.kind !== "agent") continue;
           const agentId = replyAgent(message);
-          return findingsOf(message).map((finding): FindingView => {
-            const version = module.store.findLinked(finding.itemId)?.version;
-            const writer = version == null ? null : this.desk.writerOf(finding.itemId, revisionOf(version));
-            return {
-              moduleId: module.id,
-              threadId: thread.id,
-              messageId: message.id,
-              agentId,
-              writtenBy: message.author.kind === "agent" ? message.author.name : "",
-              at: message.at,
-              ...finding,
-              ownWork: agentId != null && writer === agentId,
-            };
-          });
-        }),
-      ),
-    );
+          const place: ReplyPlace = { moduleId: projectModule.id, threadId: thread.id, messageId: message.id, agentId, writtenBy: message.author.name, at: message.at };
+          const noted = [
+            ...findingsOf(message).map(({ rule, how, ...unit }) => ({ unit, note: { kind: "finding", rule, how } as const })),
+            ...choicesOf(message).map(({ choice, ...unit }) => ({ unit, note: { kind: "choice", choice } as const })),
+          ];
+          for (const { unit, note } of noted) {
+            const unitId = notedUnitId(unit);
+            notes.push({ ...place, unitId, itemId: unit.itemId, note, changed: revisionNow(unitId, unit.itemId) !== unit.revision, ownWork: unit.ownWork === true });
+          }
+          const proposal = proposalOf(message);
+          if (proposal == null) continue;
+          const units = proposal.map(({ unitId, covers, ownWork }) => ({
+            unitId,
+            itemId: parseUnitId(unitId).itemId,
+            covers,
+            signable: projectModule.store.signableInSet(unitId) && projectModule.store.signingCovers(unitId) === covers,
+            ownWork: ownWork === true,
+          }));
+          proposals.push({ ...place, stage: thread.stage, units, offered: thread.resolution == null && units.some(({ signable }) => signable) });
+        }
+      }
+    }
+    // A later proposal on the same stage ends the offer of every earlier one.
+    for (const proposal of proposals) {
+      const later = proposals.some((other) => other !== proposal && other.moduleId === proposal.moduleId && other.stage === proposal.stage && (other.at ?? "") > (proposal.at ?? ""));
+      if (later) proposal.offered = false;
+    }
+    return { notes, proposals };
   }
 
   /** Send the view once the change running now is made, when it changed. */

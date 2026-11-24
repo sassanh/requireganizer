@@ -68,8 +68,8 @@ tool signs.
   criterion is a Given, a When, left empty for a state that holds with no
   event, and a Then.
 - The Boundary holds one boundary statement, entity types, sets of words and
-  operations. Write entity types and sets of words before the operations
-  that name them: items added in one write cannot name each other by code.
+  operations. An operation names an entity type or a set of words the same
+  write adds as `"change:N"`, N being the place of its add change.
   An operation is a direct setup, an action or an observation, with a phrase
   holding each input's place as `{name}`, typed inputs, a result type or
   none, and the acceptance criteria that need it as references. A type is an
