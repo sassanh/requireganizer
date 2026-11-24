@@ -7,12 +7,12 @@ import { useMemo, useState } from "react";
 import { ActionTooltip } from "actions/ActionHint";
 import { isEditableTarget, isOverlayTarget, type ShortcutBinding, useShortcut } from "hooks/shortcuts";
 
-import AgentsDialog from "./AgentsDialog";
+import AgentsDialog, { type AgentsTab } from "./AgentsDialog";
 import { useAgents } from "./context";
 import { agentsShortcut } from "./shortcuts";
 
-/** Opens the agents and templates, from the top bar or with its key; its badge counts the coding agents asking to be let in. */
-export default function AgentsButton() {
+/** Opens the agents and templates, with the tabs other modules add, from the top bar or with its key; its badge counts the coding agents asking to be let in. */
+export default function AgentsButton({ tabs }: { tabs?: readonly AgentsTab[] }) {
   const { view } = useAgents();
   const [open, setOpen] = useState(false);
   const asking = view.agents.filter((agent) => agent.askingToLetIn).length;
@@ -30,7 +30,7 @@ export default function AgentsButton() {
           </Badge>
         </IconButton>
       </ActionTooltip>
-      <AgentsDialog open={open} onClose={() => setOpen(false)} />
+      <AgentsDialog open={open} onClose={() => setOpen(false)} tabs={tabs} />
     </>
   );
 }

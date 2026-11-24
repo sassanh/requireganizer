@@ -1,25 +1,33 @@
 "use client";
 
-import { Add, Archive, Delete, Edit, InfoOutlined, Unarchive } from "@mui/icons-material";
+import { Add, ArchiveOutlined, Code, ContentCopy, Delete, Edit, InfoOutlined, SmartToy, Unarchive } from "@mui/icons-material";
 import {
+  Avatar,
+  Box,
   Button,
+  Card,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
-  Divider,
   IconButton,
+  InputAdornment,
   List,
   ListItem,
   ListItemText,
   MenuItem,
+  Popover,
   Stack,
+  Tab,
+  Tabs,
   TextField,
   Tooltip,
   Typography,
 } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 import { type FormEvent, type ReactNode, useState } from "react";
 
+import { notify } from "components/notices";
 import { getUserFacingErrorMessage } from "lib/errors";
 
 import type { ConnectionDetails } from "../record";
@@ -42,45 +50,70 @@ export function detailLines(details: ConnectionDetails | null): string[] {
   ];
 }
 
-/** A section of the dialog: a title, a line saying what it is for, and its content. */
-function Section({ title, purpose, children }: { title: string; purpose: string; children: ReactNode }) {
-  return (
-    <Stack component="section" aria-label={title} spacing={1}>
-      <Stack>
-        <Typography variant="subtitle1">{title}</Typography>
-        <Typography variant="body2" color="text.secondary">
-          {purpose}
-        </Typography>
-      </Stack>
-      {children}
-    </Stack>
-  );
+/**
+ * What finds a coding agent again: the id of its session, to resume it, or
+ * for a sessionless coding agent the id the system gave it, which it gives
+ * back when it names itself; null when this computer kept neither.
+ */
+function findingId(agent: AgentView): { label: string; value: string } | null {
+  if (agent.details?.sessionless === true) return { label: "Id it names itself with", value: agent.id };
+  return agent.session == null ? null : { label: "Session", value: agent.session };
 }
 
-/** An info icon that shows a coding agent's connection details on hover, focus or click, leaving the list's layout as it is. */
+/**
+ * An info icon on a coding agent that opens, on click, what finds it again,
+ * with a way to copy it, and what its connection tells, one fact per line.
+ */
 function DetailsInfo({ agent }: { agent: AgentView }) {
-  const [pinned, setPinned] = useState(false);
-  const label = `What ${agentLabel(agent)}'s connection tells`;
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const found = findingId(agent);
+  const copy = (value: string) =>
+    navigator.clipboard.writeText(value).then(
+      () => notify("Copied"),
+      () => notify("It could not be copied.", "error"),
+    );
   return (
-    <Tooltip
-      open={pinned || undefined}
-      onClose={() => setPinned(false)}
-      title={
-        <Stack component="ul" sx={{ m: 0, pl: 2 }}>
-          {detailLines(agent.details).map((line) => (
-            <li key={line}>{line}</li>
-          ))}
-        </Stack>
-      }
-    >
-      <IconButton size="small" aria-label={label} onClick={() => setPinned((shown) => !shown)}>
+    <>
+      <IconButton size="small" aria-label={`About ${agentLabel(agent)}`} aria-expanded={anchor != null} onClick={(event) => setAnchor(event.currentTarget)}>
         <InfoOutlined fontSize="small" />
       </IconButton>
-    </Tooltip>
+      <Popover open={anchor != null} anchorEl={anchor} onClose={() => setAnchor(null)} anchorOrigin={{ vertical: "bottom", horizontal: "right" }} transformOrigin={{ vertical: "top", horizontal: "right" }}>
+        <Stack spacing={1} sx={{ p: 1.5, maxWidth: 380 }}>
+          {found == null ? (
+            <Typography variant="body2" color="text.secondary">
+              This computer has not kept its session.
+            </Typography>
+          ) : (
+            <Stack>
+              <Typography variant="caption" color="text.secondary">
+                {found.label}
+              </Typography>
+              <Stack direction="row" sx={{ alignItems: "center", gap: 0.5 }}>
+                <Typography variant="body2" sx={{ fontFamily: "monospace", overflowWrap: "anywhere", userSelect: "all" }}>
+                  {found.value}
+                </Typography>
+                <Tooltip title="Copy">
+                  <IconButton size="small" aria-label={`Copy the ${found.label.toLowerCase()}`} onClick={() => void copy(found.value)}>
+                    <ContentCopy fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Stack>
+            </Stack>
+          )}
+          <Stack component="ul" sx={{ m: 0, pl: 2 }}>
+            {detailLines(agent.details).map((line) => (
+              <Typography key={line} component="li" variant="body2">
+                {line}
+              </Typography>
+            ))}
+          </Stack>
+        </Stack>
+      </Popover>
+    </>
   );
 }
 
-/** A one-field form, sent with Enter, that names an agent that has no name, showing why a name is refused. */
+/** A one-field form, sent with Enter or its button, that names an agent that has no name, showing why a name is refused. */
 export function NameField({ agent }: { agent: AgentView }) {
   const { client } = useAgents();
   const [name, setName] = useState("");
@@ -96,48 +129,112 @@ export function NameField({ agent }: { agent: AgentView }) {
     );
   };
   return (
-    <Stack component="form" direction="row" onSubmit={submit} sx={{ gap: 1, alignItems: "flex-start" }}>
-      <TextField size="small" label="Name this agent" value={name} onChange={(event) => setName(event.target.value)} error={problem != null} helperText={problem} />
-      <Button type="submit" size="small">
-        Name
-      </Button>
-    </Stack>
+    <form onSubmit={submit}>
+      <TextField
+        size="small"
+        fullWidth
+        placeholder="Name this agent"
+        value={name}
+        onChange={(event) => setName(event.target.value)}
+        error={problem != null}
+        helperText={problem}
+        slotProps={{
+          htmlInput: { "aria-label": "Name this agent" },
+          input: {
+            endAdornment: (
+              <InputAdornment position="end">
+                <Button type="submit" size="small" disabled={name.trim().length === 0}>
+                  Name
+                </Button>
+              </InputAdornment>
+            ),
+          },
+        }}
+      />
+    </form>
   );
 }
 
-/** One agent of the list: by its name, or as unnamed with a way to name it; its kind and whether it is connected; and its actions. */
-function AgentRow({ agent, onProblem }: { agent: AgentView; onProblem: (problem: string | null) => void }) {
+/** Each kind of agent's mark: an icon on a field tinted in its colour. */
+const KIND_MARK = {
+  coding: { Icon: Code, palette: "primary" },
+  internal: { Icon: SmartToy, palette: "info" },
+} as const;
+
+function KindAvatar({ kind }: { kind: AgentView["kind"] }) {
+  const { Icon, palette } = KIND_MARK[kind];
+  return (
+    <Avatar variant="rounded" sx={{ width: 32, height: 32, color: `${palette}.main`, bgcolor: (theme) => alpha(theme.palette[palette].main, 0.12) }}>
+      <Icon sx={{ fontSize: 18 }} />
+    </Avatar>
+  );
+}
+
+/** A button that opens, beside it, the field that names an agent that has no name. */
+function NameButton({ agent }: { agent: AgentView }) {
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  return (
+    <>
+      <Button size="small" onClick={(event) => setAnchor(event.currentTarget)}>
+        Name
+      </Button>
+      <Popover open={anchor != null} anchorEl={anchor} onClose={() => setAnchor(null)} anchorOrigin={{ vertical: "bottom", horizontal: "left" }}>
+        <Box sx={{ p: 1.5, width: 280 }}>
+          <NameField agent={agent} />
+        </Box>
+      </Popover>
+    </>
+  );
+}
+
+/** The size every agent's card has, so the grid stays even. */
+const CARD_WIDTH = 280;
+const CARD_HEIGHT = 64;
+
+/**
+ * One agent as a card marked with its kind's avatar: by its name, or as
+ * unnamed with a way to name it; for an internal agent, its template; a way to let in a connected coding agent
+ * that is not let in; and its actions.
+ */
+function AgentCard({ agent, onProblem }: { agent: AgentView; onProblem: (problem: string | null) => void }) {
   const { client } = useAgents();
   const [showingContext, setShowingContext] = useState(false);
-  const kind = agent.kind === "internal" ? `Internal agent · ${agent.template?.name}` : agent.connected ? "Coding agent · connected" : "Coding agent · not connected";
-  const asked = agent.kind === "coding" && agent.name != null && !agent.letIn ? (agent.askingToLetIn ? " · asks to be let in" : " · not let in") : "";
+  const canLetIn = agent.kind === "coding" && agent.connected && agent.name != null && !agent.letIn;
+  const detail = agent.kind === "internal" ? `internal agent on ${agent.template?.name ?? "no template"}` : agent.connected ? "coding agent, connected" : "coding agent, not connected";
   return (
-    <ListItem
-      disableGutters
-      secondaryAction={
-        <Stack direction="row" sx={{ alignItems: "center" }}>
-          {agent.kind === "coding" && <DetailsInfo agent={agent} />}
-          {agent.kind === "internal" && (
-            <Button size="small" onClick={() => setShowingContext(true)}>
-              Context
-            </Button>
-          )}
-          {agent.name != null && (
-            <Tooltip title={`Archive ${agent.name}`}>
-              <IconButton size="small" aria-label={`Archive ${agent.name}`} onClick={() => client.archiveAgent(agent.id).then(() => onProblem(null), (error: unknown) => onProblem(errorText(error)))}>
-                <Archive fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          )}
-        </Stack>
-      }
-    >
-      <Stack spacing={0.5} sx={{ pr: 16 }}>
-        <ListItemText primary={agentLabel(agent)} secondary={`${kind}${asked}`} />
-        {agent.name == null && <NameField agent={agent} />}
+    <Card variant="outlined" role="group" aria-label={`${agentLabel(agent)}: ${detail}`} sx={{ width: CARD_WIDTH, height: CARD_HEIGHT, display: "flex", alignItems: "center", gap: 1.25, px: 1.5 }}>
+      <KindAvatar kind={agent.kind} />
+      <Stack sx={{ flexGrow: 1, minWidth: 0 }}>
+        <Typography variant="body2" noWrap title={agentLabel(agent)} sx={{ fontWeight: 500 }}>
+          {agentLabel(agent)}
+        </Typography>
+        <Typography variant="caption" color="text.secondary" noWrap>
+          {agent.kind === "internal" ? `Internal agent · ${agent.template?.name ?? "no template"}` : "Coding agent"}
+        </Typography>
+      </Stack>
+      {canLetIn && (
+        <Button size="small" variant="contained" onClick={() => client.answerLetIn(agent.id, true).then(() => onProblem(null), (error: unknown) => onProblem(errorText(error)))}>
+          Let in
+        </Button>
+      )}
+      {agent.name == null && <NameButton agent={agent} />}
+      <Stack direction="row" sx={{ flexShrink: 0 }}>
+        {agent.kind === "coding" && <DetailsInfo agent={agent} />}
+        {agent.kind === "internal" && (
+          <Button size="small" onClick={() => setShowingContext(true)}>
+            Context
+          </Button>
+        )}
+        {agent.name != null && (
+          <Tooltip title={`Archive ${agent.name}`}>
+            <IconButton size="small" aria-label={`Archive ${agent.name}`} onClick={() => client.archiveAgent(agent.id).then(() => onProblem(null), (error: unknown) => onProblem(errorText(error)))}>
+              <ArchiveOutlined fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        )}
       </Stack>
       {showingContext && <ContextDialog agentId={agent.id} topic={null} onClose={() => setShowingContext(false)} />}
-    </ListItem>
+    </Card>
   );
 }
 
@@ -229,6 +326,9 @@ function TemplateList() {
   const [problem, setProblem] = useState<string | null>(null);
   return (
     <Stack spacing={1}>
+      <Button size="small" variant="outlined" startIcon={<Add />} sx={{ alignSelf: "flex-end" }} onClick={() => setEditing("new")}>
+        Add a template
+      </Button>
       <List dense aria-label="Templates">
         {view.templates.length === 0 && (
           <ListItem disableGutters>
@@ -259,9 +359,6 @@ function TemplateList() {
           {problem}
         </Typography>
       )}
-      <Button size="small" startIcon={<Add />} sx={{ alignSelf: "flex-start" }} onClick={() => setEditing("new")}>
-        Add a template
-      </Button>
       {editing != null && (
         <TemplateForm
           initial={editing === "new" ? null : editing}
@@ -312,49 +409,104 @@ export function listedAgents(agents: readonly AgentView[]): AgentView[] {
   return agents.filter((agent) => !agent.archived && (agent.name != null || (agent.kind === "coding" && agent.connected)));
 }
 
+/** A tab of the dialog that another module adds, such as the agent of each module. */
+export interface AgentsTab {
+  label: string;
+  content: ReactNode;
+}
+
+/** The label above a group of agents. */
+function GroupLabel({ text }: { text: string }) {
+  return (
+    <Typography variant="overline" color="text.secondary" sx={{ flexGrow: 1, lineHeight: 1.5 }}>
+      {text}
+    </Typography>
+  );
+}
+
+/** Agents as cards of one size, in a grid that fits as many columns as the width allows. */
+function AgentGrid({ label, agents, onProblem }: { label: string; agents: readonly AgentView[]; onProblem: (problem: string | null) => void }) {
+  if (agents.length === 0) return null;
+  return (
+    <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: `repeat(auto-fill, ${CARD_WIDTH}px)` }} aria-label={label} role="list">
+      {agents.map((agent) => (
+        <Box key={agent.id} role="listitem">
+          <AgentCard agent={agent} onProblem={onProblem} />
+        </Box>
+      ))}
+    </Box>
+  );
+}
+
 /**
- * Every agent that is not archived, by its name, each connected coding
- * agent that has no name marked as unnamed, each coding agent not connected
- * marked so; a way to start an internal agent from a template; and the
- * templates.
+ * The agents as cards, those connected first and, after a separator, the
+ * coding agents not connected; with a way to start an internal agent from
+ * a template on request and the archived agents on request.
  */
-export default function AgentsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+function AgentsTabContent() {
   const { view } = useAgents();
   const [problem, setProblem] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
   const agents = listedAgents(view.agents);
+  // Internal agents count as connected: Requireganizer runs them itself.
+  const reachable = agents.filter((agent) => agent.kind === "internal" || agent.connected);
+  const unconnected = agents.filter((agent) => agent.kind === "coding" && !agent.connected);
+  const noTemplate = view.templates.length === 0;
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="md">
-      <DialogTitle>Agents</DialogTitle>
-      <DialogContent>
-        <Stack spacing={3} divider={<Divider flexItem />}>
-          <Section title="Your agents" purpose="The agents you can assign threads to: the internal agents you started and the coding agents that connected.">
-            <List dense aria-label="Agents">
-              {agents.length === 0 && (
-                <ListItem disableGutters>
-                  <ListItemText secondary="No agent yet. Start one below, or connect a coding agent over MCP." />
-                </ListItem>
-              )}
-              {agents.map((agent) => (
-                <AgentRow key={agent.id} agent={agent} onProblem={setProblem} />
-              ))}
-            </List>
-            <ArchivedAgents onProblem={setProblem} />
-            {problem != null && (
-              <Typography color="error" variant="body2">
-                {problem}
-              </Typography>
-            )}
-          </Section>
-          <Section
-            title="Start an internal agent"
-            purpose={view.templates.length === 0 ? "Add a template below first; an internal agent runs on a template's AI provider and model." : "Requireganizer runs it on the AI provider and model of the template you choose."}
-          >
-            <StartAgentForm templates={view.templates} />
-          </Section>
-          <Section title="Templates" purpose="Each template is an AI provider's OpenAI-compatible endpoint, a key and a model, for starting internal agents.">
-            <TemplateList />
-          </Section>
-        </Stack>
+    <Stack spacing={1.5}>
+      <Stack direction="row" sx={{ alignItems: "center", gap: 1, minHeight: 32 }}>
+        <GroupLabel text={agents.length === 0 ? "No agent yet. Start one, or connect a coding agent over MCP." : `Connected · ${reachable.length}`} />
+        <Tooltip title={noTemplate ? "Add a template first, in Templates." : ""}>
+          <span>
+            <Button size="small" startIcon={<Add />} disabled={noTemplate} onClick={() => setStarting((was) => !was)} aria-expanded={starting}>
+              Start an internal agent
+            </Button>
+          </span>
+        </Tooltip>
+      </Stack>
+      {starting && !noTemplate && (
+        <Card variant="outlined" sx={{ p: 1.5 }}>
+          <StartAgentForm templates={view.templates} />
+        </Card>
+      )}
+      <AgentGrid label="Connected agents" agents={reachable} onProblem={setProblem} />
+      {unconnected.length > 0 && (
+        <>
+          <Box sx={{ pt: 1.5 }}>
+            <GroupLabel text={`Not connected · ${unconnected.length}`} />
+          </Box>
+          <AgentGrid label="Agents not connected" agents={unconnected} onProblem={setProblem} />
+        </>
+      )}
+      {problem != null && (
+        <Typography color="error" variant="body2">
+          {problem}
+        </Typography>
+      )}
+      <ArchivedAgents onProblem={setProblem} />
+    </Stack>
+  );
+}
+
+/**
+ * The agents, each tab its own concern: the agents as cards, the tabs other
+ * modules add, such as the agent of each module, and the templates internal
+ * agents start from. A fixed height, so switching tabs never resizes it.
+ */
+export default function AgentsDialog({ open, onClose, tabs = [] }: { open: boolean; onClose: () => void; tabs?: readonly AgentsTab[] }) {
+  const [shown, setShown] = useState(0);
+  const all: AgentsTab[] = [{ label: "Agents", content: <AgentsTabContent /> }, ...tabs, { label: "Templates", content: <TemplateList /> }];
+  const current = Math.min(shown, all.length - 1);
+  return (
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="md" slotProps={{ paper: { sx: { height: "min(85vh, 760px)" } } }}>
+      <DialogTitle sx={{ pb: 0 }}>Agents</DialogTitle>
+      <Tabs value={current} onChange={(_event, value: number) => setShown(value)} sx={{ px: 3, borderBottom: 1, borderColor: "divider" }}>
+        {all.map(({ label }) => (
+          <Tab key={label} label={label} />
+        ))}
+      </Tabs>
+      <DialogContent sx={{ pt: 2 }}>
+        <Box sx={{ pt: 2 }}>{all[current]!.content}</Box>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Close</Button>

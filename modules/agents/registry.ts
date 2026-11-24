@@ -2,6 +2,7 @@ import { UserFacingError } from "lib/errors";
 import { uuid } from "utilities";
 
 import { type AgentId, type ConnectionDetails, type ContextPart, parseStoredAgents, type StoredAgent, storedAgentsRecord } from "./record";
+import type { SessionsSource } from "./sessions";
 import { type Template, type TemplatesSource, templateView } from "./templates";
 import { agentLabel, type AgentsView, type AgentView, identifierOf, sameName } from "./view";
 
@@ -15,6 +16,8 @@ export interface AgentNotice {
 export interface Registration {
   /** The hash of the session its coding tool tells; null for a coding tool that tells none. */
   session: string | null;
+  /** The session id itself, kept only on this computer, never in the project; null for a coding tool that tells none. */
+  sessionId: string | null;
   details: ConnectionDetails;
 }
 
@@ -73,6 +76,8 @@ export class AgentRegistry {
 
   constructor(
     readonly templates: TemplatesSource,
+    /** Where this computer keeps each coding agent's session id. */
+    private readonly sessions: SessionsSource,
     /** Keep the agents beside the open project; nothing while none is open. */
     private readonly keep: (record: unknown) => void,
   ) {
@@ -153,6 +158,7 @@ export class AgentRegistry {
           letIn: true,
           askingToLetIn: false,
           details: null,
+          session: null,
           reachable: agent.archivedAt == null,
         };
       }
@@ -168,6 +174,7 @@ export class AgentRegistry {
         letIn: this.letIn.has(agent.id),
         askingToLetIn: this.asking.has(agent.id),
         details: live.at(-1)?.details ?? agent.details,
+        session: agent.session == null ? null : this.sessions.idOf(agent.session),
         reachable: live.some(({ details }) => details.reachable),
       };
     });
@@ -184,6 +191,7 @@ export class AgentRegistry {
         letIn: false,
         askingToLetIn: false,
         details: live.at(-1)?.details ?? null,
+        session: this.sessions.idOf(session),
         reachable: live.some(({ details }) => details.reachable),
       };
     });
@@ -233,7 +241,8 @@ export class AgentRegistry {
    * whether to let it in.
    */
   connect(connection: string, registration: Registration, tell: (notice: AgentNotice) => void): void {
-    const { session, details } = registration;
+    const { session, sessionId, details } = registration;
+    if (session != null && sessionId != null) this.sessions.remember(session, sessionId);
     const again = session != null && ![...this.connections.values()].some((other) => other.session === session);
     this.connections.set(connection, { session, details, tell, sessionless: new Set() });
     if (session != null) {

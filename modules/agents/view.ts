@@ -19,6 +19,8 @@ export interface AgentView {
   askingToLetIn: boolean;
   /** For a coding agent: what its connection tells, or last told, of it. */
   details: ConnectionDetails | null;
+  /** For a coding agent: the id of its session, to resume it, when this computer kept it; null otherwise. */
+  session: string | null;
   /** The project can send a message into its session: always for an internal agent; for a coding agent, while it is connected through a coding tool that lets it. */
   reachable: boolean;
 }

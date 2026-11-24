@@ -6,7 +6,7 @@ import {
   onSnapshot,
 } from "mobx-state-tree";
 
-import { AgentsHost, type TemplatesSource } from "agents";
+import { AgentsHost, type SessionsSource, type TemplatesSource } from "agents";
 import {
   type ClientMessage,
   type HostApi,
@@ -102,7 +102,7 @@ export class ProjectHost implements HostEndpoint {
   /** The threads assigned to agents and the work agents do on the spec. */
   readonly delegation: DelegationHost;
 
-  constructor(session: ProjectSession, templates: TemplatesSource) {
+  constructor(session: ProjectSession, templates: TemplatesSource, sessions: SessionsSource) {
     this.session = session;
     this.sentHostInfo = hostInfo(session.persistence.traits);
     const agentsSession = {
@@ -113,7 +113,7 @@ export class ProjectHost implements HostEndpoint {
       keptBeside: (key: "agents") => session.keptBeside(key),
       keepBeside: (key: "agents", value: unknown) => session.keepBeside(key, value),
     };
-    this.agents = new AgentsHost(agentsSession, templates, (view) => {
+    this.agents = new AgentsHost(agentsSession, templates, sessions, (view) => {
       if (this.links.size > 0) this.broadcast({ type: "agents", view });
     });
     this.delegation = new DelegationHost(session, this.agents, (view) => {

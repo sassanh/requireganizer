@@ -1,9 +1,9 @@
 "use client";
 
 import { Forum } from "@mui/icons-material";
-import { Badge, Button, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, MenuItem, Stack, TextField, Typography } from "@mui/material";
+import { Badge, Divider, IconButton, MenuItem, Popover, Stack, TextField, Typography } from "@mui/material";
 import { observer } from "mobx-react-lite";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ActionTooltip } from "actions/ActionHint";
 import { agentLabel } from "agents";
@@ -19,57 +19,56 @@ import { useDelegation } from "./context";
 import { threadsShortcut } from "./shortcuts";
 import ThreadList, { useThreadGroups } from "./ThreadList";
 
-/** The agent of each module, set, changed and cleared by the spec owner. */
-function ModuleAgents({ onClose }: { onClose: () => void }) {
+/** In the agents dialog's tab of its own: the agent of each module, set, changed and cleared by the spec owner, one row per module. */
+export const ModuleAgentsTab = observer(function ModuleAgentsTab() {
   const { client, view, modules } = useDelegation();
   const agents = useAgents().view.agents;
   const choosable = agents.filter(availableForEveryThread);
   return (
-    <Dialog open onClose={onClose} fullWidth maxWidth="sm">
-      <DialogTitle>Agents of modules</DialogTitle>
-      <DialogContent>
-        <Stack spacing={2} sx={{ pt: 1 }}>
-          {modules.map((module) => {
-            const current = view.moduleAgents[module.id] ?? "";
-            return (
-              <TextField
-                key={module.id}
-                select
-                size="small"
-                label={module.name ?? "The module"}
-                value={current}
-                onChange={(event) => attempt(() => client.setModuleAgent(module.id, event.target.value === "" ? null : event.target.value), "The agent of the module could not be set.")}
-              >
-                <MenuItem value="">No agent</MenuItem>
-                {choosable.map((agent) => (
-                  <MenuItem key={agent.id} value={agent.id}>
-                    {agentLabel(agent)}
-                  </MenuItem>
-                ))}
-              </TextField>
-            );
-          })}
-        </Stack>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Close</Button>
-      </DialogActions>
-    </Dialog>
+    <Stack spacing={2}>
+      <Typography variant="body2" color="text.secondary">
+        The agent offered first when you assign a thread of the module.
+      </Typography>
+      <Stack divider={<Divider flexItem />}>
+        {modules.map((module) => (
+          <Stack key={module.id} direction="row" sx={{ alignItems: "center", gap: 2, py: 1 }}>
+            <Typography variant="body1" sx={{ flexGrow: 1, minWidth: 0 }} noWrap>
+              {module.name ?? "The module"}
+            </Typography>
+            <TextField
+              select
+              size="small"
+              aria-label={`Agent of ${module.name ?? "the module"}`}
+              value={view.moduleAgents[module.id] ?? ""}
+              onChange={(event) => attempt(() => client.setModuleAgent(module.id, event.target.value === "" ? null : event.target.value), "The agent of the module could not be set.")}
+              sx={{ width: 240, flexShrink: 0 }}
+              slotProps={{ select: { displayEmpty: true } }}
+            >
+              <MenuItem value="">No agent</MenuItem>
+              {choosable.map((agent) => (
+                <MenuItem key={agent.id} value={agent.id}>
+                  {agentLabel(agent)}
+                </MenuItem>
+              ))}
+            </TextField>
+          </Stack>
+        ))}
+      </Stack>
+    </Stack>
   );
-}
+});
 
 /**
- * Every thread of every module, opened from the top bar or with its key, in
- * three lists, with how many agents are available for every thread and the
- * agent of each module. Its badges count, top right in the attention
- * colour, the threads waiting for the spec owner and, bottom right, the
- * agents available for every thread.
+ * Every thread of every module, dropped down from its top-bar button or
+ * opened with its key, in three lists, with how many agents are available
+ * for every thread. Its badges count, top right in the attention colour,
+ * the threads waiting for the spec owner and, bottom right, the agents
+ * available for every thread.
  */
 const ThreadsControls = observer(function ThreadsControls() {
   const agents = useAgents().view;
-  const { view, modules } = useDelegation();
   const [open, setOpen] = useState(false);
-  const [settingModuleAgents, setSettingModuleAgents] = useState(false);
+  const anchor = useRef<HTMLButtonElement>(null);
   const forYou = useThreadGroups().get("waiting")!.length;
   const available = availableCount(agents);
   const binding = useMemo<ShortcutBinding>(
@@ -77,14 +76,11 @@ const ThreadsControls = observer(function ThreadsControls() {
     [],
   );
   useShortcut(binding);
-  const moduleAgentNames = modules.flatMap((module) => {
-    const agent = agents.agents.find(({ id }) => id === view.moduleAgents[module.id]);
-    return agent == null ? [] : [`${module.name ?? "The module"}: ${agentLabel(agent)}`];
-  });
   return (
     <>
       <ActionTooltip name="Threads" shortcut={threadsShortcut}>
         <IconButton
+          ref={anchor}
           aria-label={`Threads: ${forYou} ${forYou === 1 ? "waits" : "wait"} for you, ${available} ${available === 1 ? "agent" : "agents"} available`}
           onClick={() => setOpen(true)}
         >
@@ -95,25 +91,23 @@ const ThreadsControls = observer(function ThreadsControls() {
           </Badge>
         </IconButton>
       </ActionTooltip>
-      {/* A fixed height, so switching lists never resizes it. */}
-      <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="md" slotProps={{ paper: { sx: { height: "85vh" } } }}>
-        <DialogTitle>Threads</DialogTitle>
-        <DialogContent sx={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
-          <Stack spacing={2} sx={{ flexGrow: 1, minHeight: 0 }}>
-            <Stack direction="row" sx={{ alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-              <Typography variant="body2" color="text.secondary" sx={{ flexGrow: 1 }}>
-                {available} {available === 1 ? "agent is" : "agents are"} available for every thread
-                {moduleAgentNames.length === 0 ? "" : ` · ${moduleAgentNames.join(" · ")}`}
-              </Typography>
-              <Button size="small" onClick={() => setSettingModuleAgents(true)}>
-                Agents of modules
-              </Button>
-            </Stack>
-            <ThreadList onGo={() => setOpen(false)} />
-          </Stack>
-        </DialogContent>
-      </Dialog>
-      {settingModuleAgents && <ModuleAgents onClose={() => setSettingModuleAgents(false)} />}
+      {/* A fixed size, so switching lists never resizes it. */}
+      {/* Hung from the window's right edge, just below the top bar, so it sits aside rather than over the middle of the page. */}
+      <Popover
+        open={open}
+        onClose={() => setOpen(false)}
+        anchorReference="anchorPosition"
+        anchorPosition={{ top: anchor.current?.getBoundingClientRect().bottom ?? 64, left: typeof window === "undefined" ? 0 : window.innerWidth - 8 }}
+        transformOrigin={{ vertical: "top", horizontal: "right" }}
+        slotProps={{ paper: { sx: { width: "min(760px, calc(100vw - 32px))", height: "min(70vh, 640px)", display: "flex", flexDirection: "column", p: 2 } } }}
+      >
+        <Stack spacing={1.5} sx={{ flexGrow: 1, minHeight: 0 }}>
+          <Typography variant="caption" color="text.secondary">
+            {available} {available === 1 ? "agent" : "agents"} available
+          </Typography>
+          <ThreadList onGo={() => setOpen(false)} />
+        </Stack>
+      </Popover>
     </>
   );
 });

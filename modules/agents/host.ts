@@ -5,6 +5,7 @@ import type { AgentToolDescription, WorkInterface } from "./interface";
 import { InternalAgentRunner } from "./internal/runner";
 import type { AgentId, ContextPart } from "./record";
 import { type AgentCaller, type AgentNotice, AgentRegistry, NAME_TOOL, NAME_YOURSELF_TEXT, type Registration } from "./registry";
+import type { SessionsSource } from "./sessions";
 import { type TemplateDraft, templateProblems, type TemplatesSource } from "./templates";
 import type { AgentsView } from "./view";
 
@@ -101,10 +102,11 @@ export class AgentsHost {
   constructor(
     private readonly session: AgentsSession,
     templates: TemplatesSource,
+    sessions: SessionsSource,
     /** Send the agents to every client. */
     private readonly broadcast: (view: AgentsView) => void,
   ) {
-    this.registry = new AgentRegistry(templates, (record) => session.keepBeside("agents", record));
+    this.registry = new AgentRegistry(templates, sessions, (record) => session.keepBeside("agents", record));
     this.runner = new InternalAgentRunner(this.registry);
     this.registry.subscribe(() => this.scheduleView());
     const { registry } = this;

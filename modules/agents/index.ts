@@ -10,5 +10,6 @@ export { type AgentToolDescription, type WorkInterface } from "./interface";
 export { type RunOutcome, type RunRequest } from "./internal/runner";
 export { type AgentId, type ConnectionDetails, type ContextPart, type ContextTopic } from "./record";
 export { type AgentCaller, type AgentNotice, type CallingAgent, NAME_TOOL, type Registration } from "./registry";
+export { memorySessions, type SessionsSource } from "./sessions";
 export { browserTemplates, type Template, type TemplateDraft, type TemplatesSource, type TemplateView } from "./templates";
 export { agentLabel, type AgentsView, type AgentView, EMPTY_AGENTS_VIEW, labelOfId, labelOfName, sameName } from "./view";

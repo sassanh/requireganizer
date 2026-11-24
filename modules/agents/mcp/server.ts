@@ -91,14 +91,16 @@ function instructionsFor(url: string | null, instructions: string): string {
 
 /**
  * What the coding tool this process serves tells of the coding agent: the
- * session it serves, hashed so the session's id is never kept, and the
- * tool, the computer and whether the tool takes messages into its session.
+ * session it serves, as the hash the project keeps and as the id this
+ * computer keeps apart from the project, and the tool, the computer and
+ * whether the tool takes messages into its session.
  */
 function registrationOf(server: Server<Request, ChannelNotification>): Registration {
   const client = server.getClientVersion();
   const session = process.env.CLAUDE_CODE_SESSION_ID;
   return {
     session: session == null || session.length === 0 ? null : createHash("sha256").update(session).digest("hex"),
+    sessionId: session == null || session.length === 0 ? null : session,
     details: {
       tool: client?.name ?? null,
       toolVersion: client?.version ?? null,

@@ -20,7 +20,7 @@ import { switchModuleShortcut } from "actions/actions";
 import { AgentsButton, LetInPrompt } from "agents/ui";
 import { PersistentAlert, ProjectActionsMenu } from "components";
 import { notify } from "components/notices";
-import { AttentionOffers, ConfirmationHost, ModuleWorkingSign, ThreadsControls } from "delegation/ui";
+import { AttentionOffers, ConfirmationHost, ModuleAgentsTab, ModuleWorkingSign, ThreadsControls } from "delegation/ui";
 import { HistoryControls, PreviewControls, RestorePointsControls } from "history/ui";
 import {
   isEditableTarget,
@@ -338,7 +338,7 @@ function Home() {
         </Stack>
         <PreviewControls />
         <ThreadsControls />
-        <AgentsButton />
+        <AgentsButton tabs={[{ label: "Agents of modules", content: <ModuleAgentsTab /> }]} />
         <HistoryControls />
         <RestorePointsControls />
         </Toolbar>

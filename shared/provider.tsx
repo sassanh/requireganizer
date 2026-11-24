@@ -6,7 +6,7 @@ import { AppRouterCacheProvider } from "@mui/material-nextjs/v15-appRouter";
 import { saveAs } from "file-saver";
 import { memo, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
-import { browserTemplates } from "agents";
+import { browserTemplates, memorySessions } from "agents";
 import { agentsContext, type AgentsPageValue } from "agents/ui";
 import Link from "components/Link";
 import { NoticeHost } from "components/NoticeHost";
@@ -56,7 +56,7 @@ function connectProject(): ProjectConnection {
   }
   // Every tab builds its own host; the lock makes one of them the project's writer.
   const session = new ProjectSession(webPersistence, { authority: webProjectAuthority });
-  const host = new ProjectHost(session, browserTemplates());
+  const host = new ProjectHost(session, browserTemplates(), memorySessions());
   return { session, client: new ProjectClient(() => linkInProcess(host), { timeZone: pageTimeZone() }) };
 }
 
