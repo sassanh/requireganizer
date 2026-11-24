@@ -15,6 +15,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 
+import { ActionTooltip } from "actions/ActionHint";
 import { switchModuleShortcut } from "actions/actions";
 import { AgentsButton, LetInPrompt } from "agents/ui";
 import { PersistentAlert, ProjectActionsMenu } from "components";
@@ -325,11 +326,13 @@ function Home() {
             {activeProject.name}
           </Typography>
           {modulesEnabled && activeModuleName != null ? (
-            <Button variant="text" color="inherit" onClick={toggleModules} sx={{ textTransform: "none", minWidth: 0 }}>
-              <Typography variant="h6" component="span" color="text.secondary" noWrap>
-                / {activeModuleName}
-              </Typography>
-            </Button>
+            <ActionTooltip name={showingModules ? `Back to ${activeModuleName}` : "Modules"} shortcut={switchModuleShortcut}>
+              <Button variant="text" color="inherit" onClick={toggleModules} sx={{ textTransform: "none", minWidth: 0 }}>
+                <Typography variant="h6" component="span" color="text.secondary" noWrap>
+                  / {activeModuleName}
+                </Typography>
+              </Button>
+            </ActionTooltip>
           ) : null}
           <ModuleWorkingSign moduleId={activeModuleId} />
         </Stack>
