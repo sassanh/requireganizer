@@ -11,7 +11,7 @@ import { howLongAgo } from "lib/elapsed";
 import { requestPlace } from "lib/placeRequests";
 import type { Store } from "store";
 import { authorLabel, parseUnitId, threadPlace, type ThreadMessage, type UnsignedReason } from "workflow";
-import { ItemChip, type ThreadSendProps, type WorkflowSlots, workflowSlotsContext } from "workflow/ui";
+import { type ThreadSendProps, type WorkflowSlots, workflowSlotsContext } from "workflow/ui";
 
 import { replyAgent } from "../annotations";
 import type { NoteView, ProposalView, ReplyPlace } from "../host";
@@ -30,22 +30,6 @@ const UNSIGNED_REASONS: Record<UnsignedReason, string> = { changed: "changed sin
 function useReplyAgent(): (place: ReplyPlace) => string {
   const agents = useAgents().view.agents;
   return (place) => (place.agentId == null ? null : labelOfId(agents, place.agentId)) ?? labelOfName(agents, place.writtenBy);
-}
-
-/** A unit as a reply's notes and proposals show it: its item as a marked mention shows it, and for a coverage or an impact, which and in which stage. */
-function UnitName({ unitId, itemId }: { unitId: string; itemId: string }) {
-  const { stageLabel } = useDelegation();
-  const address = parseUnitId(unitId);
-  return (
-    <Stack direction="row" sx={{ alignItems: "center", gap: 0.5 }}>
-      {address.kind !== "item" && (
-        <Typography variant="caption" color="text.secondary">
-          {address.kind === "coverage" ? "Coverage" : "Impact"} in {stageLabel(address.stage)} of
-        </Typography>
-      )}
-      <ItemChip itemId={itemId} />
-    </Stack>
-  );
 }
 
 /**
@@ -151,53 +135,99 @@ function NoteText({ note }: { note: NoteView }) {
   );
 }
 
+/** One unit a reply's summary leads to, with what the spec owner is told of it there. */
+interface WalkedUnit {
+  unitId: string;
+  /** It changed since the reply, or can no longer be signed as proposed. */
+  changed: boolean;
+  ownWork: boolean;
+}
+
 /**
- * Under a reply giving a proposal: every unit of it, each with a way to go
- * to it and marked when it is on the agent's own work or can no longer be
- * signed as proposed; and while the offer stands, a way to sign in one act
- * the units still as proposed.
+ * One line of a reply's summary: how many units its findings, its choices
+ * or its proposal name, and a way to go to them one by one, telling for the
+ * unit gone to whether it changed since and whether it is on the agent's
+ * own work. The details are on each unit, where it is gone to.
  */
-const ProposalNotes = observer(function ProposalNotes({ proposal }: { proposal: ProposalView }) {
+const UnitWalk = observer(function UnitWalk({ moduleId, label, color, units, changedLabel, children }: { moduleId: string; label: string; color: string; units: readonly WalkedUnit[]; changedLabel: string; children?: ReactNode }) {
+  const { moduleStore } = useDelegation();
+  const [index, setIndex] = useState<number | null>(null);
+  const store = moduleStore(moduleId);
+  const shown = index == null ? null : units[index];
+  const go = (next: number) => {
+    const unit = units[next];
+    const stage = unit == null ? undefined : store?.unitState(unit.unitId)?.stage;
+    if (unit == null || stage == null) return;
+    setIndex(next);
+    requestPlace({ moduleId, stage, unitId: unit.unitId }, { leavePreview: true });
+  };
+  return (
+    <Stack spacing={0.25} sx={{ pl: 1, borderLeft: 2, borderColor: color, alignItems: "flex-start" }}>
+      <Stack direction="row" sx={{ alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+        <Typography variant="body2">{label}</Typography>
+        {units.length > 0 && (
+          <Button size="small" onClick={() => go(index == null ? 0 : (index + 1) % units.length)}>
+            {index == null ? "Go through them" : "Next"}
+          </Button>
+        )}
+        {children}
+      </Stack>
+      {shown != null && (
+        <Typography variant="caption" color="text.secondary">
+          {store?.unitLabel(shown.unitId) ?? "A removed unit"} ({index! + 1} of {units.length})
+          {shown.changed ? ` · ${changedLabel}` : ""}
+          {shown.ownWork ? " · on its own work" : ""}
+        </Typography>
+      )}
+    </Stack>
+  );
+});
+
+/** "1 finding", "35 findings". */
+const counted = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
+
+/**
+ * Under a reply: how many units its findings, its choices and its proposal
+ * name, each with a way to go to them one by one; and while the proposal's
+ * offer stands, a way to sign in one act the units still as proposed.
+ */
+const ReplySummary = observer(function ReplySummary({ moduleId, notes, proposal }: { moduleId: string; notes: readonly NoteView[]; proposal: ProposalView | undefined }) {
   const { moduleStore } = useDelegation();
   const agentOf = useReplyAgent();
-  const store = moduleStore(proposal.moduleId);
-  const signable = proposal.units.filter((unit) => unit.signable);
-  const signSet = () =>
+  const findings = notes.filter((note) => note.note.kind === "finding");
+  const choices = notes.filter((note) => note.note.kind === "choice");
+  const walked = (each: readonly NoteView[]) => each.map(({ unitId, changed, ownWork }) => ({ unitId, changed, ownWork }));
+  const store = moduleStore(moduleId);
+  const signSet = (shown: ProposalView) =>
     attempt(async () => {
       if (store == null) return;
       const outcome = await store.signSet({
-        basis: { proposal: proposal.messageId, agent: agentOf(proposal) },
-        units: proposal.units.map(({ unitId, covers }) => ({ unitId, covers })),
+        basis: { proposal: shown.messageId, agent: agentOf(shown) },
+        units: shown.units.map(({ unitId, covers }) => ({ unitId, covers })),
       });
       const unsigned = outcome.unsigned.map(({ unitId, reason }) => `${store.unitLabel(unitId)} (${UNSIGNED_REASONS[reason]})`);
-      notify(`Signed ${outcome.signed.length} of ${proposal.units.length}.${unsigned.length === 0 ? "" : ` Left unsigned: ${unsigned.join(", ")}.`}`);
+      notify(`Signed ${outcome.signed.length} of ${shown.units.length}.${unsigned.length === 0 ? "" : ` Left unsigned: ${unsigned.join(", ")}.`}`);
     }, "The set could not be signed.");
   return (
-    <Stack spacing={0.5} sx={{ pl: 1, borderLeft: 2, borderColor: "success.main", alignItems: "flex-start" }}>
-      <Typography variant="caption" color="text.secondary">
-        Proposed for signing in one act: {proposal.units.length === 0 ? "nothing" : `${proposal.units.length} units`}
-      </Typography>
-      {proposal.units.map((unit) => (
-        <Stack key={unit.unitId} direction="row" sx={{ alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-          <UnitName unitId={unit.unitId} itemId={unit.itemId} />
-          {!unit.signable && (
-            <Typography variant="caption" color="text.secondary">
-              no longer signable as proposed
-            </Typography>
+    <>
+      {findings.length > 0 && <UnitWalk moduleId={moduleId} label={counted(findings.length, "finding", "findings")} color="warning.main" units={walked(findings)} changedLabel="changed since" />}
+      {choices.length > 0 && <UnitWalk moduleId={moduleId} label={`${counted(choices.length, "choice", "choices")} yours to decide`} color="info.main" units={walked(choices)} changedLabel="changed since" />}
+      {proposal != null && (
+        <UnitWalk
+          moduleId={moduleId}
+          label={`${counted(proposal.units.length, "unit", "units")} proposed for signing in one act`}
+          color="success.main"
+          units={proposal.units.map(({ unitId, signable, ownWork }) => ({ unitId, changed: !signable, ownWork }))}
+          changedLabel="no longer signable as proposed"
+        >
+          {proposal.offered && (
+            <Button size="small" variant="contained" onClick={() => signSet(proposal)}>
+              Sign these {proposal.units.filter((unit) => unit.signable).length}
+            </Button>
           )}
-          {unit.ownWork && (
-            <Typography variant="caption" color="warning.main">
-              on its own work
-            </Typography>
-          )}
-        </Stack>
-      ))}
-      {proposal.offered && (
-        <Button size="small" variant="contained" onClick={signSet}>
-          Sign these {signable.length}
-        </Button>
+        </UnitWalk>
       )}
-    </Stack>
+    </>
   );
 });
 
@@ -236,10 +266,8 @@ const ThreadWaiting = observer(function ThreadWaiting({ threadId }: { threadId: 
 });
 
 /**
- * Under a thread message: the findings and choices it gives, each unit
- * shown by its item as a marked mention shows it, marked once the unit
- * changed since and when it is on its giver's own work; the proposal it
- * gives; under an agent's reply sent with changes, a way to
+ * Under a thread message: how many units its findings, choices and
+ * proposal name, each with a way to go to them; under an agent's reply sent with changes, a way to
  * see the item changes it made; and under a message of the spec owner's
  * that set the thread waiting, that it was withdrawn from waiting and when.
  */
@@ -255,30 +283,7 @@ const MessageNotes = observer(function MessageNotes({ threadId, messageId }: { t
   if (notes.length === 0 && proposal == null && withdrawn == null && !changes) return null;
   return (
     <Stack spacing={0.75} sx={{ mt: 0.5, alignItems: "flex-start" }}>
-      {notes.map((note) => (
-        <Stack key={`${note.unitId} ${note.note.kind === "finding" ? note.note.rule : "choice"}`} spacing={0.25} sx={{ pl: 1, borderLeft: 2, borderColor: note.note.kind === "finding" ? "warning.main" : "info.main" }}>
-          <Stack direction="row" sx={{ alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-            <UnitName unitId={note.unitId} itemId={note.itemId} />
-            {note.note.kind === "choice" && (
-              <Typography variant="caption" color="info.main">
-                yours to decide
-              </Typography>
-            )}
-            {note.changed && (
-              <Typography variant="caption" color="text.secondary">
-                changed since
-              </Typography>
-            )}
-            {note.ownWork && (
-              <Typography variant="caption" color="warning.main">
-                on its own work
-              </Typography>
-            )}
-          </Stack>
-          <NoteText note={note} />
-        </Stack>
-      ))}
-      {proposal != null && <ProposalNotes proposal={proposal} />}
+      <ReplySummary moduleId={activeModuleId} notes={notes} proposal={proposal} />
       {changes && (
         <Button size="small" onClick={() => setShowingChanges(true)}>
           Item changes
