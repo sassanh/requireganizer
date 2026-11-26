@@ -252,8 +252,16 @@ function notedView(store: Store, scope: WorkScope, noted: NotedUnit): Record<str
   };
 }
 
-function findingView(store: Store, scope: WorkScope, finding: Finding): Record<string, unknown> {
-  return { ...notedView(store, scope, finding), rule: finding.rule, how: finding.how };
+/** A reply's findings as an agent reads them: those that share a rule and how it is broken, as one finding naming each of their units. */
+function findingsView(store: Store, scope: WorkScope, findings: readonly Finding[]): Record<string, unknown>[] {
+  const groups = new Map<string, { rule: string; how: string; units: Record<string, unknown>[] }>();
+  for (const finding of findings) {
+    const key = JSON.stringify([finding.rule, finding.how]);
+    const group = groups.get(key) ?? { rule: finding.rule, how: finding.how, units: [] };
+    group.units.push(notedView(store, scope, finding));
+    groups.set(key, group);
+  }
+  return [...groups.values()];
 }
 
 function choiceView(store: Store, scope: WorkScope, choice: Choice): Record<string, unknown> {
@@ -285,7 +293,7 @@ function threadView(store: Store, scope: WorkScope, thread: Thread, reading: Thr
         at: message.at,
         text: messageText(store, message.text),
         ...(message.withChanges ? { withChanges: message.withChanges } : {}),
-        ...(findings.length === 0 ? {} : { findings: findings.map((finding) => findingView(store, scope, finding)) }),
+        ...(findings.length === 0 ? {} : { findings: findingsView(store, scope, findings) }),
         ...(choices.length === 0 ? {} : { choices: choices.map((choice) => choiceView(store, scope, choice)) }),
         ...(proposal == null ? {} : { proposal: proposal.map((unit) => proposedView(store, unit)) }),
       };
@@ -491,21 +499,27 @@ function parseNotes(store: Store, scope: WorkScope, value: { findings?: unknown;
       }
     });
   };
-  const findings = each(value.findings, "findings", "{ item, unit, stage, rule, how }", (entry, named): Finding => {
-    const { noted, holder, kind, stage } = parseNotedUnit(store, scope, entry, named);
-    const rules =
-      kind != null
-        ? [store.workflow.publishedRules(kind)]
-        : store.workflow.stage(stage).kinds.map(({ kind: stageKind }) => store.workflow.publishedRules(stageKind));
+  // A finding names one rule and how it is broken, and every unit that breaks it that way; each unit keeps a finding of its own.
+  const findings = each(value.findings, "findings", "{ units: [{ item, unit, stage }], rule, how }", (entry, named): Finding[] => {
+    if (!Array.isArray(entry.units) || entry.units.length === 0) throw new UserFacingError(`${named} names no unit. Give units, each { item, unit, stage }.`);
     const rule = typeof entry.rule === "string" ? entry.rule.trim() : "";
-    if (!rules.some((published) => [...published.rules, ...published.shared].includes(rule))) {
-      const whose = kind != null ? store.workflow.kind(kind).plural.toLowerCase() : `the items of ${store.workflow.stage(stage).label}`;
-      throw new UserFacingError(`${named}: ${rule.length === 0 ? "it names no rule" : `“${rule}” is not a published rule of ${whose}`}. Give the rule exactly as get_stage_rules publishes it, among the kind's rules or the shared rules.`);
-    }
     const how = typeof entry.how === "string" ? entry.how.trim() : "";
-    if (how.length === 0) throw new UserFacingError(`${named}: say how ${String(entry.item)} breaks the rule.`);
-    return { ...noted, revision: revisionOfNoted(holder, noted), rule, how };
-  });
+    if (how.length === 0) throw new UserFacingError(`${named}: say how its units break the rule.`);
+    return entry.units.map((unitEntry, index): Finding => {
+      const unitNamed = `${named}, unit ${index + 1}`;
+      if (!isRecord(unitEntry)) throw new UserFacingError(`${unitNamed} must be an object, { item, unit, stage }.`);
+      const { noted, holder, kind, stage } = parseNotedUnit(store, scope, unitEntry, unitNamed);
+      const rules =
+        kind != null
+          ? [store.workflow.publishedRules(kind)]
+          : store.workflow.stage(stage).kinds.map(({ kind: stageKind }) => store.workflow.publishedRules(stageKind));
+      if (!rules.some((published) => [...published.rules, ...published.shared].includes(rule))) {
+        const whose = kind != null ? store.workflow.kind(kind).plural.toLowerCase() : `the items of ${store.workflow.stage(stage).label}`;
+        throw new UserFacingError(`${unitNamed}: ${rule.length === 0 ? "the finding names no rule" : `“${rule}” is not a published rule of ${whose}`}. Give the rule exactly as get_stage_rules publishes it, among the kind's rules or the shared rules.`);
+      }
+      return { ...noted, revision: revisionOfNoted(holder, noted), rule, how };
+    });
+  }).flat();
   const choices = each(value.choices, "choices", "{ item, unit, stage, choice }", (entry, named): Choice => {
     const { noted, holder } = parseNotedUnit(store, scope, entry, named);
     const choice = typeof entry.choice === "string" ? entry.choice.trim() : "";
@@ -608,15 +622,15 @@ const NOTED_UNIT_PROPERTIES = {
 const FINDINGS_PROPERTY = {
   type: "array",
   description:
-    "Only from the agent the thread is assigned to: what the reply finds wrong with items, coverages and impacts, each naming a unit of any module, a published rule that applies to it (for an item, of its kind; for a coverage or an impact, of the kind of its stage's items) that it breaks, and how. The spec owner sees each finding with the reply, and on its unit while the unit is unchanged. A finding that names no unit, no such rule, or not how the unit breaks it, or that is on a unit the reply's own changes touch, refuses the whole call and changes nothing.",
+    "Only from the agent the thread is assigned to: what the reply finds wrong, each finding naming one published rule, how it is broken, and every unit of any module that breaks it that way, so that units broken the same way share one finding. The rule applies to each unit: for an item, a rule of its kind; for a coverage or an impact, a rule of the kind of its stage's items. The spec owner sees the findings counted with the reply, and each on its unit while the unit is unchanged. A finding that names no unit, no such rule, or not how its units break it, or that is on a unit the reply's own changes touch, refuses the whole call and changes nothing.",
   items: {
     type: "object",
     properties: {
-      ...NOTED_UNIT_PROPERTIES,
-      rule: { type: "string", minLength: 1, description: "The rule it breaks, exactly as get_stage_rules publishes it among a kind's rules or the shared rules." },
-      how: { type: "string", minLength: 1, description: "How the unit breaks the rule." },
+      units: { type: "array", minItems: 1, items: { type: "object", properties: NOTED_UNIT_PROPERTIES, required: ["item"], additionalProperties: false }, description: "Every unit that breaks the rule this way." },
+      rule: { type: "string", minLength: 1, description: "The rule they break, exactly as get_stage_rules publishes it among a kind's rules or the shared rules." },
+      how: { type: "string", minLength: 1, description: "How they break the rule." },
     },
-    required: ["item", "rule", "how"],
+    required: ["units", "rule", "how"],
     additionalProperties: false,
   },
 };

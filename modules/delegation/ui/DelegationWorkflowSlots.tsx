@@ -210,7 +210,15 @@ const ReplySummary = observer(function ReplySummary({ moduleId, notes, proposal 
     }, "The set could not be signed.");
   return (
     <>
-      {findings.length > 0 && <UnitWalk moduleId={moduleId} label={counted(findings.length, "finding", "findings")} color="warning.main" units={walked(findings)} changedLabel="changed since" />}
+      {findings.length > 0 && (
+        <UnitWalk
+          moduleId={moduleId}
+          label={`${counted(new Set(findings.map(({ note }) => JSON.stringify(note))).size, "finding", "findings")} on ${counted(new Set(findings.map(({ unitId }) => unitId)).size, "unit", "units")}`}
+          color="warning.main"
+          units={walked(findings)}
+          changedLabel="changed since"
+        />
+      )}
       {choices.length > 0 && <UnitWalk moduleId={moduleId} label={`${counted(choices.length, "choice", "choices")} yours to decide`} color="info.main" units={walked(choices)} changedLabel="changed since" />}
       {proposal != null && (
         <UnitWalk

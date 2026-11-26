@@ -32,11 +32,12 @@ tool signs.
 - For a thread asking to write a stage, write it with `write_items`, then
   answer the thread with a reply, in the `answers` of your last write or with
   `reply_to_thread`.
-- For a thread asking to review a stage, check each item against the published
-  rules of its kind, then answer the thread with `reply_to_thread`, giving
-  `findings`: each names an item, the rule exactly as `get_stage_rules`
-  publishes it, and how the item breaks it; give none when no item breaks a
-  rule.
+- For a thread asking to review a stage, check each unit against the published
+  rules that apply to it, then answer the thread with `reply_to_thread`,
+  giving `findings`: each names the rule exactly as `get_stage_rules`
+  publishes it, how it is broken, and every unit that breaks it that way;
+  give none when no unit breaks a rule. Where the stage lets its units be
+  signed in a set, the thread asks for `choices` and a `proposal` too.
 - When you cannot answer a thread assigned to you, pass its `id`, which
   names its module, to `report_cannot_answer` with why.
 - Before writing a stage, read the rules of each kind of item it holds with
